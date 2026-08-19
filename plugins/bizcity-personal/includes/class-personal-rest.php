@@ -347,13 +347,12 @@ class BizCity_Personal_REST {
 		);
 
 		// ── Finance (W6: placeholder) ──────────────────────────────────────────
-			// [2026-06-24 Johnny Chu] PHASE-HOME-ARCH — live finance data for current month
+		// [2026-06-24 Johnny Chu] PHASE-HOME-ARCH — live finance data for current month
 		global $wpdb;
-		$user_id  = get_current_user_id();
-		$tbl_fin    = $wpdb->prefix . 'bizcity_personal_finance_entries';
-		$month_s    = date( 'Y-m-01 00:00:00' );
-		$month_e    = date( 'Y-m-t 23:59:59' );
-		$fin_rows   = $wpdb->get_results( $wpdb->prepare(
+		$tbl_fin  = $wpdb->prefix . 'bizcity_personal_finance_entries';
+		$month_s  = date( 'Y-m-01 00:00:00' );
+		$month_e  = date( 'Y-m-t 23:59:59' );
+		$fin_rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT kind, SUM(amount) AS total
 			 FROM {$tbl_fin}
 			 WHERE user_id = %d AND occurred_at BETWEEN %s AND %s
@@ -433,34 +432,24 @@ class BizCity_Personal_REST {
 			);
 		};
 
+		// [2026-08-19 Johnny Chu] HOTFIX — remove duplicate overview response and keep one valid payload.
 		return rest_ensure_response( array(
-			'success'        => true,
-			'today'          => date( 'Y-m-d' ),
-			'greeting'       => $greeting,
-			'day_label'      => date_i18n( 'l, j/n/Y' ),
-			'finance'        => $finance,
-			'journal'        => array( 'today' => $jnl_today, 'streak' => $streak ),
-			'tasks'          => array(
-				'total'        => $tasks_all,
-				'done'         => $tasks_done,
-				'percent_done' => $pct,
-			),
-			'today_events'   => array_map( $map_ev, (array) $today_evs ),
-			'priority_tasks' => array_map( $map_ev, (array) $prio_tasks ),
-			'next_event'     => null,
-			'next_reminder'  => null,
-		) ); array(
 			'success'        => true,
 			'_degraded'      => false,
 			'today'          => $today,
 			'greeting'       => $greeting,
 			'day_label'      => $day_label,
-			'tasks'          => $tasks,
-			'next_event'     => $next_event,
 			'finance'        => $finance,
+			'journal'        => array( 'today' => $jnl_today, 'streak' => $streak ),
+			'tasks'          => array(
+				'total'        => $tasks_total,
+				'done'         => $tasks_done,
+				'percent_done' => $tasks_total > 0 ? (int) round( $tasks_done * 100 / $tasks_total ) : 0,
+			),
+			'today_events'   => array_map( $map_ev, (array) $today_events ),
+			'priority_tasks' => array_map( $map_ev, (array) $priority_tasks ),
+			'next_event'     => $next_event,
 			'next_reminder'  => $next_reminder,
-			'today_events'   => array_slice( $today_events, 0, 8 ),
-			'priority_tasks' => array_slice( $priority_tasks, 0, 5 ),
 		) );
 	}
 
@@ -505,6 +494,19 @@ class BizCity_Personal_REST {
 		$id      = (int) $request['id'];
 
 		if ( ! class_exists( 'BizCity_Scheduler_Manager' ) ) {
+		array(
+			'success'        => true,
+			'_degraded'      => false,
+			'today'          => $today,
+			'greeting'       => $greeting,
+			'day_label'      => $day_label,
+			'tasks'          => $tasks,
+			'next_event'     => $next_event,
+			'finance'        => $finance,
+			'next_reminder'  => $next_reminder,
+			'today_events'   => array_slice( $today_events, 0, 8 ),
+			'priority_tasks' => array_slice( $priority_tasks, 0, 5 ),
+		);
 			return $this->degraded( 'module_not_loaded', 'Scheduler chưa sẵn sàng.' );
 		}
 
