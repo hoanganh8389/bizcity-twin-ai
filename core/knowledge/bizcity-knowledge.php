@@ -11,11 +11,12 @@
  * Requires at least: 5.0
  * Requires PHP: 7.4
  *
- * @package    Bizcity_Twin_AI
+ * @package    BizCity_Knowledge
  * @subpackage Core\Knowledge
  * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
  * @license    GPL-2.0-or-later
  */
+// [2026-08-19 Johnny Chu] HOTFIX — keep the complete package metadata inside one valid PHPDoc block for CI PHP lint.
 
 defined('ABSPATH') or die('OOPS...');
 
