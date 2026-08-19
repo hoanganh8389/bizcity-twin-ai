@@ -276,8 +276,9 @@ jobs:
         uses: dorny/test-reporter@v1
         with:
           name: Diagnostics (PHP ${{ matrix.php }} · WP ${{ matrix.wp }})
-          path: wp-content/plugins/bizcity-twin-ai/build/junit.xml
+          path: build/junit.xml
           reporter: java-junit
+          working-directory: wp-content/plugins/bizcity-twin-ai
 
   docs-hooks-coverage:
     name: HOOKS.md coverage check

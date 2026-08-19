@@ -100,6 +100,18 @@ if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner', false ) ) {
         require_once $diagnostics_bootstrap;
     }
 }
+if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner', false ) ) {
+    // [2026-08-19 Johnny Chu] HOTFIX - recover the CLI contract when a prior
+    // bootstrap defined BIZCITY_DIAGNOSTICS_LOADED before loading the runner.
+    $probe_interface = dirname( __DIR__ ) . '/core/diagnostics/includes/interface-diagnostics-probe.php';
+    $smoke_runner    = dirname( __DIR__ ) . '/core/diagnostics/includes/class-diagnostics-smoke-runner.php';
+    if ( is_readable( $probe_interface ) ) {
+        require_once $probe_interface;
+    }
+    if ( is_readable( $smoke_runner ) ) {
+        require_once $smoke_runner;
+    }
+}
 
 /* ── Discover probes ───────────────────────────────────────────────── */
 if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner' ) ) {
