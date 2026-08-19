@@ -399,44 +399,29 @@ class BizCity_TwinChat_Workspace_REST {
 		$cost_month   = 0.0;
 		$recent_calls = [];
 
-		if ( class_exists( 'BizCity_Router_Usage' ) ) {
-			// Recent calls (last 20).
-			$logs = BizCity_Router_Usage::get_logs( (int) $user_id, 20, 0 );
+		if ( class_exists( 'BizCity_LLM_Usage_File_Log' ) ) {
+			// [2026-08-19 Johnny Chu] R-GW-8 - read per-blog client usage JSONL, never the Hub-only Router usage class.
+			$logs = BizCity_LLM_Usage_File_Log::get_recent( 20, 0, (int) $user_id );
 			foreach ( (array) $logs as $row ) {
 				$recent_calls[] = [
-					'id'                => (int) $row->id,
-					'service'           => (string) ( $row->service ?? '' ),
-					'model'             => (string) ( $row->model ?? '' ),
-					'purpose'           => (string) ( $row->purpose ?? '' ),
-					'plugin'            => (string) ( $row->plugin_name ?? '' ),
-					'tokens_prompt'     => (int) ( $row->tokens_prompt ?? 0 ),
-					'tokens_completion' => (int) ( $row->tokens_completion ?? 0 ),
-					'total_tokens'      => (int) ( $row->total_tokens ?? 0 ),
-					'cost_usd'          => (float) ( $row->cost_usd ?? 0 ),
-					'fallback_used'     => (int) ( $row->fallback_used ?? 0 ) === 1,
-					'is_stream'         => (int) ( $row->is_stream ?? 0 ) === 1,
-					'created_at'        => (string) ( $row->created_at ?? '' ),
+					'id'                => 0,
+					'service'           => (string) ( $row['service'] ?? '' ),
+					'model'             => (string) ( $row['model_used'] ?? $row['model_requested'] ?? '' ),
+					'purpose'           => (string) ( $row['purpose'] ?? '' ),
+					'plugin'            => '',
+					'tokens_prompt'     => (int) ( $row['tokens_prompt'] ?? 0 ),
+					'tokens_completion' => (int) ( $row['tokens_completion'] ?? 0 ),
+					'total_tokens'      => (int) ( $row['tokens_prompt'] ?? 0 ) + (int) ( $row['tokens_completion'] ?? 0 ),
+					'cost_usd'          => 0.0,
+					'fallback_used'     => ! empty( $row['fallback_used'] ),
+					'is_stream'         => false,
+					'created_at'        => (string) ( $row['created_at'] ?? '' ),
 				];
 			}
 
-			// Month-to-date token sum (direct query — cheaper than paging all logs).
-			global $wpdb;
-			$tbl = $wpdb->base_prefix . 'bizcity_llm_usage_logs';
-			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-			if ( $exists ) {
-				$row = $wpdb->get_row( $wpdb->prepare(
-					"SELECT COALESCE(SUM(total_tokens),0) AS tokens,
-					        COALESCE(SUM(cost_usd),0)     AS cost
-					 FROM {$tbl}
-					 WHERE user_id = %d
-					   AND created_at >= DATE_FORMAT(CURDATE(), '%%Y-%%m-01')",
-					(int) $user_id
-				) );
-				if ( $row ) {
-					$tokens_used = (int) $row->tokens;
-					$cost_month  = (float) $row->cost;
-				}
-			}
+			// Month-to-date stats use the same client JSONL owner and scope.
+			$stats        = BizCity_LLM_Usage_File_Log::get_stats( '30d', array( 'user_id' => (int) $user_id ) );
+			$tokens_used  = (int) ( $stats['total_tokens'] ?? 0 );
 		}
 
 		// Quota — read from option/filter; default 0 means "unlimited / not metered".

@@ -164,12 +164,32 @@ jobs:
 
       - name: R-GW-8 anti-pattern grep guards
         run: |
-          set -e
-          # Client code MUST NOT reference server-only Router_Proxy
-          BAD=$(grep -rn --include='*.php' -E 'BizCity_Router_(Proxy|Auth|Usage)' core modules plugins | grep -v 'class_exists' | grep -v 'docs/' | grep -v 'CHANGELOG' || true)
-          if [ -n "$BAD" ]; then
+          set -euo pipefail
+          # Client code MUST NOT reference server-only Router_* classes.
+          # Use PHP tokens so comments/docblocks and embedded JS are ignored.
+          router_status=0
+          while IFS= read -r -d '' file; do
+            if ! php -r '
+              $file = $argv[1];
+              $tokens = token_get_all( file_get_contents( $file ) );
+              for ( $i = 0, $n = count( $tokens ); $i < $n; $i++ ) {
+                $token = $tokens[ $i ];
+                if ( ! is_array( $token ) || $token[0] !== T_STRING || ! preg_match( "/^BizCity_Router_(Proxy|Auth|Usage|Models)$/", $token[1] ) ) { continue; }
+                printf( "%s:%d: %s reference detected\n", $file, $token[2], $token[1] );
+                exit( 1 );
+              }
+            ' "$file"; then
+              router_status=1
+            fi
+          done < <(
+            find core modules plugins \
+              -type f -name '*.php' \
+              ! -path '*/_archived/*' \
+              ! -path '*/_library/*' \
+              -print0
+          )
+          if [ "$router_status" -ne 0 ]; then
             echo "::error::R-GW-8 violation: client code references BizCity_Router_* directly (must use BizCity_LLM_Client)."
-            echo "$BAD"
             exit 1
           fi
           # No leak of provider key option
