@@ -89,15 +89,6 @@
       "required_surfaces": ["channel_normalized", "comment_context", "canonical_sender", "file_log", "error_envelope"]
     },
     {
-      "id": "bizcity.pagebuilder",
-      "path": "plugins/bizcity-pagebuilder",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "manifest": null,
-      "bootstrap": "plugins/bizcity-pagebuilder/bizcity-pagebuilder.php",
-      "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "mutation_guard", "error_envelope"]
-    },
-    {
       "id": "bizcity.tool-image",
       "path": "plugins/bizcity-tool-image",
       "kind": "framework_integrated",
