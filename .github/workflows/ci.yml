@@ -128,6 +128,16 @@ jobs:
               $tokens = token_get_all( $source );
               foreach ( $tokens as $token ) {
                 if ( is_array( $token ) && defined( "T_MATCH" ) && T_MATCH === $token[0] ) {
+                  $previous = null;
+                  for ( $i = count( $tokens ) - 1; $i >= 0; $i-- ) {
+                    if ( $tokens[ $i ] === $token ) { break; }
+                  }
+                  for ( $j = $i - 1; $j >= 0; $j-- ) {
+                    if ( is_array( $tokens[ $j ] ) && in_array( $tokens[ $j ][0], array( T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ), true ) ) { continue; }
+                    $previous = is_array( $tokens[ $j ] ) ? $tokens[ $j ][0] : $tokens[ $j ];
+                    break;
+                  }
+                  if ( $previous === T_OBJECT_OPERATOR || $previous === T_DOUBLE_COLON || $previous === T_FUNCTION ) { continue; }
                   printf( "%s:%d: match expression token detected\n", $file, $token[2] );
                   exit( 1 );
                 }
@@ -146,9 +156,45 @@ jobs:
             echo "::error::PHP match expression detected (PHP 8.0+ only)."
             exit 1
           fi
-          # str_contains family
-          if grep -rn --include='*.php' -E '\bstr_(contains|starts_with|ends_with)\s*\(' core modules plugins includes; then
-            echo "::error::str_contains/str_starts_with/str_ends_with detected (PHP 8.0+ only). Use strpos/substr."
+          # str_* family — use PHP tokens so comments and the PHP 7.4 polyfill
+          # declarations do not produce false positives.
+          str_status=0
+          while IFS= read -r -d '' file; do
+            if ! php -r '
+              $file = $argv[1];
+              $tokens = token_get_all( file_get_contents( $file ) );
+              $names = array( "str_contains", "str_starts_with", "str_ends_with" );
+              for ( $i = 0, $n = count( $tokens ); $i < $n; $i++ ) {
+                $token = $tokens[ $i ];
+                if ( ! is_array( $token ) || $token[0] !== T_STRING || ! in_array( strtolower( $token[1] ), $names, true ) ) { continue; }
+                $previous = null;
+                for ( $j = $i - 1; $j >= 0; $j-- ) {
+                  if ( is_array( $tokens[ $j ] ) && in_array( $tokens[ $j ][0], array( T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ), true ) ) { continue; }
+                  $previous = is_array( $tokens[ $j ] ) ? $tokens[ $j ][0] : $tokens[ $j ];
+                  break;
+                }
+                if ( $previous === T_FUNCTION ) { continue; }
+                for ( $j = $i + 1; $j < $n; $j++ ) {
+                  if ( is_array( $tokens[ $j ] ) && in_array( $tokens[ $j ][0], array( T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ), true ) ) { continue; }
+                  if ( $tokens[ $j ] === "(" ) {
+                    printf( "%s:%d: %s call detected\n", $file, $token[2], $token[1] );
+                    exit( 1 );
+                  }
+                  break;
+                }
+              }
+            ' "$file"; then
+              str_status=1
+            fi
+          done < <(
+            find core modules plugins includes \
+              -type f -name '*.php' \
+              ! -path '*/_archived/*' \
+              ! -path '*/_library/*' \
+              -print0
+          )
+          if [ "$str_status" -ne 0 ]; then
+            echo "::error::str_contains/str_starts_with/str_ends_with call detected (PHP 8.0+ only). Use strpos/substr."
             exit 1
           fi
           echo "PHP 7.4 compat: PASS"
