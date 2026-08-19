@@ -86,6 +86,21 @@ if ( ! empty( $admin ) ) {
     wp_set_current_user( (int) $admin[0]->ID );
 }
 
+// [2026-08-19 Johnny Chu] HOTFIX - headless WP-CLI may finish wp-load without
+// the plugin diagnostic bootstrap; recover through the guarded plugin entrypoint.
+if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner', false ) ) {
+    $plugin_entry = dirname( __DIR__ ) . '/bizcity-twin-ai.php';
+    if ( is_readable( $plugin_entry ) ) {
+        require_once $plugin_entry;
+    }
+}
+if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner', false ) ) {
+    $diagnostics_bootstrap = dirname( __DIR__ ) . '/core/diagnostics/bootstrap.php';
+    if ( is_readable( $diagnostics_bootstrap ) ) {
+        require_once $diagnostics_bootstrap;
+    }
+}
+
 /* ── Discover probes ───────────────────────────────────────────────── */
 if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner' ) ) {
     fwrite( STDERR, "BizCity_Diagnostics_Smoke_Runner not loaded. Is bizcity-twin-ai active?\n" );
