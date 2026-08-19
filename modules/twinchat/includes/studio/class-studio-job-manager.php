@@ -7,7 +7,7 @@
  *   1. Plugin đăng ký bridge:
  *        BizCity_Studio_Job_Manager::register_bridge(
  *            'doc_document',
- *            function(array $job, array $skeleton): array|WP_Error { ... },
+ *            function(array $job, array $skeleton): array or WP_Error { ... },
  *            'dispatch'   // 'dispatch' | 'async' | 'wait'
  *        );
  *
@@ -33,6 +33,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-08-19 Johnny Chu] PHP74-COMPAT - keep contract examples parse-safe for CI guards.
+
 class BizCity_Studio_Job_Manager {
 	const SCHEMA_VERSION     = '1.0.0';
 	const OPTION_VERSION_KEY = 'bizcity_twinchat_studio_jobs_db_version';
@@ -48,7 +50,7 @@ class BizCity_Studio_Job_Manager {
 	 * Register a plugin bridge for a tool type.
 	 *
 	 * @param string   $tool_type     e.g. 'doc_document', 'mindmap'
-	 * @param callable $dispatch_fn   fn(array $job, array $skeleton): array|WP_Error
+	 * @param callable $dispatch_fn   fn(array $job, array $skeleton): array or WP_Error
 	 *                                Trả về array với keys: title, content, content_format,
 	 *                                external_url, external_post_id (hoặc data.url / data.id)
 	 * @param string   $dispatch_mode 'dispatch' | 'async' | 'wait'

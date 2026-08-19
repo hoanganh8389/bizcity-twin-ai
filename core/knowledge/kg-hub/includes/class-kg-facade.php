@@ -21,7 +21,7 @@
  *
  * Service contract (duck-typed methods on `service_class`):
  *   public static function instance()
- *   public function ingest(int $scope_id, int $user_id, array $payload): array|WP_Error
+ *   public function ingest(int $scope_id, int $user_id, array $payload): array or WP_Error
  *   public function list_sources(int $scope_id, array $args): array
  *   public function get_source(int $source_id): ?array
  *   public function delete_source(int $source_id): bool
@@ -33,6 +33,8 @@
  */
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+// [2026-08-19 Johnny Chu] PHP74-COMPAT - keep contract examples parse-safe for CI guards.
 
 final class BizCity_KG {
 
@@ -97,7 +99,7 @@ final class BizCity_KG {
 	 *
 	 * @param array $scope { plugin, scope_id }
 	 * @param array $payload { type, title, content?, url?, file?, attachment_id?, metadata? }
-	 * @return array|WP_Error { source_id, chunk_count, passage_ids[] }
+	 * @return array or WP_Error { source_id, chunk_count, passage_ids[] }
 	 */
 	public static function ingest( array $scope, array $payload ) {
 		$entry = self::resolve_entry( $scope );
@@ -129,7 +131,7 @@ final class BizCity_KG {
 	 *
 	 * @param array $scope { plugin, scope_id }
 	 * @param array $args  { limit?, offset?, search? }
-	 * @return array|WP_Error
+	 * @return array or WP_Error
 	 */
 	public static function list_sources( array $scope, array $args = [] ) {
 		$entry = self::resolve_entry( $scope );
@@ -228,7 +230,7 @@ final class BizCity_KG {
 	 * @param array $from   { plugin, scope_id } source-of-truth scope
 	 * @param int   $source_id  ID in the plugin's *_sources table
 	 * @param array $to     { plugin, scope_id } destination scope (may be different plugin)
-	 * @return array|WP_Error { linked_passages: int }
+	 * @return array or WP_Error { linked_passages: int }
 	 */
 	public static function attach_source( array $from, $source_id, array $to ) {
 		$from_entry = self::resolve_entry( $from );
@@ -571,7 +573,7 @@ final class BizCity_KG {
 	 * the webchat cortex keeps ownership; we only create a KG mirror + xref.
 	 *
 	 * @param int $message_source_id  PK of bizcity_webchat_message_sources.
-	 * @return array|WP_Error { kg_source_id, kg_source_uuid, xref_id }
+	 * @return array or WP_Error { kg_source_id, kg_source_uuid, xref_id }
 	 */
 	public static function ingest_from_webchat_draft( int $message_source_id ) {
 		if ( ! class_exists( 'BizCity_KG_Database' ) ) {

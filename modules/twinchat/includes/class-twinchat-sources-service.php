@@ -15,7 +15,7 @@
  *   8. Update source row stats (chunk_count, embedding_status)
  *
  * Service contract methods consumed by BizCity_KG facade:
- *   - ingest(int $scope_id, int $user_id, array $payload): array|WP_Error
+ *   - ingest(int $scope_id, int $user_id, array $payload): array or WP_Error
  *   - list_sources(int $scope_id, array $args): array
  *   - get_source(int $source_id): ?array
  *   - delete_source(int $source_id): bool
@@ -27,6 +27,8 @@
  */
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+// [2026-08-19 Johnny Chu] PHP74-COMPAT - keep contract examples parse-safe for CI guards.
 
 // PHASE-0.41 L3 — trait is required for the `use` below; load defensively so
 // this file works even if core/diagnostics bootstrap hasn't fired yet.
@@ -97,7 +99,7 @@ class BizCity_TwinChat_Sources_Service {
 	 * @param int   $scope_id  notebook_id
 	 * @param int   $user_id
 	 * @param array $payload   { type, title?, content?, url?, file?, attachment_id?, metadata? }
-	 * @return array|WP_Error
+	 * @return array or WP_Error
 	 */
 	public function ingest( $scope_id, $user_id, array $payload ) {
 		$scope_id = (int) $scope_id;
