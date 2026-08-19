@@ -22,9 +22,15 @@
 [![WordPress](https://img.shields.io/badge/WordPress-6.0%2B-blue?logo=wordpress)](https://wordpress.org/)
 [![Graph RAG](https://img.shields.io/badge/Graph%20RAG-Neo4j%20compatible-008CC1?logo=neo4j&logoColor=white)](#3-graph-rag---the-core-engine)
 [![License](https://img.shields.io/badge/License-GPL--2.0-yellow)](LICENSE)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-bizgpt.vn%2Fchat-ff4b6e?logo=googlechrome&logoColor=white)](https://bizgpt.vn/chat/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-libedemo.bizcity.vn%2Fgpt-ff4b6e?logo=googlechrome&logoColor=white)](https://libedemo.bizcity.vn/gpt/)
 
-### Try the live demo: **[bizgpt.vn/chat](https://bizgpt.vn/chat/)**
+### Try the live demo: **[libedemo.bizcity.vn/gpt](https://libedemo.bizcity.vn/gpt/)**
+
+### Demo links
+
+- Brain training backend: [libedemo.bizcity.vn/wp-admin](https://libedemo.bizcity.vn/wp-admin/)
+- Direct backend: [libedemo.bizcity.vn/twin](https://libedemo.bizcity.vn/twin/)
+- GPT frontend: [libedemo.bizcity.vn/gpt](https://libedemo.bizcity.vn/gpt/)
 
 </div>
 
@@ -33,19 +39,19 @@
 ## Screenshots
 
 <p align="center">
-  <a href="https://bizgpt.vn/chat/">
+  <a href="https://libedemo.bizcity.vn/gpt/">
     <img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003857-scaled.png" alt="Twin AI Second Brain - Live Thinking Timeline" width="900" />
   </a>
 </p>
 
 <p align="center">
-  <a href="https://bizgpt.vn/chat/">
+  <a href="https://libedemo.bizcity.vn/gpt/">
     <img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003734-scaled.png" alt="Twin AI Second Brain - Knowledge Graph and Multi-Perspective Reasoning" width="900" />
   </a>
 </p>
 
 <p align="center">
-  <a href="https://bizgpt.vn/chat/">
+  <a href="https://libedemo.bizcity.vn/gpt/">
     <img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003758-scaled.png" alt="Twin AI Second Brain - Memory Federation and Citations" width="900" />
   </a>
 </p>
@@ -316,7 +322,7 @@ git clone https://github.com/hoanganh8389/bizcity-twin-ai.git
 
 - Zalo Group (tham gia cộng đồng): https://zalo.me/g/0r4gp7hf4213svceflmw
 - Website: [bizcity.vn](https://bizcity.vn) | [bizcity.ai](https://bizcity.ai)
-- Live Demo: [bizgpt.vn/chat](https://bizgpt.vn/chat/)
+- Live Demo: [libedemo.bizcity.vn/gpt](https://libedemo.bizcity.vn/gpt/)
 
 ---
 

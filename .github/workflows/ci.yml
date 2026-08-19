@@ -118,9 +118,32 @@ jobs:
             echo "::error::Nullsafe operator ?-> detected (PHP 8.0+ only)."
             exit 1
           fi
-          # match expression
-          if grep -rn --include='*.php' -E '\bmatch\s*\(' core modules plugins includes; then
-            echo "::error::match() expression detected (PHP 8.0+ only)."
+          # match expression — use PHP tokens so method calls, JavaScript, SQL,
+          # and comments containing "match(" are not treated as PHP match expressions.
+          match_status=0
+          while IFS= read -r -d '' file; do
+            if ! php -r '
+              $file = $argv[1];
+              $source = file_get_contents( $file );
+              $tokens = token_get_all( $source );
+              foreach ( $tokens as $token ) {
+                if ( is_array( $token ) && defined( "T_MATCH" ) && T_MATCH === $token[0] ) {
+                  printf( "%s:%d: match expression token detected\n", $file, $token[2] );
+                  exit( 1 );
+                }
+              }
+            ' "$file"; then
+              match_status=1
+            fi
+          done < <(
+            find core modules plugins includes \
+              -type f -name '*.php' \
+              ! -path '*/_archived/*' \
+              ! -path '*/_library/*' \
+              -print0
+          )
+          if [ "$match_status" -ne 0 ]; then
+            echo "::error::PHP match expression detected (PHP 8.0+ only)."
             exit 1
           fi
           # str_contains family
