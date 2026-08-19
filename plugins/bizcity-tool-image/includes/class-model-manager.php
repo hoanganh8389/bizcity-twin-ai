@@ -63,7 +63,8 @@ class BizCity_Model_Manager {
             ],
             'public'              => false,
             'show_ui'             => true,
-            'show_in_menu'        => 'bztimg-dashboard', // As submenu of Image AI
+            // [2026-08-19 Johnny Chu] AUDIT-MENU-GAPS — Image plugin CPT belongs under Twin Plugins.
+            'show_in_menu'        => 'bizcity-twin-plugins', // As submenu of Twin Plugins
             'menu_icon'           => 'dashicons-groups',
             'supports'            => [ 'title', 'thumbnail' ],
             'has_archive'         => false,

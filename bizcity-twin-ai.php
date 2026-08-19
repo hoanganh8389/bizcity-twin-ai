@@ -67,6 +67,7 @@ $bizcity_composer_context = ! $_bizcity_twinchat_admin_shell_request
     && (
         ( defined( 'DOING_CRON' ) && DOING_CRON )
         || ( defined( 'WP_CLI' ) && WP_CLI )
+        || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
         || ( defined( 'REST_REQUEST' ) && REST_REQUEST )
         || ( ! empty( $_SERVER['REQUEST_URI'] ) && (
             false !== strpos( (string) $_SERVER['REQUEST_URI'], '/wp-json/' )
@@ -197,6 +198,7 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
     $bizcity_llm_bootstrap_context = is_admin()
         || ( defined( 'DOING_CRON' ) && DOING_CRON )
         || ( defined( 'WP_CLI' ) && WP_CLI )
+        || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/wp-json/' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/bizhook/' )
         // [2026-08-13 Johnny Chu] HOTFIX-ZALO-LLM-LOADER — the Zalo Bot rewrite is /zalohook/, so load the gateway client before TwinBrain synthesis.
@@ -230,6 +232,7 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 		is_admin()
 		|| ( defined( 'DOING_CRON' ) && DOING_CRON )
 		|| ( defined( 'WP_CLI' ) && WP_CLI )
+        || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
 		|| (
 			! empty( $_SERVER['REQUEST_URI'] )
 			&& (
@@ -340,6 +343,7 @@ $_bizcity_admin_ctx =
     is_admin()
     || ( defined( 'DOING_CRON' ) && DOING_CRON )
     || ( defined( 'WP_CLI' ) && WP_CLI )
+    || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
     || (
         ! empty( $_SERVER['REQUEST_URI'] )
         && (
@@ -517,6 +521,7 @@ $_bizcity_automation_runtime_request =
     || $_bizcity_automation_diagnostics_page
     || ( defined( 'DOING_CRON' ) && DOING_CRON )
     || ( defined( 'WP_CLI' ) && WP_CLI )
+    || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
     || false !== strpos( $_bizcity_automation_uri, '/wp-json/bizcity-automation/' )
     || preg_match( '#^/flow(?:/|\?|$)#', $_bizcity_automation_uri )
     || false !== strpos( $_bizcity_automation_uri, '/bizhook/' )
@@ -606,7 +611,9 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DI
 
 // Diagnostics (PHASE-0.36) — multisite schema audit + repair + cron hygiene.
 // WP-CLI `wp bizcity diag` — only load in admin/CLI context.
-if ( ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) )
+if ( ( is_admin()
+    || ( defined( 'WP_CLI' ) && WP_CLI )
+    || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) )
     && ! $_bizcity_twinchat_admin_shell_request
     && file_exists( __DIR__ . '/tools/class-diagnostics.php' ) ) {
     require_once __DIR__ . '/tools/class-diagnostics.php';
@@ -618,6 +625,7 @@ if ( ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) )
 $_bizcity_diagnostics_ctx =
     is_admin()
     || ( defined( 'WP_CLI' ) && WP_CLI )
+    || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
     || ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/bizcity-diagnostics/' ) );
 if ( $_bizcity_diagnostics_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/diagnostics/bootstrap.php';

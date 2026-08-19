@@ -30,8 +30,9 @@ class BizCity_CRM_Guru_Roles_Admin {
 	}
 
 	public static function register_menu(): void {
+		// [2026-08-19 Johnny Chu] AUDIT-MENU-GAPS — CRM plugin screens belong under Twin Plugins.
 		add_submenu_page(
-			'bizcity-crm',                              // parent (CRM root)
+			'bizcity-twin-plugins',                    // unified plugin parent
 			'Twin Guru Roles',
 			'Guru Roles',
 			'manage_options',
@@ -39,7 +40,7 @@ class BizCity_CRM_Guru_Roles_Admin {
 			array( __CLASS__, 'render' )
 		);
 		add_submenu_page(
-			'bizcity-crm',
+			'bizcity-twin-plugins',
 			'Persona Analytics',
 			'Persona Analytics',
 			'manage_options',
@@ -47,7 +48,7 @@ class BizCity_CRM_Guru_Roles_Admin {
 			array( __CLASS__, 'render_analytics' )
 		);
 		add_submenu_page(
-			'bizcity-crm',
+			'bizcity-twin-plugins',
 			'Persona Sandbox',
 			'Persona Sandbox',
 			'manage_options',

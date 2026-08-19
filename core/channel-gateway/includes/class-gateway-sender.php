@@ -101,7 +101,8 @@ class BizCity_Gateway_Sender {
 					'platform' => $platform,
 					'message'  => $this->sanitize_log_message( $message ),
 					'type'     => $type,
-					'extra'    => array_merge( $extra, array( '_trace' => $trace, 'side_effect_status' => ! empty( $result['sent'] ) ? 'sent' : 'failed', 'provider_request_id' => (string) ( $result['mid'] ?? $result['provider_request_id'] ?? '' ) ) ),
+					// [2026-08-19 Johnny Chu] MPR-V5-GATE6 — keep explicit outbound evidence markers for aggregate/live canary assertions.
+					'extra'    => array_merge( $extra, array( '_trace' => $trace, 'side_effect_status' => ! empty( $result['sent'] ) ? 'sent' : 'failed', 'provider_request_id' => (string) ( $result['mid'] ?? $result['provider_request_id'] ?? '' ), 'idempotency_key' => (string) ( $extra['idempotency_key'] ?? '' ) ) ),
 					'sent'     => (bool) $result['sent'],
 					'error'    => (string) $result['error'],
 				) );
@@ -120,7 +121,8 @@ class BizCity_Gateway_Sender {
 				'platform' => $result['platform'],
 				'message'  => $this->sanitize_log_message( $message ),
 				'type'     => $type,
-				'extra'    => array_merge( $extra, array( '_trace' => $trace, 'side_effect_status' => ! empty( $result['sent'] ) ? 'sent' : 'failed', 'provider_request_id' => (string) ( $result['mid'] ?? $result['provider_request_id'] ?? '' ) ) ),
+				// [2026-08-19 Johnny Chu] MPR-V5-GATE6 — keep explicit outbound evidence markers for aggregate/live canary assertions.
+				'extra'    => array_merge( $extra, array( '_trace' => $trace, 'side_effect_status' => ! empty( $result['sent'] ) ? 'sent' : 'failed', 'provider_request_id' => (string) ( $result['mid'] ?? $result['provider_request_id'] ?? '' ), 'idempotency_key' => (string) ( $extra['idempotency_key'] ?? '' ) ) ),
 				'sent'     => (bool) $result['sent'],
 				'error'    => (string) $result['error'],
 			) );

@@ -48,7 +48,12 @@
             "BizCity\\Twin\\Tests\\": "tests/unit/"
         }
     },
+    "bin": [
+        "bin/twin"
+    ],
     "scripts": {
+        "doctor": "php bin/twin doctor",
+        "validate": "php bin/twin validate",
         "lint": "phpcs --standard=phpcs.xml.dist",
         "lint:fix": "phpcbf --standard=phpcs.xml.dist",
         "test": "phpunit --configuration phpunit.xml.dist",

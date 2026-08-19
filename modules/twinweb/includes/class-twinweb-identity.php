@@ -92,6 +92,12 @@ class BizCity_TwinWeb_Identity {
 	}
 
 	private static function set_guest_cookie( $sid ) {
+		// [2026-08-19 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI-CONTEXT - guest
+		// probes still receive their SID, but headless runs must not emit HTTP
+		// headers after the diagnostics runner has started writing output.
+		if ( PHP_SAPI === 'cli' || headers_sent() ) {
+			return;
+		}
 		$expiry = time() + self::COOKIE_TTL;
 		$hmac   = self::sign( $sid, $expiry );
 		$value  = $sid . '.' . $expiry . '.' . $hmac;

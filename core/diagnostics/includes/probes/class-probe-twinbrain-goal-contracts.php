@@ -47,11 +47,15 @@ final class BizCity_Probe_TwinBrain_Goal_Contracts implements BizCity_Diagnostic
 		$ok = $this->step( $ctx, $steps, 'Disk: Goal Contract Store', is_readable( $store_file ) || class_exists( 'BizCity_TwinBrain_Goal_Contract_Store' ), $store_file ) && $ok;
 
 		$changelog = is_readable( $changelog_file ) ? json_decode( (string) file_get_contents( $changelog_file ), true ) : null;
+		// [2026-08-19 Johnny Chu] MPR-V5-DDV — changelog current_version is module-level and can advance for non-DDL taxonomy rows.
+		$changelog_version = is_array( $changelog ) ? (string) ( $changelog['current_version'] ?? '' ) : '';
+		$version_ok = $changelog_version !== ''
+			&& version_compare( $changelog_version, BizCity_TwinBrain_Goal_Contract_Store::DB_VERSION, '>=' );
 		$changelog_ok = is_array( $changelog )
-			&& (string) ( $changelog['current_version'] ?? '' ) === BizCity_TwinBrain_Goal_Contract_Store::DB_VERSION
+			&& $version_ok
 			&& isset( $changelog['tables'][ BizCity_TwinBrain_Goal_Contract_Store::TABLE_BASE ] )
 			&& isset( $changelog['tables'][ BizCity_TwinBrain_Goal_Contract_Store::TABLE_BASE ]['columns']['event_seq'] );
-		$ok = $this->step( $ctx, $steps, 'Disk: R-DCL Goal Contract table', $changelog_ok, $changelog_file . ' version=' . (string) ( $changelog['current_version'] ?? '' ) ) && $ok;
+		$ok = $this->step( $ctx, $steps, 'Disk: R-DCL Goal Contract table', $changelog_ok, $changelog_file . ' version=' . $changelog_version . ' expected>=' . BizCity_TwinBrain_Goal_Contract_Store::DB_VERSION ) && $ok;
 
 		$methods_ok = method_exists( 'BizCity_TwinBrain_Goal_Contract_Store', 'get_by_goal_id' )
 			&& method_exists( 'BizCity_TwinBrain_Goal_Contract_Store', 'get_by_scope' )

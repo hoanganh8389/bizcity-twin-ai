@@ -34,9 +34,13 @@ class BizCity_Zalo_Bot_Dashboard {
 	 * Add unified Dashboard as the first submenu under Bots - Zalo
 	 */
 	public function add_dashboard_menu() {
+		if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+			return;
+		}
+		// [2026-08-19 Johnny Chu] AUDIT-MENU-GAPS — Zalo plugin screens belong under Twin Plugins.
 		// Unified single-screen dashboard with 4 tabs
 		add_submenu_page(
-			'bizcity-zalo-bots',
+			'bizcity-twin-plugins',
 			'Dashboard',
 			'Dashboard',
 			'manage_options',
@@ -47,7 +51,7 @@ class BizCity_Zalo_Bot_Dashboard {
 
 		// Keep slug registered for backward-compat deep-links → redirect to unified dashboard
 		add_submenu_page(
-			'bizcity-zalo-bots',
+			'bizcity-twin-plugins',
 			'Gán Bots cho User',
 			'Gán Bots',
 			'manage_options',

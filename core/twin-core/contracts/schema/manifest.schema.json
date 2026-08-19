@@ -19,6 +19,35 @@
         "wp": { "type": "string" }
       }
     },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+              "kind": { "enum": ["action", "filter"] }
+            }
+          }
+        ]
+      }
+    },
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tables": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,127}$" }
+        },
+        "changelog": { "type": "string", "minLength": 1, "maxLength": 255 }
+      }
+    },
     "capabilities": {
       "type": "object",
       "additionalProperties": false,

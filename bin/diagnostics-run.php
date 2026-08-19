@@ -33,6 +33,12 @@ if ( PHP_SAPI !== 'cli' ) {
     exit( 2 );
 }
 
+// [2026-08-19 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI-CONTEXT - direct PHP CLI
+// needs an explicit loader context, but must not impersonate the WP-CLI class.
+if ( ! defined( 'BIZCITY_DIAGNOSTICS_CLI' ) ) {
+    define( 'BIZCITY_DIAGNOSTICS_CLI', true );
+}
+
 /* ── Args ───────────────────────────────────────────────────────────── */
 $opts = [
     'junit'        => '',
@@ -72,7 +78,13 @@ if ( $wp_root === '' || ! file_exists( $wp_root . '/wp-load.php' ) ) {
 /* ── Bootstrap WP ──────────────────────────────────────────────────── */
 define( 'WP_USE_THEMES', false );
 $_SERVER['HTTP_HOST']   = 'cli.local';
-$_SERVER['REQUEST_URI'] = '/';
+// [2026-08-19 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI-LIFECYCLE - model the
+// backend request context used by diagnostics so gated modules and schema
+// installers see the same surface as the REST diagnostics endpoint.
+$_SERVER['REQUEST_URI'] = '/wp-json/bizcity-diagnostics/v1/';
+if ( ! defined( 'REST_REQUEST' ) ) {
+    define( 'REST_REQUEST', true );
+}
 
 if ( $opts['skip-network'] ) {
     define( 'BIZCITY_DIAGNOSTICS_MOCK', true );
@@ -111,6 +123,12 @@ if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner', false ) ) {
     if ( is_readable( $smoke_runner ) ) {
         require_once $smoke_runner;
     }
+}
+
+// [2026-08-19 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI-LIFECYCLE - wp-load.php
+// stops before WordPress's normal init phase; run it once after recovery.
+if ( function_exists( 'did_action' ) && function_exists( 'do_action' ) && ! did_action( 'init' ) ) {
+    do_action( 'init' );
 }
 
 /* ── Discover probes ───────────────────────────────────────────────── */

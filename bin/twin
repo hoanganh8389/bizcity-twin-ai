@@ -1,0 +1,360 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Twin CLI — unified control door for the BizCity Twin AI framework.
+ *
+ * Layer model this dispatcher enforces:
+ *   CLI (this)  ->  Diagnostics Engine (core/diagnostics)  ->
+ *   machine-readable verdict (PASS/WARN/FAIL, exit 0/1/2)  ->  GitHub Checks.
+ *
+ * This file does not duplicate logic — every command shells out to the
+ * existing validator/runner scripts in bin/ and core/twin-core/contracts/,
+ * so CI (.github/workflows/ci.yml) and this CLI always run the same checks.
+ *
+ * Usage
+ * -----
+ *   php bin/twin doctor
+ *   php bin/twin validate [--plugin=path/to/plugin]
+ *   php bin/twin test [--filter=pattern]
+ *   php bin/twin diagnostics [--filter=glob] [--junit=path] [--skip-network] [--wp-root=path]
+ *   php bin/twin inspect manifest --plugin=path/to/plugin
+ *   php bin/twin inspect registry
+ *   php bin/twin inspect probe --id=probe.id [--wp-root=path]
+ *
+ * Exit codes (same contract as bin/diagnostics-run.php)
+ * ------------------------------------------------------
+ *   0 — PASS   1 — FAIL   2 — usage/bootstrap error
+ *
+ * See docs/roadmaps/PHASE-1.27-AGENTIC-CLI-DIAGNOSTICS-PARITY.md for the
+ * environment-parity gap analysis and the planned `diagnostics plugin <slug>`
+ * subcommand this file will grow into.
+ *
+ * @package BizCity_Twin_AI\Bin
+ * @since   1.2.0 (PHASE-1.27-CLI-PARITY — 2026-08-19)
+ */
+
+// [2026-08-19 Johnny Chu] PHASE-1.27-CLI-PARITY — unify scattered bin/*.php + *.mjs entrypoints under one root command.
+if ( PHP_SAPI !== 'cli' ) {
+	fwrite( STDERR, "bin/twin must be run from CLI.\n" );
+	exit( 2 );
+}
+
+define( 'TWIN_CLI_ROOT', dirname( __DIR__ ) );
+
+$command = $argv[1] ?? '';
+$rest    = array_slice( $argv, 2 );
+
+switch ( $command ) {
+	case 'doctor':
+		exit( twin_cmd_doctor( $rest ) );
+	case 'validate':
+		exit( twin_cmd_validate( $rest ) );
+	case 'test':
+		exit( twin_cmd_test( $rest ) );
+	case 'diagnostics':
+		exit( twin_cmd_diagnostics( $rest ) );
+	case 'inspect':
+		exit( twin_cmd_inspect( $rest ) );
+	case '':
+	case 'help':
+	case '--help':
+	case '-h':
+		twin_print_help();
+		exit( 0 );
+	default:
+		fwrite( STDERR, "Unknown command: {$command}\n\n" );
+		twin_print_help();
+		exit( 2 );
+}
+
+// ---------------------------------------------------------------------------
+
+function twin_print_help() {
+	echo <<<TXT
+Twin CLI — control door for the BizCity Twin AI framework.
+
+  CLI  ->  Diagnostics Engine  ->  machine-readable verdict  ->  GitHub Checks
+
+Commands:
+  doctor                         Fast local environment sanity check (no WordPress needed)
+  validate [--plugin=P]          Run static contract/manifest/registry/audit validators
+  test [--filter=F]              Run contract fixture tests and PHPUnit (if available)
+	diagnostics [opts]             Run the full runtime probe engine (needs WordPress)
+																	opts: --filter=glob --junit=path --skip-network --wp-root=path
+	diagnostics plugin P [--json]  Validate one plugin's static contract + smoke status
+																	add --strict to fail on warnings
+  inspect manifest --plugin=P    Print a plugin manifest.json summary
+  inspect registry               Print PLUGIN-CONTRACT-REGISTRY-v1.json summary
+  inspect probe --id=ID [--wp-root=P]   Print one diagnostics probe result
+
+Exit codes: 0 = PASS, 1 = FAIL, 2 = usage/bootstrap error.
+TXT;
+	echo "\n";
+}
+
+/**
+ * Run one child process, stream its output, return its exit code.
+ *
+ * @param string[] $command_parts
+ */
+function twin_run( array $command_parts ) {
+	$cmd = implode( ' ', array_map( 'escapeshellarg', $command_parts ) );
+	passthru( $cmd, $exit_code );
+	return (int) $exit_code;
+}
+
+function twin_binary_available( $name ) {
+	$which = stripos( PHP_OS, 'WIN' ) === 0 ? 'where' : 'command -v';
+	$out   = array();
+	$code  = 1;
+	@exec( $which . ' ' . escapeshellarg( $name ) . ' 2>&1', $out, $code );
+	return 0 === $code;
+}
+
+function twin_arg_value( array $args, $flag, $default = '' ) {
+	foreach ( $args as $arg ) {
+		if ( 0 === strpos( $arg, $flag . '=' ) ) {
+			return substr( $arg, strlen( $flag ) + 1 );
+		}
+	}
+	return $default;
+}
+
+function twin_run_steps( array $steps ) {
+	$fail = 0;
+	foreach ( $steps as $step ) {
+		echo "\n── {$step['label']} " . str_repeat( '─', max( 1, 60 - strlen( $step['label'] ) ) ) . "\n";
+		$code = twin_run( $step['cmd'] );
+		if ( 0 !== $code ) {
+			$fail++;
+			echo "[FAIL] {$step['label']} (exit {$code})\n";
+		} else {
+			echo "[PASS] {$step['label']}\n";
+		}
+	}
+	printf( "\nResult: %d/%d steps passed.\n", count( $steps ) - $fail, count( $steps ) );
+	return $fail > 0 ? 1 : 0;
+}
+
+/* ── doctor ─────────────────────────────────────────────────────────── */
+
+function twin_cmd_doctor( array $args ) {
+	echo "Twin doctor — environment sanity check\n";
+	$checks = array();
+
+	$checks[] = array(
+		'label'  => 'PHP version >= 7.4',
+		'status' => version_compare( PHP_VERSION, '7.4.0', '>=' ) ? 'pass' : 'fail',
+		'detail' => PHP_VERSION,
+	);
+	foreach ( array( 'json', 'mbstring', 'curl' ) as $ext ) {
+		$checks[] = array(
+			'label'  => "PHP extension: {$ext}",
+			'status' => extension_loaded( $ext ) ? 'pass' : 'fail',
+			'detail' => extension_loaded( $ext ) ? 'loaded' : 'missing',
+		);
+	}
+
+	$required_scripts = array(
+		'bin/diagnostics-run.php',
+		'bin/bizcity-manifest-validate.php',
+		'bin/framework-contract-audit.mjs',
+		'bin/validate-plugin-contract-registry.mjs',
+		'bin/validate-sdk-release.mjs',
+		'bin/validate-event-stream.php',
+		'bin/bizcity-plugin-diagnostics.php',
+		'core/twin-core/contracts/tests/run-contract-tests.mjs',
+	);
+	foreach ( $required_scripts as $rel ) {
+		$exists   = is_readable( TWIN_CLI_ROOT . '/' . $rel );
+		$checks[] = array(
+			'label'  => "CLI script present: {$rel}",
+			'status' => $exists ? 'pass' : 'fail',
+			'detail' => $exists ? 'found' : 'missing',
+		);
+	}
+
+	$node_ok  = twin_binary_available( 'node' );
+	$checks[] = array(
+		'label'  => 'node binary (needed for validate/test)',
+		'status' => $node_ok ? 'pass' : 'warn',
+		'detail' => $node_ok ? 'available' : 'not found on PATH',
+	);
+
+	$wp_cli_ok = twin_binary_available( 'wp' );
+	$checks[]  = array(
+		'label'  => 'wp-cli binary (needed for diagnostics + framework-smoke)',
+		'status' => $wp_cli_ok ? 'pass' : 'warn',
+		'detail' => $wp_cli_ok ? 'available' : 'not found on PATH',
+	);
+
+	$fail = 0;
+	foreach ( $checks as $check ) {
+		printf( "[%-4s] %-55s %s\n", strtoupper( $check['status'] ), $check['label'], $check['detail'] );
+		if ( 'fail' === $check['status'] ) {
+			$fail++;
+		}
+	}
+
+	printf( "\nResult: %d fail out of %d checks.\n", $fail, count( $checks ) );
+	return $fail > 0 ? 1 : 0;
+}
+
+/* ── validate ───────────────────────────────────────────────────────── */
+
+function twin_cmd_validate( array $args ) {
+	$plugin = twin_arg_value( $args, '--plugin', 'examples/bizcity-reference-plugin' );
+
+	echo "Twin validate — static contract/manifest/registry checks\n";
+	$steps = array(
+		array(
+			'label' => 'Plugin contract registry',
+			'cmd'   => array( 'node', TWIN_CLI_ROOT . '/bin/validate-plugin-contract-registry.mjs' ),
+		),
+		array(
+			'label' => 'Framework contract audit (bypass detection)',
+			'cmd'   => array( 'node', TWIN_CLI_ROOT . '/bin/framework-contract-audit.mjs' ),
+		),
+		array(
+			'label' => 'SDK release metadata',
+			'cmd'   => array( 'node', TWIN_CLI_ROOT . '/bin/validate-sdk-release.mjs', '--check-build' ),
+		),
+		array(
+			'label' => 'Reference plugin manifest',
+			'cmd'   => array( 'php', TWIN_CLI_ROOT . '/bin/bizcity-manifest-validate.php', '--plugin=' . $plugin ),
+		),
+		array(
+			'label' => 'Event stream naming (R-EVT)',
+			'cmd'   => array( 'php', TWIN_CLI_ROOT . '/bin/validate-event-stream.php' ),
+		),
+	);
+
+	return twin_run_steps( $steps );
+}
+
+/* ── test ───────────────────────────────────────────────────────────── */
+
+function twin_cmd_test( array $args ) {
+	echo "Twin test — contract fixtures + PHPUnit\n";
+	$steps = array(
+		array(
+			'label' => 'Contract fixture tests',
+			'cmd'   => array( 'node', TWIN_CLI_ROOT . '/core/twin-core/contracts/tests/run-contract-tests.mjs' ),
+		),
+	);
+
+	$phpunit = TWIN_CLI_ROOT . '/vendor/bin/phpunit';
+	if ( is_readable( $phpunit ) || is_readable( $phpunit . '.bat' ) ) {
+		$steps[] = array(
+			'label' => 'PHPUnit suite',
+			'cmd'   => array( 'php', $phpunit, '--configuration', TWIN_CLI_ROOT . '/phpunit.xml.dist' ),
+		);
+	} else {
+		echo "[SKIP] PHPUnit suite — vendor/bin/phpunit not found; run `composer install` first.\n";
+	}
+
+	return twin_run_steps( $steps );
+}
+
+/* ── diagnostics ────────────────────────────────────────────────────── */
+
+function twin_cmd_diagnostics( array $args ) {
+	if ( isset( $args[0] ) && 'plugin' === $args[0] ) {
+		array_shift( $args );
+		$plugin = array_shift( $args );
+		if ( ! is_string( $plugin ) || '' === $plugin || 0 === strpos( $plugin, '--' ) ) {
+			fwrite( STDERR, "Usage: twin diagnostics plugin <slug|path> [--json]\n" );
+			return 2;
+		}
+		// [2026-08-19 Johnny Chu] PHASE-1.27-CLI-PARITY - route plugin checks through the shared static contract runner.
+		$forward = array( 'php', TWIN_CLI_ROOT . '/bin/bizcity-plugin-diagnostics.php', '--plugin=' . $plugin, '--smoke' );
+		foreach ( $args as $arg ) {
+			if ( '--json' === $arg || '--strict' === $arg ) {
+				$forward[] = $arg;
+			}
+		}
+		return twin_run( $forward );
+	}
+	$forward = array_merge( array( 'php', TWIN_CLI_ROOT . '/bin/diagnostics-run.php' ), $args );
+	return twin_run( $forward );
+}
+
+/* ── inspect ────────────────────────────────────────────────────────── */
+
+function twin_cmd_inspect( array $args ) {
+	$target = array_shift( $args ) ?: '';
+	switch ( $target ) {
+		case 'manifest':
+			return twin_inspect_manifest( $args );
+		case 'registry':
+			return twin_inspect_registry( $args );
+		case 'probe':
+			return twin_inspect_probe( $args );
+		default:
+			fwrite( STDERR, "Usage: twin inspect <manifest|registry|probe> [options]\n" );
+			return 2;
+	}
+}
+
+function twin_inspect_manifest( array $args ) {
+	$plugin = twin_arg_value( $args, '--plugin', 'examples/bizcity-reference-plugin' );
+	$path   = rtrim( TWIN_CLI_ROOT . '/' . ltrim( $plugin, '/\\' ), '/\\' ) . '/manifest.json';
+	if ( ! is_readable( $path ) ) {
+		fwrite( STDERR, "manifest.json not found: {$path}\n" );
+		return 2;
+	}
+	$manifest = json_decode( (string) file_get_contents( $path ), true );
+	if ( ! is_array( $manifest ) ) {
+		fwrite( STDERR, "manifest.json is not valid JSON: {$path}\n" );
+		return 1;
+	}
+	printf( "id:              %s\n", $manifest['id'] ?? '(missing)' );
+	printf( "name:            %s\n", $manifest['name'] ?? '(missing)' );
+	printf( "version:         %s\n", $manifest['version'] ?? '(missing)' );
+	printf( "schema_version:  %s\n", $manifest['schema_version'] ?? '(missing)' );
+	printf( "permissions:     %d\n", count( $manifest['permissions'] ?? array() ) );
+	printf( "scope_bindings:  %d\n", count( $manifest['scope_bindings'] ?? array() ) );
+	printf( "approval_gates:  %d\n", count( $manifest['approval_gates'] ?? array() ) );
+	printf( "capabilities:    %s\n", implode( ', ', array_keys( $manifest['capabilities'] ?? array() ) ) );
+	return 0;
+}
+
+function twin_inspect_registry( array $args ) {
+	$path = TWIN_CLI_ROOT . '/docs/contracts/PLUGIN-CONTRACT-REGISTRY-v1.json';
+	if ( ! is_readable( $path ) ) {
+		fwrite( STDERR, "Registry not found: {$path}\n" );
+		return 2;
+	}
+	$registry = json_decode( (string) file_get_contents( $path ), true );
+	if ( ! is_array( $registry ) || empty( $registry['modules'] ) ) {
+		fwrite( STDERR, "Registry JSON is malformed or has no modules[].\n" );
+		return 1;
+	}
+	$tally = array();
+	foreach ( $registry['modules'] as $entry ) {
+		$status          = (string) ( $entry['status'] ?? 'unknown' );
+		$tally[ $status ] = ( $tally[ $status ] ?? 0 ) + 1;
+	}
+	printf( "registry_id:      %s\n", $registry['registry_id'] ?? '(unknown)' );
+	printf( "registry_version: %s\n", $registry['registry_version'] ?? '(unknown)' );
+	printf( "modules total:    %d\n\n", count( $registry['modules'] ) );
+	foreach ( $tally as $status => $count ) {
+		printf( "  %-16s %d\n", $status, $count );
+	}
+	return 0;
+}
+
+function twin_inspect_probe( array $args ) {
+	$id = twin_arg_value( $args, '--id', '' );
+	if ( '' === $id ) {
+		fwrite( STDERR, "Usage: twin inspect probe --id=probe.id [--wp-root=path]\n" );
+		return 2;
+	}
+	$forward = array( 'php', TWIN_CLI_ROOT . '/bin/diagnostics-run.php', '--filter=' . $id );
+	foreach ( $args as $arg ) {
+		if ( 0 === strpos( $arg, '--wp-root=' ) ) {
+			$forward[] = $arg;
+		}
+	}
+	return twin_run( $forward );
+}

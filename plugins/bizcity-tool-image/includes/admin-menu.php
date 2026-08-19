@@ -8,8 +8,8 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 add_action( 'admin_menu', function() {
-    $parent = 'bizcity-twin-workspace';
-    // [2026-08-11 Johnny Chu] PHASE-1.26 — Image Studio is a Workspace child, not a standalone top-level menu.
+    $parent = 'bizcity-twin-plugins';
+    // [2026-08-19 Johnny Chu] HOTFIX — Image Studio belongs under the unified Twin Plugins menu.
     add_submenu_page(
         $parent,
         'Image AI',

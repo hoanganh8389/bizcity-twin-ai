@@ -24,8 +24,9 @@ final class BizCity_CRM_Print_Templates_Admin {
 	}
 
 	public static function register_menu(): void {
+		// [2026-08-19 Johnny Chu] AUDIT-MENU-GAPS — CRM plugin screens belong under Twin Plugins.
 		add_submenu_page(
-			'bizcity-crm',
+			'bizcity-twin-plugins',
 			'Print Templates',
 			'🖼️ Print Templates',
 			'manage_options',

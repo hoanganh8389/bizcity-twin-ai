@@ -28,7 +28,7 @@ class BizCity_Update_Templates_Page {
 
     public static function register_menu() {
         add_submenu_page(
-            'bztimg-dashboard',
+            'bizcity-twin-plugins',
             'Update Templates',
             '🔄 Update Templates',
             'manage_options',

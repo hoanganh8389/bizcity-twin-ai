@@ -55,6 +55,120 @@ jobs:
       - name: Reject new active contract bypasses
         run: node bin/framework-contract-audit.mjs
 
+  plugin-diagnostics:
+    name: Per-plugin Diagnostics Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP 7.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: json, mbstring, curl
+
+      - name: Run reference and broken diagnostics fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/plugin-diagnostics
+
+          php bin/twin diagnostics plugin examples/bizcity-reference-plugin --json > build/plugin-diagnostics/reference.json
+          php -r '
+            $data = json_decode( file_get_contents( $argv[1] ), true );
+            if ( ! is_array( $data ) || "bizcity.twin.diagnostics-verdict" !== ( $data["contract"] ?? "" ) ) {
+              fwrite( STDERR, "Reference diagnostics did not produce diagnostics-verdict v1.\n" );
+              exit( 1 );
+            }
+            $smoke = array_values( array_filter( $data["checks"], function ( $check ) {
+              return "smoke_test" === ( $check["id"] ?? "" );
+            } ) );
+            if ( "skip" !== ( $smoke[0]["status"] ?? "" ) ) {
+              fwrite( STDERR, "Reference smoke check must be SKIP without WordPress runtime.\n" );
+              exit( 1 );
+            }
+          ' build/plugin-diagnostics/reference.json
+
+          set +e
+          php bin/twin diagnostics plugin tests/fixtures/plugin-diagnostics/broken-plugin --json > build/plugin-diagnostics/broken.json
+          broken_exit=$?
+          set -e
+          if [ "$broken_exit" -ne 1 ]; then
+            echo "Broken fixture must exit 1, got $broken_exit."
+            exit 1
+          fi
+          php -r '
+            $data = json_decode( file_get_contents( $argv[1] ), true );
+            if ( ! is_array( $data ) || "fail" !== ( $data["verdict"] ?? "" ) || 1 !== (int) ( $data["exit_code"] ?? -1 ) ) {
+              fwrite( STDERR, "Broken fixture did not produce a fail verdict.\n" );
+              exit( 1 );
+            }
+          ' build/plugin-diagnostics/broken.json
+
+      - name: Discover changed plugin directories
+        id: changed-plugins
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base="$BASE_SHA"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=$(git rev-list --max-count=2 "$HEAD_SHA" | tail -n 1)
+          fi
+          git diff --name-only "$base" "$HEAD_SHA" -- 'plugins/**' \
+            | awk -F/ 'NF >= 2 && $2 != "_archived" { print "plugins/" $2 }' \
+            | sort -u > build/plugin-diagnostics/changed.txt
+          printf 'paths<<EOF\n%s\nEOF\n' "$(tr '\n' ' ' < build/plugin-diagnostics/changed.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Run diagnostics for changed plugins
+        shell: bash
+        env:
+          CHANGED_PLUGINS: ${{ steps.changed-plugins.outputs.paths }}
+        run: |
+          set -euo pipefail
+          summary="${GITHUB_STEP_SUMMARY}"
+          {
+            echo "## Per-plugin Diagnostics"
+            echo ""
+            echo "Static contract checks use diagnostics-verdict v1. Smoke is SKIP without WordPress runtime."
+            echo ""
+            echo "| Plugin | Check | Status | Evidence |"
+            echo "|---|---|---|---|"
+          } >> "$summary"
+
+          if [ -z "${CHANGED_PLUGINS// /}" ]; then
+            echo "No active plugins changed in this revision." >> "$summary"
+            exit 0
+          fi
+
+          status=0
+          for plugin in $CHANGED_PLUGINS; do
+            if [ ! -d "$plugin" ]; then
+              continue
+            fi
+            slug=$(basename "$plugin")
+            result="build/plugin-diagnostics/${slug}.json"
+            set +e
+            php bin/twin diagnostics plugin "$plugin" --json > "$result"
+            exit_code=$?
+            set -e
+            php -r '
+              $data = json_decode( file_get_contents( $argv[1] ), true );
+              if ( ! is_array( $data ) || ! isset( $data["checks"] ) ) { exit( 1 ); }
+              foreach ( $data["checks"] as $check ) {
+                printf( "| %s | %s | %s | %s |\\n", $argv[2], $check["label"], strtoupper( $check["status"] ), str_replace( "|", "\\|", $check["evidence"] ) );
+              }
+            ' "$result" "$slug" >> "$summary"
+            if [ "$exit_code" -ne 0 ]; then
+              status=1
+            fi
+          done
+          exit "$status"
+
   lint-php:
     name: PHP Lint & Compat
     runs-on: ubuntu-latest

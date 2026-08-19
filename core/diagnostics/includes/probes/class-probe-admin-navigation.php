@@ -90,10 +90,11 @@ final class BizCity_Probe_Admin_Navigation implements BizCity_Diagnostics_Probe 
 			);
 		}
 
+		// [2026-08-19 Johnny Chu] HOTFIX — validate Twin Plugins and Tools-mounted Twin Diagnostics groups.
 		$expected_groups = array(
 			'bizcity-ai',
 			'bizcity-twin-workspace',
-			'bizcity-twin-diagnostics',
+			'bizcity-twin-plugins',
 		);
 		$top_level = array();
 		global $menu, $submenu;
@@ -122,6 +123,8 @@ final class BizCity_Probe_Admin_Navigation implements BizCity_Diagnostics_Probe 
 			'bizcity-knowledge',
 			'bizcity-skills-hub',
 			'bizchat-gateway',
+			'bccm_user_profiles',
+			'bcpro_my_astro',
 		);
 		$legacy_visible = array_values( array_intersect( $forbidden_top_level, $top_level ) );
 		$steps[] = array(
@@ -199,10 +202,12 @@ final class BizCity_Probe_Admin_Navigation implements BizCity_Diagnostics_Probe 
 				}
 			}
 		}
+		$tools_has_hub = in_array( 'bizcity-twin-diagnostics', $tools_diagnostics, true );
+		$tools_has_event_inspector = in_array( 'bizcity-twin-event-inspector', $tools_diagnostics, true );
 		$steps[] = array(
-			'label'  => 'Runtime — new Diagnostics pages are not registered in tools.php',
-			'status' => empty( $tools_diagnostics ) ? 'pass' : 'fail',
-			'detail' => empty( $tools_diagnostics ) ? 'tools.php contains no new canonical Diagnostics page' : implode( ', ', $tools_diagnostics ),
+			'label'  => 'Runtime — Twin Diagnostics is the only canonical Diagnostics Tools entry',
+			'status' => $tools_has_hub && ! $tools_has_event_inspector ? 'pass' : 'fail',
+			'detail' => $tools_has_hub && ! $tools_has_event_inspector ? 'Twin Diagnostics is mounted under tools.php' : 'Twin Diagnostics Tools entry is missing or Event Inspector is exposed separately',
 		);
 
 		$source = (string) file_get_contents( $root . 'includes/class-admin-menu.php' );
@@ -214,11 +219,11 @@ final class BizCity_Probe_Admin_Navigation implements BizCity_Diagnostics_Probe 
 		);
 
 		$ok = $extension_slot_ok && empty( $missing_groups ) && empty( $legacy_visible ) && empty( $duplicate_pairs )
-			&& empty( $missing_aliases ) && empty( $tools_diagnostics ) && $site_network_ok;
+			&& empty( $missing_aliases ) && $tools_has_hub && ! $tools_has_event_inspector && $site_network_ok;
 		return array(
 			'status'  => $ok ? 'pass' : 'fail',
 			'summary' => $ok ? 'Unified admin navigation contract passed.' : 'Unified admin navigation contract has runtime failures.',
-			'fix_hint'=> 'Move visible pages into the three canonical groups and keep network/legacy aliases in their own scope.',
+			'fix_hint'=> 'Keep core/module pages in Twin Workspace, bundled plugin pages in Twin Plugins, and Diagnostics under Tools.',
 			'steps'   => $steps,
 		);
 	}

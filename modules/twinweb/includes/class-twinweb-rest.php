@@ -8513,7 +8513,8 @@ class BizCity_TwinWeb_REST {
 			} else {
 				$rows = $wpdb->get_results(
 					$wpdb->prepare(
-						"SELECT user_id" . ( $has_plan ? ', plan_slug' : '' ) . ", expiration_date FROM {$subscriptions_table} WHERE status = %s AND expiration_date IS NOT NULL AND expiration_date <> '' AND expiration_date >= %s AND expiration_date <= %s ORDER BY expiration_date ASC LIMIT %d",
+						// [2026-08-19 Johnny Chu] HOTFIX-MYSQL8-DATETIME — comparing a DATETIME column with an empty string fails under strict MySQL 8 SQL mode.
+						"SELECT user_id" . ( $has_plan ? ', plan_slug' : '' ) . ", expiration_date FROM {$subscriptions_table} WHERE status = %s AND expiration_date IS NOT NULL AND expiration_date >= %s AND expiration_date <= %s ORDER BY expiration_date ASC LIMIT %d",
 						'active',
 						current_time( 'mysql' ),
 						gmdate( 'Y-m-d H:i:s', strtotime( '+30 days', (int) current_time( 'timestamp' ) ) ),
