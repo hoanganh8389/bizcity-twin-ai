@@ -101,13 +101,23 @@ final class BizCity_Diagnostics_REST {
 			'permission_callback' => $admin_only,
 			'callback'            => [ $this, 'run_live_smoke_probe' ],
 			'args'                => [
-				'confirm'         => [ 'type' => 'boolean', 'required' => true ],
-				'chat_id'         => [ 'type' => 'string', 'required' => true ],
-				'account_id'      => [ 'type' => 'string', 'required' => true ],
-				'external_user_id'=> [ 'type' => 'string', 'required' => true ],
-				'wp_user_id'      => [ 'type' => 'integer', 'required' => true ],
-				'message_id'      => [ 'type' => 'string', 'required' => true ],
+				'confirm'          => [ 'type' => 'boolean', 'required' => true ],
+				'surface'          => [ 'type' => 'string', 'required' => false ],
+				'chat_id'          => [ 'type' => 'string', 'required' => false ],
+				'account_id'       => [ 'type' => 'string', 'required' => false ],
+				'external_user_id' => [ 'type' => 'string', 'required' => false ],
+				'wp_user_id'       => [ 'type' => 'integer', 'required' => false ],
+				'message_id'       => [ 'type' => 'string', 'required' => false ],
+				'session_id'       => [ 'type' => 'string', 'required' => false ],
+				'prompt'           => [ 'type' => 'string', 'required' => false ],
 			],
+		] );
+
+		// [2026-08-19 Johnny Chu] MPR-V5-CANARY — expose ready-to-run payload templates and CLI fallback snippets for live canary surfaces.
+		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/smoke/run-live/options', [
+			'methods'             => 'GET',
+			'permission_callback' => $admin_only,
+			'callback'            => [ $this, 'get_live_smoke_options' ],
 		] );
 
 		// POST /smoke/run-all — run sequential, returns aggregate.
@@ -266,6 +276,33 @@ final class BizCity_Diagnostics_REST {
 		if ( ! $req->get_param( 'confirm' ) ) {
 			return new WP_Error( 'live_canary_confirmation_required', 'Live canary cần confirm=true.', array( 'status' => 400 ) );
 		}
+		// [2026-08-19 Johnny Chu] MPR-V5-CANARY — allow explicit surface selection while keeping the legacy Zalo Bot contract as default.
+		$surface = strtolower( trim( (string) $req->get_param( 'surface' ) ) );
+		if ( $surface === 'zalo' ) {
+			$surface = 'zalo_bot';
+		}
+		if ( $surface === '' ) {
+			$surface = 'zalo_bot';
+		}
+		if ( $surface === 'twinchat' ) {
+			$wp_user_id = (int) $req->get_param( 'wp_user_id' );
+			$message_id = trim( (string) $req->get_param( 'message_id' ) );
+			if ( $wp_user_id <= 0 || $message_id === '' ) {
+				return new WP_Error( 'live_canary_twinchat_input_invalid', 'TwinChat canary cần wp_user_id>0 và message_id không rỗng.', array( 'status' => 400 ) );
+			}
+			return rest_ensure_response( BizCity_Diagnostics_Smoke_Runner::run_probe( 'twinbrain.mpr_v5', array(
+				'live'        => true,
+				'confirm'     => true,
+				'live_surface'=> 'twinchat',
+				'wp_user_id'  => $wp_user_id,
+				'message_id'  => $message_id,
+				'session_id'  => trim( (string) $req->get_param( 'session_id' ) ),
+				'prompt'      => trim( (string) $req->get_param( 'prompt' ) ),
+			) ) );
+		}
+		if ( $surface !== 'zalo_bot' ) {
+			return new WP_Error( 'live_canary_surface_unsupported', 'Surface không hợp lệ. Chỉ hỗ trợ zalo_bot hoặc twinchat.', array( 'status' => 400 ) );
+		}
 		$chat_id = trim( (string) $req->get_param( 'chat_id' ) );
 		if ( strpos( strtolower( $chat_id ), 'zalobot_' ) !== 0 || strpos( strtolower( $chat_id ), '_group' ) !== false ) {
 			return new WP_Error( 'live_canary_target_denied', 'Canary chỉ nhận direct Zalo Bot chat_id.', array( 'status' => 400 ) );
@@ -273,12 +310,75 @@ final class BizCity_Diagnostics_REST {
 		return rest_ensure_response( BizCity_Diagnostics_Smoke_Runner::run_probe( 'twinbrain.mpr_v5', array(
 			'live'             => true,
 			'confirm'          => true,
+			'live_surface'     => 'zalo_bot',
 			'chat_id'          => $chat_id,
 			'account_id'       => trim( (string) $req->get_param( 'account_id' ) ),
 			'external_user_id' => trim( (string) $req->get_param( 'external_user_id' ) ),
 			'wp_user_id'       => (int) $req->get_param( 'wp_user_id' ),
 			'message_id'       => trim( (string) $req->get_param( 'message_id' ) ),
 		) ) );
+	}
+
+	public function get_live_smoke_options() {
+		// [2026-08-19 Johnny Chu] MPR-V5-CANARY — provide deterministic request templates so admins can run TwinChat/Zalo live probes without guessing fields.
+		$run_live_path = '/wp-json/' . BIZCITY_DIAGNOSTICS_REST_NS . '/smoke/run-live';
+		$rest_endpoint = function_exists( 'rest_url' ) ? rest_url( BIZCITY_DIAGNOSTICS_REST_NS . '/smoke/run-live' ) : $run_live_path;
+		$current_user_id = (int) get_current_user_id();
+		$nonce = function_exists( 'wp_create_nonce' ) ? (string) wp_create_nonce( 'wp_rest' ) : '';
+		$twinchat_payload = array(
+			'confirm'    => true,
+			'surface'    => 'twinchat',
+			'wp_user_id' => $current_user_id > 0 ? $current_user_id : 1,
+			'message_id' => 'mpr-v5-twinchat-' . gmdate( 'YmdHis' ),
+			'session_id' => 'diag_twinchat_' . gmdate( 'YmdHis' ),
+			'prompt'     => 'TwinChat live canary health check',
+		);
+		$zalo_payload = array(
+			'confirm'          => true,
+			'surface'          => 'zalo_bot',
+			'chat_id'          => 'zalobot_<bot_id>_<user_id>',
+			'account_id'       => '<linked_bot_id>',
+			'external_user_id' => '<linked_provider_user_id>',
+			'wp_user_id'       => $current_user_id > 0 ? $current_user_id : 1,
+			'message_id'       => 'mpr-v5-zalo-' . gmdate( 'YmdHis' ),
+		);
+		$surface_help = array(
+			'twinchat' => array(
+				'required' => array( 'confirm', 'surface', 'wp_user_id', 'message_id' ),
+				'optional' => array( 'session_id', 'prompt' ),
+				'note'     => 'Runs Runtime start/complete turn in diagnostics live mode; no external side-effect channel send is required.',
+			),
+			'zalo_bot' => array(
+				'required' => array( 'confirm', 'surface', 'chat_id', 'account_id', 'external_user_id', 'wp_user_id', 'message_id' ),
+				'optional' => array(),
+				'note'     => 'Requires direct linked Zalo Bot identity; group chat_id and Zone 1 targets are rejected.',
+			),
+		);
+		$cli_twinchat = "wp eval '\$res = BizCity_Diagnostics_Smoke_Runner::run_probe(\"twinbrain.mpr_v5\", array(\"live\"=>true,\"confirm\"=>true,\"live_surface\"=>\"twinchat\",\"wp_user_id\"=>" . ( $current_user_id > 0 ? $current_user_id : 1 ) . ",\"message_id\"=>\"mpr-v5-twinchat-cli\",\"session_id\"=>\"diag_twinchat_cli\",\"prompt\"=>\"TwinChat live canary health check\") ); print_r( \$res );'";
+		$cli_zalo = "wp eval '\$res = BizCity_Diagnostics_Smoke_Runner::run_probe(\"twinbrain.mpr_v5\", array(\"live\"=>true,\"confirm\"=>true,\"live_surface\"=>\"zalo_bot\",\"chat_id\"=>\"zalobot_<bot_id>_<user_id>\",\"account_id\"=>\"<linked_bot_id>\",\"external_user_id\"=>\"<linked_provider_user_id>\",\"wp_user_id\"=>" . ( $current_user_id > 0 ? $current_user_id : 1 ) . ",\"message_id\"=>\"mpr-v5-zalo-cli\") ); print_r( \$res );'";
+		// [2026-08-19 Johnny Chu] MPR-V5-CANARY — PowerShell examples keep auth values as placeholders; the caller supplies its logged-in WP session cookie and REST nonce.
+		$ps_twinchat = '$base = "https://example.com"' . "\n" . '$headers = @{ "X-WP-Nonce" = "<wp-rest-nonce>"; "Cookie" = "<wordpress_logged_in_cookie>" }' . "\n" . '$body = @{ confirm = $true; surface = "twinchat"; wp_user_id = ' . ( $current_user_id > 0 ? $current_user_id : 1 ) . '; message_id = "mpr-v5-twinchat-powershell"; session_id = "diag_twinchat_powershell"; prompt = "TwinChat live canary health check" } | ConvertTo-Json' . "\n" . 'Invoke-RestMethod -Method Post -Uri ($base + "' . $run_live_path . '") -Headers $headers -ContentType "application/json" -Body $body';
+		$ps_zalo = '$base = "https://example.com"' . "\n" . '$headers = @{ "X-WP-Nonce" = "<wp-rest-nonce>"; "Cookie" = "<wordpress_logged_in_cookie>" }' . "\n" . '$body = @{ confirm = $true; surface = "zalo_bot"; chat_id = "zalobot_<bot_id>_<user_id>"; account_id = "<linked_bot_id>"; external_user_id = "<linked_provider_user_id>"; wp_user_id = ' . ( $current_user_id > 0 ? $current_user_id : 1 ) . '; message_id = "mpr-v5-zalo-powershell" } | ConvertTo-Json' . "\n" . 'Invoke-RestMethod -Method Post -Uri ($base + "' . $run_live_path . '") -Headers $headers -ContentType "application/json" -Body $body';
+
+		return rest_ensure_response( array(
+			'endpoint' => $rest_endpoint,
+			'nonce' => $nonce,
+			'run_live_path' => $run_live_path,
+			'surfaces' => $surface_help,
+			'examples' => array(
+				'twinchat' => $twinchat_payload,
+				'zalo_bot' => $zalo_payload,
+			),
+			'cli_fallback' => array(
+				'twinchat' => $cli_twinchat,
+				'zalo_bot' => $cli_zalo,
+			),
+			'powershell' => array(
+				'auth_note' => 'Replace <wp-rest-nonce> and <wordpress_logged_in_cookie> with the current authenticated WordPress session values. Never commit or log them.',
+				'twinchat' => $ps_twinchat,
+				'zalo_bot' => $ps_zalo,
+			),
+		) );
 	}
 
 	/**

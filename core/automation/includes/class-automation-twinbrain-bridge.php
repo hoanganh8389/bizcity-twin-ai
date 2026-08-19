@@ -231,15 +231,20 @@ final class BizCity_Automation_TwinBrain_Bridge {
 				$complete_opts = array_merge( $opts, array(
 					'memory_block'              => (string) ( $start['memory_block'] ?? '' ),
 					'keyword_tokens'            => (array) ( $start['keyword_tokens'] ?? array() ),
+					'pre_mpr_triage'            => (array) ( $start['pre_mpr_triage'] ?? array() ),
+					'prompt_intent'             => (array) ( $start['prompt_intent'] ?? $start['pre_mpr_triage'] ?? array() ), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — preserve canonical Prompt Intent through automation completion.
+					'intent_compat'             => (array) ( $start['intent_compat'] ?? array() ), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — keep Slot/Clarify/Confirm/Memory compatibility envelope across workflow completion.
 					'goal_contract'             => (array) ( $start['goal_contract'] ?? array() ),
 					'goal_loop_state'           => (array) ( $start['goal_loop_state'] ?? array() ),
 					'goal_loop'                 => (array) ( $start['goal_loop_state'] ?? array() ),
 					'goal_loop_brief'           => (string) ( $start['goal_loop_brief'] ?? '' ),
+					'temporal_context'          => (array) ( $start['temporal_context'] ?? array() ),
 					'answer_depth'              => (string) ( $start['answer_depth'] ?? $opts['answer_depth'] ?? 'high' ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve resolved MPR tier for automation completion.
 					'goal_loop_pre_turn_completed' => ! empty( $start['goal_loop_pre_turn_completed'] ), // [2026-08-07 Johnny Chu] V4-DEPTH — prevent duplicate Goal Parser invocation.
 					'subject_context_md'        => (string) ( $start['subject_context_md'] ?? '' ),
 					'subject_context_label'     => (string) ( $start['subject_context_label'] ?? '' ),
 					'subject_id'                => (int) ( $start['subject_id'] ?? ( $opts['user_id'] ?? 0 ) ),
+					'identity_uuid'             => (string) ( $start['identity_uuid'] ?? ( $opts['identity_uuid'] ?? '' ) ),
 					'_subject_profile_resolved' => ! empty( $start['_subject_profile_resolved'] ),
 				) );
 				$done = $runtime->complete_turn(

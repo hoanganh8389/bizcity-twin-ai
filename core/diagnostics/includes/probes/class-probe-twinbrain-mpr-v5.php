@@ -34,7 +34,7 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 
 	public function id(): string { return 'twinbrain.mpr_v5'; }
 	public function label(): string { return 'TwinBrain MPR V5 Aggregate DDV'; }
-	public function description(): string { return 'Aggregate synthetic contract for Goal, notices, Automation, HIL, media, idempotency and opt-in Zalo canary evidence.'; }
+	public function description(): string { return 'Aggregate synthetic contract for Goal, notices, Automation, HIL, media, idempotency and opt-in TwinChat/Zalo live canary evidence.'; }
 	public function severity(): string { return 'critical'; }
 	public function order(): int { return 89; }
 	public function icon(): string { return 'shield-check'; }
@@ -97,6 +97,7 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 		$root = $this->plugin_root();
 		$files = array(
 			'core/twinbrain/includes/class-twinbrain-runtime.php',
+			'core/twinbrain/includes/class-twinbrain-intent-compat-adapter.php',
 			'core/twinbrain/includes/class-twinbrain-goal-alignment.php',
 			'core/twinbrain/includes/class-twinbrain-temporal-context-resolver.php',
 			'core/twinbrain/includes/class-twinbrain-progress-notice-projector.php',
@@ -142,18 +143,38 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 			&& strpos( $sender_source, 'idempotency_key' ) !== false;
 		$this->step( $ctx, $steps, 'Disk: Gateway outbound idempotency evidence', $sender_contract_ok ? 'pass' : 'fail', $sender_contract_ok ? 'Adapter and legacy outbound logs expose status, request-id and idempotency metadata.' : 'Gateway Sender lacks Gate 6 outbound evidence markers.' );
 
+		$matcher_file = $root . 'core/automation/includes/class-automation-trigger-matcher.php';
+		$matcher_source = is_readable( $matcher_file ) ? (string) file_get_contents( $matcher_file ) : '';
+		$providerless_match_ok = strpos( $matcher_source, 'bizcity_twinbrain_v5_allow_llm_product_match' ) !== false;
+		$this->step( $ctx, $steps, 'Disk: V5 deterministic product-match default', $providerless_match_ok ? 'pass' : 'fail', $providerless_match_ok ? 'V5 product matching defaults to deterministic mode; optional LLM path is explicit opt-in.' : 'Deterministic product-match gate marker is missing.' );
+
+		// [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — verify workflow-by-workflow surface wiring (TwinChat -> Zalo -> Automation bridge) at disk level.
+		$twinchat_handler_source = is_readable( $root . 'modules/twinchat/includes/class-twinchat-stream-handler.php' ) ? (string) file_get_contents( $root . 'modules/twinchat/includes/class-twinchat-stream-handler.php' ) : '';
+		$zalo_mpr_source = is_readable( $root . 'core/automation/includes/blocks/llm/class-llm-mpr-think.php' ) ? (string) file_get_contents( $root . 'core/automation/includes/blocks/llm/class-llm-mpr-think.php' ) : '';
+		$bridge_source = is_readable( $root . 'core/automation/includes/class-automation-twinbrain-bridge.php' ) ? (string) file_get_contents( $root . 'core/automation/includes/class-automation-twinbrain-bridge.php' ) : '';
+		$ask_guru_source = is_readable( $root . 'core/automation/includes/blocks/actions/class-action-ask-guru.php' ) ? (string) file_get_contents( $root . 'core/automation/includes/blocks/actions/class-action-ask-guru.php' ) : '';
+		$surface_wiring_ok = strpos( $twinchat_handler_source, "'intent_compat'" ) !== false
+			&& strpos( $twinchat_handler_source, 'intent_compat_ready' ) !== false
+			&& strpos( $zalo_mpr_source, "'intent_compat' =>" ) !== false
+			&& strpos( $zalo_mpr_source, "'prompt_intent' =>" ) !== false
+			&& strpos( $bridge_source, "'intent_compat'" ) !== false
+			&& strpos( $bridge_source, "'prompt_intent'" ) !== false
+			&& strpos( $ask_guru_source, "'intent_compat'" ) !== false;
+		$this->step( $ctx, $steps, 'Disk: V5.10 migration surface wiring (TwinChat/Zalo/Bridge)', $surface_wiring_ok ? 'pass' : 'fail', $surface_wiring_ok ? 'TwinChat stream, Zalo MPR action, Automation bridge and ask_guru all forward Prompt Intent + intent_compat contract.' : 'One or more V5.10 surface migration markers are missing.' );
+
 		$retired_probe_ok = true;
 		foreach ( array( 'class-probe-automation-runtime.php', 'class-probe-automation-runtime-impl.php' ) as $retired_probe ) {
 			$retired_source = is_readable( $root . 'core/diagnostics/includes/probes/' . $retired_probe ) ? (string) file_get_contents( $root . 'core/diagnostics/includes/probes/' . $retired_probe ) : '';
 			$retired_probe_ok = $retired_probe_ok && strpos( $retired_source, 'class BizCity_' ) === false && strpos( $retired_source, 'new class' ) === false;
 		}
 		$this->step( $ctx, $steps, 'Disk: retired diagnostics probes are class-free', $retired_probe_ok ? 'pass' : 'fail', $retired_probe_ok ? 'Retired automation runtime probe artifacts cannot redeclare classes.' : 'A retired automation runtime probe still contains a class or anonymous class.' );
-		return $ok && $schema_ok && $whitelist_ok && $route_ok && $live_gate_ok && $sender_contract_ok && $retired_probe_ok;
+		return $ok && $schema_ok && $whitelist_ok && $route_ok && $live_gate_ok && $sender_contract_ok && $providerless_match_ok && $surface_wiring_ok && $retired_probe_ok;
 	}
 
 	private function loader_checks( $ctx, array &$steps ): bool {
 		$classes = array(
 			'BizCity_TwinBrain_Runtime',
+			'BizCity_TwinBrain_Intent_Compat_Adapter',
 			'BizCity_Automation_Runner',
 			'BizCity_TwinBrain_Progress_Notice_Projector',
 			'BizCity_TwinBrain_HIL_Repository',
@@ -186,6 +207,37 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 			: array();
 		$goal_ok = is_array( $goal_alignment ) && (string) ( $goal_blocked['action'] ?? '' ) === 'ask_resume_or_new';
 		$pass = $this->step( $ctx, $steps, 'Synthetic: Goal alignment/open-resume-blocked', $goal_ok ? 'pass' : 'fail', $goal_ok ? 'Alignment and cross-session blocked decision return deterministic contracts.' : 'Goal alignment or blocked session contract unavailable.' ) && $pass;
+
+		$intent_compat = class_exists( 'BizCity_TwinBrain_Intent_Compat_Adapter' )
+			? BizCity_TwinBrain_Intent_Compat_Adapter::build_from_prompt_intent(
+				array(
+					'intent_id' => 'commerce.order_create',
+					'route' => 'mpr',
+					'confidence' => 0.9,
+					'requires_goal' => true,
+					'required_inputs' => array( 'address', 'phone' ),
+					'entities' => array( 'phone' => '0900000000' ),
+				),
+				'ok nhưng thêm ghi chú giao tối',
+				array(
+					'session_id' => 'compat_session_probe',
+					'memory_scope' => 'goal_case',
+					'goal_loop_state' => array(
+						'goal_id' => 'goal_compat_probe',
+						'primary_goal' => 'Đặt đơn giao hàng',
+						'required_inputs' => array( 'address', 'phone' ),
+						'open_loops' => array( 'chờ địa chỉ nhận hàng' ),
+					),
+				)
+			)
+			: array();
+		$intent_compat_ok = is_array( $intent_compat )
+			&& (string) ( $intent_compat['compat_version'] ?? '' ) === 'twin_intent_compat.v1'
+			&& (string) ( $intent_compat['slot_analysis']['status'] ?? '' ) === 'partial'
+			&& (int) ( $intent_compat['slot_analysis']['missing_count'] ?? 0 ) === 1
+			&& (string) ( $intent_compat['confirm_analyzer']['intent'] ?? '' ) === 'accept_modify'
+			&& (string) ( $intent_compat['memory_spec']['scope'] ?? '' ) === 'goal_case';
+		$pass = $this->step( $ctx, $steps, 'Synthetic: V5.10 intent compatibility envelope', $intent_compat_ok ? 'pass' : 'fail', $intent_compat_ok ? 'Deterministic Slot/Clarify/Confirm/Memory adapter is available without provider or DB writes.' : 'Intent compatibility envelope is missing or inconsistent.' ) && $pass;
 
 		$explicit = class_exists( 'BizCity_Scheduler_Notify_Target_Resolver' )
 			? BizCity_Scheduler_Notify_Target_Resolver::resolve( array( 'user_id' => 0 ), array( 'notify' => array( 'target' => array( 'platform' => 'zalo_bot', 'chat_id' => 'zalobot_probe' ) ), 'inbound' => array( 'platform' => 'zalo_bot', 'chat_id' => 'zalobot_other' ) ) )
@@ -318,6 +370,22 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 	}
 
 	private function live_canary( $ctx, array &$steps, array &$evidence ): bool {
+		// [2026-08-19 Johnny Chu] MPR-V5-CANARY — route live canary by explicit diagnostics surface while keeping zalo_bot as the default.
+		$surface = strtolower( trim( (string) $ctx->option( 'live_surface', 'zalo_bot' ) ) );
+		if ( $surface === 'zalo' ) {
+			$surface = 'zalo_bot';
+		}
+		if ( $surface === '' || $surface === 'zalo_bot' ) {
+			return $this->live_canary_zalo( $ctx, $steps, $evidence );
+		}
+		if ( $surface === 'twinchat' ) {
+			return $this->live_canary_twinchat( $ctx, $steps, $evidence );
+		}
+		$this->step( $ctx, $steps, 'Live canary surface gate', 'fail', 'Unsupported live surface: ' . $surface . '. Allowed: zalo_bot, twinchat.' );
+		return false;
+	}
+
+	private function live_canary_zalo( $ctx, array &$steps, array &$evidence ): bool {
 		// [2026-08-16 Johnny Chu] MPR-V5-CANARY — direct linked Zalo Bot only; never target group, Zone 1 or unlinked identity.
 		$chat_id = trim( (string) $ctx->option( 'chat_id', '' ) );
 		$account_id = trim( (string) $ctx->option( 'account_id', '' ) );
@@ -464,6 +532,7 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 		);
 		$evidence['trace_id'] = $trace_id;
 		$evidence['mode'] = 'live';
+		$evidence['live_surface'] = 'zalo_bot';
 		$evidence['run_ids'] = array_values( array_unique( array_map( 'strval', $captured['enqueued'] ) ) );
 		$evidence['node_ids'] = array_values( array_unique( $logged_nodes ) );
 		$evidence['dedupe_keys'] = array( 'inbound:' . substr( sha1( $message_id ), 0, 12 ), 'notice:' . substr( sha1( $trace_id . '|progress' ), 0, 12 ) );
@@ -513,6 +582,155 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 		return $ok;
 	}
 
+	private function live_canary_twinchat( $ctx, array &$steps, array &$evidence ): bool {
+		// [2026-08-19 Johnny Chu] MPR-V5-CANARY — TwinChat live canary validates Runtime trace correlation and compatibility stages without external side effects.
+		$wp_user_id = (int) $ctx->option( 'wp_user_id', 0 );
+		$message_id = trim( (string) $ctx->option( 'message_id', '' ) );
+		$session_id = trim( (string) $ctx->option( 'session_id', '' ) );
+		$prompt = trim( (string) $ctx->option( 'prompt', '' ) );
+		if ( $session_id === '' ) {
+			$session_seed = $message_id !== '' ? $message_id : (string) microtime( true );
+			$session_id = 'diag_twinchat_' . $wp_user_id . '_' . substr( sha1( $session_seed ), 0, 12 );
+		}
+		if ( $prompt === '' ) {
+			$prompt = 'TwinChat live canary health check';
+		}
+		if ( $wp_user_id <= 0 || $message_id === '' ) {
+			$this->step( $ctx, $steps, 'Live canary TwinChat input gate', 'fail', 'TwinChat canary requires wp_user_id > 0 and a non-empty message_id.' );
+			return false;
+		}
+		if ( ! class_exists( 'BizCity_TwinBrain_Runtime' ) ) {
+			$this->step( $ctx, $steps, 'Live canary TwinChat runtime gate', 'fail', 'BizCity_TwinBrain_Runtime is not loaded.' );
+			return false;
+		}
+
+		$runtime = BizCity_TwinBrain_Runtime::instance();
+		$captured = array(
+			'trace_ids' => array(),
+			'stages' => array(),
+			'events' => array(),
+			'turn_complete' => false,
+			'error' => false,
+		);
+		$listener = function ( $event_key, $payload ) use ( &$captured ) {
+			$row = is_array( $payload ) ? $payload : array();
+			$trace_id = '';
+			if ( isset( $row['trace_id'] ) ) {
+				$trace_id = (string) $row['trace_id'];
+			} elseif ( isset( $row['data'] ) && is_array( $row['data'] ) && isset( $row['data']['trace_id'] ) ) {
+				$trace_id = (string) $row['data']['trace_id'];
+			}
+			if ( $trace_id !== '' ) {
+				$captured['trace_ids'][] = $trace_id;
+			}
+			if ( (string) $event_key === 'decision' ) {
+				$stage = '';
+				if ( isset( $row['stage'] ) ) {
+					$stage = (string) $row['stage'];
+				} elseif ( isset( $row['data'] ) && is_array( $row['data'] ) && isset( $row['data']['stage'] ) ) {
+					$stage = (string) $row['data']['stage'];
+				}
+				if ( $stage !== '' ) {
+					$captured['stages'][] = $stage;
+				}
+			}
+			if ( (string) $event_key === 'turn_complete' ) {
+				$captured['turn_complete'] = true;
+			}
+			if ( (string) $event_key === 'error' ) {
+				$captured['error'] = true;
+			}
+			if ( count( $captured['events'] ) < 40 ) {
+				$captured['events'][] = (string) $event_key;
+			}
+		};
+
+		$start = array();
+		$done = array();
+		add_action( 'bizcity_twin_event', $listener, 99, 2 );
+		try {
+			$opts = array(
+				'user_id' => $wp_user_id,
+				'subject_id' => $wp_user_id,
+				'session_id' => $session_id,
+				'surface' => 'twinchat',
+				'channel' => 'TWINCHAT',
+				'platform' => 'TWINCHAT',
+				'goal_signal' => 'request',
+				'answer_depth' => 'balanced',
+				'source' => 'diagnostics_live_canary',
+			);
+			$start = $runtime->start_turn( $prompt, $opts );
+			$trace_id = (string) ( $start['trace_id'] ?? '' );
+			if ( $trace_id === '' ) {
+				$this->step( $ctx, $steps, 'Live canary TwinChat start_turn', 'fail', 'start_turn did not return trace_id.' );
+				return false;
+			}
+			$complete_opts = array_merge( $opts, array(
+				'guru_id' => (int) ( $start['guru_id'] ?? 0 ),
+				'tool_force' => (string) ( $start['tool_force'] ?? '' ),
+				'goal_loop_state' => (array) ( $start['goal_loop_state'] ?? array() ),
+				'goal_loop' => (array) ( $start['goal_loop_state'] ?? array() ),
+				'goal_contract' => (array) ( $start['goal_contract'] ?? array() ),
+				'pre_mpr_triage' => (array) ( $start['pre_mpr_triage'] ?? array() ),
+				'prompt_intent' => (array) ( $start['prompt_intent'] ?? $start['pre_mpr_triage'] ?? array() ),
+				'intent_compat' => (array) ( $start['intent_compat'] ?? array() ),
+				'answer_depth' => (string) ( $start['answer_depth'] ?? 'balanced' ),
+				'identity_uuid' => (string) ( $start['identity_uuid'] ?? '' ),
+			) );
+			$done = $runtime->complete_turn(
+				$trace_id,
+				$prompt,
+				(array) ( $start['candidates'] ?? array() ),
+				(array) ( $start['tool_candidates'] ?? array() ),
+				$complete_opts
+			);
+		} catch ( \Throwable $e ) {
+			$this->step( $ctx, $steps, 'Live canary TwinChat execution', 'fail', 'TwinChat canary threw exception: ' . $e->getMessage() );
+			return false;
+		} finally {
+			remove_action( 'bizcity_twin_event', $listener, 99 );
+		}
+
+		$trace_id = (string) ( $start['trace_id'] ?? '' );
+		$trace_ids = array_values( array_unique( array_map( 'strval', (array) $captured['trace_ids'] ) ) );
+		$stage_ids = array_values( array_unique( array_map( 'strval', (array) $captured['stages'] ) ) );
+		$trace_ok = count( $trace_ids ) === 1 && (string) $trace_ids[0] === $trace_id;
+		$intent_stage_ok = in_array( 'prompt_intent_detected', $stage_ids, true );
+		$compat_stage_ok = in_array( 'intent_compat_ready', $stage_ids, true ) || ! empty( $start['intent_compat'] );
+		$gate_stage_ok = in_array( 'final_gate_decision', $stage_ids, true );
+		$answer_md = (string) ( $done['synthesis']['answer_md'] ?? $done['answer'] ?? $done['final_text'] ?? '' );
+		$complete_ok = is_array( $done ) && ( ! empty( $done['synthesis'] ) || $answer_md !== '' || ! empty( $captured['turn_complete'] ) ) && empty( $captured['error'] );
+
+		$this->step( $ctx, $steps, 'Live canary TwinChat: trace correlation', $trace_ok ? 'pass' : 'fail', $trace_ok ? 'All captured event frames keep one trace_id.' : 'Captured TwinChat events are missing or trace_id mismatched.' );
+		$stage_ok = $intent_stage_ok && $compat_stage_ok && $gate_stage_ok;
+		$this->step( $ctx, $steps, 'Live canary TwinChat: semantic stage chain', $stage_ok ? 'pass' : 'fail', $stage_ok ? 'prompt_intent_detected → intent_compat_ready → final_gate_decision observed.' : 'TwinChat semantic stages are incomplete in live capture.' );
+		$this->step( $ctx, $steps, 'Live canary TwinChat: terminal completion', $complete_ok ? 'pass' : 'fail', $complete_ok ? 'Runtime completed turn without event-bus error.' : 'Runtime did not reach a terminal completion state.' );
+
+		$ok = $trace_ok && $stage_ok && $complete_ok;
+		$evidence['trace_id'] = $trace_id !== '' ? $trace_id : 'live_mpr_v5_twinchat_' . substr( sha1( $session_id . '|' . $message_id ), 0, 20 );
+		$evidence['mode'] = 'live';
+		$evidence['live_surface'] = 'twinchat';
+		$evidence['run_ids'] = array();
+		$evidence['node_ids'] = $stage_ids;
+		$evidence['dedupe_keys'] = array(
+			'inbound:' . substr( sha1( $message_id ), 0, 12 ),
+			'session:' . substr( sha1( $session_id ), 0, 12 ),
+		);
+		$evidence['target_source'] = 'twinchat_session';
+		$evidence['provider_outcome_buckets'] = array( $answer_md !== '' ? 'answer_generated' : 'answer_empty' );
+		$evidence['negative_cases'] = array(
+			'duplicate_inbound' => 'n/a',
+			'group' => 'n/a',
+			'unlinked' => 'n/a',
+			'zone1' => 'n/a',
+		);
+		$evidence['terminal_result_observed'] = $complete_ok && $gate_stage_ok;
+		$evidence['recursive_enqueue_count'] = 0;
+		$evidence['external_side_effect_duplicate_count'] = 0;
+		return $ok;
+	}
+
 	private function all_outbound_trace_matches( array $outbound, string $trace_id ): bool {
 		foreach ( $outbound as $row ) {
 			if ( (string) ( $row['trace_id'] ?? '' ) !== $trace_id ) {
@@ -532,7 +750,7 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 
 	private function sanitize_evidence( array $evidence ): array {
 		// [2026-08-16 Johnny Chu] MPR-V5-DDV — evidence contains hashes/buckets only; no prompt, PII, token, URL or stack trace.
-		$allowed = array( 'trace_id', 'mode', 'status', 'live_status', 'events', 'run_ids', 'node_ids', 'dedupe_keys', 'target_source', 'provider_outcome_buckets', 'negative_cases', 'terminal_result_observed', 'recursive_enqueue_count', 'external_side_effect_duplicate_count' );
+		$allowed = array( 'trace_id', 'mode', 'status', 'live_status', 'live_surface', 'events', 'run_ids', 'node_ids', 'dedupe_keys', 'target_source', 'provider_outcome_buckets', 'negative_cases', 'terminal_result_observed', 'recursive_enqueue_count', 'external_side_effect_duplicate_count' );
 		return array_intersect_key( $evidence, array_flip( $allowed ) );
 	}
 

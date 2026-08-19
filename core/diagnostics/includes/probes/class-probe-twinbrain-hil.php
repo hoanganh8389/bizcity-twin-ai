@@ -334,6 +334,17 @@ final class BizCity_Probe_TwinBrain_HIL implements BizCity_Diagnostics_Probe {
 			&& ! empty( $media_confirm['state']['media_candidate_confirmed'] );
 		$pass = $this->step( $ctx, $steps, 'Runtime: media candidate requires explicit confirmation', $media_ok, $media_ok ? 'Scoped image candidate is selected first and becomes ready only after confirmation.' : 'Media candidate reached ready without explicit confirmation or lost its scoped id.' ) && $pass;
 
+		$media_choose_other = BizCity_TwinBrain_HIL_Runtime::step( $media_valid['spec'], $media_state, 'chọn ảnh khác', $media_candidates );
+		$media_choose_other_ok = (string) ( $media_choose_other['action'] ?? '' ) === 'ask'
+			&& (string) ( $media_choose_other['slot_filled'] ?? '' ) === ''
+			&& (string) ( $media_choose_other['state']['pending_slot_id'] ?? '' ) === 'source_image';
+		$pass = $this->step( $ctx, $steps, 'Runtime: media select-other keeps pending slot', $media_choose_other_ok, $media_choose_other_ok ? 'Explicit "chọn ảnh khác" keeps the same media slot pending and waits for a new upload.' : 'Select-other intent did not keep the media slot pending.' ) && $pass;
+
+		$media_no_candidate = BizCity_TwinBrain_HIL_Runtime::step( $media_valid['spec'], $media_state, '' );
+		$media_no_candidate_ok = (string) ( $media_no_candidate['action'] ?? '' ) === 'reask'
+			&& strpos( (string) ( $media_no_candidate['question'] ?? '' ), 'ảnh/tệp' ) !== false;
+		$pass = $this->step( $ctx, $steps, 'Runtime: media missing candidate asks for upload', $media_no_candidate_ok, $media_no_candidate_ok ? 'When no candidate exists, the runtime asks the user to upload/send a file before continuing.' : 'No-candidate media prompt did not ask for a new upload.' ) && $pass;
+
 		return $pass;
 	}
 

@@ -118,6 +118,7 @@ final class BizCity_Automation_LLM_MPR_Think extends BizCity_Automation_Block_Ba
 		$events   = array();
 		$on_event = function ( $event_key, $payload ) use ( $run_id, &$events ) {
 			// [2026-08-11 Johnny Chu] PHASE-TBR-NOTE-THUKY-ZALO — retain compact Goal/Notebook evidence for Zalo workflow audit without leaking raw context.
+			// [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — keep Intent Compat telemetry visible in compact event summaries.
 			$summary = is_array( $payload ) ? array_intersect_key( $payload, array_flip( array(
 				'trace_id', 'tool', 'tool_slug', 'guru_id', 'guru_label',
 				'latency_ms', 'k', 'score', 'reason', 'decision',
@@ -125,7 +126,8 @@ final class BizCity_Automation_LLM_MPR_Think extends BizCity_Automation_Block_Ba
 				'goal_id', 'scoreboard_version', 'obligation_count',
 				'answer_depth', 'notebook_count', 'passage_count',
 				'final_context_count', 'rerank_degraded', 'degraded',
-				'route', 'success',
+				'route', 'success', 'compat_version', 'clarify_needed',
+				'slot_missing_count', 'confirm_intent', 'memory_scope',
 			) ) ) : array( '_raw' => $payload );
 			$events[] = array( 'event_key' => $event_key, 'summary' => $summary );
 			// Stream sang automation_logs với block_id sub-key để FE phân biệt.
@@ -167,6 +169,9 @@ final class BizCity_Automation_LLM_MPR_Think extends BizCity_Automation_Block_Ba
 			'command'      => $command,
 			'goal_case'    => (string) ( $opts['goal_case'] ?? '' ),
 			'answer_depth' => (string) ( $opts['answer_depth'] ?? '' ),
+			// [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — expose migration envelope for downstream workflow nodes.
+			'prompt_intent' => is_array( $result['prompt_intent'] ?? null ) ? $result['prompt_intent'] : array(), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — keep canonical Prompt Intent for Zalo workflow-by-workflow migration.
+			'intent_compat' => is_array( $result['intent_compat'] ?? null ) ? $result['intent_compat'] : array(), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — expose deterministic Slot/Clarify/Confirm/Memory envelope to downstream blocks.
 			'thinking_md'  => self::compose_thinking( $events ),
 			'citations'    => is_array( $result['citations'] ?? null ) ? $result['citations'] : array(),
 			'events'       => $events,

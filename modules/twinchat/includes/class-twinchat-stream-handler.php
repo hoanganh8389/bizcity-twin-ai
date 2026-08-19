@@ -268,6 +268,8 @@ class BizCity_TwinChat_Stream_Handler {
 			'goal_contract'      => (array) ( $start['goal_contract'] ?? array() ), // [2026-08-05 Johnny Chu] V3.1 — forward frozen contract into Runtime stream.
 			'answer_depth'       => (string) ( $start['answer_depth'] ?? $runtime_opts['answer_depth'] ?? 'high' ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve resolved tier across completion.
 			'pre_mpr_triage'     => (array) ( $start['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve ambiguous/MPR branch.
+			'prompt_intent'      => (array) ( $start['prompt_intent'] ?? $start['pre_mpr_triage'] ?? array() ), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — keep canonical Prompt Intent in stream completion opts.
+			'intent_compat'      => (array) ( $start['intent_compat'] ?? array() ), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — forward compatibility envelope to stream completion surfaces.
 			'ambiguous_no_goal'  => ! empty( $start['ambiguous_no_goal'] ),
 			'goal_loop_brief'    => (string) ( $start['goal_loop_brief'] ?? '' ),
 			'subject_contract'   => (array) ( $start['subject_contract'] ?? array() ),
@@ -295,6 +297,20 @@ class BizCity_TwinChat_Stream_Handler {
 			'reason_code'       => (string) ( $triage_sse['reason_code'] ?? '' ),
 			'mpr_dispatched'    => ( (string) ( $triage_sse['route'] ?? 'mpr' ) === 'mpr' ),
 		) );
+		$intent_compat = (array) ( $start['intent_compat'] ?? array() );
+		if ( ! empty( $intent_compat ) ) {
+			// [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — surface compatibility migration stage in TwinChat SSE even though start_turn happens before stream writer attach.
+			$this->emit( 'decision', array(
+				'trace_id'           => (string) $start['trace_id'],
+				'stage'              => 'intent_compat_ready',
+				'compat_version'     => (string) ( $intent_compat['compat_version'] ?? 'twin_intent_compat.v1' ),
+				'intent_id'          => (string) ( $intent_compat['intent_id'] ?? '' ),
+				'clarify_needed'     => ! empty( $intent_compat['clarify_gate']['should_clarify'] ),
+				'slot_missing_count' => (int) ( $intent_compat['slot_analysis']['missing_count'] ?? 0 ),
+				'confirm_intent'     => (string) ( $intent_compat['confirm_analyzer']['intent'] ?? 'modify' ),
+				'memory_scope'       => (string) ( $intent_compat['memory_spec']['scope'] ?? 'session' ),
+			) );
+		}
 		$runtime->complete_turn_stream(
 			(string) $start['trace_id'],
 			$prompt,

@@ -159,9 +159,11 @@ final class BizCity_TwinBrain_Progress_Notice_Projector {
 		$action = sanitize_key( (string) ( $result['action'] ?? '' ) );
 		$slot_id = sanitize_key( (string) ( $result['slot_id'] ?? $state['pending_slot_id'] ?? '' ) );
 		$slot_label = $slot_id;
+		$slot_type = 'text';
 		foreach ( (array) ( $spec['slots'] ?? array() ) as $slot ) {
 			if ( sanitize_key( (string) ( $slot['id'] ?? '' ) ) === $slot_id ) {
 				$slot_label = self::safe_label( (string) ( $slot['label'] ?? $slot_id ), 'thông tin cần thiết' );
+				$slot_type = sanitize_key( (string) ( $slot['type'] ?? 'text' ) );
 				break;
 			}
 		}
@@ -194,6 +196,20 @@ final class BizCity_TwinBrain_Progress_Notice_Projector {
 		if ( ! in_array( $action, array( 'ask', 'reask', 'reask_confirm', 'confirm' ), true ) ) {
 			return;
 		}
+		$media_candidate_count = max( 0, (int) ( $result['media_candidate_count'] ?? 0 ) );
+		if ( in_array( $slot_type, array( 'image', 'file' ), true ) && $media_candidate_count > 0 && in_array( $action, array( 'ask', 'reask' ), true ) ) {
+			// [2026-08-19 Johnny Chu] PHASE-TWINBRAIN-V5.9 — show candidate-found milestone before waiting so users can choose by index or request another file.
+			$candidate_message = $media_candidate_count === 1
+				? '🖼️ Em đã tìm thấy 1 tệp đính kèm phù hợp. Bạn có thể trả lời "chọn 1" hoặc "chọn ảnh khác".'
+				: '🖼️ Em đã tìm thấy ' . $media_candidate_count . ' tệp đính kèm phù hợp. Bạn trả lời "chọn số" hoặc "chọn ảnh khác".';
+			self::send_once( $chat_id, 'hil-media|' . $hil_id . '|' . (int) ( $state['turn_count'] ?? 0 ) . '|found|' . $slot_id, $candidate_message, array(
+				'status'       => 'started',
+				'notice_stage' => 'hil_evidence_candidate_found',
+				'hil_id'       => $hil_id,
+				'slot_id'      => $slot_id,
+				'count'        => $media_candidate_count,
+			) );
+		}
 		if ( $action === 'reask' || $action === 'reask_confirm' ) {
 			self::send_once( $chat_id, 'hil-slot|' . $hil_id . '|' . (int) ( $state['turn_count'] ?? 0 ) . '|invalid', '⚠️ Thông tin cho ' . $slot_label . ' chưa hợp lệ. Bạn kiểm tra và gửi lại giúp mình.', array(
 				'status'       => 'failed',
@@ -206,6 +222,13 @@ final class BizCity_TwinBrain_Progress_Notice_Projector {
 		$message = $action === 'confirm'
 			? '🔎 Đã đủ dữ liệu. Vui lòng xác nhận thông tin trước khi thực hiện.'
 			: sprintf( '⏳ Đang chờ %s. Tiến độ %d/%d thông tin.', $slot_label, $filled, max( $required, $filled ) );
+		if ( in_array( $slot_type, array( 'image', 'file' ), true ) && $action !== 'confirm' ) {
+			if ( $media_candidate_count > 0 ) {
+				$message = '⏳ Đang chờ bạn chọn tệp cho ' . $slot_label . '. Trả lời "chọn số" hoặc "chọn ảnh khác".';
+			} else {
+				$message = '📎 Mình chưa thấy tệp phù hợp cho ' . $slot_label . '. Bạn gửi ảnh/tệp rồi trả lời lại để tiếp tục.';
+			}
+		}
 		self::send_once( $chat_id, 'hil-slot|' . $hil_id . '|' . (int) ( $state['turn_count'] ?? 0 ) . '|waiting', $message, array(
 			'status'       => 'waiting_user',
 			'notice_stage' => $action === 'confirm' ? 'hil_confirmation_requested' : 'hil_waiting_user',

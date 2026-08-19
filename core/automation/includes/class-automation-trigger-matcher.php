@@ -2052,6 +2052,20 @@ final class BizCity_Automation_Trigger_Matcher {
 		if ( class_exists( 'BizCity_TwinBrain_Media_Candidate_Resolver' ) ) {
 			// [2026-08-16 Johnny Chu] MPR-V5-MEDIA — attach safe candidate metadata to the HIL envelope; selection still requires explicit confirmation.
 			$attachments = (array) ( $payload['attachments'] ?? ( $payload['_resume']['attachments'] ?? array() ) );
+			// [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — compatibility read window for legacy pending payloads that only persisted attachment_url/media_url.
+			if ( empty( $attachments ) ) {
+				$legacy_attachment_url = trim( (string) ( $payload['_resume']['attachment_url'] ?? $payload['attachment_url'] ?? '' ) );
+				$legacy_media_url = trim( (string) ( $payload['media_url'] ?? '' ) );
+				$fallback_url = $legacy_attachment_url !== '' ? $legacy_attachment_url : $legacy_media_url;
+				if ( $fallback_url !== '' ) {
+					$attachments[] = array(
+						'kind'       => (string) ( $payload['media_kind'] ?? 'image' ),
+						'url'        => $fallback_url,
+						'source_url' => $fallback_url,
+						'message_id' => (string) ( $payload['mid'] ?? $payload['message_id'] ?? '' ),
+					);
+				}
+			}
 			$media_candidates = BizCity_TwinBrain_Media_Candidate_Resolver::resolve( $attachments, array(
 				'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
 				'session_id'    => (string) ( $opts['session_id'] ?? '' ),
@@ -2212,6 +2226,11 @@ final class BizCity_Automation_Trigger_Matcher {
 		$deterministic = array_values( array_unique( array_filter( $deterministic ) ) );
 		if ( count( $deterministic ) === 1 ) {
 			return $deterministic[0];
+		}
+		// [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — V5 runtime defaults to deterministic-only product match; optional LLM matcher stays behind explicit opt-in filter.
+		$allow_llm_match = (bool) apply_filters( 'bizcity_twinbrain_v5_allow_llm_product_match', false, $reply, $catalog );
+		if ( ! $allow_llm_match ) {
+			return '';
 		}
 		if ( ! class_exists( 'BizCity_LLM_Client' ) || ! BizCity_LLM_Client::instance()->is_ready() ) {
 			return '';

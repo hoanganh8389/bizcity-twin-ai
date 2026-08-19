@@ -15,6 +15,7 @@
 defined( 'ABSPATH' ) || exit;
 
 final class BizCity_TwinBrain_HIL_Runtime {
+	const MEDIA_SELECT_OTHER = '__media_select_other__';
 
 	/**
 	 * Build the initial (turn 0) state for a compiled+validated spec.
@@ -50,6 +51,7 @@ final class BizCity_TwinBrain_HIL_Runtime {
 	public static function step( array $spec, array $state, $reply = null, array $media_candidates = array() ): array {
 		// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — one deterministic decision per turn; fail closed on ambiguous replies.
 		$state = BizCity_TwinBrain_HIL_State::normalize( $state );
+		$media_available_count = self::count_available_media_candidates( $media_candidates );
 		if ( $state['expires_at'] !== '' && strtotime( $state['expires_at'] ) !== false && strtotime( $state['expires_at'] ) <= time() && ! BizCity_TwinBrain_HIL_State::is_terminal( $state['status'] ) ) {
 			// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — resolve TTL lazily when the instance is read, never with a multisite sweep cron.
 			$expired_as = (string) ( $spec['limits']['on_timeout'] ?? 'pause' ) === 'fail' ? 'failed' : 'expired';
@@ -70,7 +72,14 @@ final class BizCity_TwinBrain_HIL_Runtime {
 		if ( $reply === '' && $state['pending_slot_id'] !== '' ) {
 			$state['turn_count']++;
 			$slot = self::find_slot( $spec, $state['pending_slot_id'] );
-			return self::maybe_timeout( $spec, $state, 'reask', (string) ( $slot['ask'] ?? '' ) );
+			$slot_type = (string) ( $slot['type'] ?? 'text' );
+			$question = in_array( $slot_type, array( 'image', 'file' ), true )
+				? self::media_slot_question( $slot, $media_available_count, false )
+				: (string) ( $slot['ask'] ?? '' );
+			return self::maybe_timeout( $spec, $state, 'reask', $question, '', array(
+				'slot_type' => $slot_type,
+				'media_candidate_count' => $media_available_count,
+			) );
 		}
 
 		$filled_slot_id = '';
@@ -80,9 +89,27 @@ final class BizCity_TwinBrain_HIL_Runtime {
 			$value = in_array( $slot_type, array( 'image', 'file' ), true )
 				? self::resolve_media_candidate( $reply, $media_candidates )
 				: ( $slot ? BizCity_TwinBrain_HIL_Extractor::extract( $slot_type, $reply, $slot ) : null );
+			if ( $value === self::MEDIA_SELECT_OTHER ) {
+				// [2026-08-19 Johnny Chu] PHASE-TWINBRAIN-V5.9 — explicit "select other image/file" keeps the same pending slot and asks for a new upload.
+				$state['pending_slot_id'] = (string) ( $state['pending_slot_id'] ?? '' );
+				$state['turn_count']++;
+				$state['media_candidate_id'] = '';
+				$state['media_candidate_confirmed'] = false;
+				$question = self::media_slot_question( $slot, $media_available_count, true );
+				return self::maybe_timeout( $spec, $state, 'ask', $question, '', array(
+					'slot_type' => $slot_type,
+					'media_candidate_count' => $media_available_count,
+				) );
+			}
 			if ( $value === null ) {
 				$state['turn_count']++;
-				return self::maybe_timeout( $spec, $state, 'reask', (string) ( $slot['ask'] ?? '' ) );
+				$question = in_array( $slot_type, array( 'image', 'file' ), true )
+					? self::media_slot_question( $slot, $media_available_count, false )
+					: (string) ( $slot['ask'] ?? '' );
+				return self::maybe_timeout( $spec, $state, 'reask', $question, '', array(
+					'slot_type' => $slot_type,
+					'media_candidate_count' => $media_available_count,
+				) );
 			}
 			$state['slot_values'][ $state['pending_slot_id'] ] = (string) $value;
 			if ( in_array( $slot_type, array( 'image', 'file' ), true ) ) {
@@ -99,7 +126,14 @@ final class BizCity_TwinBrain_HIL_Runtime {
 
 		if ( $state['pending_slot_id'] !== '' ) {
 			$slot = self::find_slot( $spec, $state['pending_slot_id'] );
-			return self::maybe_timeout( $spec, $state, 'ask', (string) ( $slot['ask'] ?? '' ), $filled_slot_id );
+			$slot_type = (string) ( $slot['type'] ?? 'text' );
+			$question = in_array( $slot_type, array( 'image', 'file' ), true )
+				? self::media_slot_question( $slot, $media_available_count, false )
+				: (string) ( $slot['ask'] ?? '' );
+			return self::maybe_timeout( $spec, $state, 'ask', $question, $filled_slot_id, array(
+				'slot_type' => $slot_type,
+				'media_candidate_count' => $media_available_count,
+			) );
 		}
 
 		if ( ! empty( $spec['completion']['final_confirmation'] ) || self::requires_media_confirmation( $spec ) ) {
@@ -136,10 +170,10 @@ final class BizCity_TwinBrain_HIL_Runtime {
 		return self::maybe_timeout( $spec, $state, 'reask_confirm', self::confirmation_question( $spec, $state ) );
 	}
 
-	private static function maybe_timeout( array $spec, array $state, string $action, string $question, string $filled_slot_id = '' ): array {
+	private static function maybe_timeout( array $spec, array $state, string $action, string $question, string $filled_slot_id = '', array $extra = array() ): array {
 		$max_turns = max( 1, (int) ( $spec['limits']['max_turns'] ?? 8 ) );
 		if ( $state['turn_count'] <= $max_turns ) {
-			return self::result( $state, $action, $question, $state['pending_slot_id'], $spec, $filled_slot_id );
+			return self::result( $state, $action, $question, $state['pending_slot_id'], $spec, $filled_slot_id, $extra );
 		}
 		// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — enforce the compiled turn budget instead of looping forever.
 		$on_timeout = (string) ( $spec['limits']['on_timeout'] ?? 'pause' );
@@ -181,8 +215,11 @@ final class BizCity_TwinBrain_HIL_Runtime {
 	private static function resolve_media_candidate( string $reply, array $candidates ) {
 		// [2026-08-16 Johnny Chu] MPR-V5-MEDIA — accept only an available candidate id/index from the scoped resolver output.
 		$reply = trim( $reply );
+		if ( self::is_media_select_other_intent( $reply ) ) {
+			return self::MEDIA_SELECT_OTHER;
+		}
 		$index = null;
-		if ( preg_match( '/(?:chọn|chon|select)?\s*(\d+)$/iu', $reply, $match ) ) {
+		if ( preg_match( '/(?:chon|chọn|select|anh|ảnh|file|tep|tệp)?\s*#?(\d+)\b/iu', $reply, $match ) ) {
 			$index = max( 1, (int) $match[1] ) - 1;
 		}
 		foreach ( array_values( $candidates ) as $candidate_index => $candidate ) {
@@ -199,6 +236,51 @@ final class BizCity_TwinBrain_HIL_Runtime {
 		return null;
 	}
 
+	private static function count_available_media_candidates( array $candidates ): int {
+		$count = 0;
+		foreach ( $candidates as $candidate ) {
+			if ( ! is_array( $candidate ) ) {
+				continue;
+			}
+			if ( (string) ( $candidate['status'] ?? '' ) === 'available' && ! empty( $candidate['context_match'] ) ) {
+				$count++;
+			}
+		}
+		return $count;
+	}
+
+	private static function media_slot_question( array $slot, int $available_count, bool $request_new_media ): string {
+		// [2026-08-19 Johnny Chu] PHASE-TWINBRAIN-V5.9 — keep media slot prompts explicit: choose candidate by number or upload a new file.
+		$base = trim( (string) ( $slot['ask'] ?? '' ) );
+		if ( $base === '' ) {
+			$base = 'Vui lòng chọn tệp đính kèm cần dùng.';
+		}
+		if ( $request_new_media ) {
+			return $base . ' Mình sẽ chờ ảnh/tệp mới từ bạn để tiếp tục.';
+		}
+		if ( $available_count > 0 ) {
+			return $base . ' Bạn có thể trả lời "chọn 1" hoặc "chọn ảnh khác" để gửi tệp mới.';
+		}
+		return $base . ' Mình chưa thấy ảnh/tệp phù hợp trong lượt này; bạn gửi ảnh/tệp rồi trả lời lại nhé.';
+	}
+
+	private static function is_media_select_other_intent( string $reply ): bool {
+		$normalized = $reply;
+		if ( function_exists( 'remove_accents' ) ) {
+			$normalized = remove_accents( $normalized );
+		}
+		if ( function_exists( 'mb_strtolower' ) ) {
+			$normalized = mb_strtolower( $normalized, 'UTF-8' );
+		} else {
+			$normalized = strtolower( $normalized );
+		}
+		$normalized = trim( preg_replace( '/\s+/u', ' ', $normalized ) );
+		if ( $normalized === '' ) {
+			return false;
+		}
+		return (bool) preg_match( '/\b(anh|file|tep|tep dinh kem)?\s*(khac|khong dung|doi)\b/u', $normalized );
+	}
+
 	private static function requires_media_confirmation( array $spec ): bool {
 		foreach ( (array) ( $spec['slots'] ?? array() ) as $slot ) {
 			if ( ! empty( $slot['required'] ) && in_array( (string) ( $slot['type'] ?? '' ), array( 'image', 'file' ), true ) ) {
@@ -208,8 +290,8 @@ final class BizCity_TwinBrain_HIL_Runtime {
 		return false;
 	}
 
-	private static function result( array $state, string $action, string $question, string $slot_id, array $spec, string $filled_slot_id = '' ): array {
-		return array(
+	private static function result( array $state, string $action, string $question, string $slot_id, array $spec, string $filled_slot_id = '', array $extra = array() ): array {
+		$payload = array(
 			'ok'        => true,
 			'state'     => $state,
 			'action'    => $action,
@@ -218,5 +300,9 @@ final class BizCity_TwinBrain_HIL_Runtime {
 			'slot_filled' => $filled_slot_id,
 			'hil_ready' => BizCity_TwinBrain_HIL_State::is_side_effect_ready( $state, $spec ),
 		);
+		if ( ! empty( $extra ) ) {
+			$payload = array_merge( $payload, $extra );
+		}
+		return $payload;
 	}
 }

@@ -122,7 +122,20 @@ final class BizCity_Automation_Action_Ask_Guru extends BizCity_Automation_Block_
 			$runtime = BizCity_TwinBrain_Runtime::instance();
 			$start = $runtime->start_turn( $query, $opts );
 			$trace_id = (string) ( $start['trace_id'] ?? '' );
-			$done = $runtime->complete_turn( $trace_id, $query, (array) ( $start['candidates'] ?? array() ), (array) ( $start['tool_candidates'] ?? array() ), array_merge( $opts, array( 'pre_mpr_triage' => (array) ( $start['pre_mpr_triage'] ?? array() ), 'goal_loop_state' => (array) ( $start['goal_loop_state'] ?? array() ), 'goal_contract' => (array) ( $start['goal_contract'] ?? array() ) ) ) );
+			$done = $runtime->complete_turn(
+				$trace_id,
+				$query,
+				(array) ( $start['candidates'] ?? array() ),
+				(array) ( $start['tool_candidates'] ?? array() ),
+				array_merge( $opts, array(
+					'pre_mpr_triage'  => (array) ( $start['pre_mpr_triage'] ?? array() ),
+					'prompt_intent'   => (array) ( $start['prompt_intent'] ?? $start['pre_mpr_triage'] ?? array() ), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — keep Prompt Intent across ask_guru completion.
+					'intent_compat'   => (array) ( $start['intent_compat'] ?? array() ), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — carry deterministic compatibility envelope.
+					'goal_loop_state' => (array) ( $start['goal_loop_state'] ?? array() ),
+					'goal_contract'   => (array) ( $start['goal_contract'] ?? array() ),
+					'answer_depth'    => (string) ( $start['answer_depth'] ?? ( $opts['answer_depth'] ?? 'balanced' ) ),
+				) )
+			);
 		} catch ( \Throwable $e ) {
 			$this->note_event( 'ask_guru_failed', array( 'guru_id' => $guru_id, 'reason' => 'runtime_error', 'error' => $e->getMessage() ) );
 			return $this->error_result( 'twin_agent_exception', 'TwinBrain không hoàn tất câu hỏi Guru.', 'Thử lại sau hoặc kiểm tra trace workflow.', 'twin_agent_exception' );

@@ -131,6 +131,33 @@ if ( function_exists( 'did_action' ) && function_exists( 'do_action' ) && ! did_
     do_action( 'init' );
 }
 
+// [2026-08-19 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI-SCHEMA - several installers
+// (channel bindings, identity hub, channel-user-linker, scheduler, automation)
+// only self-heal on 'admin_init' / 'current_screen', hooks that never fire in
+// a headless run. Firing `do_action('admin_init')` wholesale is unsafe here —
+// unrelated admin_init callbacks (e.g. dashboard redirect guards) call
+// wp_redirect()+exit() when $_GET['page'] is unset, which is always true in
+// CLI and would kill this script mid-run. Call only the known-safe static
+// installers directly instead, BEFORE probes run, so schema exists up front.
+if ( class_exists( 'BizCity_Channel_Messages', false ) ) {
+    BizCity_Channel_Messages::maybe_install();
+}
+if ( class_exists( 'BizCity_Channel_Binding', false ) ) {
+    BizCity_Channel_Binding::maybe_install();
+}
+if ( class_exists( 'BizCity_Identity_Hub', false ) ) {
+    BizCity_Identity_Hub::maybe_install();
+}
+if ( class_exists( 'BizCity_Channel_User_Linker', false ) ) {
+    BizCity_Channel_User_Linker::maybe_install();
+}
+if ( class_exists( 'BizCity_Scheduler_Manager', false ) ) {
+    BizCity_Scheduler_Manager::instance()->ensure_schema();
+}
+if ( class_exists( 'BizCity_Automation_Installer', false ) ) {
+    BizCity_Automation_Installer::ensure();
+}
+
 /* ── Discover probes ───────────────────────────────────────────────── */
 if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner' ) ) {
     fwrite( STDERR, "BizCity_Diagnostics_Smoke_Runner not loaded. Is bizcity-twin-ai active?\n" );

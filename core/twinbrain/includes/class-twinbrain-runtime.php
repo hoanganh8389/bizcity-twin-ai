@@ -893,6 +893,33 @@ class BizCity_TwinBrain_Runtime {
 			}
 		}
 
+		if ( class_exists( 'BizCity_TwinBrain_Intent_Compat_Adapter' ) ) {
+			// [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — emit one provider-free compatibility envelope without introducing a second Goal source of truth.
+			$opts['intent_compat'] = BizCity_TwinBrain_Intent_Compat_Adapter::build_from_prompt_intent(
+				(array) ( $opts['prompt_intent'] ?? $opts['pre_mpr_triage'] ?? array() ),
+				$prompt_eff,
+				array(
+					'session_id'       => (string) ( $opts['session_id'] ?? '' ),
+					'memory_scope'     => $memory_scope,
+					'goal_loop_state'  => (array) ( $opts['goal_loop_state'] ?? $opts['goal_loop'] ?? array() ),
+					'case_id'          => $case_id,
+					'subject_key'      => $subject_key,
+				)
+			);
+			$intent_compat = (array) ( $opts['intent_compat'] ?? array() );
+			$this->emit_event( 'decision', array(
+				'trace_id'            => $trace_id,
+				'stage'               => 'intent_compat_ready',
+				'stage_version'       => self::MPR_GATE_STAGE_VERSION,
+				'compat_version'      => (string) ( $intent_compat['compat_version'] ?? 'twin_intent_compat.v1' ),
+				'intent_id'           => (string) ( $intent_compat['intent_id'] ?? 'unknown.clarify' ),
+				'clarify_needed'      => ! empty( $intent_compat['clarify_gate']['should_clarify'] ),
+				'slot_missing_count'  => (int) ( $intent_compat['slot_analysis']['missing_count'] ?? 0 ),
+				'confirm_intent'      => (string) ( $intent_compat['confirm_analyzer']['intent'] ?? 'modify' ),
+				'memory_scope'        => (string) ( $intent_compat['memory_spec']['scope'] ?? 'session' ),
+			) );
+		}
+
 		return [
 			'ok'              => true,
 			'trace_id'        => $trace_id,
@@ -924,6 +951,7 @@ class BizCity_TwinBrain_Runtime {
 			'goal_loop_blocked'     => (array) ( $opts['goal_loop_blocked'] ?? array() ),
 			'goal_alignment'        => (array) ( $opts['goal_alignment'] ?? array() ),
 			'prompt_intent'         => (array) ( $opts['prompt_intent'] ?? array() ),
+			'intent_compat'         => (array) ( $opts['intent_compat'] ?? array() ),
 			'temporal_context'      => (array) ( $opts['temporal_context'] ?? array() ),
 			'answer_depth'          => (string) ( $answer_depth_cfg['depth'] ?? self::ANSWER_DEPTH_DEFAULT ), // [2026-08-06 Johnny Chu] V4-DEPTH — echo resolved depth tier so REST/stream callers forward the same value into complete_turn_stream().
 			'pre_mpr_triage'        => (array) ( $opts['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve the pre-MPR branch decision for completion callers.
