@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/twin_hil_closed.json",
+  "title": "twin_hil_closed",
+  "description": "Terminal event for one HIL Instance: ready for side effect, expired, or cancelled.",
+  "type": "object",
+  "required": ["hil_id", "session_id", "status", "closure_reason", "state"],
+  "properties": {
+    "hil_id": { "type": "string", "pattern": "^hil_[A-Za-z0-9_-]+$" },
+    "session_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["ready", "expired", "failed", "cancelled"] },
+    "closure_reason": { "type": "string", "minLength": 1 },
+    "state": { "type": "object" },
+    "identity_uuid": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -15,6 +15,8 @@ defined( 'ABSPATH' ) || exit;
 final class BizCity_TwinBrain_Goal_Loop_Runtime {
 
 	public static function pre_turn( string $prompt, array $opts ): array {
+		// [2026-08-15 Johnny Chu] MPR-V5-GOAL-TRACE — preserve the Goal Session action so Runtime can emit one canonical timeline milestone.
+		$opts['goal_loop_session_action'] = (string) ( $opts['goal_loop_session_action'] ?? '' );
 		// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G1 — resolve an existing Goal Brief before vertical routing.
 		$identity = self::identity( $opts );
 		if ( ! $identity['ready'] || ! class_exists( 'BizCity_TwinBrain_Goal_Loop_Repository' ) ) {
@@ -47,6 +49,7 @@ final class BizCity_TwinBrain_Goal_Loop_Runtime {
 					$active_goal['identity_uuid'] = $identity['identity_uuid'];
 					$goal = $active_goal;
 					$opts['goal_loop_resume_from_session_id'] = $source_session_id;
+					$opts['goal_loop_session_action'] = 'resumed';
 				} elseif ( in_array( (string) ( $decision['action'] ?? '' ), array( 'supersede', 'open_new' ), true ) && in_array( (string) ( $opts['goal_loop_choice'] ?? '' ), array( 'new', 'replace' ), true ) ) {
 					// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-P0 — make New/Replace an audited transition before bootstrapping another goal; never leave two ambiguous active goals by accident.
 					$old_goal = $active_goal;
@@ -101,6 +104,14 @@ final class BizCity_TwinBrain_Goal_Loop_Runtime {
 						return $opts;
 					}
 					$goal = array();
+				} elseif ( (string) ( $decision['action'] ?? '' ) === 'ask_resume_or_new' ) {
+					// [2026-08-16 Johnny Chu] MPR-V5-GOAL-SESSION — block cross-session carry until the user explicitly chooses resume/new/replace.
+					$opts['goal_loop_blocked'] = array(
+						'goal_id'     => (string) ( $decision['goal_id'] ?? $active_goal['goal_id'] ?? '' ),
+						'action'      => 'blocked',
+						'reason_code' => (string) ( $decision['reason'] ?? 'active_goal_in_another_session' ),
+					);
+					return $opts;
 				}
 			}
 		}
@@ -172,6 +183,8 @@ final class BizCity_TwinBrain_Goal_Loop_Runtime {
 				) );
 			if ( $event_uuid === '' ) {
 				$goal = array();
+			} else {
+				$opts['goal_loop_session_action'] = 'opened';
 			}
 		}
 		if ( empty( $goal ) ) {
@@ -333,6 +346,7 @@ final class BizCity_TwinBrain_Goal_Loop_Runtime {
 			'identity_uuid' => $identity['identity_uuid'],
 			'session_id' => $identity['session_id'],
 			'primary_goal' => $text,
+			'goal_title' => self::make_goal_title( $text ),
 			'user_intent_current' => $text,
 			'objectives' => array( array( 'id' => 'objective_1', 'label' => $text, 'status' => 'in_progress' ) ),
 			'open_loops' => array( array( 'id' => 'loop_1', 'label' => 'Làm rõ và thực hiện mục tiêu', 'status' => 'pending' ) ),
@@ -340,6 +354,13 @@ final class BizCity_TwinBrain_Goal_Loop_Runtime {
 			'status' => 'clarifying',
 			'completion_score' => 0,
 		);
+	}
+
+	private static function make_goal_title( string $text ): string {
+		// [2026-08-15 Johnny Chu] MPR-V5-GOAL-TITLE — create a short redacted title for timeline/session UI without persisting contact details.
+		$title = trim( preg_replace( '/\+?\d[\d\s().-]{7,}\d/u', '', $text ) );
+		$title = trim( preg_replace( '/\s+/u', ' ', $title ) );
+		return mb_substr( $title !== '' ? $title : 'Mục tiêu mới', 0, 80, 'UTF-8' );
 	}
 
 	private static function is_small_talk( string $text ): bool {

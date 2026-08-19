@@ -2,7 +2,8 @@
 /**
  * Probe: TwinBrain Woo BizOps foundation and Contacts identity contract.
  *
- * Read-only probe. It never creates orders, writes ledger rows or mutates Contacts.
+ * Safe probe. It never creates orders or writes ledger rows; it creates only a
+ * disposable Guru policy fixture and removes it during cleanup().
  *
  * @package Bizcity_Twin_AI
  * @subpackage Core\Diagnostics\Probes
@@ -16,6 +17,8 @@ if ( class_exists( 'BizCity_Probe_TwinBrain_Woo_Bizops', false ) ) {
 
 final class BizCity_Probe_TwinBrain_Woo_Bizops implements BizCity_Diagnostics_Probe {
 
+	private $policy_fixture_guru_id = 0;
+
 	public function id(): string { return 'core.twinbrain.woo_bizops'; }
 	public function label(): string { return 'TwinBrain Woo BizOps + Contacts Identity (DDV)'; }
 	public function description(): string { return 'Kiểm tra phone contract, Woo BizOps resolver/engine/action, event taxonomy và ledger contact_id projection.'; }
@@ -26,7 +29,7 @@ final class BizCity_Probe_TwinBrain_Woo_Bizops implements BizCity_Diagnostics_Pr
 	public function precondition(): bool { return true; }
 
 	public function run( $ctx ): array {
-		// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — read-only Disk/Loader/Runtime foundation probe.
+		// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — Disk/Loader/Runtime foundation probe.
 		$steps = array();
 		$failures = array();
 		$warnings = array();
@@ -54,6 +57,7 @@ final class BizCity_Probe_TwinBrain_Woo_Bizops implements BizCity_Diagnostics_Pr
 
 		$loader_ok = interface_exists( 'BizCity_Phone_Normalizer_Interface' )
 			&& class_exists( 'BizCity_Phone_Normalizer' )
+			&& class_exists( 'BizCity_TwinBrain_Guru_Policy' )
 			&& class_exists( 'BizCity_TwinBrain_Woo_Bizops_Resolver_Service' )
 			&& class_exists( 'BizCity_TwinBrain_Web_Woo_Bizops' )
 			&& class_exists( 'BizCity_Automation_Action_Run_Woo_Bizops' )
@@ -63,8 +67,188 @@ final class BizCity_Probe_TwinBrain_Woo_Bizops implements BizCity_Diagnostics_Pr
 			&& class_exists( 'BizCity_CRM_Identity_Conflict_Queue' )
 			&& class_exists( 'BizCity_CRM_Identity_Fixtures' )
 			&& class_exists( 'BizCity_CRM_Contacts_Unify_Backfill' );
-		$steps[] = array( 'label' => 'Loader — helper, resolver, engine, action', 'status' => $loader_ok ? 'pass' : 'fail', 'detail' => $loader_ok ? 'All foundation classes/contracts loaded.' : 'One or more foundation classes/contracts missing.' );
+		$steps[] = array( 'label' => 'Loader — helper, Guru policy, resolver, engine, action', 'status' => $loader_ok ? 'pass' : 'fail', 'detail' => $loader_ok ? 'All foundation classes/contracts loaded.' : 'One or more foundation classes/contracts missing.' );
 		if ( ! $loader_ok ) { $failures[] = 'woo_bizops_loader_missing'; }
+
+		$policy_source = file_exists( $root . '/core/twinbrain/includes/class-twinbrain-guru-policy.php' ) ? (string) file_get_contents( $root . '/core/twinbrain/includes/class-twinbrain-guru-policy.php' ) : '';
+		$web_source = file_exists( $files['engine'] ) ? (string) file_get_contents( $files['engine'] ) : '';
+		$action_source = file_exists( $files['action'] ) ? (string) file_get_contents( $files['action'] ) : '';
+		$runtime_source = file_exists( $root . '/core/twinbrain/includes/class-twinbrain-runtime.php' ) ? (string) file_get_contents( $root . '/core/twinbrain/includes/class-twinbrain-runtime.php' ) : '';
+		$policy_wiring_ok = strpos( $policy_source, 'class BizCity_TwinBrain_Guru_Policy' ) !== false
+			&& strpos( $policy_source, "CAP_WOO_BIZOPS = 'woo_bizops'" ) !== false
+			&& strpos( $policy_source, "'allowed_verticals'" ) !== false
+			&& strpos( $policy_source, 'verify_channel_binding' ) !== false
+			&& strpos( $web_source, 'BizCity_TwinBrain_Guru_Policy::decide' ) !== false
+			&& strpos( $action_source, 'BizCity_TwinBrain_Guru_Policy::decide' ) !== false
+			&& strpos( $runtime_source, "'guru_id' => (int) ( \$opts['guru_id'] ?? 0 )" ) !== false
+			&& strpos( $runtime_source, "'account_id' => (string) ( \$opts['account_id'] ?? '' )" ) !== false
+			&& strpos( $policy_source, 'verify_audience' ) !== false
+			&& strpos( $policy_source, 'verify_resource' ) !== false
+			&& strpos( $policy_source, 'min_role' ) !== false
+			&& strpos( $policy_source, 'min_plan' ) !== false
+			&& strpos( $root . '/modules/twinweb/includes/class-twinweb-rest.php', "'account_id'     => (string) get_current_blog_id()" ) !== false;
+		$steps[] = array( 'label' => 'Loader — shared Guru policy wiring', 'status' => $policy_wiring_ok ? 'pass' : 'fail', 'detail' => $policy_wiring_ok ? 'Web mode and direct action share one Guru capability decision boundary.' : 'Guru policy gateway is not wired across all Woo entrypoints.' );
+		if ( ! $policy_wiring_ok ) { $failures[] = 'woo_bizops_guru_policy_wiring_missing'; }
+
+		$deny_without_guru_ok = false;
+		if ( class_exists( 'BizCity_TwinBrain_Guru_Policy' ) ) {
+			$decision = BizCity_TwinBrain_Guru_Policy::decide( array(
+				'user_id'    => 0,
+				'guru_id'    => 0,
+				'surface'    => 'twinchat',
+				'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+			) );
+			$deny_without_guru_ok = empty( $decision['allowed'] ) && (string) ( $decision['reason'] ?? '' ) === BizCity_TwinBrain_Guru_Policy::REASON_GURU_NOT_ASSIGNED;
+		}
+		$steps[] = array( 'label' => 'Runtime — Woo denies when Guru is unresolved', 'status' => $deny_without_guru_ok ? 'pass' : 'fail', 'detail' => $deny_without_guru_ok ? 'Woo BizOps stops before resolver execution when no effective Guru exists.' : 'Missing Guru does not produce the expected fail-closed policy decision.' );
+		if ( ! $deny_without_guru_ok ) { $failures[] = 'woo_bizops_missing_guru_not_denied'; }
+
+		$stale_guru = false;
+		if ( class_exists( 'BizCity_TwinBrain_Guru_Policy' ) ) {
+			$stale_decision = BizCity_TwinBrain_Guru_Policy::decide( array(
+				'user_id'    => 0,
+				'guru_id'    => PHP_INT_MAX,
+				'surface'    => 'twinweb',
+				'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+			) );
+			$stale_guru = empty( $stale_decision['allowed'] ) && (string) ( $stale_decision['reason'] ?? '' ) === BizCity_TwinBrain_Guru_Policy::REASON_GURU_NOT_FOUND;
+		}
+		$steps[] = array( 'label' => 'Runtime — stale Guru ID is denied as not found', 'status' => $stale_guru ? 'pass' : 'fail', 'detail' => $stale_guru ? 'A Guru ID absent from the current tenant cannot become an empty-policy decision.' : 'Stale/cross-tenant Guru ID was not rejected as guru_not_found.' );
+		if ( ! $stale_guru ) { $failures[] = 'woo_bizops_stale_guru_not_denied'; }
+
+		// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — prove persisted empty/positive vertical policy with a disposable Guru fixture.
+		$policy_table = isset( $wpdb->prefix ) ? $wpdb->prefix . 'bizcity_characters' : '';
+		$policy_storage_ready = $policy_table !== ''
+			&& function_exists( 'bizcity_tbl_exists' )
+			&& bizcity_tbl_exists( $policy_table )
+			&& function_exists( 'bizcity_column_exists' )
+			&& bizcity_column_exists( $policy_table, 'allowed_verticals' )
+			&& bizcity_column_exists( $policy_table, 'min_role' )
+			&& bizcity_column_exists( $policy_table, 'min_plan' );
+		$policy_user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		$policy_capable = $policy_user_id > 0 && function_exists( 'user_can' )
+			&& ( user_can( $policy_user_id, 'manage_woocommerce' ) || user_can( $policy_user_id, 'manage_options' ) );
+		if ( ! $policy_storage_ready ) {
+			$warnings[] = 'woo_guru_policy_storage_not_provisioned';
+			$step = array( 'label' => 'Runtime — persisted Guru vertical deny/allow fixture', 'status' => 'warn', 'detail' => 'SKIP: bizcity_characters.allowed_verticals is not physically provisioned on this tenant.' );
+			$steps[] = $step;
+			$ctx->emit_step( $step );
+		} elseif ( ! $policy_capable ) {
+			$warnings[] = 'woo_guru_policy_fixture_requires_capability';
+			$step = array( 'label' => 'Runtime — persisted Guru vertical deny/allow fixture', 'status' => 'warn', 'detail' => 'SKIP: current diagnostics user lacks manage_woocommerce/manage_options.' );
+			$steps[] = $step;
+			$ctx->emit_step( $step );
+		} else {
+			$fixture_name = '__healthtest_woo_guru_policy_' . substr( md5( uniqid( 'woo_policy', true ) ), 0, 8 );
+			$fixture = BizCity_Knowledge_Database::instance()->create_character( array(
+				'name'              => $fixture_name,
+				'slug'              => sanitize_title( $fixture_name ),
+				'description'       => 'DDV fixture — safe to delete',
+				'status'            => 'draft',
+				'allowed_verticals'  => array(),
+				'min_role'          => '',
+				'min_plan'          => '',
+			) );
+			$this->policy_fixture_guru_id = is_wp_error( $fixture ) ? 0 : (int) $fixture;
+			$created_ok = $this->policy_fixture_guru_id > 0;
+			$step = array( 'label' => 'Runtime — create disposable Guru policy fixture', 'status' => $created_ok ? 'pass' : 'fail', 'detail' => $created_ok ? 'Disposable Guru fixture created.' : 'Could not create disposable Guru fixture.' );
+			$steps[] = $step;
+			$ctx->emit_step( $step );
+			if ( ! $created_ok ) {
+				$failures[] = 'woo_guru_policy_fixture_create_failed';
+			} else {
+				$deny = BizCity_TwinBrain_Guru_Policy::decide( array(
+					'user_id'    => $policy_user_id,
+					'guru_id'    => $this->policy_fixture_guru_id,
+					'surface'    => 'twinweb',
+					'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+				) );
+				$deny_ok = empty( $deny['allowed'] ) && (string) ( $deny['reason'] ?? '' ) === BizCity_TwinBrain_Guru_Policy::REASON_VERTICAL_NOT_ALLOWED;
+				$step = array( 'label' => 'Runtime — persisted empty allowlist denies Woo BizOps', 'status' => $deny_ok ? 'pass' : 'fail', 'detail' => $deny_ok ? 'allowed_verticals=[] produced vertical_not_allowed.' : 'Empty allowlist did not deny with vertical_not_allowed.' );
+				$steps[] = $step;
+				$ctx->emit_step( $step );
+				if ( ! $deny_ok ) { $failures[] = 'woo_guru_policy_empty_allowlist_not_denied'; }
+
+				$updated = BizCity_Knowledge_Database::instance()->update_character( $this->policy_fixture_guru_id, array( 'allowed_verticals' => array( 'woo_bizops' ) ) );
+				$allow = BizCity_TwinBrain_Guru_Policy::decide( array(
+					'user_id'    => $policy_user_id,
+					'guru_id'    => $this->policy_fixture_guru_id,
+					'surface'    => 'twinweb',
+					'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+				) );
+				$allow_ok = ! is_wp_error( $updated ) && ! empty( $allow['allowed'] ) && (string) ( $allow['status'] ?? '' ) === BizCity_TwinBrain_Guru_Policy::STATUS_ENFORCED;
+				$step = array( 'label' => 'Runtime — persisted Woo allowlist permits capable actor', 'status' => $allow_ok ? 'pass' : 'fail', 'detail' => $allow_ok ? 'allowed_verticals=[woo_bizops] produced enforced allow.' : 'Positive Guru Woo policy did not permit the capable actor.' );
+				$steps[] = $step;
+				$ctx->emit_step( $step );
+				if ( ! $allow_ok ) { $failures[] = 'woo_guru_policy_positive_allow_failed'; }
+
+				$user_obj = function_exists( 'get_userdata' ) ? get_userdata( $policy_user_id ) : false;
+				$user_roles = $user_obj && isset( $user_obj->roles ) ? array_map( 'sanitize_key', (array) $user_obj->roles ) : array();
+				$role_rank = array( 'subscriber' => 0, 'contributor' => 1, 'author' => 2, 'editor' => 3, 'administrator' => 4 );
+				$persisted_role = '';
+				$persisted_rank = -1;
+				foreach ( $user_roles as $user_role ) {
+					if ( isset( $role_rank[ $user_role ] ) && $role_rank[ $user_role ] > $persisted_rank ) {
+						$persisted_role = $user_role;
+						$persisted_rank = $role_rank[ $user_role ];
+					}
+				}
+				$persisted_plan = function_exists( 'apply_filters' ) ? sanitize_key( (string) apply_filters( 'bizcity_twinweb_user_tier', 'free', $policy_user_id ) ) : 'free';
+				if ( ! in_array( $persisted_plan, array( 'free', 'plus', 'pro' ), true ) ) { $persisted_plan = 'free'; }
+				$audience_saved = BizCity_Knowledge_Database::instance()->update_character( $this->policy_fixture_guru_id, array( 'min_role' => $persisted_role, 'min_plan' => $persisted_plan ) );
+				$audience_allow = BizCity_TwinBrain_Guru_Policy::decide( array(
+					'user_id' => $policy_user_id,
+					'guru_id' => $this->policy_fixture_guru_id,
+					'surface' => 'twinweb',
+					'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+				) );
+				$audience_ok = ! is_wp_error( $audience_saved ) && ! empty( $audience_allow['allowed'] );
+				$step = array( 'label' => 'Runtime — persisted Guru role/plan policy is enforced', 'status' => $audience_ok ? 'pass' : 'fail', 'detail' => $audience_ok ? 'Stored min_role/min_plan were read by the shared policy gateway.' : 'Stored Guru audience policy did not produce the expected decision.' );
+				$steps[] = $step;
+				$ctx->emit_step( $step );
+				if ( ! $audience_ok ) { $failures[] = 'woo_guru_persisted_audience_not_enforced'; }
+
+				$binding_mismatch = BizCity_TwinBrain_Guru_Policy::decide( array(
+					'user_id'    => $policy_user_id,
+					'guru_id'    => $this->policy_fixture_guru_id,
+					'surface'    => 'twinweb',
+					'platform'   => 'TWINWEB',
+					'account_id' => '__healthtest_missing_twinweb_binding__',
+					'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+				) );
+				$binding_mismatch_ok = empty( $binding_mismatch['allowed'] ) && in_array( (string) ( $binding_mismatch['reason'] ?? '' ), array( BizCity_TwinBrain_Guru_Policy::REASON_BINDING_MISMATCH, BizCity_TwinBrain_Guru_Policy::REASON_BINDING_PENDING ), true );
+				$step = array( 'label' => 'Runtime — Guru not matching channel binding is denied', 'status' => $binding_mismatch_ok ? 'pass' : 'fail', 'detail' => $binding_mismatch_ok ? 'A mismatched TWINWEB binding cannot execute the Guru Woo policy.' : 'Guru allowlist bypassed channel binding verification.' );
+				$steps[] = $step;
+				$ctx->emit_step( $step );
+				if ( ! $binding_mismatch_ok ) { $failures[] = 'woo_guru_binding_mismatch_not_denied'; }
+
+				$resource_denied = BizCity_TwinBrain_Guru_Policy::decide( array(
+					'user_id'    => $policy_user_id,
+					'guru_id'    => $this->policy_fixture_guru_id,
+					'surface'    => 'twinweb',
+					'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+					'target_resource' => array( 'scope' => 'woo', 'blog_id' => PHP_INT_MAX ),
+				) );
+				$resource_ok = empty( $resource_denied['allowed'] ) && (string) ( $resource_denied['reason'] ?? '' ) === BizCity_TwinBrain_Guru_Policy::REASON_RESOURCE_NOT_OWNED;
+				$step = array( 'label' => 'Runtime — cross-tenant Woo resource is denied', 'status' => $resource_ok ? 'pass' : 'fail', 'detail' => $resource_ok ? 'A target resource from another blog is rejected.' : 'Target resource tenant mismatch was not rejected.' );
+				$steps[] = $step;
+				$ctx->emit_step( $step );
+				if ( ! $resource_ok ) { $failures[] = 'woo_cross_tenant_resource_not_denied'; }
+
+				$role_denied = BizCity_TwinBrain_Guru_Policy::decide( array(
+					'user_id' => $policy_user_id,
+					'guru_id' => $this->policy_fixture_guru_id,
+					'surface' => 'twinweb',
+					'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+					'required_role' => '__healthtest_role__',
+				) );
+				$role_ok = empty( $role_denied['allowed'] ) && (string) ( $role_denied['reason'] ?? '' ) === BizCity_TwinBrain_Guru_Policy::REASON_ROLE_NOT_ALLOWED;
+				$step = array( 'label' => 'Runtime — unmet Guru role requirement is denied', 'status' => $role_ok ? 'pass' : 'fail', 'detail' => $role_ok ? 'An unmet required role returns role_not_allowed.' : 'Required role was not enforced.' );
+				$steps[] = $step;
+				$ctx->emit_step( $step );
+				if ( ! $role_ok ) { $failures[] = 'woo_guru_role_requirement_not_denied'; }
+			}
+		}
 
 		$rest_source = file_exists( $files['rest'] ) ? (string) file_get_contents( $files['rest'] ) : '';
 		$rest_parity_ok = strpos( $rest_source, 'keep synchronous REST mode parity with stream' ) !== false
@@ -198,6 +382,15 @@ final class BizCity_Probe_TwinBrain_Woo_Bizops implements BizCity_Diagnostics_Pr
 			'warnings' => $warnings,
 			'steps' => $steps,
 		);
+	}
+
+	public function cleanup(): void {
+		if ( $this->policy_fixture_guru_id > 0 && class_exists( 'BizCity_Knowledge_Database' ) ) {
+			// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — remove the disposable policy fixture after pass or failure.
+			BizCity_Knowledge_Database::instance()->delete_character( $this->policy_fixture_guru_id );
+			$this->policy_fixture_guru_id = 0;
+		}
+		// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — cleanup is best-effort and limited to the disposable Guru fixture above.
 	}
 
 	private function table_name( string $suffix ): string {

@@ -118,11 +118,25 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 		$result = apply_filters(
 			'bizcity_automation_send_message',
 			null,
-			array( 'channel' => 'zalo', 'chat_id' => $chat_id, 'text' => $text ),
+			array(
+				'channel' => 'zalo',
+				'chat_id' => $chat_id,
+				'text' => $text,
+				'idempotency_key' => (string) ( $data['idempotency_key'] ?? ( $ctx['_side_effect']['idempotency_key'] ?? '' ) ),
+			),
 			$ctx
 		);
 		if ( is_wp_error( $result ) ) { return $result; }
-		if ( is_array( $result ) )    { return $result; }
+		if ( is_array( $result ) ) {
+			// [2026-08-17 Johnny Chu] MPR-V5-GATE5 — legacy send filters must expose the same provider outcome contract.
+			$outcome = class_exists( 'BizCity_Automation_Side_Effect_Contract' )
+				? BizCity_Automation_Side_Effect_Contract::provider_result( $result )
+				: array( 'status' => 'sent', 'provider_request_id' => '' );
+			return array_merge( $result, array(
+				'side_effect_status'  => (string) ( $outcome['status'] ?? 'sent' ),
+				'provider_request_id' => (string) ( $outcome['provider_request_id'] ?? '' ),
+			) );
+		}
 
 		// PG-S9 — dry-run mode: KHÔNG gọi thật, chỉ emit synthetic outbound
 		// listener event để InboxLivePanel hiện bubble với badge "DRY".
@@ -140,11 +154,12 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 				'meta'       => array( 'dry' => true, 'run_id' => (string) ( $ctx['_run_id'] ?? '' ) ),
 			) );
 			return array(
-				'sent'    => true,
-				'channel' => 'zalo',
-				'chat_id' => $chat_id,
-				'dry'     => true,
-				'text'    => $text,
+				'sent'              => true,
+				'side_effect_status'=> 'sent',
+				'channel'           => 'zalo',
+				'chat_id'           => $chat_id,
+				'dry'               => true,
+				'text'              => $text,
 			);
 		}
 
@@ -152,7 +167,9 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 			return new WP_Error( 'gateway_missing', 'Channel Gateway sender chưa load.' );
 		}
 
-		$send = bizcity_channel_send( $chat_id, $text );
+		$idempotency_key = (string) ( $data['idempotency_key'] ?? ( $ctx['_side_effect']['idempotency_key'] ?? '' ) );
+		// [2026-08-17 Johnny Chu] MPR-V5-GATE5 — forward the stable side-effect key through the Gateway boundary.
+		$send = bizcity_channel_send( $chat_id, $text, 'text', array( 'idempotency_key' => $idempotency_key, 'source' => 'automation.runner' ) );
 		$ok   = is_array( $send ) && ! empty( $send['sent'] );
 		if ( ! $ok ) {
 			return new WP_Error(
@@ -161,12 +178,16 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 				array( 'send' => $send )
 			);
 		}
-		return array(
-			'sent'     => true,
-			'channel'  => 'zalo',
-			'chat_id'  => $chat_id,
-			'platform' => is_array( $send ) ? ( $send['platform'] ?? '' ) : '',
-		);
+		$outcome = class_exists( 'BizCity_Automation_Side_Effect_Contract' )
+			? BizCity_Automation_Side_Effect_Contract::provider_result( $send )
+			: array( 'status' => 'sent', 'provider_request_id' => '' );
+		return array_merge( $send, array(
+			'side_effect_status'  => (string) ( $outcome['status'] ?? 'sent' ),
+			'provider_request_id' => (string) ( $outcome['provider_request_id'] ?? ( $send['mid'] ?? '' ) ),
+			'channel'             => 'zalo',
+			'chat_id'             => $chat_id,
+			'platform'            => is_array( $send ) ? ( $send['platform'] ?? '' ) : '',
+		) );
 	}
 
 	private function resolve_owner_mychannels_zalo_target( int $owner_user_id ): array {

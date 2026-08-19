@@ -766,16 +766,24 @@ if ( ! function_exists( 'bcpro_get_astro_artifact_links' ) ) {
 }
 
 /* ----------------------------------------------------
- * Intent Provider — Sprint I, stub require for forward compat
+ * Intent Provider — Sprint I, lazy registration after Core Intent loads
  * -------------------------------------------------- */
-if ( class_exists( 'BizCity_Intent_Provider' ) ) {
-	require_once BCPRO_DIR . 'includes/coaching/class-intent-provider.php';
-	add_action( 'bizcity_intent_register_providers', function ( $registry ) {
-		if ( $registry && method_exists( $registry, 'register' ) ) {
+if ( ! function_exists( 'bcpro_register_intent_provider' ) ) {
+	function bcpro_register_intent_provider( $registry ) {
+		// [2026-08-16 Johnny Chu] R-DDV/R-PERF — register after Core Intent provider contract is available, regardless of plugin file load order.
+		if ( ! $registry || ! method_exists( $registry, 'register' ) || ! class_exists( 'BizCity_Intent_Provider' ) ) {
+			return;
+		}
+		$intent_file = BCPRO_DIR . 'includes/coaching/class-intent-provider.php';
+		if ( file_exists( $intent_file ) && ! class_exists( 'BizCoach_Pro_Intent_Provider', false ) ) {
+			require_once $intent_file;
+		}
+		if ( class_exists( 'BizCoach_Pro_Intent_Provider', false ) ) {
 			$registry->register( new BizCoach_Pro_Intent_Provider() );
 		}
-	} );
+	}
 }
+add_action( 'bizcity_intent_register_providers', 'bcpro_register_intent_provider', 20, 1 );
 
 $_bcpro_legacy_settings_action = isset( $_REQUEST['action'] )
 	? sanitize_key( (string) $_REQUEST['action'] )

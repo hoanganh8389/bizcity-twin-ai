@@ -30,6 +30,12 @@ $errors       = [];
 $warnings     = [];
 $files_seen   = 0;
 
+// [2026-08-18 Johnny Chu] R-DCL — normalize MySQL prefix-length index columns before schema lookup.
+function bizcity_schema_index_column_name( string $column ): string {
+	$normalized = preg_replace( '/\(\d+\)$/', '', trim( $column ) );
+	return is_string( $normalized ) ? $normalized : trim( $column );
+}
+
 if ( ! is_dir( $root ) ) {
 	fwrite( STDERR, "[ERR] Changelog dir not found: {$root}\n" );
 	exit( 2 );
@@ -124,7 +130,8 @@ foreach ( glob( $root . '/*.json' ) as $file ) {
 			}
 			// Index cols must reference declared columns.
 			foreach ( $idef['cols'] as $col ) {
-				if ( ! isset( $tdef['columns'][ $col ] ) ) {
+				$column_name = bizcity_schema_index_column_name( (string) $col );
+				if ( ! isset( $tdef['columns'][ $column_name ] ) ) {
 					$errors[] = "{$base}: indexes[{$iname}] references unknown column `{$col}`";
 				}
 			}

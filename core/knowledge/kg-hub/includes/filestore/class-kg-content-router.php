@@ -29,6 +29,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_KG_Content_Router {
 
 	private static $instance = null;
+	private static $failed_passage_log_keys = array();
 
 	/** Per-request memo: passage_id => body string. */
 	private $passage_cache = [];
@@ -77,15 +78,32 @@ class BizCity_KG_Content_Router {
 					if ( $id > 0 ) { $this->passage_cache[ $id ] = $body; }
 					return $body;
 				}
-				// [2026-07-29 Johnny Chu] HOTFIX — recover a valid v2 body when the offset index is stale or corrupt.
-				$scanned = BizCity_KG_Passage_File_Store::instance()->read_with_scan( $id, $uuid );
-				if ( is_array( $scanned ) && isset( $scanned['body'] ) ) {
-					$body = (string) $scanned['body'];
-					if ( $id > 0 ) { $this->passage_cache[ $id ] = $body; }
-					return $body;
+				// [2026-08-14 Johnny Chu] HOTFIX-KG-CHAT-FAILOPEN — never run an
+				// unbounded shard recovery scan inside a chat/webhook request. A
+				// malformed Markdown shard can block the whole channel before LLM send.
+				$allow_scan = (bool) apply_filters(
+					'bizcity_kg_allow_passage_scan_recovery',
+					false,
+					$row,
+					$body
+				);
+				if ( $allow_scan ) {
+					$scanned = BizCity_KG_Passage_File_Store::instance()->read_with_scan( $id, $uuid );
+					if ( is_array( $scanned ) && isset( $scanned['body'] ) ) {
+						$body = (string) $scanned['body'];
+						if ( $id > 0 ) { $this->passage_cache[ $id ] = $body; }
+						return $body;
+					}
 				}
-				// File read failed → fall through to inline if present, else log.
-				error_log( '[KG Router] passage ' . $id . ' file read failed: ' . ( is_wp_error( $body ) ? $body->get_error_message() : 'unknown' ) );
+				// File read failed → fall through to inline if present. Log only the
+				// first failure per notebook/error in this request; a broken index can
+				// affect thousands of rows and must not flood PHP logs.
+				$error_code = is_wp_error( $body ) ? (string) $body->get_error_code() : 'unknown';
+				$log_key = (int) ( $row['notebook_id'] ?? 0 ) . '|' . $error_code;
+				if ( ! isset( self::$failed_passage_log_keys[ $log_key ] ) ) {
+					self::$failed_passage_log_keys[ $log_key ] = true;
+					error_log( '[KG Router] passage file read failed; further failures suppressed for notebook=' . (int) ( $row['notebook_id'] ?? 0 ) . ' code=' . $error_code . ' first_passage=' . $id );
+				}
 			}
 		}
 

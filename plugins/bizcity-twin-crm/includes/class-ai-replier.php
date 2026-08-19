@@ -103,20 +103,38 @@ class BizCity_CRM_AI_Replier {
 		// ── Guru-on-Duty resolution: inbox(channel) → binding → character → notebooks.
 		// This is the **primary** source of truth: the Twin Guru on Duty wired in
 		// the Channel Gateway binding, and the notebooks attached on the Guru's
-		// own "Notebooks" tab. Conversation/inbox-level overrides still win.
+		// own "Notebooks" tab. Explicit request overrides still win.
 		$guru_ctx = class_exists( 'BizCity_CRM_Guru_Resolver' )
 			? BizCity_CRM_Guru_Resolver::resolve_for_inbox( $inbox )
 			: array( 'character_id' => 0, 'guru_uuid' => '', 'notebooks' => array(), 'trace' => array() );
 
-		$character_id = (int) ( $opts['character_id']
-			?? $inbox_settings['default_character_id']
-			?? $guru_ctx['character_id']
-			?? 0 );
+		$explicit_character_id = isset( $opts['character_id'] ) ? (int) $opts['character_id'] : 0;
+		$binding_character_id  = (int) ( $guru_ctx['character_id'] ?? 0 );
+		$binding_found         = ! empty( $guru_ctx['trace']['binding_found'] );
+		// [2026-08-14 Johnny Chu] PHASE-0.39 GURU-BIND — a live channel binding
+		// must outrank stale Inbox/Conversation character defaults.
+		$character_id = $explicit_character_id > 0
+			? $explicit_character_id
+			: ( $binding_character_id > 0
+				? $binding_character_id
+				: (int) ( $inbox_settings['default_character_id'] ?? 0 ) );
 
-		$notebook_id = (int) ( $opts['notebook_id']
-			?? $conv['notebook_id']
-			?? $inbox['default_notebook_id']
-			?? ( $guru_ctx['notebooks'][0] ?? 0 ) );
+		$explicit_notebook_id = isset( $opts['notebook_id'] ) ? (int) $opts['notebook_id'] : 0;
+		$guru_notebooks       = array_values( array_filter( array_map( 'intval', (array) ( $guru_ctx['notebooks'] ?? array() ) ) ) );
+		// [2026-08-14 Johnny Chu] PHASE-0.39 GURU-BIND — use the bound Guru's
+		// notebooks; a bound Guru with no notebook stays character-only instead
+		// of inheriting an unrelated legacy Inbox/Conversation notebook.
+		if ( $explicit_notebook_id > 0 ) {
+			$notebook_id = $explicit_notebook_id;
+		} elseif ( ! empty( $guru_notebooks ) ) {
+			$notebook_id = (int) $guru_notebooks[0];
+		} elseif ( $binding_found ) {
+			$notebook_id = 0;
+		} else {
+			$notebook_id = (int) ( (int) ( $conv['notebook_id'] ?? 0 ) > 0
+				? $conv['notebook_id']
+				: (int) ( $inbox['default_notebook_id'] ?? 0 ) );
+		}
 		// [2026-06-29 Johnny Chu] HOTFIX — notebook is optional when character is bound.
 		// Replying without KG retrieval is degraded but valid; only hard-fail when
 		// neither notebook NOR character is available.
@@ -145,10 +163,11 @@ class BizCity_CRM_AI_Replier {
 			throw new \RuntimeException( 'no_user_message' );
 		}
 
-		$nb_source = isset( $opts['notebook_id'] ) ? 'override'
-			: ( ! empty( $conv['notebook_id'] ) ? 'conversation'
-			: ( ! empty( $inbox['default_notebook_id'] ) ? 'inbox_default'
-			: ( ! empty( $guru_ctx['notebooks'] ) ? 'guru_attached' : 'none' ) ) );
+		$nb_source = $explicit_notebook_id > 0 ? 'override'
+			: ( ! empty( $guru_notebooks ) ? 'guru_attached'
+			: ( $binding_found ? 'guru_character_only'
+			: ( (int) ( $conv['notebook_id'] ?? 0 ) > 0 ? 'conversation'
+			: ( (int) ( $inbox['default_notebook_id'] ?? 0 ) > 0 ? 'inbox_default' : 'none' ) ) ) );
 
 		// Resolve service template (role + persona + style + length budget).
 		$svc = class_exists( 'BizCity_CRM_Service_Templates' )
@@ -244,8 +263,16 @@ class BizCity_CRM_AI_Replier {
 					'answer' => true,
 				) );
 			} catch ( \Throwable $e ) {
-				self::log( 'kg_retrieval THREW: ' . get_class( $e ) . ' — ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine() );
-				throw $e;
+				// [2026-08-14 Johnny Chu] HOTFIX-KG-CHAT-FAILOPEN — KG corruption,
+				// missing gateway config, or a stale filestore must not prevent the
+				// character/Chat Gateway path from answering the current message.
+				self::log( 'kg_retrieval THREW: ' . get_class( $e ) . ' — ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine() . ' — continuing without KG context' );
+				$rag = array(
+					'passages'       => array(),
+					'answer'         => '',
+					'retrieval_mode' => 'kg_error',
+					'steps'          => array(),
+				);
 			}
 			if ( ! is_array( $rag ) ) {
 				self::log( 'kg_retrieval returned non-array: ' . gettype( $rag ) . ' — ' . substr( wp_json_encode( $rag ), 0, 200 ) );
@@ -731,6 +758,11 @@ class BizCity_CRM_AI_Replier {
 	 * Ensure CRM webhook requests have the shared Chat Gateway runtime.
 	 */
 	private static function ensure_chat_gateway_runtime(): bool {
+		// [2026-08-13 Johnny Chu] HOTFIX — Facebook /bizfbhook/ requests can load Chat Gateway without the canonical LLM helper.
+		$llm_file = dirname( dirname( BIZCITY_CRM_DIR ) ) . '/core/bizcity-llm/bootstrap.php';
+		if ( ! function_exists( 'bizcity_llm_chat' ) && is_readable( $llm_file ) ) {
+			require_once $llm_file;
+		}
 		if ( class_exists( 'BizCity_Chat_Gateway', false ) ) {
 			return true;
 		}
@@ -786,6 +818,16 @@ class BizCity_CRM_AI_Replier {
 		// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — keep internal citations out of Messenger/Zalo delivery.
 		if ( ! in_array( strtolower( $channel ), array( 'facebook', 'zalo', 'zalo_oa', 'zalo_bot' ), true ) ) {
 			return $content;
+		}
+		// [2026-08-14 Johnny Chu] R-ERROR-UX — the Notebook source map is an
+		// internal CRM/TwinBrain trace, not customer-facing Messenger content.
+		$without_source_block = preg_replace(
+			'/\R?[ \t]*###[ \t]+Ngu(?:ồn|on)[ \t]+từ[ \t]+Notebook\b.*?(?:\R[ \t]*\*\*Cách[ \t]+đọc[ \t]+nguồn:\*\*[^\r\n]*|$)/isu',
+			'',
+			$content
+		);
+		if ( is_string( $without_source_block ) ) {
+			$content = $without_source_block;
 		}
 		if ( class_exists( 'BizCity_Guru_Citation_Formatter' ) ) {
 			return trim( BizCity_Guru_Citation_Formatter::strip( $content ) );

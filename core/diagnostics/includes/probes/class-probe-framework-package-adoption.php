@@ -38,13 +38,17 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 			'plugins/bizcity-pagebuilder/includes/class-rest-api.php',
 			'plugins/bizcity-pagebuilder/includes/class-submission-handler.php',
 		);
+		$pagebuilder_transport_files = array(
+			'plugins/bizcity-pagebuilder/app/src/api.ts',
+			'plugins/bizcity-pagebuilder/assets/dist/pagebuilder-app.js',
+		);
 		$video_files = array(
 			'plugins/bizcity-video-kling/lib/kling_api.php',
 			'plugins/bizcity-video-kling/includes/class-tools-kling.php',
 			'core/bizcity-llm/includes/class-video-client.php',
 		);
 		$missing = array();
-		foreach ( array_merge( $pagebuilder_files, $video_files ) as $relative ) {
+		foreach ( array_merge( $pagebuilder_files, $pagebuilder_transport_files, $video_files ) as $relative ) {
 			if ( ! is_readable( $root . $relative ) ) {
 				$missing[] = $relative;
 			}
@@ -60,6 +64,7 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 
 		$pagebuilder_source = $this->read_sources( $root, $pagebuilder_files );
 		$video_source       = $this->read_sources( $root, $video_files );
+		$pagebuilder_transport_source = $this->read_sources( $root, $pagebuilder_transport_files );
 		$pagebuilder_static = false !== strpos( $pagebuilder_source, 'BizCity_Error_Payload' )
 			&& false !== strpos( $pagebuilder_source, 'send_submission_error' )
 			&& false !== strpos( $pagebuilder_source, 'rest_error' );
@@ -69,10 +74,14 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 			&& false === strpos( $video_source, 'api.piapi.ai' )
 			&& false === strpos( $video_source, 'api.openai.com' )
 			&& false !== strpos( $video_source, 'BizCity_Video_Client' );
+		$pagebuilder_transport_static = false !== strpos( $pagebuilder_transport_source, 'saveProject' )
+			&& false !== strpos( $pagebuilder_transport_source, 'deleteProject' )
+			&& false !== strpos( $pagebuilder_transport_source, 'publishProject' )
+			&& false !== strpos( $pagebuilder_transport_source, 'X-Idempotency-Key' );
 		$steps[] = array(
 			'label'  => 'Disk — package boundary markers and provider quarantine',
-			'status' => $pagebuilder_static && $video_static ? 'pass' : 'fail',
-			'detail' => wp_json_encode( array( 'pagebuilder_error_boundary' => $pagebuilder_static, 'video_provider_quarantine' => $video_static ) ),
+			'status' => $pagebuilder_static && $video_static && $pagebuilder_transport_static ? 'pass' : 'fail',
+			'detail' => wp_json_encode( array( 'pagebuilder_error_boundary' => $pagebuilder_static, 'pagebuilder_mutation_transport' => $pagebuilder_transport_static, 'video_provider_quarantine' => $video_static ) ),
 		);
 
 		$loaded = class_exists( 'BizCity_Error_Payload' )
@@ -137,6 +146,18 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 		$pagebuilder_error_ok = isset( $pagebuilder_data['code'], $pagebuilder_data['message'], $pagebuilder_data['hint'], $pagebuilder_data['help_code'] )
 			&& 'llm_error' === (string) $pagebuilder_data['code']
 			&& false === strpos( (string) $pagebuilder_data['message'], 'Raw provider' );
+		// [2026-08-13 Johnny Chu] PHASE-1.24-DDV — preserve PageBuilder mutation error mapping and help catalog key.
+		$pagebuilder_mutation_error = BZPB_Rest_API::normalize_rest_error(
+			new WP_Error( 'mutation_contract_invalid', 'Missing mutation header.', array( 'status' => 400 ) ),
+			null,
+			new WP_REST_Request( 'POST', '/bzpb/v1/save' )
+		);
+		$pagebuilder_mutation_data = is_object( $pagebuilder_mutation_error ) && method_exists( $pagebuilder_mutation_error, 'get_data' )
+			? (array) $pagebuilder_mutation_error->get_data()
+			: array();
+		$pagebuilder_mutation_error_ok = isset( $pagebuilder_mutation_data['code'], $pagebuilder_mutation_data['help_code'] )
+			&& 'invalid_param' === (string) $pagebuilder_mutation_data['code']
+			&& 'mutation_contract_invalid' === (string) $pagebuilder_mutation_data['help_code'];
 		$pagebuilder_missing_upload = BZPB_Rest_API::handle_upload_image( new WP_REST_Request( 'POST', '/bzpb/v1/upload-image' ) );
 		$pagebuilder_missing_data = is_object( $pagebuilder_missing_upload ) && method_exists( $pagebuilder_missing_upload, 'get_data' )
 			? (array) $pagebuilder_missing_upload->get_data()
@@ -216,8 +237,8 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 		}
 		$steps[] = array(
 			'label'  => 'Runtime — PageBuilder mutation allow/deny and error contract',
-			'status' => $error_contract_ok && $mutation_ok && $mutation_denied_ok && $pagebuilder_error_ok && $pagebuilder_upload_ok && $pagebuilder_invalid_upload_ok && $pagebuilder_attachment_failure_ok && $mutation_store_ok ? 'pass' : 'fail',
-			'detail' => wp_json_encode( array( 'error_contract' => $error_contract_ok, 'mutation_allowed' => $mutation_ok, 'mutation_denied_before_side_effect' => $mutation_denied_ok, 'rest_error_boundary' => $pagebuilder_error_ok, 'missing_upload_envelope' => $pagebuilder_upload_ok, 'invalid_mime_envelope' => $pagebuilder_invalid_upload_ok, 'attachment_failure_envelope' => $pagebuilder_attachment_failure_ok, 'mutation_store_replay_conflict' => $mutation_store_ok ) ),
+			'status' => $error_contract_ok && $mutation_ok && $mutation_denied_ok && $pagebuilder_error_ok && $pagebuilder_mutation_error_ok && $pagebuilder_upload_ok && $pagebuilder_invalid_upload_ok && $pagebuilder_attachment_failure_ok && $mutation_store_ok ? 'pass' : 'fail',
+			'detail' => wp_json_encode( array( 'error_contract' => $error_contract_ok, 'mutation_allowed' => $mutation_ok, 'mutation_denied_before_side_effect' => $mutation_denied_ok, 'rest_error_boundary' => $pagebuilder_error_ok, 'mutation_error_mapping' => $pagebuilder_mutation_error_ok, 'missing_upload_envelope' => $pagebuilder_upload_ok, 'invalid_mime_envelope' => $pagebuilder_invalid_upload_ok, 'attachment_failure_envelope' => $pagebuilder_attachment_failure_ok, 'mutation_store_replay_conflict' => $mutation_store_ok ) ),
 		);
 
 		$captured              = array();
@@ -345,7 +366,7 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 			) ),
 		);
 
-		$status = $pagebuilder_static && $video_static && $error_contract_ok && $mutation_ok && $mutation_denied_ok && $pagebuilder_error_ok && $video_runtime_ok ? 'pass' : 'fail';
+		$status = $pagebuilder_static && $video_static && $pagebuilder_transport_static && $error_contract_ok && $mutation_ok && $mutation_denied_ok && $pagebuilder_error_ok && $pagebuilder_mutation_error_ok && $video_runtime_ok ? 'pass' : 'fail';
 		return array(
 			'status'   => $status,
 			'summary'  => $status === 'pass' ? 'Phase 1.24 package adoption mock contract passed.' : 'Phase 1.24 package adoption contract has pending failures.',

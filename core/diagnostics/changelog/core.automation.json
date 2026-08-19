@@ -3,7 +3,7 @@
   "module_id": "core.automation",
   "owner": "core/automation",
   "installer_id": "automation",
-  "current_version": "1.13.1",
+  "current_version": "1.13.2",
   "version_option": "bizcity_automation_db_version",
   "tables": {
     "bizcity_automation_workflows": {
@@ -204,6 +204,7 @@
     { "version": "1.11.0", "date": "2026-07-17", "change": "PHASE-TWINWEB F4 — ADD COLUMN + INDEX on bizcity_automation_runs for owner continuity. DDL: ADD `user_id BIGINT UNSIGNED NOT NULL DEFAULT 0` + ADD INDEX `idx_user_id (user_id)`. Repo enqueue now persists canonical owner from `_owner_user_id`/`wp_user_id`/workflow.created_by; hydrate exposes `user_id` int. Twinweb owner-scoped timeline queries can filter by runs.user_id while preserving legacy rows (`user_id=0`). Migration is ADD-only and executed via Diagnostics Auto-Create (R-DCL)." },
     { "version": "1.12.0", "date": "2026-07-20", "change": "PHASE-1-TEMPLATES-AUTOMATION Wave 1 — ADD bizcity_automation_config_packs and bizcity_automation_config_rows for CSV/Excel/Google Sheet import into live editable datatable config packs. Rows store row_json, canonical_json, search_text and validation status. Workflow activation remains Wave 2 and is not triggered by import/save." },
     { "version": "1.13.0", "date": "2026-07-21", "change": "PHASE-ZALOBOT-GROUP W8 / R-AUTO-TEMPLATE-ID — ADD template identity columns to bizcity_automation_templates: template_uuid (stable Hub/seeder upsert key), template_version (author-controlled semver), visibility (global/private). ADD unique index uniq_template_uuid and idx_visibility. Seeder/repo can update templates by UUID before slug and split global ZaloBot recipes from private user-owned recipes." },
-    { "version": "1.13.1", "date": "2026-07-26", "change": "RULE-TRIGGER-SINGLE-CLAIM — contract-only (no DDL). `trigger_config_json` vocabulary extends with optional bool `allow_costack` (default false by behavior) to opt-in intentional co-stack workflows while matcher reduces competing keyword/filter matches to one winner. Matcher now emits trace `matched_keyword_singleclaim_reduced` and file-log decision `matcher.singleclaim_suppressed`; rollout guard filter `bizcity_automation_single_claim_enabled` default true. Applied consistently to both dispatch (`on_channel_message`) and preview (`find_matching_workflows_for_payload`) paths." }
+    { "version": "1.13.1", "date": "2026-07-26", "change": "RULE-TRIGGER-SINGLE-CLAIM — contract-only (no DDL). `trigger_config_json` vocabulary extends with optional bool `allow_costack` (default false by behavior) to opt-in intentional co-stack workflows while matcher reduces competing keyword/filter matches to one winner. Matcher now emits trace `matched_keyword_singleclaim_reduced` and file-log decision `matcher.singleclaim_suppressed`; rollout guard filter `bizcity_automation_single_claim_enabled` default true. Applied consistently to both dispatch (`on_channel_message`) and preview (`find_matching_workflows_for_payload`) paths." },
+    { "version": "1.13.2", "date": "2026-07-26", "change": "RULE-TRIGGER-SINGLE-CLAIM hotfix — contract-only (no DDL). Add @directed precedence: when message contains `@` and matched workflow term starts with `@`, matcher suppresses generic competing workflows with reason `at_keyword_priority` before final winner selection. Add raw_text fallback for @term matching when message_text_clean strips mention. Keeps dispatch/preview parity and existing rollout guard filter." }
   ]
 }

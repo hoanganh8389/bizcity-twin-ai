@@ -37,6 +37,9 @@ final class BizCity_Automation_Repo_Workflows {
 		'skill_intent',
 		// [2026-06-03 Johnny Chu] WF-AUTO GURU W2 — workflow-tier slash dispatch (Tier 2).
 		'slash_command',
+		// [2026-08-17 Johnny Chu] PHASE-ATH-SEED-FIX — retain legacy builtin trigger contracts used by CRM/CF7 templates.
+		'crm_event',
+		'cf7_submit',
 	);
 
 	public static function table(): string {

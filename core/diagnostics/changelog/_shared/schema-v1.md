@@ -50,6 +50,11 @@ Validator: `core/diagnostics/validate-schema-changelog.php` (CLI).
 }
 ```
 
+Index column values may use MySQL prefix-length syntax such as
+`guest_sid(32)`. The validator strips the trailing length when resolving the
+column against `tables.<name>.columns`, while preserving the original value for
+DDL consumers.
+
 ## Rules enforced by validator (Exit codes: 0=ok, 1=warn, 2=error)
 
 - ERROR: every `tables.*` key MUST exist in `BizCity_Diagnostics_Table_Registry`.

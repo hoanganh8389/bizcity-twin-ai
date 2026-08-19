@@ -103,6 +103,10 @@ final class BizCity_TwinBrain_Guru_Web_Flag {
 		if ( $web_mode === 'off' || $guru_id <= 0 ) {
 			return $web_mode; // no gate needed
 		}
+		// [2026-08-16 Johnny Chu] PHASE-TWB-WOO-BIZOPS — Woo BizOps uses Guru_Policy::CAP_WOO_BIZOPS, not the generic web-fallback flag.
+		if ( $web_mode === 'woo_bizops' ) {
+			return $web_mode;
+		}
 
 		// [2026-07-17 Johnny Chu] PHASE-TWINWEB — TwinWeb defaults to relaxed grounding so @guru notebook chat can still use web fallback unless site owner disables this override.
 		$surface = isset( $context['surface'] ) ? sanitize_key( (string) $context['surface'] ) : '';

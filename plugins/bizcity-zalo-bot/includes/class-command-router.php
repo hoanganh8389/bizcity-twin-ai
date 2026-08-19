@@ -181,7 +181,9 @@ class BizCity_Zalobot_Command_Router {
 		// workflow scenario always outranks the generic identity commands
 		// below — bail so we don't send an unrelated account-info/help card
 		// on top of (or instead of) the workflow's real reply.
-		if ( $message_id !== '' && ! empty( $GLOBALS['bizcity_automation_matched_mids'][ $message_id ] ) ) {
+		// [2026-08-13 Johnny Chu] HOTFIX-ZALOBOT-LINK-PRECEDENCE — even a stale matcher flag must not suppress the reserved identity-binding command.
+		$is_link_command = self::extract_link_nonce( $text ) !== '';
+		if ( ! $is_link_command && $message_id !== '' && ! empty( $GLOBALS['bizcity_automation_matched_mids'][ $message_id ] ) ) {
 			return;
 		}
 
@@ -278,8 +280,8 @@ class BizCity_Zalobot_Command_Router {
 			$user = get_user_by( 'id', $wp_user_id );
 			$name = $user ? $user->display_name : "User #{$wp_user_id}";
 			self::send( $bot, $zalo_uid,
-				"✅ Bạn đã đăng nhập rồi!\n"
-				. "Tài khoản: {$name}\n\n"
+				"✅ Bạn đang sử dụng tài khoản: {$name}\n"
+				. "Bạn đã đăng nhập và liên kết Zalo Bot thành công.\n\n"
 				. "Thử ra lệnh nhé: nhắc lịch, đăng Facebook, hỏi đáp, chiêm tinh…"
 			);
 			return;
@@ -294,7 +296,11 @@ class BizCity_Zalobot_Command_Router {
 		$cooldown_key = 'bzzalolink_cd_' . md5( $zalo_uid . '_' . $bot_id );
 		delete_transient( $cooldown_key );
 
-		BizCity_Zalobot_User_Linker::maybe_send_login_link( $zalo_uid, $bot_id, $bot, $display );
+		self::send( $bot, $zalo_uid, 'ℹ️ Bạn chưa đăng nhập bằng tài khoản nào.' );
+		$sent = BizCity_Zalobot_User_Linker::maybe_send_login_link( $zalo_uid, $bot_id, $bot, $display, true );
+		if ( ! $sent ) {
+			self::send( $bot, $zalo_uid, '❌ Chưa tạo được đường link đăng nhập. Vui lòng thử lại sau.' );
+		}
 	}
 
 	/**
@@ -481,10 +487,23 @@ class BizCity_Zalobot_Command_Router {
 				'reason'     => (string) $res->get_error_code(),
 				'nonce_hash' => substr( md5( $nonce ), 0, 10 ),
 			) );
-			self::send( $bot, $zalo_uid,
-				'❌ Không thể liên kết bằng mã này. '
-				. 'Mã có thể đã hết hạn hoặc sai bot. Vui lòng quay lại Twin GPT để tạo mã mới.'
-			);
+			$current_user_id = BizCity_Zalobot_User_Linker::resolve_wp_user( $zalo_uid, $bot_id );
+			if ( $current_user_id > 0 ) {
+				$current_user = get_user_by( 'id', $current_user_id );
+				$current_name = $current_user ? $current_user->display_name : "User #{$current_user_id}";
+				self::send( $bot, $zalo_uid,
+					"ℹ️ Mã liên kết này không còn dùng được, nhưng bạn đang sử dụng tài khoản: {$current_name}.\n"
+					. 'Tài khoản Zalo Bot đã được liên kết rồi.'
+				);
+			} else {
+				self::send( $bot, $zalo_uid, 'ℹ️ Mã liên kết không còn dùng được. Bạn chưa đăng nhập bằng tài khoản nào.' );
+				$cooldown_key = 'bzzalolink_cd_' . md5( $zalo_uid . '_' . $bot_id );
+				delete_transient( $cooldown_key );
+				$sent = BizCity_Zalobot_User_Linker::maybe_send_login_link( $zalo_uid, $bot_id, $bot, $display, true );
+				if ( ! $sent ) {
+					self::send( $bot, $zalo_uid, '❌ Chưa tạo được đường link đăng nhập mới. Vui lòng thử lại sau.' );
+				}
+			}
 			return;
 		}
 

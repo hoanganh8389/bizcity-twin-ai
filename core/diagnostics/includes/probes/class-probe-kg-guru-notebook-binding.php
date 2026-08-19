@@ -71,7 +71,7 @@ final class BizCity_Probe_KG_Guru_Notebook_Binding implements BizCity_Diagnostic
 	public function estimate_ms(): int { return 3000; } // pure DB-level contract, no LLM/embed calls
 
 	public function precondition() {
-		$need = [ 'BizCity_KG_Notebook_Service', 'BizCity_KG_Graph_Service', 'BizCity_KG_Database', 'BizCity_KG_Notebook_Folder', 'BizCity_Knowledge_Database' ];
+		$need = [ 'BizCity_KG_Notebook_Service', 'BizCity_KG_Graph_Service', 'BizCity_KG_Database', 'BizCity_KG_Notebook_Folder', 'BizCity_Knowledge_Database', 'BizCity_TwinBrain_Notebook_Selector' ];
 		foreach ( $need as $cls ) {
 			if ( ! class_exists( $cls ) ) {
 				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — knowledge/kg-hub bootstrap không hoàn tất.' );
@@ -88,6 +88,15 @@ final class BizCity_Probe_KG_Guru_Notebook_Binding implements BizCity_Diagnostic
 		$steps    = [];
 		$failures = [];
 		$uniq     = substr( md5( uniqid( 'kgguru', true ) ), 0, 8 );
+		$quick_edit_path = defined( 'BIZCITY_TWIN_AI_DIR' )
+			? rtrim( (string) BIZCITY_TWIN_AI_DIR, '/\\' ) . '/core/knowledge/includes/class-character-quick-edit-rest.php'
+			: dirname( dirname( dirname( dirname( __DIR__ ) ) ) ) . '/core/knowledge/includes/class-character-quick-edit-rest.php';
+		$quick_edit_source = file_exists( $quick_edit_path ) ? (string) file_get_contents( $quick_edit_path ) : '';
+		$writer_contract_ok = strpos( $quick_edit_source, 'attach_guru' ) !== false
+			&& strpos( $quick_edit_source, 'detach_guru' ) !== false
+			&& strpos( $quick_edit_source, "array( 'character_id' => \$id )" ) === false;
+		$this->step( $ctx, $steps, 'Loader - Quick-Edit uses canonical attachment writer', $writer_contract_ok, $writer_contract_ok ? 'Quick-Edit attach/detach delegates to BizCity_KG_Database.' : 'Quick-Edit still contains the legacy direct attachment write path.' );
+		if ( ! $writer_contract_ok ) { $failures[] = 'quick_edit_legacy_attachment_writer_present'; }
 
 		$db = BizCity_KG_Database::instance();
 
@@ -144,6 +153,24 @@ final class BizCity_Probe_KG_Guru_Notebook_Binding implements BizCity_Diagnostic
 		$attach_visible = in_array( $this->guru_uuid, $attached_uuids, true );
 		$this->step( $ctx, $steps, 'Runtime - get_attached_guru_uuids() includes the guru right after attach', $attach_visible, 'attached=' . implode( ',', $attached_uuids ) );
 		if ( ! $attach_visible ) { $failures[] = 'guru_not_in_attached_list'; }
+
+		// [2026-08-15 Johnny Chu] PHASE-TWB-GURU-NOTEBOOK — prove restrict policy consumes only canonical Guru attachments.
+		$policy_update = BizCity_Knowledge_Database::instance()->update_character( $this->char_id, array( 'notebook_policy' => 'restrict' ) );
+		$restricted_rows = class_exists( 'BizCity_TwinBrain_Notebook_Selector' )
+			? BizCity_TwinBrain_Notebook_Selector::instance()->select( 'notebook policy probe', get_current_user_id() ?: 1, 7, array( 'guru_id' => $this->char_id ) )
+			: array();
+		$restricted_ids = array_values( array_map( 'intval', wp_list_pluck( (array) $restricted_rows, 'notebook_id' ) ) );
+		$restrict_ok = ! is_wp_error( $policy_update )
+			&& in_array( $this->nb_id, $restricted_ids, true )
+			&& ! in_array( $this->nb2_id, $restricted_ids, true );
+		$policy_detail = is_wp_error( $policy_update )
+			? 'policy_error=' . $policy_update->get_error_code()
+			: 'policy_update=' . ( true === $policy_update ? 'true' : (string) $policy_update );
+		$restrict_detail = $restrict_ok
+			? 'Restricted selector returned attached notebook only.'
+			: $policy_detail . '; target_nb=' . $this->nb_id . '; control_nb=' . $this->nb2_id . '; restricted_ids=' . implode( ',', $restricted_ids ) . '; attached_uuids=' . implode( ',', $attached_uuids );
+		$this->step( $ctx, $steps, 'Runtime - restrict policy returns only canonical Guru attachment', $restrict_ok, $restrict_detail );
+		if ( ! $restrict_ok ) { $failures[] = 'guru_notebook_restrict_selector_failed'; }
 
 		// ── Step 5: POSITIVE control — virtual merge on the ATTACHED notebook finds the guru entity ─
 		$where_attached = $db->build_virtual_merge_where( $this->nb_id );

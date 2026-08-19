@@ -3,7 +3,7 @@
   "module_id": "core.twinbrain",
   "owner": "core/twinbrain",
   "installer_id": "twinbrain",
-  "current_version": "1.2.0",
+  "current_version": "1.3.0",
   "version_option": "bizcity_twinbrain_schema_version",
   "tables": {
     "bizcity_twin_goal_contracts": {
@@ -68,7 +68,7 @@
     }
   },
   "event_types": {
-    "taxonomy_version": 7,
+    "taxonomy_version": 11,
     "added": {
       "v1.1.0": [
         {
@@ -89,6 +89,26 @@
           "emitter": "BizCity_TwinBrain_Workflow_Pipeline",
           "description": "Emitted when pipeline finishes (success or partial failure). FE shows summary chip. PHASE-TWB-WORKFLOW W1."
         }
+      ],
+      "v1.3.0": [
+        {
+          "type": "twin_hil_opened",
+          "required_fields": ["hil_id", "spec_id", "trigger_id", "session_id", "status", "state"],
+          "emitter": "BizCity_TwinBrain_HIL_Repository",
+          "description": "Initial event-sourced snapshot for one HIL Instance. MPR-V5-HIL-RUNTIME."
+        },
+        {
+          "type": "twin_hil_progressed",
+          "required_fields": ["hil_id", "session_id", "status", "state"],
+          "emitter": "BizCity_TwinBrain_HIL_Repository",
+          "description": "Bounded HIL slot collection or confirmation progress. MPR-V5-HIL-RUNTIME."
+        },
+        {
+          "type": "twin_hil_closed",
+          "required_fields": ["hil_id", "session_id", "status", "closure_reason", "state"],
+          "emitter": "BizCity_TwinBrain_HIL_Repository",
+          "description": "Terminal HIL Instance state before side-effect resume or expiry/cancel. MPR-V5-HIL-RUNTIME."
+        }
       ]
     }
   },
@@ -107,6 +127,11 @@
       "version": "1.2.0",
       "date": "2026-08-03",
       "change": "[2026-08-03 Johnny Chu] G12 — Added bizcity_twin_goal_contracts as a rebuildable current-state projection for Goal Contract runtime/Diagnostics reads. Fine-grained history remains in per-goal JSONL and canonical Goal State remains in bizcity_twin_event_stream."
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-08-16",
+      "change": "[2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — Catalog twin_hil_opened, twin_hil_progressed, twin_hil_closed and synchronize taxonomy_version 7 → 11. Event Stream remains owned by core/twin-core; no new table or DDL."
     }
   ]
 }

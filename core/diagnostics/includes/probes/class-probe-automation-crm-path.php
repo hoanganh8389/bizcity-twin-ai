@@ -167,18 +167,20 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			remove_filter( 'user_has_cap', array( __CLASS__, 'grant_crm_manage' ), 99 );
 
 			$data = $resp->get_data();
+			// [2026-08-16 Johnny Chu] CRM-PATH-1 — canonical REST response wraps the created workflow under row.
+			$response_row = is_array( $data ) && is_array( $data['row'] ?? null ) ? $data['row'] : $data;
 			$resp_code = is_array( $data ) ? (string) ( $data['code'] ?? '' ) : '';
 			$resp_msg  = is_array( $data ) ? (string) ( $data['message'] ?? '' ) : '';
 
-			if ( $resp->get_status() >= 200 && $resp->get_status() < 300 && isset( $data['id'] ) ) {
-				$wf_ids[] = (int) $data['id'];
+			if ( $resp->get_status() >= 200 && $resp->get_status() < 300 && isset( $response_row['id'] ) ) {
+				$wf_ids[] = (int) $response_row['id'];
 				// Verify zone=crm in new workflow.
-				$new_wf = BizCity_Automation_Repo_Workflows::find( (int) $data['id'] );
+				$new_wf = BizCity_Automation_Repo_Workflows::find( (int) $response_row['id'] );
 				$new_zone = ( $new_wf && is_array( $new_wf['trigger_config'] ) )
 					? ( $new_wf['trigger_config']['zone'] ?? '' )
 					: '';
 				$inst_pass   = ( $new_zone === 'crm' );
-				$inst_detail = "wf_id={$data['id']} zone={$new_zone} status={$resp->get_status()}";
+				$inst_detail = "wf_id={$response_row['id']} zone={$new_zone} status={$resp->get_status()}";
 			} elseif ( $resp->get_status() === 403 && $resp_code === 'rest_forbidden' && stripos( $resp_msg, 'REST POST blocked' ) !== false ) {
 				// [2026-07-11 Johnny Chu] HOTFIX — diagnostics may run behind POST guard; fallback to callback to verify instantiate logic.
 				$fallback_req = new WP_REST_Request( 'POST', '/bizcity-automation/v1/templates/' . (int) $tpl['id'] . '/crm-instantiate' );
@@ -394,6 +396,9 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 	private static function zalo_payload( string $platform, string $text ): array {
 		return array(
 			'platform'     => $platform,
+			// [2026-08-16 Johnny Chu] R-ZONE/R-CH-IDMEM — synthetic Zone 1/2 inbound must carry a linked owner for matcher dispatch assertions.
+			'wp_user_id'   => max( 1, (int) get_current_user_id() ),
+			'identity_uuid'=> 'probe_identity_crmpath',
 			'message'      => $text,
 			'text'         => $text,
 			'chat_id'      => 'probe_chat_' . $platform,

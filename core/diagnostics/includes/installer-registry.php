@@ -41,7 +41,16 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 				'label'        => 'Knowledge (sources/chunks)',
 				'callback'     => [ 'BizCity_Knowledge_Database', 'maybe_create_tables' ],
 				'version_opt'  => 'bizcity_knowledge_db_version',
-				'expected_ver' => '3.21.0',
+				'expected_ver' => '3.25.0',
+			];
+		}
+		if ( class_exists( 'BizCity_KG_Database' ) ) {
+			$list[] = [
+				'id'           => 'kg_legacy_attachment_backfill',
+				'label'        => 'KG — Guru notebook attachment backfill',
+				'callback'     => [ 'BizCity_KG_Database', 'backfill_legacy_character_attachments' ],
+				'version_opt'  => 'bizcity_kg_legacy_attachment_backfill_version',
+				'expected_ver' => '1.0.0',
 			];
 		}
 

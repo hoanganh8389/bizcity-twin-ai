@@ -74,6 +74,8 @@ if ( ! defined( 'BIZCITY_TWINBRAIN_TOOL_AUTOSUGGEST_THRESHOLD' ) ) {
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-multimodal-intake-layer.php';
 // [2026-08-07 Johnny Chu] V4-TRIAGE — classify no-goal conversation before Goal Parser/MPR dispatch.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-pre-mpr-triage.php';
+// [2026-08-16 Johnny Chu] MPR-V5-TEMPORAL — load the deterministic temporal context resolver before Runtime hooks.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-temporal-context-resolver.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-runtime.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-notebook-selector.php';
 // [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — classify conversational fallback before full Brain dispatch.
@@ -91,6 +93,8 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-intent-
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-delta.php';
 // [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G8 — load deterministic Parser and Reflector before Runtime hooks.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-parser.php';
+// [2026-08-16 Johnny Chu] MPR-V5-GOAL-ALIGNMENT — load the pure triage-to-goal alignment gate before Runtime hooks.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-alignment.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-reflector.php';
 // [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G9 — load the bounded deterministic continuity question engine.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-question-engine.php';
@@ -99,6 +103,16 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-rest.ph
 // [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G7 — load stale Goal Loop scanner and abandoned transition policy.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-scheduler.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-runtime.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-hil-spec.php';
+// [2026-08-15 Johnny Chu] MPR-V5-HIL-COMPILER — load the pure prompt compiler after the HIL validator.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-hil-compiler.php';
+// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — bounded slot-collection instance: state -> extractor -> coordinator -> event-sourced repository.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-hil-state.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-hil-extractor.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-hil-runtime.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-hil-repository.php';
+// [2026-08-16 Johnny Chu] MPR-V5-MEDIA — canonical attachments[] candidate resolver for HIL media confirmation.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-media-candidate-resolver.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-tool-intent-matcher.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-perspective-runner.php';
 // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — load Source File Deep Layer before Notebook Source Layer builds file briefs.
@@ -123,6 +137,11 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-brain-session-res
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-channel-adapter.php';
 // [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G10 — load concrete channel identity policy adapters.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-channel-adapters.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-progress-notice-policy.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-progress-notice-projector.php';
+BizCity_TwinBrain_Progress_Notice_Projector::init();
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-vertical-bridge-registry.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-guru-focus-validator.php';
 BizCity_TwinBrain_Goal_Loop_Scheduler::init();
 
 // Phase 0.36-UNIFIED TBR.W8 (2026-05-21) — Seed 2 global skills cho Web
@@ -185,6 +204,8 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-products.php'
 // [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — load the admin-gated Woo BizOps resolver and web-mode engine.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-woo-bizops-resolver-service.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-woo-bizops.php';
+// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — load the shared sensitive-capability decision boundary before vertical engines.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-guru-policy.php';
 
 // [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — Workflow-Driven Brain Pipeline.
 // Generic engine: chạy bất kỳ automation workflow nào AS brain pipeline khi

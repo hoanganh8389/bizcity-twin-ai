@@ -13,10 +13,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Diagnostics command-zone probe interface fatal — 2026-08-16
+
+| Area | Root cause / change | Status | Prevention |
+|---|---|---|---|
+| `core.twinbrain.command_zone` probe | The probe declared `private static cleanup(array $ids)`, conflicting with the required public non-static `BizCity_Diagnostics_Probe::cleanup(): void`. Renamed the health-test helper to `cleanup_workflows()` and added the interface-compliant cleanup method. | Fixed locally; production deploy required | Every new probe must be checked against `interface-diagnostics-probe.php` before lazy loading. |
+
+### Automation diagnostics probe parse fatal — 2026-08-16
+
+| Area | Root cause / change | Status | Prevention |
+|---|---|---|---|
+| `core.automation` probe | Removed stray standalone action block strings that caused `unexpected ','` in `class-probe-automation.php`, and restored the missing `Repo_Runs::enqueue()` health-test step before runner execution. | Fixed locally; production deploy required | Run PHP syntax validation for every probe before deploy. A single malformed lazy-loaded probe can abort the entire Diagnostics catalog. |
+
+### TwinChat shell KG-Hub menu fatal — 2026-08-13
+
+| Area | Root cause / change | Status | Prevention |
+|---|---|---|---|
+| Central admin menu | `includes/class-admin-menu.php` called `BizCity_KG_Admin_Menu::instance()` even on the TwinChat shell, where PHASE-1.26 intentionally loads only the lightweight Knowledge admin-menu class and not the KG-Hub runtime. Added a `class_exists()` guard; the full admin path remains registered by the KG-Hub bootstrap. | Fixed locally; production deploy required | Keep shell-only loader paths compatible with central menu callbacks. Run the admin-navigation probe on both the TwinChat shell and full Knowledge/KG-Hub admin surface. |
+
+### Zalo Bot AI gateway unavailable — 2026-08-13
+
+| Area | Root cause / change | Status | Prevention |
+|---|---|---|---|
+| Zalo `/zalohook/` AI reply | The request gate loaded Knowledge/TwinBrain for `/zalohook/`, but both the main and compat LLM loader gates only recognized `/bizhook/`, `/wp-json/`, `/gpt`, and `/twin`. `BizCity_LLM_Client` was therefore absent, so the runtime misleadingly reported the gateway/API key as unavailable. Added `/zalohook/` to the main plugin and both compat loader copies. | Fixed locally; production deploy and OPcache refresh required | Keep main plugin, source compat, and deployed compat route matrices identical. Smoke-test `/zalohook/` for `BizCity_LLM_Client` before testing provider credentials. |
+| Tenant Rolling Memory | Tenant `wp_1513_bizcity_memory_rolling` was missing `blog_id`/`identity_uuid` while the version option was already `1.4`. The version-only fast path allowed runtime SQL to reach the missing columns. Added physical-column verification and read/write guards. | Fixed locally; tenant migration still must be verified on `slave10` | A schema version option is not physical-shard evidence. Verify required columns on the routed tenant after deploy. |
+| Zalo no-match reply | The automation matcher sent `BizCity_Automation_Default_Reply`, then legacy `twf_handle_chat_flow()` also sent a response. Disabled the automation default reply for Zalo Bot when the legacy responder is active. | Fixed locally; production deploy required | One channel/request must have one responder owner. Check send traces for duplicate `automation.default_reply` and legacy TWF sends. |
+| Workflow continuity | Raw Zalo intake did not resolve the linked WordPress owner before enqueue, and `web_post` scheduler metadata lacked `web_content` in the stale production path. Added owner resolution and the required metadata field. | Fixed locally; production deploy required | Test owner/chat continuity and scheduler metadata on a real workflow run, not only static contracts. |
+| Zalo `/link` and SSO binding | Automation slash matching could claim `/link <nonce>` before `BizCity_Zalobot_Command_Router`, while the CRM SSO return could lose `bzzalolink` before token consumption. Reserved `/link` at both matcher/router boundaries and added a short-lived return marker so an authenticated SSO return can consume the pending magic link. | Fixed locally; production deploy required | Treat identity-binding commands as system-reserved. `welcome=1` is only a UI redirect; verify the canonical channel mapping and `link_command_bound` evidence. |
+| Magic-link ownership contract | Documented and locked ownership: `BizCity_CRM_Magic_Link` / `BizCity_CRM_Magic_Link_Handler` own issue, verify, consume and browser/SSO callback; `BizCity_Channel_User_Linker` owns canonical `ZALO_BOT` identity mapping; `BizCity_Zalobot_User_Linker` is compatibility-only during migration. Updated R-CH-UNI, CRM Phase 3.5, Zalo Admin Guide and identity/memory/notebook roadmaps. | Documentation updated 2026-08-13 | Do not add token issuance or callback handling back to a channel plugin. Validate both `consumed_at` and canonical `bizcity_channel_user_links` after login. |
+| Legacy TWF retirement for Zalo Bot | Production evidence showed `bizgpt_chatbot_run_admin_flows()` still calling `twf_process_flow_from_params()` for `ZALO_BOT`, causing `/link <nonce>` to be classified by LLM and then handled as ordinary chat. Added hard-stop guards in the active MU adapter, bundled Zalo adapter, and `core/helper-legacy/legacy_flow-router.php`. | Fixed locally; production deploy required | A Zalo Bot request must not emit `ai_result user_text`, `ai_result json`, or legacy `twf_handle_chat_flow`; it must be handled by canonical UCL/Command Router/Automation only. |
+| `/link` recovery and login status | `/link` nonce failures now inspect the current canonical identity first: an already-linked user is told the active WordPress account; an unlinked user receives a fresh CRM Magic Link instead of only an error message. The `đăng nhập` command reports the linked account or explicitly says no account is linked and sends a fresh link. | Fixed locally; production deploy required | Do not report `chưa đăng nhập` when `resolve_wp_user()` returns a user. Only unlinked identities receive a replacement URL. |
+
 ### R-PERF/R-CACHE audit ledger — 2026-08-09
 
 | Area | Canonical record | Change / evidence | Status | Next action |
 |---|---|---|---|---|
+| Diagnostics probe lazy queue | `R-PERF-LOADER` + `R-DDV` | Removed an early `bizcity_diagnostics_load_probes_once()` flush from `core/diagnostics/bootstrap.php`; it could mark the loader complete before the remaining probe queue declarations were registered, leaving the Diagnostics catalog empty or incomplete. | Fixed locally 2026-08-16 | Deploy to the affected site and verify `GET /wp-json/bizcity-diagnostics/v1/smoke/probes` returns a non-empty catalog as an admin. |
 | Canonical loader rule | `R-PERF-LOADER` + `R-DDV` | Codified PHASE-1.23 lessons: surface-scoped loading, pre-`plugins_loaded` evidence, compat/main/bundle parity, shell iframe isolation, file/class delta as primary signal, and QM A/B instrumentation. The observed shell gates reduced approximately 6 MB and are now mandatory guidance for new core/module/plugin loaders. | Fixed locally | Read `docs/rules/PHASE-0-RULE-PERFORMANCE-LOADER.md` before any loader/context-gate change. |
 | PHASE-1.23 roadmap status | `R-PERF-LOADER` + `R-DDV` | Updated the root-cause document from analysis-only to implementation status: Wave 1–3 done locally, Wave 5 in progress, Wave 4 WooCommerce REST profiling next, and Wave 6 surface manifest/thin cron bridge planned. Added A/B, regression matrix and stop conditions. | Fixed locally | Establish deploy parity and route-level Woo evidence before shared-runtime changes. |
 | PHASE-1.23 bundle root-cause dossier | `R-PERF-LOADER` + `R-DDV` | Added a five-layer trace model (`entrypoint` -> `hook` -> `runtime` -> `data/provider` -> `coexistence`), evidence fields, verified code anchors, root-cause categories, and a per-group matrix for CRM/BizCoach, Intent, LLM, channels, tools, Dino plugins and MU files. | Fixed locally | Capture first include/parent callback and classify each row before writing further guards. |

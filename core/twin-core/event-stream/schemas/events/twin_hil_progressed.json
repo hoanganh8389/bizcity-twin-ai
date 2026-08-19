@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/twin_hil_progressed.json",
+  "title": "twin_hil_progressed",
+  "description": "A slot was filled, reasked, or the HIL Instance moved into confirmation.",
+  "type": "object",
+  "required": ["hil_id", "session_id", "status", "state"],
+  "properties": {
+    "hil_id": { "type": "string", "pattern": "^hil_[A-Za-z0-9_-]+$" },
+    "session_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["collecting", "confirming", "ready", "blocked", "expired", "failed", "cancelled"] },
+    "state": { "type": "object" },
+    "identity_uuid": { "type": "string" }
+  },
+  "additionalProperties": true
+}

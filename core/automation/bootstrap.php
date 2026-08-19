@@ -22,6 +22,11 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-08-16 Johnny Chu] MPR-V5-IDEMPOTENCY — load the lightweight side-effect contract even when an earlier loader already defined BIZCITY_AUTOMATION_LOADED.
+if ( file_exists( __DIR__ . '/includes/class-automation-side-effect-contract.php' ) ) {
+	require_once __DIR__ . '/includes/class-automation-side-effect-contract.php';
+}
+
 if ( defined( 'BIZCITY_AUTOMATION_LOADED' ) ) {
 	return;
 }
@@ -32,12 +37,36 @@ define( 'BIZCITY_AUTOMATION_URL', plugins_url( '', __FILE__ ) );
 require_once __DIR__ . '/includes/class-automation-admin-spa.php';
 require_once __DIR__ . '/includes/class-automation-installer.php';
 require_once __DIR__ . '/includes/class-automation-repo-workflows.php';
+// [2026-08-16 Johnny Chu] CCG-1 — canonical #workflow_slug resolver shared by TwinChat/TwinWeb.
+require_once __DIR__ . '/includes/class-automation-command-resolver.php';
+// [2026-08-16 Johnny Chu] PHASE-2-HIL-TEMPLATE-AUTO-UPGRADE-MVP — centralized HIL template/workflow upgrade policy.
+require_once __DIR__ . '/includes/class-automation-hil-upgrader.php';
 // [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — expose workflow triggers to TwinBrain conversational routing.
 require_once __DIR__ . '/includes/class-automation-workflow-catalog.php';
 require_once __DIR__ . '/includes/class-automation-repo-runs.php';
+// [2026-08-16 Johnny Chu] MPR-V5-IDEMPOTENCY — shared external side-effect key and unknown-result contract.
 require_once __DIR__ . '/includes/class-automation-repo-templates.php';     // BE-7
 require_once __DIR__ . '/includes/class-automation-repo-config-packs.php';  // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — DataTable config packs.
-require_once __DIR__ . '/includes/class-automation-templates-seeder.php';   // BE-7
+
+// [2026-08-14 Johnny Chu] HOTFIX-AUTOMATION-LOADER — keep the optional
+// template seeder out of the channel runtime; a broken seeder must not stop
+// FB/Zalo matcher registration before webhook listeners are initialized.
+function bizcity_automation_load_templates_seeder() {
+	if ( class_exists( 'BizCity_Automation_Templates_Seeder', false ) ) {
+		return true;
+	}
+	$seeder_file = __DIR__ . '/includes/class-automation-templates-seeder.php';
+	if ( ! file_exists( $seeder_file ) ) {
+		return false;
+	}
+	require_once $seeder_file;
+	return class_exists( 'BizCity_Automation_Templates_Seeder', false );
+}
+
+// [2026-08-16 Johnny Chu] R-DDV — Diagnostics needs the optional seeder class for catalog probes, without seeding on unrelated admin pages.
+if ( is_admin() && isset( $_GET['page'] ) && 'bizcity-diagnostics' === sanitize_key( (string) $_GET['page'] ) ) {
+	bizcity_automation_load_templates_seeder();
+}
 
 // BE-2 — Block registry (load BEFORE REST so /blocks route can use it).
 require_once __DIR__ . '/includes/blocks/interface-block.php';
@@ -77,6 +106,8 @@ require_once __DIR__ . '/includes/blocks/actions/class-action-publish-fb-post.ph
 require_once __DIR__ . '/includes/blocks/actions/class-action-schedule-event.php';       // BE-7.D
 // [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W1 — action.invoke_skill bridge block.
 require_once __DIR__ . '/includes/blocks/actions/class-action-invoke-skill.php';
+// [2026-08-16 Johnny Chu] PHASE-TWB-GURU-ASK — register the canonical synchronous ask-Guru action.
+require_once __DIR__ . '/includes/blocks/actions/class-action-ask-guru.php';
 // [2026-06-07 Johnny Chu] PHASE-0.38.W1.5 — action.create_woo_order block (Order Fulfillment Hub).
 require_once __DIR__ . '/includes/blocks/actions/class-action-create-woo-order.php';
 // [2026-06-07 Johnny Chu] PHASE-0.40 G7.2 — action.notify_discord block (Discord webhook).
@@ -204,7 +235,7 @@ add_action( 'current_screen', function ( $screen ) {
 	if ( class_exists( 'BizCity_Automation_Installer' ) ) {
 		BizCity_Automation_Installer::ensure();
 	}
-	if ( class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+	if ( bizcity_automation_load_templates_seeder() ) {
 		BizCity_Automation_Templates_Seeder::maybe_seed();
 	}
 }, 1 );

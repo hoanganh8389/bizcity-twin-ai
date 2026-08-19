@@ -2,7 +2,7 @@
 /**
  * BizCity Diagnostics — automation.matcher probe (Scenario Builder MVP).
  *
- * R-DDV (Diagnostic-Driven Validation) — verify 3 surface mới của trigger
+ * R-DDV (Diagnostic-Driven Validation) — verify 4 surface mới của trigger
  * matcher đã ship trong Sprint Scenario Builder 2026-06-01:
  *
  *   1. **Ref-based rule (BE-7.D)** — synthetic FB payload với
@@ -14,6 +14,9 @@
  *      trong khi text 'goodbye' PHẢI rớt sang fallback hoặc skip.
  *   3. **Ref unmatched** — payload có ref nhưng KHÔNG workflow nào claim →
  *      trace event `ref_unmatched` được ghi (không crash, không pre-empt).
+ *   4. **Single-claim @priority** — message `@ghichu ... marketing` PHẢI
+ *      cho workflow `@ghichu` thắng, workflow marketing bị suppress với reason
+ *      `at_keyword_priority`.
  *
  * Tất cả workflow probe dùng slug `__healthtest_matcher_*` → cleanup() wipe sạch.
  *
@@ -37,9 +40,9 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 	const SLUG_PREFIX = '__healthtest_matcher_';
 
 	public function id(): string          { return 'automation.matcher'; }
-	public function label(): string       { return 'Automation · Trigger Matcher (ref-based + keywords)'; }
+	public function label(): string       { return 'Automation · Trigger Matcher (ref + keywords + single-claim)'; }
 	public function description(): string {
-		return 'Verify Scenario Builder: ref-based rule (FB referral.ref → trigger_config.scenario_uuid), keywords[] OR-match, ref_unmatched fallthrough.';
+		return 'Verify Scenario Builder: ref-based rule, keywords[] OR-match, ref_unmatched fallthrough, and @ghichu single-claim precedence over marketing.';
 	}
 	public function severity(): string    { return 'critical'; }
 	public function order(): int          { return 39; }
@@ -108,7 +111,50 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 			return self::fail( $steps, 'Tạo workflow keywords fail', 'create_failed', $wf_kw->get_error_message() );
 		}
 
-		$cleanup_ids = array( (int) $wf_ref['id'], (int) $wf_kw['id'] );
+		// [2026-07-26 Johnny Chu] AUTOMATION BE-4 — synthetic pair for @ghichu vs marketing single-claim regression.
+		$wf_at = BizCity_Automation_Repo_Workflows::create( array(
+			'slug'           => self::SLUG_PREFIX . 'at_' . wp_generate_password( 6, false, false ),
+			'name'           => '__healthtest matcher at-ghichu winner',
+			'trigger_type'   => 'fb_message',
+			'trigger_config' => array(
+				'filter'   => '@ghichu',
+				'priority' => 9999,
+				'zone'     => 'crm',
+			),
+			'graph_json'     => wp_json_encode( array(
+				'nodes' => array( array( 'id' => 't1', 'type' => 'trigger', 'data' => array( 'blockId' => 'trigger.fb_message' ) ) ),
+				'edges' => array(),
+			) ),
+			'enabled' => 1,
+		) );
+		if ( is_wp_error( $wf_at ) ) {
+			BizCity_Automation_Repo_Workflows::hard_delete( (int) $wf_ref['id'] );
+			BizCity_Automation_Repo_Workflows::hard_delete( (int) $wf_kw['id'] );
+			return self::fail( $steps, 'Tạo workflow @ghichu fail', 'create_failed', $wf_at->get_error_message() );
+		}
+
+		$wf_marketing = BizCity_Automation_Repo_Workflows::create( array(
+			'slug'           => self::SLUG_PREFIX . 'mk_' . wp_generate_password( 6, false, false ),
+			'name'           => '__healthtest matcher marketing loser',
+			'trigger_type'   => 'fb_message',
+			'trigger_config' => array(
+				'keywords' => array( 'kịch bản', 'marketing' ),
+				'zone'     => 'crm',
+			),
+			'graph_json'     => wp_json_encode( array(
+				'nodes' => array( array( 'id' => 't1', 'type' => 'trigger', 'data' => array( 'blockId' => 'trigger.fb_message' ) ) ),
+				'edges' => array(),
+			) ),
+			'enabled' => 1,
+		) );
+		if ( is_wp_error( $wf_marketing ) ) {
+			BizCity_Automation_Repo_Workflows::hard_delete( (int) $wf_ref['id'] );
+			BizCity_Automation_Repo_Workflows::hard_delete( (int) $wf_kw['id'] );
+			BizCity_Automation_Repo_Workflows::hard_delete( (int) $wf_at['id'] );
+			return self::fail( $steps, 'Tạo workflow marketing fail', 'create_failed', $wf_marketing->get_error_message() );
+		}
+
+		$cleanup_ids = array( (int) $wf_ref['id'], (int) $wf_kw['id'], (int) $wf_at['id'], (int) $wf_marketing['id'] );
 
 		// ── Test 1: ref-based hit ──────────────────────────────────────
 		BizCity_Automation_Matcher_Trace::clear();
@@ -163,6 +209,34 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 		);
 		$ctx->emit_step( $s );
 
+		// [2026-07-26 Johnny Chu] AUTOMATION BE-4 — verify @ghichu wins and marketing is suppressed with at_keyword_priority.
+		BizCity_Automation_Matcher_Trace::clear();
+		$matcher->on_channel_message( self::fb_payload_text( 'ghichu kịch bản marketing', '@ghichu kịch bản marketing' ) );
+		$found_at   = self::find_run_for( (int) $wf_at['id'] );
+		$found_mk   = self::find_run_for( (int) $wf_marketing['id'] );
+		$traces4    = self::recent_traces( 20 );
+		$has_reduce = self::trace_has( $traces4, 'matched_keyword_singleclaim_reduced' );
+		$has_at_sup = self::trace_has_reduced_reason(
+			$traces4,
+			(int) $wf_at['id'],
+			(int) $wf_marketing['id'],
+			'at_keyword_priority'
+		);
+		$at_priority_pass = ( $found_at !== '' ) && ( $found_mk === '' ) && $has_reduce && $has_at_sup;
+
+		$steps[] = $s = array(
+			'label'  => '@ghichu priority · winner note, suppress marketing',
+			'status' => $at_priority_pass ? 'pass' : 'fail',
+			'detail' => sprintf(
+				'run_note=%s · run_marketing=%s · reduced=%s · reason=%s',
+				$found_at ?: 'NONE',
+				$found_mk ?: 'NONE',
+				$has_reduce ? 'yes' : 'no',
+				$has_at_sup ? 'yes' : 'no'
+			),
+		);
+		$ctx->emit_step( $s );
+
 		// ── Cleanup ────────────────────────────────────────────────────
 		self::cleanup_runs_for_workflows( $cleanup_ids );
 		foreach ( $cleanup_ids as $wid ) {
@@ -170,15 +244,15 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 		}
 		$steps[] = array( 'label' => 'Cleanup', 'status' => 'pass', 'detail' => 'wf + run rows wiped' );
 
-		$ok = $ref_pass && $kw_pass && $has_orphan && $ref_helper_pass['ok'];
+		$ok = $ref_pass && $kw_pass && $has_orphan && $ref_helper_pass['ok'] && $at_priority_pass;
 		if ( ! $ok ) {
 			return self::fail( $steps, 'Trigger matcher Sprint Scenario Builder gặp lỗi.', 'matcher_assertion_failed',
-				'Xem class-automation-trigger-matcher.php (extract_ref_uuid + channel_filter_match).' );
+				'Xem class-automation-trigger-matcher.php (parse_ref_uuid + channel_filter_eval + resolve_single_claim).' );
 		}
 
 		return array(
 			'status'  => 'pass',
-			'summary' => 'Ref-based rule + keywords[] OR-match + ref_unmatched fallthrough OK.',
+			'summary' => 'Ref-based rule + keywords[] OR-match + ref_unmatched + @ghichu single-claim priority OK.',
 			'steps'   => $steps,
 		);
 	}
@@ -197,6 +271,9 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 			'platform'    => 'FACEBOOK',
 			'channel_role'=> 'USER',
 			'event_subtype'=> 'messenger',
+			// [2026-08-16 Johnny Chu] R-ZONE/R-CH-IDMEM — synthetic Messenger must carry a linked owner or the matcher correctly fails closed before ref dispatch.
+			'wp_user_id'  => max( 1, (int) get_current_user_id() ),
+			'identity_uuid' => 'probe_identity_matcher',
 			'message'     => $text,
 			'instance_id' => '',
 			'chat_id'     => 'probe_chat_' . wp_generate_password( 6, false, false ),
@@ -214,12 +291,17 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 		);
 	}
 
-	private static function fb_payload_text( string $text ): array {
+	private static function fb_payload_text( string $text, string $raw_text = '' ): array {
+		$raw_text = (string) ( $raw_text !== '' ? $raw_text : $text );
 		return array(
 			'platform'    => 'FACEBOOK',
 			'channel_role'=> 'USER',
 			'event_subtype'=> 'messenger',
+			// [2026-08-16 Johnny Chu] R-ZONE/R-CH-IDMEM — keep keyword and single-claim fixtures on an authenticated owner path.
+			'wp_user_id'  => max( 1, (int) get_current_user_id() ),
+			'identity_uuid' => 'probe_identity_matcher',
 			'message'     => $text,
+			'raw_text'    => $raw_text,
 			'instance_id' => '',
 			'chat_id'     => 'probe_chat_' . wp_generate_password( 6, false, false ),
 			'sender_id'   => 'probe_user',
@@ -229,7 +311,7 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 					'messaging' => array( array(
 						'sender'    => array( 'id' => 'probe_user' ),
 						'recipient' => array( 'id' => 'probe_page' ),
-						'message'   => array( 'mid' => 'mid_probe', 'text' => $text ),
+						'message'   => array( 'mid' => 'mid_probe', 'text' => $raw_text ),
 					) ),
 				) ),
 			),
@@ -259,10 +341,27 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 		return false;
 	}
 
+	// [2026-07-26 Johnny Chu] AUTOMATION BE-4 — assert matched_keyword_singleclaim_reduced keeps winner and suppression reason.
+	private static function trace_has_reduced_reason( array $traces, int $winner_wf_id, int $suppressed_wf_id, string $reason ): bool {
+		if ( $winner_wf_id <= 0 || $suppressed_wf_id <= 0 || $reason === '' ) { return false; }
+		$winner_needle = 'winner_wf_id=' . $winner_wf_id;
+		$supp_needle   = $suppressed_wf_id . ':' . $reason;
+		foreach ( $traces as $t ) {
+			$decision = (string) ( $t['decision'] ?? $t['event'] ?? '' );
+			if ( $decision !== 'matched_keyword_singleclaim_reduced' ) { continue; }
+			$detail = (string) ( $t['detail'] ?? '' );
+			if ( strpos( $detail, $winner_needle ) === false ) { continue; }
+			if ( strpos( $detail, $supp_needle ) !== false ) { return true; }
+		}
+		return false;
+	}
+
 	private static function check_ref_parser_variants(): array {
 		try {
 			$ref_class = new ReflectionClass( 'BizCity_Automation_Trigger_Matcher' );
-			$method    = $ref_class->getMethod( 'parse_ref_uuid' );
+			// [2026-08-16 Johnny Chu] CCG-1 — follow the active matcher API after parse_ref_uuid was renamed to extract_ref_uuid.
+			$method_name = $ref_class->hasMethod( 'extract_ref_uuid' ) ? 'extract_ref_uuid' : 'parse_ref_uuid';
+			$method    = $ref_class->getMethod( $method_name );
 			$method->setAccessible( true );
 			$obj = BizCity_Automation_Trigger_Matcher::instance();
 			$uuid = 'abcdef0123456789abcdef0123456789';
@@ -277,7 +376,8 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 			);
 			$fails = array();
 			foreach ( $cases as $input => $expected ) {
-				$got = (string) $method->invoke( $obj, $input );
+				// [2026-08-16 Johnny Chu] CCG-1 — extract_ref_uuid() accepts normalized payload + platform; exercise direct ref fields for parser variants.
+				$got = (string) $method->invoke( $obj, array( 'ref' => $input ), 'FACEBOOK' );
 				if ( $got !== $expected ) { $fails[] = "{$input}=>{$got}"; }
 			}
 			return $fails

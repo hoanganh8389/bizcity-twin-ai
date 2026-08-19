@@ -65,6 +65,38 @@ final class BizCity_Probe_BizCoach_Pro implements BizCity_Diagnostics_Probe {
 			return new WP_Error( 'class_missing',
 				'BizCoach_Pro_Sprint_Diagnostic chưa load — bizcoach-pro plugin chưa active hoặc BCPRO_DIR chưa định nghĩa.' );
 		}
+		// [2026-08-16 Johnny Chu] R-DDV/R-PERF — diagnostics admin is outside the Intent page gate; load its contract before the lazy BizCoach provider.
+		if ( ! class_exists( 'BizCity_Intent_Provider' ) ) {
+			$intent_root = defined( 'BIZCITY_TWIN_AI_DIR' )
+				? BIZCITY_TWIN_AI_DIR
+				: dirname( BCPRO_DIR, 2 ) . '/';
+			$intent_bootstrap = $intent_root . 'core/intent/bootstrap.php';
+			if ( file_exists( $intent_bootstrap ) ) {
+				require_once $intent_bootstrap;
+			}
+			if ( ! class_exists( 'BizCity_Intent_Provider' ) ) {
+				$intent_provider_file = $intent_root . 'core/intent/includes/providers/class-intent-provider.php';
+				if ( file_exists( $intent_provider_file ) ) {
+					require_once $intent_provider_file;
+				}
+			}
+		}
+		// [2026-08-16 Johnny Chu] R-DDV — warm lazy BizCoach provider contracts before aggregating read-only sprint sections.
+		if ( function_exists( 'bcpro_load_persona_provider_classes' ) ) {
+			bcpro_load_persona_provider_classes();
+		}
+		if ( defined( 'BCPRO_DIR' ) && class_exists( 'BizCity_Intent_Provider' ) && ! class_exists( 'BizCoach_Pro_Intent_Provider', false ) ) {
+			$intent_file = BCPRO_DIR . 'includes/coaching/class-intent-provider.php';
+			if ( file_exists( $intent_file ) ) {
+				require_once $intent_file;
+			}
+		}
+		if ( defined( 'BCPRO_DIR' ) && ! class_exists( 'BizCoach_Pro_Rest', false ) ) {
+			$rest_file = BCPRO_DIR . 'includes/class-rest.php';
+			if ( file_exists( $rest_file ) ) {
+				require_once $rest_file;
+			}
+		}
 		return true;
 	}
 

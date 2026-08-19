@@ -95,6 +95,21 @@ final class BizCity_Diagnostics_REST {
 			],
 		] );
 
+		// [2026-08-16 Johnny Chu] MPR-V5-DDV — live canary is explicit-only and is never reachable from run-all.
+		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/smoke/run-live', [
+			'methods'              => 'POST',
+			'permission_callback' => $admin_only,
+			'callback'            => [ $this, 'run_live_smoke_probe' ],
+			'args'                => [
+				'confirm'         => [ 'type' => 'boolean', 'required' => true ],
+				'chat_id'         => [ 'type' => 'string', 'required' => true ],
+				'account_id'      => [ 'type' => 'string', 'required' => true ],
+				'external_user_id'=> [ 'type' => 'string', 'required' => true ],
+				'wp_user_id'      => [ 'type' => 'integer', 'required' => true ],
+				'message_id'      => [ 'type' => 'string', 'required' => true ],
+			],
+		] );
+
 		// POST /smoke/run-all — run sequential, returns aggregate.
 		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/smoke/run-all', [
 			'methods'             => 'POST',
@@ -244,6 +259,26 @@ final class BizCity_Diagnostics_REST {
 		}
 		$res = BizCity_Diagnostics_Smoke_Runner::run_probe( $id );
 		return rest_ensure_response( $res );
+	}
+
+	public function run_live_smoke_probe( $req ) {
+		// [2026-08-16 Johnny Chu] MPR-V5-DDV — require a deliberate admin confirmation and test identity before any outbound canary.
+		if ( ! $req->get_param( 'confirm' ) ) {
+			return new WP_Error( 'live_canary_confirmation_required', 'Live canary cần confirm=true.', array( 'status' => 400 ) );
+		}
+		$chat_id = trim( (string) $req->get_param( 'chat_id' ) );
+		if ( strpos( strtolower( $chat_id ), 'zalobot_' ) !== 0 || strpos( strtolower( $chat_id ), '_group' ) !== false ) {
+			return new WP_Error( 'live_canary_target_denied', 'Canary chỉ nhận direct Zalo Bot chat_id.', array( 'status' => 400 ) );
+		}
+		return rest_ensure_response( BizCity_Diagnostics_Smoke_Runner::run_probe( 'twinbrain.mpr_v5', array(
+			'live'             => true,
+			'confirm'          => true,
+			'chat_id'          => $chat_id,
+			'account_id'       => trim( (string) $req->get_param( 'account_id' ) ),
+			'external_user_id' => trim( (string) $req->get_param( 'external_user_id' ) ),
+			'wp_user_id'       => (int) $req->get_param( 'wp_user_id' ),
+			'message_id'       => trim( (string) $req->get_param( 'message_id' ) ),
+		) ) );
 	}
 
 	/**

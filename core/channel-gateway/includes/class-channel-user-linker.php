@@ -152,7 +152,8 @@ class BizCity_Channel_User_Linker {
 		if ( $existing && self::STATUS_LINKED === (string) $existing['status'] && (int) $existing['wp_user_id'] > 0 ) {
 			return array( 'linked' => true, 'cooldown' => false, 'url' => '', 'expires_at' => '' );
 		}
-		if ( $existing && self::STATUS_PENDING === (string) $existing['status'] && ! empty( $existing['updated_at'] )
+		if ( empty( $meta['force'] )
+			&& $existing && self::STATUS_PENDING === (string) $existing['status'] && ! empty( $existing['updated_at'] )
 			&& strtotime( (string) $existing['updated_at'] . ' UTC' ) > time() - self::LINK_MSG_COOLDOWN ) {
 			return array( 'linked' => false, 'cooldown' => true, 'url' => '', 'expires_at' => (string) $existing['token_expires'] );
 		}

@@ -162,7 +162,7 @@ final class BizCity_Diagnostics_Smoke_Runner {
 	 * @param string $id
 	 * @return array{status:string,id:string,duration_ms:int,summary?:string,error?:string,fix_hint?:string,steps?:array,artifacts?:array}
 	 */
-	public static function run_probe( string $id ): array {
+	public static function run_probe( string $id, array $options = array() ): array {
 		$catalog = self::catalog();
 		if ( ! isset( $catalog[ $id ] ) ) {
 			return [
@@ -185,7 +185,7 @@ final class BizCity_Diagnostics_Smoke_Runner {
 			];
 		}
 
-		$ctx   = new BizCity_Diagnostics_Probe_Context();
+		$ctx   = new BizCity_Diagnostics_Probe_Context( $options );
 		$start = microtime( true );
 		$res   = [];
 		try {
@@ -502,6 +502,17 @@ final class BizCity_Diagnostics_Probe_Context {
 
 	/** @var bool */
 	private $abort = false;
+
+	/** @var array<string,mixed> */
+	private $options = array();
+
+	public function __construct( array $options = array() ) {
+		$this->options = $options;
+	}
+
+	public function option( string $key, $default = null ) {
+		return array_key_exists( $key, $this->options ) ? $this->options[ $key ] : $default;
+	}
 
 	public function emit_step( array $step ): void {
 		$this->steps[] = [

@@ -3,8 +3,9 @@
  * Active plugin contract guard.
  *
  * This is intentionally a narrow regression gate, not a replacement for the
- * WordPress runtime probes. It scans active plugin PHP only, compares findings
- * with the reviewed migration baseline, and fails when a new bypass appears.
+ * WordPress runtime probes. It scans active plugin PHP plus the reviewed
+ * PageBuilder transport artifact, compares findings with the migration
+ * baseline, and fails when a new bypass appears.
  */
 
 import fs from 'node:fs';
@@ -136,6 +137,53 @@ for (const file of walk(path.join(root, 'plugins'))) {
   });
 }
 
+const pageBuilderApiRelative = 'plugins/bizcity-pagebuilder/app/src/api.ts';
+const pageBuilderApiPath = path.join(root, pageBuilderApiRelative);
+const pageBuilderMutationRule = {
+  id: 'R-RUNTIME.pagebuilder-mutation-idempotency',
+  message: 'PageBuilder mutation caller must send X-Idempotency-Key to the mutation boundary.',
+};
+const pageBuilderMutations = [
+  'saveProject',
+  'deleteProject',
+  'publishProject',
+];
+
+if (fs.existsSync(pageBuilderApiPath)) {
+  const source = fs.readFileSync(pageBuilderApiPath, 'utf8');
+  for (const mutation of pageBuilderMutations) {
+    const functionMatch = source.match(
+      new RegExp(`export async function ${mutation}\\b[\\s\\S]*?(?=\\r?\\nexport async function |\\r?\\nexport interface |$)`),
+    );
+    if (!functionMatch || !functionMatch[0].includes('X-Idempotency-Key')) {
+      const marker = `export async function ${mutation}`;
+      const line = source.slice(0, Math.max(0, source.indexOf(marker))).split(/\r?\n/).length;
+      findings.push({
+        id: pageBuilderMutationRule.id,
+        file: pageBuilderApiRelative,
+        line,
+        message: pageBuilderMutationRule.message,
+        fingerprint: fingerprint(pageBuilderMutationRule, pageBuilderApiRelative, marker, 1),
+      });
+    }
+  }
+
+  const pageBuilderDistRelative = 'plugins/bizcity-pagebuilder/assets/dist/pagebuilder-app.js';
+  const pageBuilderDistPath = path.join(root, pageBuilderDistRelative);
+  if (fs.existsSync(pageBuilderDistPath)) {
+    const bundle = fs.readFileSync(pageBuilderDistPath, 'utf8');
+    if (!bundle.includes('X-Idempotency-Key')) {
+      findings.push({
+        id: pageBuilderMutationRule.id,
+        file: pageBuilderDistRelative,
+        line: 1,
+        message: 'Built PageBuilder bundle does not contain the mutation idempotency header.',
+        fingerprint: fingerprint(pageBuilderMutationRule, pageBuilderDistRelative, 'X-Idempotency-Key', 1),
+      });
+    }
+  }
+}
+
 const baselineFingerprints = new Set(baseline.known_findings.map((item) => item.fingerprint));
 const newFindings = findings.filter((item) => !baselineFingerprints.has(item.fingerprint));
 const missingBaseline = baseline.known_findings.filter(
@@ -145,7 +193,7 @@ const missingBaseline = baseline.known_findings.filter(
 const report = {
   audit_id: baseline.audit_id,
   generated_at: new Date().toISOString(),
-  scope: 'plugins/**/*.php excluding archived/vendor/generated trees',
+  scope: 'plugins/**/*.php excluding archived/vendor/generated trees plus PageBuilder source/bundle transport checks',
   total_findings: findings.length,
   known_debt: findings.length - newFindings.length,
   new_findings: newFindings,

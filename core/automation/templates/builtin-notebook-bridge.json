@@ -20,7 +20,7 @@
       "meta": {
         "template": "tpl_zalo_capture_to_notebook_v1",
         "template_uuid": "0198437d-8f6d-7c4b-94de-24cb98f44e90",
-        "template_version": "1.1.0",
+        "template_version": "1.2.0",
         "visibility": "private"
       },
       "nodes": [
@@ -84,7 +84,7 @@
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Reply confirmation",
-            "text": "Da luu {{cap.captured_succeeded}}/{{cap.captured_total}} muc vao notebook \"{{cap.notebook_name}}\".\nTep da dua vao de hoc:\n{{cap.accepted_files_text}}\nTheo doi tien trinh hoc (cron + admin) tai: {{share.share_url}}\n(link het han: {{share.expires_at}})"
+            "text": "Da luu {{cap.captured_succeeded}}/{{cap.captured_total}} muc vao notebook \"{{cap.notebook_name}}\".\nTep da dua vao de hoc:\n{{cap.accepted_files_text}}\nTai them tai lieu (Word/Excel/PDF) tai: {{cap.upload_url}}\n{{cap.upload_prompt}}\nTheo doi tien trinh hoc (cron + admin) tai: {{share.share_url}}\n(link het han: {{share.expires_at}})"
           }
         },
         {

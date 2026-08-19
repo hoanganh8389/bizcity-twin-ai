@@ -145,8 +145,25 @@ class BizCity_Channel_Binding {
 
 	public static function all(): array {
 		global $wpdb;
-		$rows = $wpdb->get_results( 'SELECT * FROM ' . self::table() . ' ORDER BY platform, account_id', ARRAY_A );
-		return is_array( $rows ) ? $rows : array();
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		// [2026-08-13 Johnny Chu] R-CACHE/R-MSDB — cache the tenant-scoped roster by blog and binding generation.
+		$generation = (int) get_option( self::CACHE_GENERATION_OPTION . '_' . $blog_id, 1 );
+		$cache_key = 'all_' . self::CACHE_VERSION . '_' . $generation . '_' . $blog_id;
+		$cached = wp_cache_get( $cache_key, self::CACHE_GROUP );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		// [2026-08-13 Johnny Chu] R-MSDB/R-ZONE — never expose bindings from another tenant blog.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table() . ' WHERE blog_id=%d ORDER BY platform, account_id',
+				$blog_id
+			),
+			ARRAY_A
+		);
+		$rows = is_array( $rows ) ? $rows : array();
+		wp_cache_set( $cache_key, $rows, self::CACHE_GROUP, self::CACHE_TTL );
+		return $rows;
 	}
 
 	public static function upsert( array $args ): int {

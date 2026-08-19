@@ -216,6 +216,23 @@ final class BizCity_Automation_Repo_Runs {
 		return array_map( array( __CLASS__, 'hydrate_log' ), $rows );
 	}
 
+	public static function log_by_id( string $run_id, int $log_id ): array {
+		// [2026-08-15 Johnny Chu] MPR-V5-NOTICE — fetch one canonical node log for progress projection instead of rescanning a run on every hook.
+		global $wpdb;
+		if ( $run_id === '' || $log_id <= 0 ) {
+			return array();
+		}
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table_logs() . ' WHERE run_id = %s AND id = %d LIMIT 1',
+				$run_id,
+				$log_id
+			),
+			ARRAY_A
+		);
+		return is_array( $row ) ? self::hydrate_log( $row ) : array();
+	}
+
 	public static function append_log( array $row ): int {
 		global $wpdb;
 		$row = array_merge(

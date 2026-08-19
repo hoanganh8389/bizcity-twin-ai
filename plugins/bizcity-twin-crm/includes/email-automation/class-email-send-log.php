@@ -23,7 +23,12 @@ class BizCity_CRM_Email_Send_Log {
 	}
 
 	private static function table(): string {
-		return BizCity_CRM_DB_Installer_V2::tbl_email_send_logs();
+		// [2026-08-16 Johnny Chu] HOTFIX-CRM-EMAIL-LOG — mixed-version installer may not expose the optional email log table; keep JSONL-first logging fail-open instead of fataling.
+		if ( class_exists( 'BizCity_CRM_DB_Installer_V2' ) && method_exists( 'BizCity_CRM_DB_Installer_V2', 'tbl_email_send_logs' ) ) {
+			return BizCity_CRM_DB_Installer_V2::tbl_email_send_logs();
+		}
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_crm_email_send_logs';
 	}
 
 	private static function table_exists(): bool {

@@ -495,7 +495,7 @@ class BizCity_Admin_Menu {
 			// [2026-06-11 Johnny Chu] HOTFIX — renamed Twin Connector → Bind Connectors; moved under SLUG_KNOWLEDGE.
 			// slug `bizcity-knowledge-characters` giữ nguyên để không vỡ bookmark/URL cũ.
 			add_submenu_page( self::SLUG_WORKSPACE,
-				__( 'Bind Connectors', $td ), __( 'Bind Connectors', $td ),
+				__( 'Guru / Trợ lý AI', $td ), __( 'Guru / Trợ lý AI', $td ),
 				'manage_options', 'bizcity-knowledge-characters',
 				[ $km, 'render_characters_page' ] );
 
@@ -511,11 +511,14 @@ class BizCity_Admin_Menu {
 				'manage_options', 'bizcity-knowledge-memory-hub',
 				[ $km, 'render_memory_hub_page' ] );
 
-			// [2026-06-22 Johnny Chu] PHASE-TWINWEB — KG Hub moved from TwinChat to Đào tạo kiến thức
-			add_submenu_page( self::SLUG_WORKSPACE,
-				__( 'Knowledge Graph', $td ), __( 'Knowledge Graph', $td ),
-				'manage_options', 'bizcity-kg-hub',
-				[ BizCity_KG_Admin_Menu::instance(), 'render_page' ] );
+			// [2026-06-22 Johnny Chu] PHASE-TWINWEB — KG Hub moved from TwinChat to Đào tạo kiến thức.
+			// [2026-08-13 Johnny Chu] PHASE-1.26-MENU — TwinChat shell intentionally does not load KG-Hub runtime.
+			if ( class_exists( 'BizCity_KG_Admin_Menu', false ) ) {
+				add_submenu_page( self::SLUG_WORKSPACE,
+					__( 'Knowledge Graph', $td ), __( 'Knowledge Graph', $td ),
+					'manage_options', 'bizcity-kg-hub',
+					[ BizCity_KG_Admin_Menu::instance(), 'render_page' ] );
+			}
 
 			// Hidden legacy direct-URL pages
 			add_submenu_page( null, __( 'Training FAQ', $td ), __( 'Training FAQ', $td ),

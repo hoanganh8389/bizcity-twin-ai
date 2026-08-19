@@ -65,6 +65,7 @@ class BizCity_TwinBrain_Runtime {
 	 * [2026-08-07 Johnny Chu] V4-TRIAGE — emit a compact pre-MPR route event.
 	 */
 	private function emit_pre_mpr_triage_event( string $event_key, string $trace_id, array $triage, $sse = null ): void {
+		// [2026-08-15 Johnny Chu] MPR-V5-INTENT — carry the single triage/intent decision into the canonical event and SSE payload.
 		$payload = array(
 			'trace_id'       => $trace_id,
 			'route'          => (string) ( $triage['route'] ?? 'mpr' ),
@@ -72,13 +73,26 @@ class BizCity_TwinBrain_Runtime {
 			'confidence'     => (float) ( $triage['confidence'] ?? 0 ),
 			'reason_code'    => (string) ( $triage['reason_code'] ?? '' ),
 			'mpr_dispatched' => $event_key === 'conversation_triage_done' ? ( $triage['route'] ?? 'mpr' ) === 'mpr' : null,
+			'intent_id'      => (string) ( $triage['intent_id'] ?? 'unknown.clarify' ),
+			'intent_label'   => (string) ( $triage['intent_label'] ?? '' ),
+			'intent_group'   => (string) ( $triage['intent_group'] ?? 'unknown' ),
+			'domain'         => (string) ( $triage['domain'] ?? 'unknown' ),
+			'interaction_mode' => (string) ( $triage['interaction_mode'] ?? 'clarify' ),
+			'requires_goal'  => ! empty( $triage['requires_goal'] ),
+			'requires_hil'   => ! empty( $triage['requires_hil'] ),
+			'requires_tools' => ! empty( $triage['requires_tools'] ),
+			'side_effect_level' => (string) ( $triage['side_effect_level'] ?? 'none' ),
 			'triage_model'   => (string) ( $triage['triage_model'] ?? ( class_exists( 'BizCity_TwinBrain_Pre_MPR_Triage' ) ? BizCity_TwinBrain_Pre_MPR_Triage::MODEL : 'unavailable' ) ),
 			'triage_reasoning' => (string) ( $triage['triage_reasoning'] ?? ( class_exists( 'BizCity_TwinBrain_Pre_MPR_Triage' ) ? BizCity_TwinBrain_Pre_MPR_Triage::REASONING_EFFORT : 'low' ) ),
 		);
 		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
 			$sse->emit( $event_key, $payload );
 		}
-		$this->emit_event( $event_key, $payload );
+		// [2026-08-15 Johnny Chu] R-EVT/MPR-V5-INTENT — keep legacy SSE aliases, but persist triage only as the canonical decision event.
+		$this->emit_event( 'decision', array_merge( $payload, array(
+			'stage'         => 'pre_mpr_' . sanitize_key( $event_key ),
+			'stage_version' => self::MPR_GATE_STAGE_VERSION,
+		) ) );
 	}
 
 	private function build_ambiguous_opening( array $triage ): string {
@@ -422,6 +436,20 @@ class BizCity_TwinBrain_Runtime {
 		// [2026-08-07 Johnny Chu] V4-TRIAGE — resolve the global depth config before the lightweight route decision so every branch carries one normalized tier.
 		$answer_depth_cfg = $this->resolve_answer_depth_config( $opts );
 		$opts['_answer_depth_cfg'] = $answer_depth_cfg;
+		if ( class_exists( 'BizCity_TwinBrain_Temporal_Context_Resolver' ) ) {
+			// [2026-08-16 Johnny Chu] MPR-V5-TEMPORAL — resolve prompt time scope before triage/Goal stages and keep it deterministic.
+			$opts['temporal_context'] = BizCity_TwinBrain_Temporal_Context_Resolver::resolve( $prompt, $opts );
+			$this->emit_event( 'decision', array(
+				'trace_id'    => $trace_id,
+				'stage'       => 'temporal_context_resolved',
+				'stage_version' => self::MPR_GATE_STAGE_VERSION,
+				'timezone'    => (string) ( $opts['temporal_context']['timezone'] ?? 'UTC' ),
+				'range_start' => (string) ( $opts['temporal_context']['range_start'] ?? '' ),
+				'range_end'   => (string) ( $opts['temporal_context']['range_end'] ?? '' ),
+				'granularity' => (string) ( $opts['temporal_context']['granularity'] ?? 'none' ),
+				'reason_code' => (string) ( $opts['temporal_context']['reason_code'] ?? 'not_requested' ),
+			) );
+		}
 		$this->emit_event( 'decision', array(
 			'trace_id'            => $trace_id,
 			'stage'               => 'answer_depth_resolved',
@@ -442,7 +470,26 @@ class BizCity_TwinBrain_Runtime {
 			? BizCity_TwinBrain_Pre_MPR_Triage::classify( $prompt, $opts )
 			: array( 'route' => 'mpr', 'reason_code' => 'triage_class_missing', 'confidence' => 0.0, 'conversation_kind' => 'unclear' );
 		$opts['pre_mpr_triage'] = $triage;
+		// [2026-08-16 Johnny Chu] MPR-V5-INTENT — expose the single triage result to every downstream Goal/MPR caller.
+		$opts['prompt_intent'] = $triage;
 		$this->emit_pre_mpr_triage_event( 'conversation_triage_done', $trace_id, $triage );
+		// [2026-08-16 Johnny Chu] MPR-V5-INTENT — persist the unified Prompt Intent as an additive decision stage for replay.
+		$this->emit_event( 'decision', array(
+			'trace_id'         => $trace_id,
+			'stage'            => 'prompt_intent_detected',
+			'stage_version'    => self::MPR_GATE_STAGE_VERSION,
+			'intent_id'        => (string) ( $triage['intent_id'] ?? 'unknown.clarify' ),
+			'intent_label'     => (string) ( $triage['intent_label'] ?? '' ),
+			'intent_group'     => (string) ( $triage['intent_group'] ?? 'unknown' ),
+			'domain'           => (string) ( $triage['domain'] ?? 'unknown' ),
+			'interaction_mode' => (string) ( $triage['interaction_mode'] ?? 'clarify' ),
+			'confidence'       => (float) ( $triage['confidence'] ?? 0 ),
+			'reason_code'      => (string) ( $triage['reason_code'] ?? '' ),
+			'requires_goal'    => ! empty( $triage['requires_goal'] ),
+			'requires_hil'     => ! empty( $triage['requires_hil'] ),
+			'requires_tools'   => ! empty( $triage['requires_tools'] ),
+			'side_effect_level'=> (string) ( $triage['side_effect_level'] ?? 'none' ),
+		) );
 		if ( (string) ( $triage['route'] ?? 'mpr' ) === 'ambiguous' ) {
 			$opts['ambiguous_no_goal'] = true;
 			// [2026-08-07 Johnny Chu] V4-TRIAGE — preserve the inbound prompt before terminating the no-goal branch early.
@@ -475,6 +522,84 @@ class BizCity_TwinBrain_Runtime {
 				$opts = BizCity_TwinBrain_Goal_Loop_Runtime::pre_turn( $prompt, $opts );
 			} catch ( \Throwable $e ) {
 				error_log( '[TwinBrain][goal-loop] pre_turn skipped: ' . get_class( $e ) . ' ' . $e->getMessage() );
+			}
+		}
+		if ( ! empty( $opts['goal_loop_blocked'] ) && is_array( $opts['goal_loop_blocked'] ) ) {
+			// [2026-08-16 Johnny Chu] MPR-V5-GOAL-SESSION — expose blocked cross-session choice without opening a duplicate Goal.
+			$blocked_goal = (array) $opts['goal_loop_blocked'];
+			$this->emit_event( 'decision', array(
+				'trace_id'      => $trace_id,
+				'stage'         => 'goal_session_decided',
+				'stage_version' => self::MPR_GATE_STAGE_VERSION,
+				'goal_id'       => (string) ( $blocked_goal['goal_id'] ?? '' ),
+				'action'        => 'blocked',
+				'reason_code'   => (string) ( $blocked_goal['reason_code'] ?? 'active_goal_in_another_session' ),
+			) );
+			$this->emit_event( 'decision', array(
+				'trace_id'      => $trace_id,
+				'stage'         => 'goal_session_blocked',
+				'stage_version' => self::MPR_GATE_STAGE_VERSION,
+				'goal_id'       => (string) ( $blocked_goal['goal_id'] ?? '' ),
+				'status'        => 'blocked',
+				'reason_code'   => (string) ( $blocked_goal['reason_code'] ?? 'active_goal_in_another_session' ),
+			) );
+		}
+		if ( ! empty( $opts['goal_loop'] ) && is_array( $opts['goal_loop'] ) ) {
+			// [2026-08-15 Johnny Chu] MPR-V5-GOAL-TRACE — expose Goal Draft and Goal Session lifecycle before notebook/tool stages.
+			$goal_state = (array) $opts['goal_loop'];
+			$this->emit_event( 'decision', array(
+				'trace_id'       => $trace_id,
+				'stage'          => 'goal_draft_ready',
+				'stage_version'  => self::MPR_GATE_STAGE_VERSION,
+				'goal_id'        => (string) ( $goal_state['goal_id'] ?? '' ),
+				'goal_title'     => (string) ( $goal_state['goal_title'] ?? 'Mục tiêu đang xử lý' ),
+				'primary_goal'   => (string) ( $goal_state['goal_title'] ?? '' ),
+				'required_input_count' => count( (array) ( $goal_state['required_inputs'] ?? array() ) ),
+				'obligation_count' => count( (array) ( $goal_state['answer_obligations'] ?? array() ) ),
+				'status'         => (string) ( $goal_state['status'] ?? 'clarifying' ),
+			) );
+			if ( class_exists( 'BizCity_TwinBrain_Goal_Alignment' ) ) {
+				// [2026-08-16 Johnny Chu] MPR-V5-GOAL-ALIGNMENT — check intent/draft/session compatibility before notebook/tool stages.
+				$alignment = BizCity_TwinBrain_Goal_Alignment::check(
+					(array) $triage,
+					(array) ( $goal_state['goal_draft'] ?? array() ),
+					$goal_state,
+					(array) ( $opts['temporal_context'] ?? array() )
+				);
+				$opts['goal_alignment'] = $alignment;
+				$this->emit_event( 'decision', array(
+					'trace_id'                 => $trace_id,
+					'stage'                    => 'goal_alignment_checked',
+					'stage_version'            => self::MPR_GATE_STAGE_VERSION,
+					'goal_id'                  => (string) ( $goal_state['goal_id'] ?? '' ),
+					'intent_id'                => (string) ( $alignment['intent_id'] ?? 'unknown.clarify' ),
+					'status'                   => (string) ( $alignment['status'] ?? 'needs_clarification' ),
+					'confidence'               => (float) ( $alignment['confidence'] ?? 0 ),
+					'reasons'                  => (array) ( $alignment['reasons'] ?? array() ),
+					'requires_user_confirmation' => ! empty( $alignment['requires_user_confirmation'] ),
+				) );
+			}
+			$session_action = sanitize_key( (string) ( $opts['goal_loop_session_action'] ?? '' ) );
+			if ( in_array( $session_action, array( 'opened', 'resumed' ), true ) ) {
+				// [2026-08-16 Johnny Chu] MPR-V5-GOAL-SESSION — persist the lifecycle decision before the opened/resumed milestone.
+				$this->emit_event( 'decision', array(
+					'trace_id'      => $trace_id,
+					'stage'         => 'goal_session_decided',
+					'stage_version' => self::MPR_GATE_STAGE_VERSION,
+					'goal_id'       => (string) ( $goal_state['goal_id'] ?? '' ),
+					'action'        => $session_action === 'opened' ? 'open' : 'resume',
+					'reason_code'   => $session_action === 'opened' ? 'new_goal' : 'active_goal_resumed',
+				) );
+				$this->emit_event( 'decision', array(
+					'trace_id'      => $trace_id,
+					'stage'         => 'goal_session_' . $session_action,
+					'stage_version' => self::MPR_GATE_STAGE_VERSION,
+					'goal_id'       => (string) ( $goal_state['goal_id'] ?? '' ),
+					'goal_title'    => (string) ( $goal_state['goal_title'] ?? 'Mục tiêu đang xử lý' ),
+					'current_session_id' => (string) ( $goal_state['session_id'] ?? $opts['session_id'] ?? '' ),
+					'previous_session_id' => (string) ( $opts['goal_loop_resume_from_session_id'] ?? '' ),
+					'status'        => (string) ( $goal_state['status'] ?? 'clarifying' ),
+				) );
 			}
 		}
 		// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G1 — expose one normalized
@@ -617,18 +742,24 @@ class BizCity_TwinBrain_Runtime {
 			}
 		}
 
-		// Stage 1A — notebook selector (parallel-conceptually; sequential in PHP).
-		$selector   = BizCity_TwinBrain_Notebook_Selector::instance();
-		$candidates = $selector->select( $prompt_eff, $user_id, $k, [
-			'force_ids' => $force_notebooks,
-			// PHASE-0.35 / F7.D2 — forward guru context so selector can
-			// prioritise notebooks bound to the active guru (character_id =
-			// guru_id) before falling through cosine → density → recency.
-			// Without this, Ask Brain (whole KG) ignores `@tarot` and
-			// returns 5 unrelated notebooks → synthesizer says "no notebook
-			// can interpret Tarot".
-			'guru_id'   => $guru_id,
-		] );
+		// [2026-08-16 Johnny Chu] PHASE-TWB-WOO-BIZOPS — Vertical Plugin owns its data query; do not select unrelated notebook lenses first.
+		$direct_vertical_mode = strtolower( (string) ( $opts['web_mode'] ?? 'off' ) );
+		if ( $direct_vertical_mode === 'woo_bizops' ) {
+			$candidates = array();
+		} else {
+			// Stage 1A — notebook selector (parallel-conceptually; sequential in PHP).
+			$selector   = BizCity_TwinBrain_Notebook_Selector::instance();
+			$candidates = $selector->select( $prompt_eff, $user_id, $k, [
+				'force_ids' => $force_notebooks,
+				// PHASE-0.35 / F7.D2 — forward guru context so selector can
+				// prioritise notebooks bound to the active guru (character_id =
+				// guru_id) before falling through cosine → density → recency.
+				// Without this, Ask Brain (whole KG) ignores `@tarot` and
+				// returns 5 unrelated notebooks → synthesizer says "no notebook
+				// can interpret Tarot".
+				'guru_id'   => $guru_id,
+			] );
+		}
 		$this->emit_event( 'brain_perspective_selected', [
 			'trace_id'              => $trace_id,
 			'k'                     => count( $candidates ),
@@ -680,11 +811,12 @@ class BizCity_TwinBrain_Runtime {
 		}
 		$force_tools = array_values( array_unique( array_filter( array_map( 'strval', $force_tools ) ) ) );
 
-		if ( empty( $opts['skip_tool_intent'] ) && ! $this->has_explicit_skill_mention( $prompt_eff ) ) {
+		if ( $direct_vertical_mode !== 'woo_bizops' && empty( $opts['skip_tool_intent'] ) && ! $this->has_explicit_skill_mention( $prompt_eff ) ) {
 			$matcher         = BizCity_TwinBrain_Tool_Intent_Matcher::instance();
 			$tool_candidates = $matcher->match( $prompt_eff, $user_id, [
-				'force_slugs' => $force_tools,
-				'guru_id'     => $guru_id,
+				'force_slugs'   => $force_tools,
+				'guru_id'       => $guru_id,
+				'prompt_intent' => (array) ( $opts['prompt_intent'] ?? $opts['pre_mpr_triage'] ?? array() ),
 			] );
 			$this->emit_event( 'brain_tool_intent', [
 				'trace_id'        => $trace_id,
@@ -789,6 +921,10 @@ class BizCity_TwinBrain_Runtime {
 			'goal_loop_state'       => (array) ( $opts['goal_loop_state'] ?? array() ),
 			'goal_contract'         => (array) ( $opts['goal_contract'] ?? array() ), // [2026-08-05 Johnny Chu] V3.1 — preserve frozen Goal Contract for streaming callers.
 			'goal_loop_brief'       => (string) ( $opts['goal_loop_brief'] ?? '' ),
+			'goal_loop_blocked'     => (array) ( $opts['goal_loop_blocked'] ?? array() ),
+			'goal_alignment'        => (array) ( $opts['goal_alignment'] ?? array() ),
+			'prompt_intent'         => (array) ( $opts['prompt_intent'] ?? array() ),
+			'temporal_context'      => (array) ( $opts['temporal_context'] ?? array() ),
 			'answer_depth'          => (string) ( $answer_depth_cfg['depth'] ?? self::ANSWER_DEPTH_DEFAULT ), // [2026-08-06 Johnny Chu] V4-DEPTH — echo resolved depth tier so REST/stream callers forward the same value into complete_turn_stream().
 			'pre_mpr_triage'        => (array) ( $opts['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve the pre-MPR branch decision for completion callers.
 			'ambiguous_no_goal'     => ! empty( $opts['ambiguous_no_goal'] ),
@@ -916,31 +1052,37 @@ class BizCity_TwinBrain_Runtime {
 		}
 
 		/* PHASE-0.35 / F7.C4 — Layer 5 Tool_Decision (no dispatch yet; that's F7.C5). */
-		$tool_decision = $this->decide_tool(
-			$trace_id,
-			(array) $tool_candidates,
-			(string) ( $opts['tool_force'] ?? '' ),
-			(int)    ( $opts['guru_id']    ?? 0 )
-		);
-		$this->emit_event( 'tool_decided', array_merge(
-			array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ),
-			$tool_decision
-		) );
+		$direct_vertical_mode = strtolower( (string) ( $opts['web_mode'] ?? 'off' ) );
+		$tool_decision = $direct_vertical_mode === 'woo_bizops'
+			? array( 'decision' => 'vertical_plugin', 'reason' => 'direct_vertical_mode', 'tool' => null )
+			: $this->decide_tool(
+				$trace_id,
+				(array) $tool_candidates,
+				(string) ( $opts['tool_force'] ?? '' ),
+				(int)    ( $opts['guru_id']    ?? 0 )
+			);
+		if ( $direct_vertical_mode === 'woo_bizops' ) {
+			$this->emit_event( 'vertical_plugin_decided', array( 'trace_id' => $trace_id, 'surface' => self::SURFACE, 'plugin' => 'woo_bizops', 'reason' => 'direct_vertical_mode' ) );
+		} else {
+			$this->emit_event( 'tool_decided', array_merge( array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ), $tool_decision ) );
+		}
 
 		/* PHASE-0.35 / F7.C5 — Layer 6 Tool_Dispatch (non-stream). */
 		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — pass the user prompt into tool args builder before dispatch.
 		$opts['tool_prompt'] = $prompt;
-		$dispatch     = $this->dispatch_tool( $trace_id, $tool_decision, $opts );
+		$dispatch     = $direct_vertical_mode === 'woo_bizops' ? array() : $this->dispatch_tool( $trace_id, $tool_decision, $opts );
 		if ( ! empty( $dispatch['artifact_created'] ) && is_array( $dispatch['artifact_created'] ) ) {
 			$this->emit_event( 'artifact_created', array_merge( array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ), $dispatch['artifact_created'] ) );
 		}
 		if ( ! empty( $dispatch['artifact_ready'] ) && is_array( $dispatch['artifact_ready'] ) ) {
 			$this->emit_event( 'artifact_ready', array_merge( array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ), $dispatch['artifact_ready'] ) );
 		}
-		$this->emit_event( 'tool_done', $this->tool_done_payload( $trace_id, $dispatch, $tool_decision ) );
-		$tool_results = ! empty( $dispatch['skipped'] )
-			? $this->planned_tool_results( $tool_decision )
-			: $this->dispatched_tool_results( $dispatch );
+		if ( $direct_vertical_mode !== 'woo_bizops' ) {
+			$this->emit_event( 'tool_done', $this->tool_done_payload( $trace_id, $dispatch, $tool_decision ) );
+		}
+		$tool_results = $direct_vertical_mode === 'woo_bizops'
+			? array()
+			: ( ! empty( $dispatch['skipped'] ) ? $this->planned_tool_results( $tool_decision ) : $this->dispatched_tool_results( $dispatch ) );
 
 		$synth     = BizCity_TwinBrain_Synthesizer::instance();
 		$synth_t0  = microtime( true );
@@ -1434,20 +1576,25 @@ class BizCity_TwinBrain_Runtime {
 		}
 
 		/* PHASE-0.35 / F7.C4 — Layer 5 Tool_Decision (no dispatch yet). */
-		$tool_decision = $this->decide_tool(
-			$trace_id,
-			(array) $tool_candidates,
-			(string) ( $opts['tool_force'] ?? '' ),
-			(int)    ( $opts['guru_id']    ?? 0 )
-		);
-		$sse->emit( 'tool_decided', array_merge(
-			array( 'trace_id' => $trace_id ),
-			$tool_decision
-		) );
-		$this->emit_event( 'tool_decided', array_merge(
-			array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ),
-			$tool_decision
-		) );
+		$direct_vertical_mode = strtolower( (string) ( $opts['web_mode'] ?? 'off' ) );
+		$tool_decision = $direct_vertical_mode === 'woo_bizops'
+			? array( 'decision' => 'vertical_plugin', 'reason' => 'direct_vertical_mode', 'tool' => null )
+			: $this->decide_tool(
+				$trace_id,
+				(array) $tool_candidates,
+				(string) ( $opts['tool_force'] ?? '' ),
+				(int)    ( $opts['guru_id']    ?? 0 )
+			);
+		if ( $direct_vertical_mode === 'woo_bizops' ) {
+			$sse->emit( 'vertical_plugin_decided', array(
+				'trace_id' => $trace_id,
+				'plugin'   => 'woo_bizops',
+				'reason'   => 'direct_vertical_mode',
+			) );
+		} else {
+			$sse->emit( 'tool_decided', array_merge( array( 'trace_id' => $trace_id ), $tool_decision ) );
+			$this->emit_event( 'tool_decided', array_merge( array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ), $tool_decision ) );
+		}
 
 		/* PHASE-0.35 / F7.C5 — Layer 6 Tool_Dispatch (stream).
 		 * Non-artifact tools still dispatch before synthesis. Producer artifacts
@@ -1456,9 +1603,11 @@ class BizCity_TwinBrain_Runtime {
 		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — use multimodal-enriched prompt as canonical tool args source.
 		$opts['tool_prompt'] = $prompt_for_reasoning;
 		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — defer producer artifacts until final answer is available for BZDoc handoff.
-		$defer_artifact_dispatch = $this->should_defer_stream_artifact_dispatch( $tool_decision );
+		$defer_artifact_dispatch = $direct_vertical_mode !== 'woo_bizops' && $this->should_defer_stream_artifact_dispatch( $tool_decision );
 		$dispatch = array();
-		if ( $defer_artifact_dispatch ) {
+		if ( $direct_vertical_mode === 'woo_bizops' ) {
+			$tool_results = array();
+		} elseif ( $defer_artifact_dispatch ) {
 			$deferred_payload = array(
 				'trace_id' => $trace_id,
 				'surface'  => self::SURFACE,
@@ -6733,10 +6882,16 @@ class BizCity_TwinBrain_Runtime {
 				if ( ! class_exists( 'BizCity_TwinBrain_Web_Woo_Bizops' ) ) {
 					$sse->emit( 'web_research_error', array( 'trace_id' => $trace_id, 'mode' => 'woo_bizops', 'error' => 'engine_missing' ) );
 				} else {
-					// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — admin capability is rechecked inside the resolver for every turn.
+					// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — preserve the server-resolved Guru for the shared vertical policy gate.
 					$row = BizCity_TwinBrain_Web_Woo_Bizops::instance()->run( $trace_id, $prompt, array(
 						'user_id' => (int) ( $opts['user_id'] ?? 0 ),
+						'guru_id' => (int) ( $opts['guru_id'] ?? 0 ),
 						'surface' => (string) ( $opts['surface'] ?? 'twinchat' ),
+						'platform' => 'twinweb' === (string) ( $opts['surface'] ?? '' ) ? 'TWINWEB' : (string) ( $opts['platform'] ?? '' ),
+						'account_id' => (string) ( $opts['account_id'] ?? '' ),
+						'required_role' => (string) ( $opts['required_role'] ?? '' ),
+						'required_plan' => (string) ( $opts['required_plan'] ?? '' ),
+						'target_resource' => isset( $opts['target_resource'] ) && is_array( $opts['target_resource'] ) ? $opts['target_resource'] : array(),
 					) );
 				}
 			}

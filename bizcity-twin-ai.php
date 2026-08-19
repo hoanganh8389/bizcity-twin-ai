@@ -199,6 +199,8 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
         || ( defined( 'WP_CLI' ) && WP_CLI )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/wp-json/' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/bizhook/' )
+        // [2026-08-13 Johnny Chu] HOTFIX-ZALO-LLM-LOADER — the Zalo Bot rewrite is /zalohook/, so load the gateway client before TwinBrain synthesis.
+        || false !== strpos( $bizcity_llm_bootstrap_uri, '/zalohook/' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/tool-' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/gpt' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/twin' );
@@ -268,6 +270,15 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request ) {
     if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
         BizCity_Loader_Ownership_Registry::transition( 'knowledge', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
     }
+}
+
+// [2026-08-13 Johnny Chu] PHASE-1.26-MENU — load only the Knowledge admin-menu renderer on the TwinChat shell so the Characters link remains visible without preloading the full Knowledge runtime.
+if ( $_bizcity_twinchat_admin_shell_request ) {
+    $bizcity_knowledge_admin_menu_file = __DIR__ . '/core/knowledge/includes/class-admin-menu.php';
+    if ( file_exists( $bizcity_knowledge_admin_menu_file ) ) {
+        require_once $bizcity_knowledge_admin_menu_file;
+    }
+    unset( $bizcity_knowledge_admin_menu_file );
 }
 
 // [2026-07-14 Johnny Chu] PHASE-0.43 — shared local-document search for TwinChat, TwinWeb and future surfaces.
@@ -497,8 +508,13 @@ $_bizcity_automation_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER[
 $_bizcity_automation_page = is_admin()
     && isset( $_GET['page'] )
     && 'bizcity-automation' === sanitize_key( (string) $_GET['page'] );
+// [2026-08-16 Johnny Chu] R-DDV — Diagnostics runs automation-dependent probes and must load the Automation contract before probe execution.
+$_bizcity_automation_diagnostics_page = is_admin()
+    && isset( $_GET['page'] )
+    && 'bizcity-diagnostics' === sanitize_key( (string) $_GET['page'] );
 $_bizcity_automation_runtime_request =
     $_bizcity_automation_page
+    || $_bizcity_automation_diagnostics_page
     || ( defined( 'DOING_CRON' ) && DOING_CRON )
     || ( defined( 'WP_CLI' ) && WP_CLI )
     || false !== strpos( $_bizcity_automation_uri, '/wp-json/bizcity-automation/' )
@@ -512,7 +528,7 @@ if ( $_bizcity_automation_runtime_request
     && file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/automation/bootstrap.php';
 }
-unset( $_bizcity_automation_uri, $_bizcity_automation_page, $_bizcity_automation_runtime_request );
+unset( $_bizcity_automation_uri, $_bizcity_automation_page, $_bizcity_automation_diagnostics_page, $_bizcity_automation_runtime_request );
 // [2026-06-22 Johnny Chu] PHASE-TWINWEB — QUARANTINED: core/content-ops chưa sử dụng.
 // Uncomment khi sẵn sàng ship Content-Ops SPA (page=bizcity-content-ops).
 // Phase CO-1 — Content Ops (Layer 2: AI content + schedule + cross-channel publish)

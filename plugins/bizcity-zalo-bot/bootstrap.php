@@ -230,6 +230,7 @@ class BizCity_Zalo_Bot_Plugin {
 		
 		// Channel Adapter — register with twin-ai Gateway Bridge
 		if ( class_exists( 'BizCity_Zalo_Bot_Channel_Adapter' ) ) {
+			BizCity_Zalo_Bot_Channel_Adapter::init_normalized_bridge();
 			add_action( 'bizcity_register_channel', function( $bridge ) {
 				$bridge->register_adapter( new BizCity_Zalo_Bot_Channel_Adapter() );
 			} );

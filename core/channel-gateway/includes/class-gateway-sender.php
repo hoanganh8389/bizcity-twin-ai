@@ -101,7 +101,7 @@ class BizCity_Gateway_Sender {
 					'platform' => $platform,
 					'message'  => $this->sanitize_log_message( $message ),
 					'type'     => $type,
-					'extra'    => array_merge( $extra, array( '_trace' => $trace ) ),
+					'extra'    => array_merge( $extra, array( '_trace' => $trace, 'side_effect_status' => ! empty( $result['sent'] ) ? 'sent' : 'failed', 'provider_request_id' => (string) ( $result['mid'] ?? $result['provider_request_id'] ?? '' ) ) ),
 					'sent'     => (bool) $result['sent'],
 					'error'    => (string) $result['error'],
 				) );
@@ -120,7 +120,7 @@ class BizCity_Gateway_Sender {
 				'platform' => $result['platform'],
 				'message'  => $this->sanitize_log_message( $message ),
 				'type'     => $type,
-				'extra'    => array_merge( $extra, array( '_trace' => $trace ) ),
+				'extra'    => array_merge( $extra, array( '_trace' => $trace, 'side_effect_status' => ! empty( $result['sent'] ) ? 'sent' : 'failed', 'provider_request_id' => (string) ( $result['mid'] ?? $result['provider_request_id'] ?? '' ) ) ),
 				'sent'     => (bool) $result['sent'],
 				'error'    => (string) $result['error'],
 			) );

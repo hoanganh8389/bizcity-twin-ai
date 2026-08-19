@@ -167,49 +167,10 @@ final class BizCity_Scheduler_Completion_Notifier {
 	 * @return array|null  { platform, chat_id } hoặc null nếu skip.
 	 */
 	private static function resolve_target( array $row, array $meta ) {
-		// 1. Per-event override.
-		if ( isset( $meta['notify']['target'] ) && is_array( $meta['notify']['target'] ) ) {
-			$t = $meta['notify']['target'];
-			if ( ! empty( $t['platform'] ) && ! empty( $t['chat_id'] ) ) {
-				return [ 'platform' => (string) $t['platform'], 'chat_id' => (string) $t['chat_id'] ];
-			}
-		}
-		// 2. Inbound provenance.
-		if ( isset( $meta['inbound'] ) && is_array( $meta['inbound'] ) ) {
-			$in = $meta['inbound'];
-			if ( ! empty( $in['platform'] ) && ! empty( $in['chat_id'] ) ) {
-				return [ 'platform' => (string) $in['platform'], 'chat_id' => (string) $in['chat_id'] ];
-			}
-		}
-		// 3. Owner default channel (user_meta).
-		$user_id = isset( $row['user_id'] ) ? (int) $row['user_id'] : 0;
-		if ( $user_id > 0 ) {
-			// [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
-			$pref = class_exists( 'BizCity_User_Meta_Cache' )
-				? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_default_notify_channel', array() )
-				: get_user_meta( $user_id, 'bizcity_default_notify_channel', true );
-			if ( is_array( $pref ) && ! empty( $pref['platform'] ) && ! empty( $pref['chat_id'] ) ) {
-				return [ 'platform' => (string) $pref['platform'], 'chat_id' => (string) $pref['chat_id'] ];
-			}
-		}
-		// 4. Site-wide default.
-		$global = get_option( 'bizcity_default_notify_channel', [] );
-		if ( is_array( $global ) && ! empty( $global['platform'] ) && ! empty( $global['chat_id'] ) ) {
-			return [ 'platform' => (string) $global['platform'], 'chat_id' => (string) $global['chat_id'] ];
-		}
-
-		/**
-		 * Filter cho phép module khác cung cấp target tự động.
-		 *
-		 * @param array|null $target
-		 * @param array      $row
-		 * @param array      $meta
-		 */
-		$filtered = apply_filters( 'bizcity_scheduler_resolve_default_channel', null, $row, $meta );
-		if ( is_array( $filtered ) && ! empty( $filtered['platform'] ) && ! empty( $filtered['chat_id'] ) ) {
-			return [ 'platform' => (string) $filtered['platform'], 'chat_id' => (string) $filtered['chat_id'] ];
-		}
-		return null;
+		// [2026-08-16 Johnny Chu] R-SCH-TARGET — Scheduler and progress notices share one precedence contract.
+		return class_exists( 'BizCity_Scheduler_Notify_Target_Resolver' )
+			? BizCity_Scheduler_Notify_Target_Resolver::resolve( $row, $meta )
+			: null;
 	}
 
 	/**

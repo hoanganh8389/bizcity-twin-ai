@@ -111,6 +111,8 @@ class BizCity_Zalobot_Upload_Link_Handler {
 		if ( $token === '' ) {
 			return;
 		}
+		// [2026-08-13 Johnny Chu] HOTFIX-ZALO-UPLOAD-RUNTIME — public upload requests must self-load canonical KG dependencies.
+		self::ensure_runtime_dependencies();
 		if ( ! class_exists( 'BizCity_KG_Channel_Upload_Link_Service' ) ) {
 			self::render_message_page( 'Dịch vụ TwinNote chưa sẵn sàng trên site này.', array() );
 			exit;
@@ -129,6 +131,19 @@ class BizCity_Zalobot_Upload_Link_Handler {
 			self::handle_get( $token );
 		}
 		exit;
+	}
+
+	private static function ensure_runtime_dependencies(): void {
+		$root = dirname( __DIR__, 3 );
+		$files = array(
+			'BizCity_KG_Channel_Notebook_Bridge' => $root . '/core/knowledge/kg-hub/includes/class-kg-channel-notebook-bridge.php',
+			'BizCity_KG_Channel_Upload_Link_Service' => $root . '/core/knowledge/kg-hub/includes/class-kg-channel-upload-link-service.php',
+		);
+		foreach ( $files as $class => $file ) {
+			if ( ! class_exists( $class, false ) && is_readable( $file ) ) {
+				require_once $file;
+			}
+		}
 	}
 
 	/* ─────────────────────────────── GET ─────────────────────────────── */

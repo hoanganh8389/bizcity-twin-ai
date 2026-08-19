@@ -51,6 +51,7 @@ final class BizCity_TwinBrain_Goal_Loop_State {
 			'root_session_id'    => sanitize_text_field( (string) ( $state['root_session_id'] ?? $state['session_id'] ?? '' ) ),
 			'parent_goal_id'     => self::sanitize_id( (string) ( $state['parent_goal_id'] ?? '' ), 'goal' ),
 			'primary_goal'       => sanitize_text_field( (string) ( $state['primary_goal'] ?? '' ) ),
+			'goal_title'         => self::normalize_goal_title( (string) ( $state['goal_title'] ?? $state['primary_goal'] ?? '' ) ),
 			'user_intent_current'=> sanitize_text_field( (string) ( $state['user_intent_current'] ?? '' ) ),
 			'goal_draft'         => self::normalize_goal_draft( $state['goal_draft'] ?? null ),
 			// [2026-08-03 Johnny Chu] R-MPR-GOALBOARD — persist the per-turn answer contract inside the existing event-sourced Goal State.
@@ -162,6 +163,13 @@ final class BizCity_TwinBrain_Goal_Loop_State {
 	private static function normalize_memory_scope( string $scope ): string {
 		$scope = sanitize_key( $scope );
 		return in_array( $scope, array( 'goal_case', 'goal_owner', 'identity_global' ), true ) ? $scope : '';
+	}
+
+	private static function normalize_goal_title( string $value ): string {
+		// [2026-08-15 Johnny Chu] MPR-V5-GOAL-TITLE — preserve a bounded, contact-safe title across Goal normalization and replay.
+		$value = trim( preg_replace( '/\+?\d[\d\s().-]{7,}\d/u', '', sanitize_text_field( $value ) ) );
+		$value = trim( preg_replace( '/\s+/u', ' ', $value ) );
+		return mb_substr( $value !== '' ? $value : 'Mục tiêu mới', 0, 80, 'UTF-8' );
 	}
 
 	private static function sanitize_scope_key( string $value ): string {

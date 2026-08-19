@@ -82,11 +82,17 @@ final class BizCity_Automation_Block_Registry {
 		$this->register( new BizCity_Automation_Action_Consume_Attachment() );    // BE-7.C
 		// [2026-07-24 Johnny Chu] PHASE-0.46 W2 — direct workflow→notebook bridge action.
 		$this->register( new BizCity_Automation_Action_Capture_To_Notebook() );
+		// [2026-08-13 Johnny Chu] HOTFIX — register the learning share-link action already loaded by automation bootstrap.
+		$this->register( new BizCity_Automation_Action_Learning_Share_Link() );
 		$this->register( new BizCity_Automation_Action_Publish_WP_Post() );       // BE-7.C
 		$this->register( new BizCity_Automation_Action_Publish_FB_Post() );       // BE-7.C
 		$this->register( new BizCity_Automation_Action_Schedule_Event() );        // BE-7.D
 		// [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W1 — action.invoke_skill bridge block.
 		$this->register( new BizCity_Automation_Action_Invoke_Skill() );
+		// [2026-08-16 Johnny Chu] PHASE-TWB-GURU-ASK — expose action.ask_guru through the canonical registry.
+		if ( class_exists( 'BizCity_Automation_Action_Ask_Guru' ) ) {
+			$this->register( new BizCity_Automation_Action_Ask_Guru() );
+		}
 		// [2026-06-07 Johnny Chu] PHASE-0.38.W1.5 — action.create_woo_order (Order Fulfillment Hub).
 		$this->register( new BizCity_Automation_Action_Create_Woo_Order() );
 		// [2026-06-07 Johnny Chu] PHASE-0.40 G7.2 — action.notify_discord (Discord webhook notification).

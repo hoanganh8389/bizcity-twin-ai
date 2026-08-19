@@ -5,48 +5,46 @@
   "installer_id": "user_points",
   "current_version": "1.1.0",
   "version_option": "user_points_schema_version",
-  "tables": [
-    {
-      "name": "user_points",
+  "tables": {
+    "user_points": {
       "since": "1.0.0",
       "description": "Legacy points credit ledger owned by the user-points plugin.",
-      "columns": [
-        { "name": "id", "type": "MEDIUMINT NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
-        { "name": "code", "type": "VARCHAR(255) NOT NULL", "since": "1.0.0" },
-        { "name": "store_name", "type": "VARCHAR(255) NOT NULL", "since": "1.0.0" },
-        { "name": "product", "type": "VARCHAR(255) NOT NULL", "since": "1.0.0" },
-        { "name": "phone", "type": "VARCHAR(255) NOT NULL", "since": "1.0.0" },
-        { "name": "client_id", "type": "VARCHAR(255) NULL", "since": "1.0.0" },
-        { "name": "user_points", "type": "VARCHAR(255) NULL", "since": "1.0.0" },
-        { "name": "time", "type": "DATETIME NOT NULL", "since": "1.0.0" },
-        { "name": "contact_id", "type": "BIGINT UNSIGNED NULL", "since": "1.1.0", "comment": "Canonical bizcity_crm_contacts.id link; additive identity projection." }
-      ],
-      "indexes": [
-        { "name": "PRIMARY", "columns": ["id"] },
-        { "name": "idx_contact", "columns": ["contact_id"] },
-        { "name": "idx_phone", "columns": ["phone"] }
-      ]
+      "columns": {
+        "id":          { "type": "MEDIUMINT NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "code":        { "type": "VARCHAR(255) NOT NULL",             "since": "1.0.0" },
+        "store_name":  { "type": "VARCHAR(255) NOT NULL",             "since": "1.0.0" },
+        "product":     { "type": "VARCHAR(255) NOT NULL",             "since": "1.0.0" },
+        "phone":       { "type": "VARCHAR(255) NOT NULL",             "since": "1.0.0" },
+        "client_id":   { "type": "VARCHAR(255) NULL",                 "since": "1.0.0" },
+        "user_points": { "type": "VARCHAR(255) NULL",                 "since": "1.0.0" },
+        "time":        { "type": "DATETIME NOT NULL",                  "since": "1.0.0" },
+        "contact_id":  { "type": "BIGINT UNSIGNED NULL",               "since": "1.1.0", "comment": "Canonical bizcity_crm_contacts.id link; additive identity projection." }
+      },
+      "indexes": {
+        "PRIMARY":     { "cols": ["id"],         "since": "1.0.0" },
+        "idx_contact": { "cols": ["contact_id"], "since": "1.1.0" },
+        "idx_phone":   { "cols": ["phone"],     "since": "1.0.0" }
+      }
     },
-    {
-      "name": "user_points_exchange",
+    "user_points_exchange": {
       "since": "1.0.0",
       "description": "Legacy points debit/redemption ledger owned by the user-points plugin.",
-      "columns": [
-        { "name": "id", "type": "MEDIUMINT NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
-        { "name": "phone", "type": "VARCHAR(255) NOT NULL", "since": "1.0.0" },
-        { "name": "product", "type": "VARCHAR(255) NOT NULL", "since": "1.0.0" },
-        { "name": "points", "type": "INT NOT NULL", "since": "1.0.0" },
-        { "name": "remaining_points", "type": "INT NOT NULL", "since": "1.0.0" },
-        { "name": "time", "type": "DATETIME NOT NULL", "since": "1.0.0" },
-        { "name": "contact_id", "type": "BIGINT UNSIGNED NULL", "since": "1.1.0", "comment": "Canonical bizcity_crm_contacts.id link; additive identity projection." }
-      ],
-      "indexes": [
-        { "name": "PRIMARY", "columns": ["id"] },
-        { "name": "idx_contact", "columns": ["contact_id"] },
-        { "name": "idx_phone", "columns": ["phone"] }
-      ]
+      "columns": {
+        "id":              { "type": "MEDIUMINT NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "phone":           { "type": "VARCHAR(255) NOT NULL",             "since": "1.0.0" },
+        "product":         { "type": "VARCHAR(255) NOT NULL",             "since": "1.0.0" },
+        "points":          { "type": "INT NOT NULL",                       "since": "1.0.0" },
+        "remaining_points":{ "type": "INT NOT NULL",                       "since": "1.0.0" },
+        "time":            { "type": "DATETIME NOT NULL",                  "since": "1.0.0" },
+        "contact_id":      { "type": "BIGINT UNSIGNED NULL",               "since": "1.1.0", "comment": "Canonical bizcity_crm_contacts.id link; additive identity projection." }
+      },
+      "indexes": {
+        "PRIMARY":     { "cols": ["id"],         "since": "1.0.0" },
+        "idx_contact": { "cols": ["contact_id"], "since": "1.1.0" },
+        "idx_phone":   { "cols": ["phone"],     "since": "1.0.0" }
+      }
     }
-  ],
+  },
   "history": [
     {
       "version": "1.0.0",

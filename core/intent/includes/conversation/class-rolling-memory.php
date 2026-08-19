@@ -73,7 +73,7 @@ class BizCity_Rolling_Memory {
      *  TABLE
      * ================================================================ */
 
-    const DB_VERSION = '1.3'; // [2026-07-29 Johnny Chu] R-CH-IDMEM — persist per-blog schema migration memory and retry state.
+    const DB_VERSION = '1.4'; // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-BLOG-ID — repair tenants whose rolling table lacks blog_id.
     const DB_VERSION_OPTION = 'bizcity_memory_rolling_db_ver';
     const MIGRATION_MEMORY_OPTION = 'bizcity_memory_rolling_migration_memory';
     const MIGRATION_RETRY_SECONDS = 3600;
@@ -90,7 +90,8 @@ class BizCity_Rolling_Memory {
 
         // [2026-08-09 Johnny Chu] R-METADATA-CACHE — trust the completed version stamp on the normal path; physical verification belongs to repair/diagnostics.
         $stored_version = get_option( self::DB_VERSION_OPTION );
-        if ( $stored_version === self::DB_VERSION ) {
+        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-BLOG-ID — a version stamp is not proof that every required tenant column exists.
+        if ( $stored_version === self::DB_VERSION && self::has_required_columns( $table ) ) {
             return;
         }
 
@@ -98,7 +99,7 @@ class BizCity_Rolling_Memory {
         $now             = time();
         if ( 'complete' === (string) ( $migration_state['status'] ?? '' )
             && self::DB_VERSION === (string) ( $migration_state['version'] ?? '' )
-            && self::has_identity_column( $table ) ) {
+            && self::has_required_columns( $table ) ) {
             update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
             return;
         }
@@ -130,7 +131,7 @@ class BizCity_Rolling_Memory {
 
         try {
             // Re-check after acquiring the lock — another worker may have already finished migrating.
-            if ( get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION && self::has_identity_column( $table ) ) {
+            if ( get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION && self::has_required_columns( $table ) ) {
                 return;
             }
 
@@ -144,11 +145,17 @@ class BizCity_Rolling_Memory {
                 'SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
                 $table
             ) );
-            if ( 'BASE TABLE' === $table_type && ! self::has_identity_column( $table ) ) {
+            if ( 'BASE TABLE' === $table_type && ! self::has_required_columns( $table ) ) {
                 $previous = $wpdb->suppress_errors( true );
-                $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN identity_uuid CHAR(36) NOT NULL DEFAULT '' AFTER user_id" );
+                if ( ! self::has_column( $table, 'blog_id' ) ) {
+                    $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN blog_id INT UNSIGNED NOT NULL DEFAULT 1 AFTER id" );
+                }
+                if ( ! self::has_column( $table, 'identity_uuid' ) ) {
+                    $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN identity_uuid CHAR(36) NOT NULL DEFAULT '' AFTER user_id" );
+                }
                 $wpdb->suppress_errors( $previous );
                 if ( function_exists( 'bizcity_column_invalidate' ) ) {
+                    bizcity_column_invalidate( $table, 'blog_id' );
                     bizcity_column_invalidate( $table, 'identity_uuid' );
                 }
             }
@@ -196,6 +203,7 @@ class BizCity_Rolling_Memory {
 
             dbDelta( $sql );
             if ( function_exists( 'bizcity_column_invalidate' ) ) {
+                bizcity_column_invalidate( $table, 'blog_id' );
                 bizcity_column_invalidate( $table, 'identity_uuid' );
             }
 
@@ -214,7 +222,7 @@ class BizCity_Rolling_Memory {
 
             // [2026-07-28 Johnny Chu] HOTFIX — only mark migration complete after verifying identity_uuid
             // actually exists; dbDelta() can silently no-op on some routed shard connections.
-            if ( self::has_identity_column( $table ) ) {
+            if ( self::has_required_columns( $table ) ) {
                 update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
                 self::remember_migration_state( $table, [
                     'version'      => self::DB_VERSION,
@@ -261,16 +269,24 @@ class BizCity_Rolling_Memory {
      * Cheap information_schema check — not cached because ensure_table() only runs this path
      * when the version option check already failed (rare, once-per-migration-need).
      */
+    private static function has_required_columns( $table ) {
+        return self::has_column( $table, 'blog_id' ) && self::has_column( $table, 'identity_uuid' );
+    }
+
     private static function has_identity_column( $table ) {
+        return self::has_column( $table, 'identity_uuid' );
+    }
+
+    private static function has_column( $table, $column ) {
         // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — reuse the shared multisite/shard-aware schema cache.
         if ( function_exists( 'bizcity_column_exists' ) ) {
-            return bizcity_column_exists( $table, 'identity_uuid' );
+            return bizcity_column_exists( $table, $column );
         }
         // [2026-08-09 Johnny Chu] R-CACHE — early-load fallback must cache both true and false by blog/database.
         static $cache = array();
         global $wpdb;
         $database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
-        $memo_key = (int) get_current_blog_id() . ':' . $database . ':' . $table . ':identity_uuid';
+        $memo_key = (int) get_current_blog_id() . ':' . $database . ':' . $table . ':' . $column;
         if ( array_key_exists( $memo_key, $cache ) ) {
             return $cache[ $memo_key ];
         }
@@ -281,8 +297,9 @@ class BizCity_Rolling_Memory {
             return $cache[ $memo_key ];
         }
         $present = (bool) $wpdb->get_var( $wpdb->prepare(
-            "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'identity_uuid' LIMIT 1",
-            $table
+            "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1",
+            $table,
+            $column
         ) );
         wp_cache_set( $cache_key, $present ? 1 : 0, 'bizcity_tbl', HOUR_IN_SECONDS );
         $cache[ $memo_key ] = $present;
@@ -339,6 +356,8 @@ class BizCity_Rolling_Memory {
         if ( $action === 'passthrough' && empty( $goal ) ) return;
 
         global $wpdb;
+        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-SCHEMA-GUARD — do not issue tenant writes while the routed rolling table is missing identity columns.
+        if ( ! self::has_required_columns( $this->table ) ) return;
 
         // Get or create rolling memory row
         $row = $this->get_by_conversation( $conv_id, $identity_uuid );
@@ -589,6 +608,10 @@ PROMPT;
         if ( trim( (string) $identity_uuid ) === '' ) {
             return null;
         }
+        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-SCHEMA-GUARD — fail closed until tenant identity columns are physically present.
+        if ( ! self::has_required_columns( $this->table ) ) {
+            return null;
+        }
 
         $where  = array( 'conversation_id = %s' );
         $params = array( $conv_id );
@@ -612,6 +635,10 @@ PROMPT;
      */
     public function get_active_for_user( $user_id, $session_id = '', $identity_uuid = '' ) {
         global $wpdb;
+        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-SCHEMA-GUARD — avoid Unknown column blog_id during shard repair.
+        if ( ! self::has_required_columns( $this->table ) ) {
+            return array();
+        }
         $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
             ? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'session_id' => $session_id, 'identity_uuid' => $identity_uuid ) )
             : array( 'user_id' => (int) $user_id, 'session_id' => (string) $session_id, 'identity_uuid' => (string) $identity_uuid );
@@ -646,6 +673,10 @@ PROMPT;
      */
     public function get_recently_completed( $user_id, $minutes = 30, $identity_uuid = '' ) {
         global $wpdb;
+        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-SCHEMA-GUARD — return an empty memory set while migration is incomplete.
+        if ( ! self::has_required_columns( $this->table ) ) {
+            return array();
+        }
         $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
             ? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'identity_uuid' => $identity_uuid ) )
             : array( 'user_id' => (int) $user_id, 'identity_uuid' => (string) $identity_uuid );

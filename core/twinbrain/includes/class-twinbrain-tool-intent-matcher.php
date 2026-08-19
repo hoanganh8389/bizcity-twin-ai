@@ -63,7 +63,7 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 				}
 				$out[] = [ 'skill_slug' => $slug, 'score' => 1.0, 'reason' => $reason ];
 			}
-			return $out;
+			return $this->annotate_prompt_intent( $out, $opts );
 		}
 
 		$skills = $this->load_user_skills( $user_id );
@@ -103,7 +103,29 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 			usort( $result, static function( $a, $b ) { return ( $b['score'] ?? 0 ) <=> ( $a['score'] ?? 0 ); } );
 		}
 
-		return $result;
+		return $this->annotate_prompt_intent( $result, $opts );
+	}
+
+	/**
+	 * Preserve the shared Prompt Intent context on candidates without changing
+	 * ranking or filtering behavior.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function annotate_prompt_intent( array $candidates, array $opts ): array {
+		// [2026-08-16 Johnny Chu] MPR-V5-INTENT — prove Tool Matcher consumes the same triage contract without a second classifier.
+		$intent = is_array( $opts['prompt_intent'] ?? null ) ? $opts['prompt_intent'] : array();
+		$intent_id = sanitize_key( (string) ( $intent['intent_id'] ?? '' ) );
+		if ( $intent_id === '' ) {
+			return $candidates;
+		}
+		foreach ( $candidates as &$candidate ) {
+			$candidate['prompt_intent_id'] = $intent_id;
+			$candidate['prompt_intent_requires_tools'] = ! empty( $intent['requires_tools'] );
+			$candidate['prompt_intent_side_effect_level'] = sanitize_key( (string) ( $intent['side_effect_level'] ?? 'none' ) );
+		}
+		unset( $candidate );
+		return $candidates;
 	}
 
 	/**

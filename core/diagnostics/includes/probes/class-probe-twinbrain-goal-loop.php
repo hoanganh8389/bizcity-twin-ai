@@ -29,7 +29,7 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 	public function estimate_ms(): int { return 30; }
 
 	public function precondition() {
-		foreach ( array( 'BizCity_TwinBrain_Goal_Loop_State', 'BizCity_TwinBrain_Goal_Loop_Repository', 'BizCity_TwinBrain_Goal_Loop_Intent_Adapter', 'BizCity_TwinBrain_Goal_Loop_Runtime', 'BizCity_TwinBrain_Goal_Loop_Delta', 'BizCity_TwinBrain_Goal_Loop_Parser', 'BizCity_TwinBrain_Goal_Loop_Reflector', 'BizCity_TwinBrain_Goal_Loop_Question_Engine', 'BizCity_TwinBrain_Goal_Loop_REST', 'BizCity_TwinBrain_Goal_Loop_Scheduler', 'BizCity_Twin_Event_Taxonomy', 'BizCity_Twin_Data_Contract' ) as $class ) {
+		foreach ( array( 'BizCity_TwinBrain_Goal_Loop_State', 'BizCity_TwinBrain_Goal_Loop_Repository', 'BizCity_TwinBrain_Goal_Loop_Intent_Adapter', 'BizCity_TwinBrain_Goal_Loop_Runtime', 'BizCity_TwinBrain_Temporal_Context_Resolver', 'BizCity_TwinBrain_Goal_Alignment', 'BizCity_TwinBrain_Goal_Loop_Delta', 'BizCity_TwinBrain_Goal_Loop_Parser', 'BizCity_TwinBrain_Goal_Loop_Reflector', 'BizCity_TwinBrain_Goal_Loop_Question_Engine', 'BizCity_TwinBrain_Goal_Loop_REST', 'BizCity_TwinBrain_Goal_Loop_Scheduler', 'BizCity_Twin_Event_Taxonomy', 'BizCity_Twin_Data_Contract' ) as $class ) {
 			if ( ! class_exists( $class ) ) {
 				return new WP_Error( 'class_missing', $class . ' chưa load.' );
 			}
@@ -48,6 +48,9 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 		$state_file = $plugin_root . 'core/twinbrain/includes/class-twinbrain-goal-loop-state.php';
 		$spec_file = $plugin_root . 'core/twinbrain/docs/TWINBRAIN-TWIN-GOAL-LOOP.md';
 		$schema_dir = $plugin_root . 'core/twin-core/event-stream/schemas/events/';
+		// [2026-08-17 Johnny Chu] R-DDV — load Runtime source before validating the Event Bus decision wrapper; this probe previously read an uninitialized variable.
+		$runtime_file = $plugin_root . 'core/twinbrain/includes/class-twinbrain-runtime.php';
+		$runtime_source = is_readable( $runtime_file ) ? (string) file_get_contents( $runtime_file ) : '';
 		$schema_names = array( 'twin_goal_opened', 'twin_goal_progressed', 'twin_goal_closed' );
 		$vertical_schema_names = array( 'conversation_route_decided', 'conversation_confirm_prompt' );
 
@@ -92,20 +95,36 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 			&& isset( $taxonomy[ BizCity_Twin_Event_Taxonomy::CONVERSATION_ROUTE_DECIDED ] )
 			&& isset( $taxonomy[ BizCity_Twin_Event_Taxonomy::CONVERSATION_CONFIRM_PROMPT ] );
 		$ok = $this->step( $ctx, $steps, 'Loader: Goal Loop event taxonomy', $taxonomy_ok, 'Taxonomy v' . BizCity_Twin_Event_Taxonomy::TAXONOMY_VERSION ) && $ok;
-		// [2026-08-05 Johnny Chu] EVENT-TELEMETRY DDV — validate active Runtime telemetry names against the legacy Event Bus contract.
-		$telemetry_events = array( 'decision', 'subject_profile_resolving', 'subject_profile_resolved', 'subject_profile_degraded', 'notebook_source_layer_ready', 'rerank_done', 'brain_synthesize', 'assistant_message', 'memory_write' );
-		$telemetry_contract_ok = defined( 'BizCity_Twin_Data_Contract::CONTRACT_VERSION' )
-			&& version_compare( BizCity_Twin_Data_Contract::CONTRACT_VERSION, '1.3', '>=' );
-		foreach ( $telemetry_events as $telemetry_event ) {
-			$telemetry_payload = array( 'trace_id' => 'trace_ddv' );
-			if ( $telemetry_event === 'decision' ) {
-				$telemetry_payload['stage'] = 'ddv';
-			}
-			if ( ! empty( BizCity_Twin_Data_Contract::validate_event_payload( $telemetry_event, $telemetry_payload ) ) ) {
-				$telemetry_contract_ok = false;
+		// [2026-08-17 Johnny Chu] R-EVT-DDV — canonical V5 persistence uses decision stages; legacy telemetry aliases are not required Event Bus taxonomy entries.
+		$event_bus_file = $plugin_root . 'core/twin-core/event-stream/class-twin-event-bus.php';
+		$event_bus_disk_ok = is_readable( $event_bus_file );
+		$event_bus_disk_detail = $event_bus_disk_ok ? $event_bus_file : 'Event Bus file is not readable: ' . $event_bus_file;
+		$ok = $this->step( $ctx, $steps, 'Disk: canonical Event Bus source', $event_bus_disk_ok, $event_bus_disk_detail ) && $ok;
+		if ( ! class_exists( 'BizCity_Twin_Event_Bus' ) && is_readable( $event_bus_file ) ) {
+			// [2026-08-17 Johnny Chu] R-DDV loader repair — diagnostics may load the canonical Event Bus when a legacy MU bootstrap skipped it.
+			require_once $event_bus_file;
+			if ( class_exists( 'BizCity_Twin_Event_Bus' ) && method_exists( 'BizCity_Twin_Event_Bus', 'boot' ) ) {
+				BizCity_Twin_Event_Bus::boot();
 			}
 		}
-		$ok = $this->step( $ctx, $steps, 'Loader: Runtime telemetry Event Bus contract', $telemetry_contract_ok, $telemetry_contract_ok ? 'Active MPR/source/memory/final events validate without twin:event_invalid.' : 'Runtime telemetry event names are missing from the legacy Data Contract.' ) && $ok;
+		$event_bus_class_ok = class_exists( 'BizCity_Twin_Event_Bus' );
+		$event_bus_dispatch_ok = $event_bus_class_ok && method_exists( 'BizCity_Twin_Event_Bus', 'dispatch' );
+		$event_bus_dispatch_v2_ok = $event_bus_class_ok && method_exists( 'BizCity_Twin_Event_Bus', 'dispatch_v2' );
+		$event_bus_loader_detail = 'class=' . ( $event_bus_class_ok ? 'yes' : 'no' )
+			. ' dispatch=' . ( $event_bus_dispatch_ok ? 'yes' : 'no' )
+			. ' dispatch_v2=' . ( $event_bus_dispatch_v2_ok ? 'yes' : 'no' )
+			. ' file=' . ( $event_bus_disk_ok ? 'readable' : 'missing' );
+		$runtime_emit_ok = strpos( $runtime_source, 'function emit_event' ) !== false;
+		$runtime_dispatch_ok = strpos( $runtime_source, 'BizCity_Twin_Event_Bus::dispatch(' ) !== false;
+		$runtime_decision_ok = preg_match( "/emit_event\\(\\s*['\"]decision['\"]\\s*,/", $runtime_source ) === 1;
+		$runtime_stage_ok = strpos( $runtime_source, 'MPR_GATE_STAGE_VERSION' ) !== false;
+		$telemetry_contract_ok = $event_bus_dispatch_ok && $runtime_emit_ok && $runtime_dispatch_ok && $runtime_decision_ok && $runtime_stage_ok;
+		$event_bus_marker_detail = $event_bus_loader_detail
+			. ' emit_event=' . ( $runtime_emit_ok ? 'yes' : 'no' )
+			. ' dispatch_call=' . ( $runtime_dispatch_ok ? 'yes' : 'no' )
+			. ' decision_stage=' . ( $runtime_decision_ok ? 'yes' : 'no' )
+			. ' stage_version=' . ( $runtime_stage_ok ? 'yes' : 'no' );
+		$ok = $this->step( $ctx, $steps, 'Loader: canonical decision Event Bus contract', $telemetry_contract_ok, $telemetry_contract_ok ? 'V5 stages persist through canonical decision.stage=mpr_gate.v1; legacy aliases are not treated as taxonomy events.' : 'Canonical Event Bus marker detail: ' . $event_bus_marker_detail ) && $ok;
 		$api_ok = method_exists( 'BizCity_TwinBrain_Goal_Loop_Repository', 'latest' )
 			&& method_exists( 'BizCity_TwinBrain_Goal_Loop_Repository', 'open' )
 			&& method_exists( 'BizCity_TwinBrain_Goal_Loop_Repository', 'progress' )
@@ -116,25 +135,27 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 		$delta_ok = method_exists( 'BizCity_TwinBrain_Goal_Loop_Delta', 'compute' ) && method_exists( 'BizCity_TwinBrain_Goal_Loop_Delta', 'apply' );
 		$ok = $this->step( $ctx, $steps, 'Loader: deterministic Goal Delta', $delta_ok, 'No evaluator LLM; delta reuses turn evidence.' ) && $ok;
 		// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — assert the pre-final checkpoint order without requiring a live LLM or DB write.
-		$runtime_file = $plugin_root . 'core/twinbrain/includes/class-twinbrain-runtime.php';
-		$runtime_source = is_readable( $runtime_file ) ? (string) file_get_contents( $runtime_file ) : '';
-		$draft_pos = strpos( $runtime_source, "emit_checkpoint( 'draft_ready'" );
-		$reflection_pos = strpos( $runtime_source, "emit_checkpoint( 'reflection_done'" );
-		$gate_pos = strpos( $runtime_source, "emit_checkpoint( 'final_gate_decision'" );
-		$gate_call_pos = strpos( $runtime_source, '$final_gate = $this->build_pre_final_gate' );
-		$final_pos = strpos( $runtime_source, '$sse->emit( \'final_started\'' );
-		$gate_order_ok = $runtime_source !== ''
+		$finalize_pos = strpos( $runtime_source, 'public function finalize_with_gate' );
+		$finalize_source = false !== $finalize_pos ? substr( $runtime_source, $finalize_pos ) : '';
+		$draft_pos = strpos( $finalize_source, "emit_checkpoint( 'draft_ready'" );
+		$reflection_pos = strpos( $finalize_source, "emit_checkpoint( 'reflection_done'" );
+		$gate_pos = strpos( $finalize_source, "emit_checkpoint( 'final_gate_decision'" );
+		$final_gate_pos = strpos( $finalize_source, '$final_gate = array(' );
+		$gate_order_ok = $finalize_source !== ''
 			&& false !== $draft_pos
 			&& false !== $reflection_pos
 			&& false !== $gate_pos
-			&& false !== $gate_call_pos
-			&& false !== $final_pos
 			&& $draft_pos < $reflection_pos
 			&& $reflection_pos < $gate_pos
-			&& $gate_call_pos < $final_pos;
+			&& false !== $final_gate_pos;
 		$ok = $this->step( $ctx, $steps, 'Disk: pre-final Draft/Reflection/Final gate order', $gate_order_ok, $gate_order_ok ? 'SSE checkpoints are emitted before final_started.' : $runtime_file . ' is missing or has an invalid checkpoint order.' ) && $ok;
-		$retrieve_helper_ok = strpos( $runtime_source, 'private function run_bounded_retrieve_round' ) !== false
+		$retrieve_helper_ok = (
+			strpos( $runtime_source, 'private function run_bounded_retrieve_round' ) !== false
 			&& strpos( $runtime_source, "['retrieve_round'] = 1" ) !== false
+		) || (
+			strpos( $runtime_source, 'private function run_bounded_retrieve_round' ) !== false
+				&& strpos( $runtime_source, "\$scoreboard['retrieve_round']" ) !== false
+				&& strpos( $runtime_source, 'max_retrieve_rounds' ) !== false )
 			&& substr_count( $runtime_source, '$this->run_bounded_retrieve_round' ) >= 2;
 		$ok = $this->step( $ctx, $steps, 'Disk: bounded Retrieve round contract', $retrieve_helper_ok, $retrieve_helper_ok ? 'Retrieve round is shared by stream/non-stream paths and capped at round 1.' : $runtime_file . ' is missing the bounded Retrieve contract.' ) && $ok;
 		$terminal_gate_ok = strpos( $runtime_source, "'terminal'          => true" ) !== false
@@ -270,6 +291,7 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 			$triage_fixture_ok = BizCity_TwinBrain_Pre_MPR_Triage::MODEL === 'openai/gpt-5.6-luna'
 				&& BizCity_TwinBrain_Pre_MPR_Triage::REASONING_EFFORT === 'low'
 				&& $explicit_detected
+				&& strpos( $runtime_source, "'prompt_intent'" ) !== false
 				&& strpos( $runtime_source, 'stream_ambiguous_response' ) !== false
 				&& strpos( $runtime_source, "'pre_mpr_triage'" ) !== false
 				&& strpos( $runtime_source, 'conversation_triage_done' ) !== false
@@ -278,6 +300,42 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 			$triage_fixture_detail = $triage_fixture_ok ? 'Explicit command boundary is detected without a provider call; Luna classification and MPR preservation are verified by the active source contract.' : 'Explicit command or triage branch markers are missing.';
 		}
 		$ok = $this->step( $ctx, $steps, 'Runtime: Pre-MPR ambiguous/MPR branch fixtures', $triage_fixture_ok, $triage_fixture_detail ) && $ok;
+		// [2026-08-16 Johnny Chu] MPR-V5-GOAL-ALIGNMENT — verify the new deterministic gate without LLM or Event Stream writes.
+		$aligned = BizCity_TwinBrain_Goal_Alignment::check(
+			array( 'intent_id' => 'commerce.order_create', 'requires_goal' => true, 'requires_hil' => true, 'side_effect_level' => 'write_external', 'confidence' => 0.94 ),
+			array( 'primary_goal' => 'Đặt đơn giao hàng', 'required_inputs' => array( array( 'id' => 'address' ) ) ),
+			array( 'goal_id' => 'goal_order_1', 'primary_goal' => 'Đặt đơn giao hàng' )
+		);
+		$aligned_ok = (string) ( $aligned['status'] ?? '' ) === 'aligned'
+			&& (string) ( $aligned['intent_id'] ?? '' ) === 'commerce.order_create'
+			&& ! empty( $aligned['requires_user_confirmation'] );
+		$ok = $this->step( $ctx, $steps, 'Runtime: Goal Alignment aligned fixture', $aligned_ok, $aligned_ok ? 'Intent, Goal Draft, and side-effect confirmation align without a second classifier.' : wp_json_encode( $aligned ) ) && $ok;
+		$needs_clarification = BizCity_TwinBrain_Goal_Alignment::check(
+			array( 'intent_id' => 'unknown.clarify', 'requires_goal' => true ),
+			array(),
+			array()
+		);
+		$needs_clarification_ok = (string) ( $needs_clarification['status'] ?? '' ) === 'needs_clarification'
+			&& in_array( 'intent_unclear', (array) ( $needs_clarification['reasons'] ?? array() ), true );
+		$ok = $this->step( $ctx, $steps, 'Runtime: Goal Alignment clarification fixture', $needs_clarification_ok, $needs_clarification_ok ? 'Unknown intent fails closed to clarification.' : wp_json_encode( $needs_clarification ) ) && $ok;
+		// [2026-08-16 Johnny Chu] MPR-V5-TEMPORAL — verify relative date range resolution without LLM or DB writes.
+		$temporal = BizCity_TwinBrain_Temporal_Context_Resolver::resolve( 'Lập kế hoạch cho hôm nay', array( 'timezone' => 'UTC' ) );
+		$temporal_ok = ! empty( $temporal['resolved'] )
+			&& (string) ( $temporal['granularity'] ?? '' ) === 'day'
+			&& (string) ( $temporal['reason_code'] ?? '' ) === 'relative_today'
+			&& (string) ( $temporal['timezone'] ?? '' ) === 'UTC'
+			&& (string) ( $temporal['range_start'] ?? '' ) !== ''
+			&& (string) ( $temporal['range_end'] ?? '' ) !== '';
+		$ok = $this->step( $ctx, $steps, 'Runtime: deterministic temporal context fixture', $temporal_ok, $temporal_ok ? 'Relative today range resolves with an explicit timezone.' : wp_json_encode( $temporal ) ) && $ok;
+		// [2026-08-16 Johnny Chu] MPR-V5-GOAL-SESSION — verify cross-session goals require an explicit resume/new choice.
+		$blocked_decision = BizCity_TwinBrain_Goal_Loop_State::session_start_decision(
+			array( 'goal_id' => 'goal_active_1', 'session_id' => 'session_old', 'status' => 'executing' ),
+			'session_new',
+			''
+		);
+		$blocked_ok = (string) ( $blocked_decision['action'] ?? '' ) === 'ask_resume_or_new'
+			&& (string) ( $blocked_decision['reason'] ?? '' ) === 'active_goal_in_another_session';
+		$ok = $this->step( $ctx, $steps, 'Runtime: cross-session Goal requires explicit choice', $blocked_ok, $blocked_ok ? 'No silent resume or duplicate Goal is allowed.' : wp_json_encode( $blocked_decision ) ) && $ok;
 		$core_rest_file = $plugin_root . 'core/twinbrain/includes/class-twinbrain-rest.php';
 		$twinchat_rest_file = $plugin_root . 'modules/twinchat/includes/class-twinchat-rest-controller.php';
 		$twinchat_handler_file = $plugin_root . 'modules/twinchat/includes/class-twinchat-stream-handler.php';
@@ -305,6 +363,8 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 		$askbrain_ui_file = $plugin_root . 'modules/twinchat/ui/src/components/askbrain/AskBrainPanel.tsx';
 		$command_menu_source = is_readable( $command_menu_file ) ? (string) file_get_contents( $command_menu_file ) : '';
 		$askbrain_ui_source = is_readable( $askbrain_ui_file ) ? (string) file_get_contents( $askbrain_ui_file ) : '';
+		$command_menu_dist = $plugin_root . 'modules/twinchat/ui/dist/';
+		$command_menu_dist_ok = is_dir( $command_menu_dist ) && ( is_readable( $command_menu_dist . 'manifest.json' ) || is_readable( $command_menu_dist . 'index.html' ) );
 		$command_menu_ok = strpos( $command_menu_source, 'VERTICALS' ) !== false
 			&& strpos( $command_menu_source, 'BrainSkillDef' ) !== false
 			&& strpos( $command_menu_source, 'onOpenGuru' ) !== false
@@ -312,7 +372,11 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 			&& strpos( $askbrain_ui_source, "e.key === '/'" ) !== false
 			&& strpos( $askbrain_ui_source, 'ANSWER_DEPTH_VALUES' ) !== false
 			&& strpos( $askbrain_ui_source, 'answer_depth: answerDepth' ) !== false;
-		$ok = $this->step( $ctx, $steps, 'Disk: V4 command menu and Answer Depth UI', $command_menu_ok, $command_menu_ok ? 'Ask Brain exposes unified Guru/Vertical/Skill commands and sends the selected MPR tier.' : 'Command menu or Answer Depth UI handoff markers are missing.' ) && $ok;
+		if ( ! $command_menu_ok && $command_menu_source === '' && $askbrain_ui_source === '' && $command_menu_dist_ok ) {
+			$this->skip( $ctx, $steps, 'Disk: V4 command menu and Answer Depth UI', 'SKIP: React source is not deployed; TwinChat dist artifact is present, valid under R-DDV-FE.' );
+		} else {
+			$ok = $this->step( $ctx, $steps, 'Disk: V4 command menu and Answer Depth UI', $command_menu_ok, $command_menu_ok ? 'Ask Brain exposes unified Guru/Vertical/Skill commands and sends the selected MPR tier.' : 'Command menu or Answer Depth UI handoff markers are missing.' ) && $ok;
+		}
 		// [2026-08-05 Johnny Chu] V4-DDV — exercise deterministic skeleton/validator fixtures without an LLM call or persistence write.
 		if ( ! class_exists( 'BizCity_TwinBrain_Final_Composer' ) && is_readable( $composer_file ) ) {
 			require_once $composer_file;

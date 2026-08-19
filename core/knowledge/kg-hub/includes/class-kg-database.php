@@ -71,6 +71,8 @@ class BizCity_KG_Database {
 	//                   dual-writer flips to 2 only after file flush + sha256 verify.
 	const SCHEMA_VERSION = '0.30.2'; // [2026-07-30 Johnny Chu] PHASE-0.6-KG-CLEANUP — align runtime version with the kg_mentions retirement changelog.
 	const OPTION_VERSION = 'bizcity_kg_db_version';
+	const LEGACY_ATTACHMENT_MIGRATION_OPTION = 'bizcity_kg_legacy_attachment_backfill_v1';
+	const LEGACY_ATTACHMENT_MIGRATION_VERSION_OPTION = 'bizcity_kg_legacy_attachment_backfill_version';
 	const SCHEMA_MEMORY_OPTION = 'bizcity_kg_schema_memory';
 	const SCHEMA_RETRY_SECONDS = 3600;
 
@@ -393,6 +395,63 @@ class BizCity_KG_Database {
 			do_action( 'bizcity_kg_guru_detached', $notebook_id, $guru_uuid );
 		}
 		return [ 'deleted' => $deleted ];
+	}
+
+	public static function backfill_legacy_character_attachments( $batch_size = 200 ) {
+		global $wpdb;
+		$state = get_option( self::LEGACY_ATTACHMENT_MIGRATION_OPTION, array() );
+		$state = is_array( $state ) ? $state : array();
+		if ( ! empty( $state['status'] ) && 'complete' === $state['status'] ) {
+			return $state;
+		}
+		$batch_size = max( 1, min( 500, (int) $batch_size ) );
+		$cursor = max( 0, (int) ( $state['cursor'] ?? 0 ) );
+		$nb_tbl = self::instance()->tbl_notebooks();
+		$att_tbl = self::instance()->tbl_notebook_character_attachments();
+		$char_tbl = $wpdb->prefix . 'bizcity_characters';
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT nb.id AS notebook_id, c.guru_uuid, c.visibility
+			 FROM {$nb_tbl} AS nb
+			 INNER JOIN {$char_tbl} AS c ON c.id = nb.character_id
+			 LEFT JOIN {$att_tbl} AS a ON a.notebook_id = nb.id AND a.guru_uuid = c.guru_uuid
+			 WHERE nb.character_id > 0 AND c.guru_uuid IS NOT NULL AND c.guru_uuid != ''
+			   AND a.id IS NULL AND nb.id > %d
+			 ORDER BY nb.id ASC LIMIT %d",
+			$cursor,
+			$batch_size
+		), ARRAY_A );
+		$rows = is_array( $rows ) ? $rows : array();
+		$processed = (int) ( $state['processed'] ?? 0 );
+		$attached = (int) ( $state['attached'] ?? 0 );
+		$skipped = (int) ( $state['skipped'] ?? 0 );
+		$last_id = $cursor;
+		foreach ( $rows as $row ) {
+			$notebook_id = (int) ( $row['notebook_id'] ?? 0 );
+			$last_id = max( $last_id, $notebook_id );
+			$result = self::instance()->attach_guru( $notebook_id, (string) ( $row['guru_uuid'] ?? '' ), array(
+				'source' => 'imported',
+				'public_serving' => 'marketplace' === (string) ( $row['visibility'] ?? '' ),
+			) );
+			$processed++;
+			if ( is_wp_error( $result ) ) {
+				$skipped++;
+			} else {
+				$attached++;
+			}
+		}
+		$state = array(
+			'cursor' => $last_id,
+			'processed' => $processed,
+			'attached' => $attached,
+			'skipped' => $skipped,
+			'status' => count( $rows ) < $batch_size ? 'complete' : 'running',
+			'updated_at' => current_time( 'mysql', true ),
+		);
+		update_option( self::LEGACY_ATTACHMENT_MIGRATION_OPTION, $state, false );
+		if ( 'complete' === $state['status'] ) {
+			update_option( self::LEGACY_ATTACHMENT_MIGRATION_VERSION_OPTION, '1.0.0', false );
+		}
+		return $state;
 	}
 
 	/**

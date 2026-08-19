@@ -30,6 +30,7 @@ class BizCity_TwinBrain_Notebook_Selector {
 	const RECENCY_HALFLIFE_DAYS = 14;
 
 	private static $instance = null;
+	private static $guru_notebook_policy_cache = array();
 	public static function instance(): self {
 		if ( null === self::$instance ) self::$instance = new self();
 		return self::$instance;
@@ -62,6 +63,11 @@ class BizCity_TwinBrain_Notebook_Selector {
 		 * interpret Tarot" type misses. */
 		$guru_id  = isset( $opts['guru_id'] ) ? (int) $opts['guru_id'] : 0;
 		$guru_pre = ( $guru_id > 0 ) ? $this->fetch_guru_notebooks( $guru_id, $user_id, $k ) : [];
+		$guru_policy = ( $guru_id > 0 ) ? $this->get_guru_notebook_policy( $guru_id ) : 'augment';
+		if ( 'restrict' === $guru_policy ) {
+			// [2026-08-15 Johnny Chu] PHASE-TWB-GURU-NOTEBOOK — restrict Guru retrieval to canonical attachments only.
+			return array_slice( $guru_pre, 0, $k );
+		}
 		$reserved = array();
 		foreach ( $guru_pre as $row ) { $reserved[ (int) $row['notebook_id'] ] = true; }
 		$slots_left = max( 0, $k - count( $guru_pre ) );
@@ -140,7 +146,8 @@ class BizCity_TwinBrain_Notebook_Selector {
 			 LIMIT %d",
 			$guru_id, $user_id, max( 1, $k )
 		), ARRAY_A );
-		if ( null === $rows ) {
+		if ( empty( $rows ) ) {
+			// [2026-08-15 Johnny Chu] PHASE-TWB-GURU-NOTEBOOK — legacy fallback remains available until checkpointed backfill completes.
 			$rows = $wpdb->get_results( $wpdb->prepare(
 				"SELECT id, name, perspective_label,
 						'legacy_character_id' AS binding_source
@@ -168,6 +175,34 @@ class BizCity_TwinBrain_Notebook_Selector {
 			);
 		}
 		return $out;
+	}
+
+	private function get_guru_notebook_policy( int $guru_id ): string {
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$generation = class_exists( 'BizCity_TwinBrain_Guru_Policy' )
+			? (int) get_option( BizCity_TwinBrain_Guru_Policy::CACHE_GENERATION_OPTION . '_' . $blog_id, 1 )
+			: 1;
+		$cache_key = $blog_id . ':' . $generation . ':' . $guru_id;
+		if ( isset( self::$guru_notebook_policy_cache[ $cache_key ] ) ) {
+			return self::$guru_notebook_policy_cache[ $cache_key ];
+		}
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_characters';
+		$policy = 'augment';
+		$value = '';
+		if ( function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $table, 'notebook_policy' ) ) {
+			$value = (string) $wpdb->get_var( $wpdb->prepare( "SELECT notebook_policy FROM {$table} WHERE id = %d LIMIT 1", $guru_id ) );
+		}
+		if ( ! in_array( $value, array( 'augment', 'restrict' ), true ) && class_exists( 'BizCity_Knowledge_Database' ) ) {
+			// [2026-08-16 Johnny Chu] R-CACHE/R-DDV — recover policy from the canonical character cache when metadata-column cache is stale.
+			$character = BizCity_Knowledge_Database::instance()->get_character( $guru_id );
+			$value = is_object( $character ) ? (string) ( $character->notebook_policy ?? '' ) : (string) ( $character['notebook_policy'] ?? '' );
+		}
+		if ( in_array( $value, array( 'augment', 'restrict' ), true ) ) {
+			$policy = $value;
+		}
+		self::$guru_notebook_policy_cache[ $cache_key ] = $policy;
+		return $policy;
 	}
 
 	/**

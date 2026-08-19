@@ -99,6 +99,27 @@ final class BizCity_Automation_Action_Create_Woo_Order extends BizCity_Automatio
 		$ship_city  = trim( (string) $this->resolve( $data['shipping_city']  ?? '', $ctx ) );
 		$pay_method = trim( (string) $this->resolve( $data['payment_method'] ?? '', $ctx ) );
 		$note       = trim( (string) $this->resolve( $data['note']           ?? '', $ctx ) );
+		$hil_slots  = isset( $ctx['trigger']['hil_slots'] ) && is_array( $ctx['trigger']['hil_slots'] ) ? $ctx['trigger']['hil_slots'] : array();
+		if ( ! empty( $hil_slots ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-2-HIL-ORDER-SCHEMA — consume only validated, ready HIL slots restored in runner memory.
+			$product_name = trim( (string) ( $hil_slots['product_name'] ?? '' ) );
+			$quantity     = max( 1, (int) ( $hil_slots['quantity'] ?? 1 ) );
+			$price        = (float) ( $hil_slots['price'] ?? 0 );
+			if ( $product_name !== '' && isset( $items[0] ) && is_array( $items[0] ) ) {
+				$items[0]['product_name'] = $product_name;
+				$items[0]['product_id'] = 0;
+				$items[0]['sku'] = '';
+				$items[0]['qty'] = $quantity;
+				if ( $price >= 0 ) { $items[0]['price_override'] = $price; }
+			}
+			if ( trim( (string) ( $hil_slots['recipient_name'] ?? '' ) ) !== '' ) { $ship_name = trim( (string) $hil_slots['recipient_name'] ); }
+			if ( trim( (string) ( $hil_slots['receiver_phone'] ?? '' ) ) !== '' ) { $ship_phone = trim( (string) $hil_slots['receiver_phone'] ); }
+			if ( trim( (string) ( $hil_slots['shipping_address'] ?? '' ) ) !== '' ) { $ship_addr1 = trim( (string) $hil_slots['shipping_address'] ); }
+			if ( trim( (string) ( $hil_slots['payment_method'] ?? '' ) ) !== '' ) {
+				$pay_method = trim( (string) $hil_slots['payment_method'] );
+				if ( $pay_method === 'bank_transfer' ) { $pay_method = 'bacs'; }
+			}
+		}
 
 		// Resolve campaign_id from context.
 		$campaign_id = (int) ( $ctx['contact']['campaign_id'] ?? 0 );
@@ -132,6 +153,7 @@ final class BizCity_Automation_Action_Create_Woo_Order extends BizCity_Automatio
 		foreach ( $items as $idx => $item ) {
 			$product_id = isset( $item['product_id'] ) ? (int) $item['product_id'] : 0;
 			$sku        = isset( $item['sku'] ) ? trim( (string) $item['sku'] ) : '';
+			$product_name = isset( $item['product_name'] ) ? trim( (string) $item['product_name'] ) : '';
 			$qty        = isset( $item['qty'] ) ? max( 1, (int) $item['qty'] ) : 1;
 
 			// Resolve product.
@@ -144,13 +166,20 @@ final class BizCity_Automation_Action_Create_Woo_Order extends BizCity_Automatio
 					$product = wc_get_product( $product_id );
 				}
 			}
+			if ( ! $product && $product_name !== '' && function_exists( 'wc_get_products' ) ) {
+				$matches = wc_get_products( array( 'search' => $product_name, 'limit' => 1, 'status' => 'publish' ) );
+				if ( ! empty( $matches[0] ) && is_object( $matches[0] ) ) {
+					$product = $matches[0];
+					$product_id = (int) $product->get_id();
+				}
+			}
 
 			if ( ! $product ) {
 				// Create custom line (product not in catalog) — mark for manual review.
 				$line_item = new WC_Order_Item_Product();
-				$line_item->set_name( $sku !== '' ? $sku : ( 'Item #' . ( $idx + 1 ) ) );
+				$line_item->set_name( $product_name !== '' ? $product_name : ( $sku !== '' ? $sku : ( 'Item #' . ( $idx + 1 ) ) ) );
 				$line_item->set_quantity( $qty );
-				if ( isset( $item['price_override'] ) && (float) $item['price_override'] > 0 ) {
+				if ( isset( $item['price_override'] ) && is_numeric( $item['price_override'] ) && (float) $item['price_override'] >= 0 ) {
 					$price = (float) $item['price_override'];
 					$line_item->set_subtotal( $price * $qty );
 					$line_item->set_total( $price * $qty );
@@ -173,7 +202,7 @@ final class BizCity_Automation_Action_Create_Woo_Order extends BizCity_Automatio
 			}
 
 			// Price override.
-			$price = isset( $item['price_override'] ) && (float) $item['price_override'] > 0
+			$price = isset( $item['price_override'] ) && is_numeric( $item['price_override'] ) && (float) $item['price_override'] >= 0
 				? (float) $item['price_override']
 				: (float) $product->get_price();
 

@@ -50,12 +50,16 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 		'core/automation/includes/blocks/class-block-registry.php',
 		// BE-3 — runner.
 		'core/automation/includes/class-automation-runner.php',
+		'core/automation/includes/blocks/actions/class-action-http.php',
+		// V5-A1 — stable external side-effect contract.
+		'core/automation/includes/class-automation-side-effect-contract.php',
 		// BE-4 — trigger matcher (scheduler / inbound / cron-scan / webhook).
 		'core/automation/includes/class-automation-trigger-matcher.php',
 		// BE-6 — listener + TwinBrain bridge + MPR think block.
 		'core/automation/includes/class-automation-listener.php',
 		'core/automation/includes/class-automation-twinbrain-bridge.php',
 		'core/automation/includes/blocks/llm/class-llm-mpr-think.php',
+		'core/automation/includes/blocks/actions/class-action-ask-guru.php',
 		'core/automation/includes/blocks/triggers/class-trigger-fb-message.php',
 		'core/automation/includes/blocks/triggers/class-trigger-telegram.php',
 		'core/automation/includes/blocks/triggers/class-trigger-twinbrain-intent.php',
@@ -69,6 +73,8 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 		'BizCity_Automation_Repo_Workflows',
 		'BizCity_Automation_Repo_Runs',
 		'BizCity_Automation_REST',
+		// [2026-08-16 Johnny Chu] CCG-1 — exact #workflow_slug resolver is part of the core Automation runtime contract.
+		'BizCity_Automation_Command_Resolver',
 		// BE-2 — Block registry
 		'BizCity_Automation_Block_Registry',
 		'BizCity_Automation_Trigger_Manual',
@@ -76,6 +82,7 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 		'BizCity_Automation_Logic_Condition',
 		// BE-3 — runner
 		'BizCity_Automation_Runner',
+		'BizCity_Automation_Side_Effect_Contract',
 		// BE-4 — trigger matcher
 		'BizCity_Automation_Trigger_Matcher',
 		// BE-6 — listener + bridge + new blocks
@@ -85,6 +92,7 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 		'BizCity_Automation_Trigger_Telegram',
 		'BizCity_Automation_Trigger_TwinBrain_Intent',
 		'BizCity_Automation_LLM_MPR_Think',
+		'BizCity_Automation_Action_Ask_Guru',
 		// BE-7 — Templates.
 		'BizCity_Automation_Repo_Templates',
 		'BizCity_Automation_Templates_Seeder',
@@ -118,6 +126,7 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 		'trigger.cron', 'trigger.webhook',
 		'action.search_kg', 'action.reply_zalo', 'action.send_email', 'action.http_request',
 		'action.db_write', 'action.log', 'action.create_crm_event',
+		'action.ask_guru',
 		'llm.compose_reply', 'llm.mpr_think',                                           // BE-6.E
 		'logic.condition',
 	);
@@ -146,6 +155,10 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 		$plugin_dir = defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : ( WP_CONTENT_DIR . '/plugins' );
 		$base       = $plugin_dir . '/bizcity-twin-ai/';
 		$steps      = array();
+		// [2026-08-16 Johnny Chu] R-DDV — the optional template seeder is lazy by design; load it only for this Diagnostics probe before the required-class assertion.
+		if ( ! class_exists( 'BizCity_Automation_Templates_Seeder', false ) && function_exists( 'bizcity_automation_load_templates_seeder' ) ) {
+			bizcity_automation_load_templates_seeder();
+		}
 
 		// ─── LAYER 1 · DISK ────────────────────────────────────────────────
 		foreach ( self::DISK_FILES as $rel ) {
@@ -253,16 +266,92 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 			'detail' => $cond_ok ? 'kg.hits>0 → branch=true' : wp_json_encode( $cond_out ),
 		);
 		$ctx->emit_step( $s );
+		$fixture = $this->five_node_fixture();
+		$fixture_ok = $fixture['valid']
+			&& $fixture['roles'] === array( 'trigger', 'hil_collect', 'mpr_semantic', 'condition', 'side_effect' )
+			&& in_array( 'condition_false', $fixture['projection_reasons'], true )
+			&& count( array_intersect( array( 'RUNNING', 'OK', 'SKIP', 'FAIL', 'PAUSED' ), $fixture['lifecycle_states'] ) ) === 5;
+		$steps[] = $s = array(
+			'label'  => 'Runtime · V5 five-node automation fixture contract',
+			'status' => $fixture_ok ? 'pass' : 'fail',
+			'detail' => $fixture_ok ? 'trigger → HIL collect → MPR semantic → condition → side effect; lifecycle/reason fixtures are present.' : 'Five-node fixture topology or lifecycle projection contract is incomplete.',
+		);
+		$ctx->emit_step( $s );
 		if ( ! $cond_ok ) {
 			return self::fail( $steps, 'logic.condition không trả branch=true.', 'condition_eval_failed',
 				'Xem includes/blocks/logic/class-logic-condition.php.' );
 		}
+		$side_effect_a = BizCity_Automation_Side_Effect_Contract::context( 'run_probe', 'node_publish', array( 'side_effect_key' => 'publish_page_1' ) );
+		$side_effect_b = BizCity_Automation_Side_Effect_Contract::context( 'run_probe', 'node_publish', array( 'side_effect_key' => 'publish_page_1' ) );
+		$provider_outcomes = array(
+			'confirmed' => BizCity_Automation_Side_Effect_Contract::provider_result( array( 'status' => 'confirmed' ) ),
+			'sent'      => BizCity_Automation_Side_Effect_Contract::provider_result( array( 'sent' => true ) ),
+			'unknown'   => BizCity_Automation_Side_Effect_Contract::provider_result( new WP_Error( 'timeout', 'probe' ) ),
+			'failed'    => BizCity_Automation_Side_Effect_Contract::provider_result( new WP_Error( 'provider_rejected', 'probe' ) ),
+		);
+		$provider_statuses_ok = $provider_outcomes['confirmed']['status'] === 'confirmed'
+			&& $provider_outcomes['sent']['status'] === 'sent'
+			&& $provider_outcomes['unknown']['status'] === 'unknown'
+			&& $provider_outcomes['failed']['status'] === 'failed'
+			&& empty( $provider_outcomes['unknown']['retry_allowed'] )
+			&& empty( $provider_outcomes['failed']['retry_allowed'] );
+		$reconciled = BizCity_Automation_Side_Effect_Contract::reconcile( new WP_Error( 'timeout', 'probe' ), static function () {
+			return array( 'status' => 'confirmed', 'provider_request_id' => 'probe-confirmed' );
+		} );
+		$reconcile_unknown = BizCity_Automation_Side_Effect_Contract::reconcile( new WP_Error( 'timeout', 'probe' ), static function () {
+			return new WP_Error( 'provider_unknown', 'probe' );
+		} );
+		$reconciliation_ok = $reconciled['status'] === 'confirmed'
+			&& ! empty( $reconciled['reconciled'] )
+			&& $reconcile_unknown['status'] === 'unknown'
+			&& empty( $reconcile_unknown['reconciled'] );
+		$side_effect_ok = ! empty( $side_effect_a['idempotency_key'] )
+			&& $side_effect_a['idempotency_key'] === $side_effect_b['idempotency_key']
+			&& $provider_statuses_ok
+			&& $reconciliation_ok;
+		$steps[] = $s = array(
+			'label'  => 'Runtime · external side-effect idempotency contract',
+			'status' => $side_effect_ok ? 'pass' : 'fail',
+			'detail' => $side_effect_ok ? 'Stable key, four outcome buckets and explicit reconciliation are covered; unknown and failed are non-retryable.' : 'Side-effect key, outcome or reconciliation contract is incomplete.',
+		);
+		$ctx->emit_step( $s );
+		$plugin_root = defined( 'BIZCITY_TWIN_AI_DIR' )
+			? rtrim( (string) BIZCITY_TWIN_AI_DIR, '/\\' ) . '/'
+			: dirname( dirname( dirname( dirname( __DIR__ ) ) ) ) . '/';
+		$runner_source = is_readable( $plugin_root . 'core/automation/includes/class-automation-runner.php' )
+			? (string) file_get_contents( $plugin_root . 'core/automation/includes/class-automation-runner.php' )
+			: '';
+		$crash_guard_ok = strpos( $runner_source, 'find_unresolved_side_effect_log' ) !== false
+			&& strpos( $runner_source, 'external_side_effect_unknown' ) !== false
+			&& strpos( $runner_source, "'side_effect_status' => 'unknown'" ) !== false;
+		$steps[] = $s = array(
+			'label'  => 'Disk · resume crash guard for external side effect',
+			'status' => $crash_guard_ok ? 'pass' : 'fail',
+			'detail' => $crash_guard_ok ? 'A prior RUNNING side-effect log becomes unknown before a provider retry.' : 'Runner lacks the unresolved external side-effect guard.',
+		);
+		$ctx->emit_step( $s );
+		$http_file = $plugin_root . 'core/automation/includes/blocks/actions/class-action-http.php';
+		$http_source = is_readable( $http_file ) ? (string) file_get_contents( $http_file ) : '';
+		$provider_key_ok = strpos( $http_source, "'Idempotency-Key'" ) !== false
+			&& strpos( $http_source, 'provider_rejected' ) !== false
+			&& strpos( $http_source, 'side_effect_status' ) !== false;
+		$steps[] = $s = array(
+			'label'  => 'Disk · HTTP provider idempotency boundary',
+			'status' => $provider_key_ok ? 'pass' : 'fail',
+			'detail' => $provider_key_ok ? 'HTTP action forwards Idempotency-Key and rejects non-2xx responses.' : 'HTTP action does not expose the exactly-once provider boundary.',
+		);
+		$ctx->emit_step( $s );
 
 		// Round-trip: create workflow → enqueue run → fetch logs → cleanup.
 		$wf = BizCity_Automation_Repo_Workflows::create( array(
 			'slug'         => '__healthtest_' . wp_generate_password( 6, false, false ),
 			'name'         => '__healthtest_probe_automation',
 			'trigger_type' => 'manual',
+			'trigger_config' => array(
+				'command_invokable' => 1,
+				'visibility'        => 'global',
+				'zone'              => 'admin',
+			),
 			'graph'        => array(
 				'nodes' => array(
 					array( 'id' => 'n_trig', 'type' => 'trigger', 'position' => array( 'x' => 0, 'y' => 0 ), 'data' => array( 'blockId' => 'trigger.manual' ) ),
@@ -275,7 +364,33 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 			$ctx->emit_step( $s );
 			return self::fail( $steps, 'create_workflow failed', 'create_failed', 'Check repo validate_graph + DB perms.' );
 		}
-		$run_id = BizCity_Automation_Repo_Runs::enqueue( $wf['id'], array( 'probe' => true ) );
+		// [2026-08-16 Johnny Chu] CCG-1 — exact slug + args must resolve in Zone 2 before runner execution.
+		$command_resolved = BizCity_Automation_Command_Resolver::resolve(
+			'#' . (string) $wf['slug'] . ' probe args',
+			array( 'user_id' => 0, 'is_admin' => true, 'zone' => 'admin' ),
+			array( 'zone' => 'admin' )
+		);
+		$command_ok = ! empty( $command_resolved['matched'] )
+			&& (string) ( $command_resolved['slug'] ?? '' ) === (string) $wf['slug']
+			&& (string) ( $command_resolved['args'] ?? '' ) === 'probe args';
+		$steps[] = $s = array(
+			'label'  => 'Runtime · exact #workflow_slug Zone 2 resolve',
+			'status' => $command_ok ? 'pass' : 'fail',
+			'detail' => $command_ok
+				? '#' . (string) $wf['slug'] . ' → resolved with args'
+				: 'reason=' . (string) ( $command_resolved['reason'] ?? 'unknown' ),
+		);
+		$ctx->emit_step( $s );
+		if ( ! $command_ok ) {
+			BizCity_Automation_Repo_Workflows::hard_delete( $wf['id'] );
+			return self::fail( $steps, 'Exact workflow command resolve failed', 'command_resolve_failed', 'Verify BizCity_Automation_Command_Resolver and trigger_config.command_invokable.' );
+		}
+		// [2026-08-16 Johnny Chu] DIAGNOSTICS-AUTOMATION-PROBE-FIX - restore the health-test enqueue step removed with the malformed token fragment.
+		$run_id = BizCity_Automation_Repo_Runs::enqueue( (int) $wf['id'], array(
+			'source'       => 'diagnostics_probe',
+			'trigger_type' => 'manual',
+			'probe'        => 'core.automation',
+		) );
 		$enq_ok = is_string( $run_id );
 		$steps[] = $s = array( 'label' => 'Runtime · enqueue run', 'status' => $enq_ok ? 'pass' : 'fail',
 			'detail' => $enq_ok ? $run_id : ( is_wp_error( $run_id ) ? $run_id->get_error_message() : 'unknown' ) );
@@ -497,6 +612,24 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 
 		// ─── BE-7 — Templates library smoke ────────────────────────────────
 		if ( class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-ATH/R-DDV — explicit Diagnostics run repairs partial builtin catalogs before measuring expected slugs.
+			$seed_results = BizCity_Automation_Templates_Seeder::force_reseed();
+			$seed_errors  = array();
+			foreach ( (array) $seed_results as $seed_result ) {
+				if ( strpos( (string) ( $seed_result['result'] ?? '' ), 'error:' ) === 0 ) {
+					$seed_errors[] = (string) ( $seed_result['slug'] ?? 'unknown' ) . ':' . (string) ( $seed_result['result'] ?? 'error:unknown' );
+				}
+			}
+			$seed_repair_ok = empty( $seed_errors );
+			$steps[] = $seed_step = array(
+				'label'  => 'Runtime · BE-7 builtin template reseed',
+				'status' => $seed_repair_ok ? 'pass' : 'fail',
+				'detail' => $seed_repair_ok ? 'idempotent reseed completed' : 'failed slugs=' . implode( ',', $seed_errors ),
+			);
+			$ctx->emit_step( $seed_step );
+			if ( ! $seed_repair_ok ) {
+				return self::fail( $steps, 'Builtin template reseed failed.', 'template_seed_failed', 'Kiểm tra lỗi upsert của các slug bị liệt kê rồi chạy lại Diagnostics.' );
+			}
 			$builtins = BizCity_Automation_Repo_Templates::query( array( 'source' => 'builtin', 'limit' => 200 ) );
 			$found    = (int) $builtins['total'];
 
@@ -564,6 +697,32 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 			default:
 				return 'on_cron_scan';
 		}
+	}
+
+	private function five_node_fixture(): array {
+		// [2026-08-16 Johnny Chu] MPR-V5-AUTOMATION-FIXTURE — deterministic topology/lifecycle fixture; provider execution remains a live canary concern.
+		$nodes = array(
+			array( 'id' => 'fixture_trigger', 'data' => array( 'blockId' => 'trigger.manual', 'fixture_role' => 'trigger' ) ),
+			array( 'id' => 'fixture_hil', 'data' => array( 'blockId' => 'action.log', 'fixture_role' => 'hil_collect' ) ),
+			array( 'id' => 'fixture_mpr', 'data' => array( 'blockId' => 'llm.mpr_think', 'fixture_role' => 'mpr_semantic' ) ),
+			array( 'id' => 'fixture_condition', 'data' => array( 'blockId' => 'logic.condition', 'fixture_role' => 'condition' ) ),
+			array( 'id' => 'fixture_side_effect', 'data' => array( 'blockId' => 'action.log', 'fixture_role' => 'side_effect' ) ),
+		);
+		$edges = array(
+			array( 'source' => 'fixture_trigger', 'target' => 'fixture_hil' ),
+			array( 'source' => 'fixture_hil', 'target' => 'fixture_mpr' ),
+			array( 'source' => 'fixture_mpr', 'target' => 'fixture_condition' ),
+			array( 'source' => 'fixture_condition', 'target' => 'fixture_side_effect', 'sourceHandle' => 'true' ),
+		);
+		$roles = array_map( static function ( $node ) { return (string) ( $node['data']['fixture_role'] ?? '' ); }, $nodes );
+		$projection_reasons = array( 'condition_false', 'block_exception', 'hil_not_ready' );
+		$lifecycle_states = array( 'RUNNING', 'OK', 'SKIP', 'FAIL', 'PAUSED' );
+		return array(
+			'valid' => count( $nodes ) === 5 && count( $edges ) === 4,
+			'roles' => $roles,
+			'projection_reasons' => $projection_reasons,
+			'lifecycle_states' => $lifecycle_states,
+		);
 	}
 
 	public function cleanup(): void {

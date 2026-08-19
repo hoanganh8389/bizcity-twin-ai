@@ -51,6 +51,8 @@ require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-
 require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-automation-workflow.php';
 
 // [2026-06-03 Johnny Chu] SCH-NC W4 — Completion Notifier (reply-back unified).
+// [2026-08-16 Johnny Chu] R-SCH-TARGET — load the shared target resolver before Scheduler and progress projections.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-notify-target-resolver.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-completion-notifier.php';
 
 // [2026-06-03 Johnny Chu] SCH-NC W5 — Inbound Provenance helper (used by

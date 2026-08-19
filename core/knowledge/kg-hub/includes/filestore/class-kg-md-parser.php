@@ -36,6 +36,9 @@ class BizCity_KG_MD_Parser {
 
 	const FRONT_DELIM = '---';
 	const END_MARKER  = '---END---';
+	// [2026-08-14 Johnny Chu] HOTFIX — keep malformed recovery records from
+	// handing an unbounded frontmatter string to preg_split/json_decode.
+	const MAX_FRONTMATTER_BYTES = 262144;
 
 	/**
 	 * Encode a record (frontmatter + body) into the on-disk byte string.
@@ -85,6 +88,9 @@ class BizCity_KG_MD_Parser {
 		// Find closing `---\n`.
 		$close = strpos( $bytes, "\n" . self::FRONT_DELIM . "\n", $cursor );
 		if ( false === $close ) { return null; }
+		// [2026-08-14 Johnny Chu] HOTFIX — a corrupt shard can make the next
+		// delimiter appear far away; abort before parsing an oversized header.
+		if ( ( $close - $cursor ) > self::MAX_FRONTMATTER_BYTES ) { return null; }
 		$front_raw = substr( $bytes, $cursor, $close - $cursor );
 		$body_start = $close + strlen( "\n" . self::FRONT_DELIM . "\n" );
 
@@ -142,7 +148,9 @@ class BizCity_KG_MD_Parser {
 
 	private static function parse_front( $raw ) {
 		$out = [];
-		$lines = preg_split( '/\r?\n/', $raw );
+		// [2026-08-14 Johnny Chu] HOTFIX-KG-CHAT-FAILOPEN — avoid PCRE on
+		// malformed recovery payloads; frontmatter is line-oriented by contract.
+		$lines = explode( "\n", str_replace( "\r\n", "\n", (string) $raw ) );
 		foreach ( $lines as $line ) {
 			if ( '' === trim( $line ) ) { continue; }
 			$pos = strpos( $line, ':' );

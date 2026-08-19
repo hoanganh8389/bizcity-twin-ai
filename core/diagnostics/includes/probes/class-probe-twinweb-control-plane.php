@@ -75,6 +75,8 @@ final class BizCity_Probe_TwinWeb_Control_Plane implements BizCity_Diagnostics_P
 				// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W2 — accept method token to avoid false-negative on signature formatting.
 				'admin_get_usage',
 				'function resolve_access_for_identity',
+				// [2026-08-13 Johnny Chu] PHASE-TWIN-GURU-UI — assert the read-only Guru Studio catalog handler.
+				'function admin_get_guru_catalog',
 			);
 			$missing = array();
 			foreach ( $markers as $marker ) {
@@ -104,7 +106,8 @@ final class BizCity_Probe_TwinWeb_Control_Plane implements BizCity_Diagnostics_P
 			&& method_exists( 'BizCity_TwinWeb_REST', 'get_effective_config' )
 			&& method_exists( 'BizCity_TwinWeb_REST', 'admin_get_access' )
 			&& method_exists( 'BizCity_TwinWeb_REST', 'admin_get_usage' )
-			&& method_exists( 'BizCity_TwinWeb_REST', 'admin_put_access' );
+			&& method_exists( 'BizCity_TwinWeb_REST', 'admin_put_access' )
+			&& method_exists( 'BizCity_TwinWeb_REST', 'admin_get_guru_catalog' );
 		$step = array(
 			'label'  => 'Loader · TwinWeb class contract',
 			'status' => $loader_class_ok ? 'pass' : 'fail',
@@ -121,16 +124,27 @@ final class BizCity_Probe_TwinWeb_Control_Plane implements BizCity_Diagnostics_P
 		$route_access_get = $this->route_has_method( $routes, '/bizcity-twinweb/v1/admin/access', 'GET' );
 		$route_access_put = $this->route_has_method( $routes, '/bizcity-twinweb/v1/admin/access', 'PUT' );
 		$route_usage_get  = $this->route_has_method( $routes, '/bizcity-twinweb/v1/admin/usage', 'GET' );
-		$route_ok        = $route_cfg_ok && $route_access_get && $route_access_put && $route_usage_get;
+		// [2026-08-13 Johnny Chu] PHASE-TWIN-GURU-UI — assert the canonical read-only catalog route is registered.
+		$route_guru_get  = $this->route_has_method( $routes, '/bizcity-twinweb/v1/admin/guru-catalog', 'GET' );
+		// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — assert focused per-Guru vertical policy CRUD routes.
+		$route_policy_get = $this->route_has_method( $routes, '/bizcity-twinweb/v1/admin/guru-policy/(?P<guru_id>\\d+)', 'GET' );
+		$route_policy_put = $this->route_has_method( $routes, '/bizcity-twinweb/v1/admin/guru-policy/(?P<guru_id>\\d+)', 'PUT' );
+		// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — preview route must remain separate from mutation and execution.
+		$route_policy_preview = $this->route_has_method( $routes, '/bizcity-twinweb/v1/admin/guru-policy/preview', 'POST' );
+		$route_ok        = $route_cfg_ok && $route_access_get && $route_access_put && $route_usage_get && $route_guru_get && $route_policy_get && $route_policy_put && $route_policy_preview;
 		$step = array(
 			'label'  => 'Loader · REST route registration',
 			'status' => $route_ok ? 'pass' : 'fail',
 			'detail' => sprintf(
-				'/config/effective.GET=%s · /admin/access.GET=%s · /admin/access.PUT=%s · /admin/usage.GET=%s',
+				'/config/effective.GET=%s · /admin/access.GET=%s · /admin/access.PUT=%s · /admin/usage.GET=%s · /admin/guru-catalog.GET=%s · /admin/guru-policy.GET=%s · /admin/guru-policy.PUT=%s · /admin/guru-policy/preview.POST=%s',
 				$route_cfg_ok ? 'ok' : 'missing',
 				$route_access_get ? 'ok' : 'missing',
 				$route_access_put ? 'ok' : 'missing',
-				$route_usage_get ? 'ok' : 'missing'
+				$route_usage_get ? 'ok' : 'missing',
+				$route_guru_get ? 'ok' : 'missing',
+				$route_policy_get ? 'ok' : 'missing',
+				$route_policy_put ? 'ok' : 'missing',
+				$route_policy_preview ? 'ok' : 'missing'
 			),
 		);
 		$steps[] = $step;
@@ -194,6 +208,32 @@ final class BizCity_Probe_TwinWeb_Control_Plane implements BizCity_Diagnostics_P
 				$pass = false;
 			}
 
+			// [2026-08-13 Johnny Chu] PHASE-TWIN-GURU-UI — validate catalog payload, tenant metadata and explicit pending policy boundary.
+			$guru_req  = new WP_REST_Request( 'GET', '/bizcity-twinweb/v1/admin/guru-catalog' );
+			$guru_res  = rest_do_request( $guru_req );
+			$guru_data = $guru_res->get_data();
+			$guru_ok   = is_array( $guru_data )
+				&& ! empty( $guru_data['success'] )
+				&& isset( $guru_data['blog_id'], $guru_data['cp_ver'], $guru_data['updated_at'], $guru_data['gurus'], $guru_data['bindings'], $guru_data['modes'], $guru_data['access_summary'], $guru_data['grounding_summary'], $guru_data['policy_contract'] )
+				&& is_array( $guru_data['gurus'] )
+				&& is_array( $guru_data['bindings'] )
+				&& is_array( $guru_data['modes'] )
+				&& is_array( $guru_data['policy_contract'] )
+				&& ( $guru_data['policy_contract']['guru_vertical_acl'] ?? '' ) === 'pending';
+			// [2026-08-13 Johnny Chu] PHASE-TWIN-GURU-UI — non-admin diagnostics must report the protected route as SKIP.
+			$step = array(
+				'label'  => 'Runtime · GET /admin/guru-catalog payload',
+				'status' => $guru_ok ? 'pass' : 'fail',
+				'detail' => $guru_ok
+					? sprintf( 'blog_id=%d · cp_ver=%s · gurus=%d · bindings=%d · modes=%d · policy contract explicit pending', (int) $guru_data['blog_id'], (string) $guru_data['cp_ver'], count( $guru_data['gurus'] ), count( $guru_data['bindings'] ), count( $guru_data['modes'] ) )
+					: 'guru-catalog contract missing success/catalog/policy keys',
+			);
+			$steps[] = $step;
+			$ctx->emit_step( $step );
+			if ( ! $guru_ok ) {
+				$pass = false;
+			}
+
 			$usage_req  = new WP_REST_Request( 'GET', '/bizcity-twinweb/v1/admin/usage' );
 			$usage_res  = rest_do_request( $usage_req );
 			$usage_data = $usage_res->get_data();
@@ -224,6 +264,14 @@ final class BizCity_Probe_TwinWeb_Control_Plane implements BizCity_Diagnostics_P
 		} else {
 			$step = array(
 				'label'  => 'Runtime · GET /admin/access payload',
+				'status' => 'skip',
+				'detail' => 'Skipped because current session is not manage_options.',
+			);
+			$steps[] = $step;
+			$ctx->emit_step( $step );
+
+			$step = array(
+				'label'  => 'Runtime · GET /admin/guru-catalog payload',
 				'status' => 'skip',
 				'detail' => 'Skipped because current session is not manage_options.',
 			);

@@ -54,6 +54,11 @@ final class BizCity_Automation_Trigger_Matcher {
 		return self::$instance;
 	}
 
+	public function prepare_hil_for_external_enqueue( array $wf, array $payload ) {
+		// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — share the canonical HIL gate with REST/Test Listen so manual runs cannot bypass slot collection.
+		return $this->prepare_hil_payload( $wf, $payload );
+	}
+
 	public static function init(): void {
 		$self = self::instance();
 		// Inbound channel messages — canonical Gateway Bridge path.
@@ -80,6 +85,15 @@ final class BizCity_Automation_Trigger_Matcher {
 	public function on_channel_message( $payload ): void {
 		if ( ! is_array( $payload ) ) { return; }
 		$platform = strtoupper( (string) ( $payload['platform'] ?? '' ) );
+		if ( ! empty( $payload['_no_automation_reentry'] ) || (string) ( $payload['_trace_source'] ?? '' ) === 'twinbrain.progress_notice' ) {
+			// [2026-08-16 Johnny Chu] MPR-V5-CANARY — assistant progress echoes must never re-enter Automation Matcher.
+			BizCity_Automation_Matcher_Trace::note( 'rejected_progress_echo', array(
+				'platform' => $platform,
+				'chat_id'  => (string) ( $payload['chat_id'] ?? '' ),
+				'detail'   => 'technical progress notice anti-recursion guard',
+			) );
+			return;
+		}
 		// Filter wp_user_id 'ASSISTANT' echo to avoid loops.
 		$role     = strtoupper( (string) ( $payload['channel_role'] ?? '' ) );
 		if ( $role === 'ASSISTANT' ) {
@@ -144,6 +158,15 @@ final class BizCity_Automation_Trigger_Matcher {
 		$text    = (string) ( $payload['message_text_clean'] ?? $payload['text_clean'] ?? $raw_text );
 		$inst    = (string) ( $payload['instance_id'] ?? $payload['account_id'] ?? '' );
 		$chat_id = (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' );
+		// [2026-08-13 Johnny Chu] HOTFIX-ZALOBOT-LINK-PRECEDENCE — reserve /link <nonce> for the command router; automation slash rules must not claim the identity-binding command first.
+		if ( $platform === 'ZALO_BOT' && preg_match( '/^\/?link\s+[a-zA-Z0-9_-]{8,80}$/i', trim( $text ) ) ) {
+			BizCity_Automation_Matcher_Trace::note( 'reserved_link_command', array(
+				'platform' => $platform,
+				'chat_id'  => $chat_id,
+				'detail'   => 'reserved for BizCity_Zalobot_Command_Router',
+			) );
+			return;
+		}
 
 		// [2026-06-02 Johnny Chu] AUTOMATION DEDUP — persistent mid dedup.
 		// `self::$seen_mids` chỉ chống trùng trong CÙNG PHP request. Khi cùng
@@ -210,6 +233,9 @@ final class BizCity_Automation_Trigger_Matcher {
 			'sender_id'     => $sender_id,
 			'user_id'       => $sender_id, // alias: reply_zalo legacy đọc trigger.user_id
 			'wp_user_id'    => (int) ( $payload['wp_user_id'] ?? 0 ),
+			'identity_uuid' => (string) ( $payload['identity_uuid'] ?? '' ),
+			'external_user_id' => (string) ( $payload['external_user_id'] ?? $sender_id ),
+			'channel_class' => (string) ( $payload['channel_class'] ?? '' ),
 			'character_id'  => (int) ( $payload['character_id'] ?? 0 ),
 			'chat_id'       => $chat_id,
 			'conversation_chat_id' => $chat_id,
@@ -700,7 +726,9 @@ final class BizCity_Automation_Trigger_Matcher {
 			// Khi không có workflow nào match VÀ không có is_fallback workflow,
 			// chạy TwinBrain MPR Think trực tiếp + send qua channel sender.
 			// Filter cho phép site tắt nếu muốn im lặng.
-			if ( apply_filters( 'bizcity_automation_default_reply_enabled', true, $run_payload ) ) {
+			// [2026-08-14 Johnny Chu] R-CH-UNI — the canonical matcher owns no-match Zalo Bot replies.
+			$default_reply_enabled = apply_filters( 'bizcity_automation_default_reply_enabled', true, $run_payload );
+			if ( $default_reply_enabled ) {
 				if ( class_exists( 'BizCity_Automation_Default_Reply' ) ) {
 					// [2026-07-07 Johnny Chu] HOTFIX — explicit marker for no-keyword default path.
 					error_log( sprintf(
@@ -890,6 +918,10 @@ final class BizCity_Automation_Trigger_Matcher {
 		// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — raw intake may run before identity resolution; keep the optional WP owner explicit.
 		$resolved_wp_user_id = 0;
 		if ( $bot_id === '' || $user_id === '' ) { return; }
+		// [2026-08-13 Johnny Chu] HOTFIX-ZALO-OWNER-CONTINUITY — resolve the linked WP owner before matcher enqueue so Zone 2 workflows cannot lose owner_user_id.
+		if ( class_exists( 'BizCity_User_Resolver' ) ) {
+			$resolved_wp_user_id = (int) BizCity_User_Resolver::instance()->resolve( 'zalobot_' . $bot_id . '_' . $user_id );
+		}
 
 		// Extract media URL.
 		//
@@ -1940,6 +1972,21 @@ final class BizCity_Automation_Trigger_Matcher {
 	private function enqueue_and_optionally_run( array $wf, array $payload, bool $run_sync ) {
 		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW — migrate stale enabled "chiêm tinh 3 bước" copies to canonical transit workflow before runner reads DB.
 		$wf = $this->maybe_upgrade_legacy_astro_workflow( $wf );
+		$hil_payload = $this->prepare_hil_payload( $wf, $payload );
+		if ( is_wp_error( $hil_payload ) ) {
+			$this->note_event( 'hil_runtime_blocked', array(
+				'workflow_id' => (int) ( $wf['id'] ?? 0 ),
+				'reason'      => $hil_payload->get_error_code(),
+			) );
+			return $hil_payload;
+		}
+		if ( false === $hil_payload ) {
+			return '';
+		}
+		if ( is_array( $hil_payload ) && ! empty( $hil_payload['_hil_waiting'] ) ) {
+			return '';
+		}
+		$payload = $hil_payload;
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — channel-linked wp_user_id owns downstream content/events before workflow creator fallback.
 		$linked_owner = (int) ( $payload['wp_user_id'] ?? 0 );
 		if ( $linked_owner > 0 ) {
@@ -1962,6 +2009,270 @@ final class BizCity_Automation_Trigger_Matcher {
 			BizCity_Automation_Runner::instance()->execute( $run_id );
 		}
 		return $run_id;
+	}
+
+	private function prepare_hil_payload( array $wf, array $payload ) {
+		// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — resolve one HIL turn before enqueue; Event Stream is truth, Pending_State is routing only.
+		$config = $this->trigger_config( $wf );
+		$spec = isset( $config['hil_spec'] ) && is_array( $config['hil_spec'] ) ? $config['hil_spec'] : array();
+		if ( empty( $spec ) ) {
+			return $payload;
+		}
+		if ( class_exists( 'BizCity_Automation_HIL_Upgrader' ) ) {
+			$spec = BizCity_Automation_HIL_Upgrader::runtime_spec_for_workflow( $wf, $spec );
+		}
+		$required = array( 'BizCity_TwinBrain_HIL_Spec', 'BizCity_TwinBrain_HIL_State', 'BizCity_TwinBrain_HIL_Runtime', 'BizCity_TwinBrain_HIL_Repository', 'BizCity_TwinBrain_Brain_Session_Resolver', 'BizCity_Gateway_Sender' );
+		foreach ( $required as $class ) {
+			if ( ! class_exists( $class ) ) {
+				return new WP_Error( 'module_not_loaded', 'HIL runtime chưa được nạp.', array( 'status' => 503 ) );
+			}
+		}
+		$platform = strtoupper( (string) ( $payload['platform'] ?? $payload['channel'] ?? '' ) );
+		$chat_id = trim( (string) ( $payload['chat_id'] ?? '' ) );
+		$allowed = in_array( $platform, array( 'ZALO_BOT', 'TELEGRAM', 'TWINCHAT', 'TWINCHAT_BE' ), true )
+			|| strpos( strtolower( $chat_id ), 'zalobot_' ) === 0
+			|| strpos( strtolower( $chat_id ), 'tg_' ) === 0;
+		if ( ! $allowed || strtolower( (string) ( $payload['chat_kind'] ?? 'private' ) ) === 'group' ) {
+			return new WP_Error( 'hil_identity_scope_denied', 'HIL chỉ chạy trên kênh quản trị direct đã định danh.', array( 'status' => 403 ) );
+		}
+		if ( (int) ( $payload['wp_user_id'] ?? 0 ) <= 0 ) {
+			return new WP_Error( 'hil_identity_unresolved', 'Kênh chưa liên kết tài khoản WordPress cho HIL cá nhân.', array( 'status' => 403 ) );
+		}
+		$opts = BizCity_TwinBrain_Brain_Session_Resolver::build_opts( $payload );
+		if ( ! empty( $opts['_session_error'] ) || empty( $opts['identity_uuid'] ) || empty( $opts['session_id'] ) ) {
+			return new WP_Error( 'hil_identity_unresolved', 'Không xác định được identity/session cho HIL.', array( 'status' => 403 ) );
+		}
+		$validated = BizCity_TwinBrain_HIL_Spec::validate( $spec );
+		if ( empty( $validated['valid'] ) ) {
+			return new WP_Error( 'spec_invalid', 'HIL spec không hợp lệ.', array( 'status' => 422, 'errors' => (array) $validated['errors'] ) );
+		}
+		$spec = $validated['spec'];
+		$product_catalog = self::hil_product_catalog();
+		$media_candidates = array();
+		if ( class_exists( 'BizCity_TwinBrain_Media_Candidate_Resolver' ) ) {
+			// [2026-08-16 Johnny Chu] MPR-V5-MEDIA — attach safe candidate metadata to the HIL envelope; selection still requires explicit confirmation.
+			$attachments = (array) ( $payload['attachments'] ?? ( $payload['_resume']['attachments'] ?? array() ) );
+			$media_candidates = BizCity_TwinBrain_Media_Candidate_Resolver::resolve( $attachments, array(
+				'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+				'session_id'    => (string) ( $opts['session_id'] ?? '' ),
+				'user_id'       => (int) ( $opts['user_id'] ?? $payload['wp_user_id'] ?? 0 ),
+				'chat_id'       => $chat_id,
+				'chat_kind'     => (string) ( $payload['chat_kind'] ?? 'private' ),
+			) );
+			$payload['_hil_media_candidates'] = $media_candidates;
+		}
+		$pending = $chat_id !== '' && class_exists( 'BizCity_Automation_Pending_State' )
+			? BizCity_Automation_Pending_State::get( $chat_id )
+			: array();
+		$hil_id = trim( (string) ( $pending['hil_id'] ?? '' ) );
+		$message_id = trim( (string) ( $payload['mid'] ?? $payload['message_id'] ?? ( is_array( $payload['meta'] ?? null ) ? ( $payload['meta']['message_id'] ?? '' ) : '' ) ) );
+		$goal_id = (string) ( $payload['goal_id'] ?? '' );
+		if ( $hil_id === '' ) {
+			$seed = implode( '|', array( $goal_id, (int) ( $wf['id'] ?? 0 ), $spec['trigger_id'], $spec['spec_id'], $opts['identity_uuid'], $opts['session_id'], (string) ( $payload['mid'] ?? $payload['message_id'] ?? microtime( true ) ) ) );
+			$hil_id = 'hil_' . substr( sha1( $seed ), 0, 20 );
+		}
+		$blog_id = (int) get_current_blog_id();
+		$repo_opts = array( 'identity_uuid' => $opts['identity_uuid'], 'blog_id' => $blog_id, 'user_id' => (int) ( $opts['user_id'] ?? 0 ) );
+		$state = BizCity_TwinBrain_HIL_Repository::latest( $blog_id, (string) $opts['identity_uuid'], (string) $opts['session_id'], $hil_id );
+		$spec_changed = ! empty( $state ) && (string) ( $state['spec_id'] ?? '' ) !== (string) ( $spec['spec_id'] ?? '' );
+		if ( $spec_changed ) {
+			// [2026-08-16 Johnny Chu] PHASE-2-HIL-ORDER-SCHEMA — do not apply a new slot schema to an old instance snapshot.
+			$hil_id = 'hil_' . substr( sha1( $goal_id . '|' . (int) ( $wf['id'] ?? 0 ) . '|' . $spec['spec_id'] . '|' . $opts['identity_uuid'] . '|' . $opts['session_id'] . '|' . microtime( true ) ), 0, 20 );
+			$state = array();
+		}
+		if ( $message_id !== '' && $message_id === (string) ( $pending['hil_last_message_id'] ?? '' ) && $hil_id === (string) ( $pending['hil_id'] ?? '' ) && ! empty( $state ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — matcher/Test Listen may observe the same inbound; never consume one message twice as a slot answer.
+			return array_merge( $payload, array( '_hil_waiting' => true, '_hil_duplicate_turn' => true, '_hil_id' => $hil_id, '_hil_identity_uuid' => (string) $opts['identity_uuid'], '_hil_session_id' => (string) $opts['session_id'], '_hil_state' => $state, '_hil_spec' => $spec, '_hil_question' => (string) ( $pending['hil_question'] ?? '' ) ) );
+		}
+		$is_new_instance = empty( $state ) || BizCity_TwinBrain_HIL_State::is_terminal( (string) ( $state['status'] ?? '' ) );
+		if ( $is_new_instance ) {
+			if ( ! empty( $state ) ) {
+				// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — never reopen a terminal instance id; mint a new scoped instance for a new request.
+				$hil_id = 'hil_' . substr( sha1( $goal_id . '|' . (int) ( $wf['id'] ?? 0 ) . '|' . $spec['trigger_id'] . '|' . $spec['spec_id'] . '|' . $opts['identity_uuid'] . '|' . $opts['session_id'] . '|' . microtime( true ) ), 0, 20 );
+			}
+			$state = BizCity_TwinBrain_HIL_Runtime::bootstrap( $spec, array(
+				'hil_id'        => $hil_id,
+				'goal_id'       => $goal_id,
+				'blog_id'       => $blog_id,
+				'identity_uuid' => (string) $opts['identity_uuid'],
+				'session_id'    => (string) $opts['session_id'],
+			) );
+			if ( BizCity_TwinBrain_HIL_Repository::open( $state, $repo_opts ) === '' ) {
+				return new WP_Error( 'hil_open_failed', 'Không mở được HIL Instance.', array( 'status' => 503 ) );
+			}
+			if ( class_exists( 'BizCity_TwinBrain_Progress_Notice_Projector' ) ) {
+				BizCity_TwinBrain_Progress_Notice_Projector::on_hil_milestone( $chat_id, $state, 'opened' );
+			}
+		}
+		// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — the trigger command opens HIL; only a later inbound turn fills the first slot.
+		$reply = $is_new_instance ? '' : (string) ( $payload['text'] ?? $payload['message'] ?? '' );
+		if ( ! $is_new_instance && (string) ( $state['pending_slot_id'] ?? '' ) === 'product_name' && $reply !== '' ) {
+			// [2026-08-16 Johnny Chu] PHASE-HIL-PRODUCT-MATCH — only accept a catalog candidate; ambiguous product text re-asks with choices.
+			$reply = self::match_hil_product_reply( $reply, $product_catalog );
+		}
+		$result = BizCity_TwinBrain_HIL_Runtime::step( $spec, $state, $reply, $media_candidates );
+		$next_state = (array) ( $result['state'] ?? $state );
+		if ( in_array( (string) ( $next_state['status'] ?? '' ), array( 'expired', 'failed', 'cancelled' ), true ) ) {
+			if ( empty( $next_state['closure_reason'] ) ) {
+				$next_state['closure_reason'] = (string) ( $next_state['status'] ?? 'cancelled' ) === 'failed'
+					? BizCity_TwinBrain_HIL_State::CLOSURE_FAILED
+					: ( (string) ( $next_state['status'] ?? 'cancelled' ) === 'expired'
+					? BizCity_TwinBrain_HIL_State::CLOSURE_TIMEOUT
+					: BizCity_TwinBrain_HIL_State::CLOSURE_CANCELLED );
+			}
+			if ( BizCity_TwinBrain_HIL_Repository::close( $next_state, $repo_opts ) === '' ) {
+				return new WP_Error( 'hil_close_failed', 'Không chốt được HIL Instance hết hạn/hủy.', array( 'status' => 503 ) );
+			}
+			if ( class_exists( 'BizCity_TwinBrain_Progress_Notice_Projector' ) ) {
+				BizCity_TwinBrain_Progress_Notice_Projector::on_hil_milestone( $chat_id, $next_state, 'closed' );
+			}
+			if ( $chat_id !== '' && class_exists( 'BizCity_Automation_Pending_State' ) && method_exists( 'BizCity_Automation_Pending_State', 'clear_hil' ) ) {
+				BizCity_Automation_Pending_State::clear_hil( $chat_id );
+			}
+			return false;
+		}
+		if ( ! empty( $result['hil_ready'] ) ) {
+			$next_state['closure_reason'] = BizCity_TwinBrain_HIL_State::CLOSURE_READY;
+			if ( BizCity_TwinBrain_HIL_Repository::close( $next_state, $repo_opts ) === '' ) {
+				return new WP_Error( 'hil_close_failed', 'Không chốt được HIL Instance trước side effect.', array( 'status' => 503 ) );
+			}
+			if ( class_exists( 'BizCity_TwinBrain_Progress_Notice_Projector' ) ) {
+			// [2026-08-16 Johnny Chu] MPR-V5-HIL-SLOT — project the final accepted slot only after close persistence succeeds.
+			if ( method_exists( 'BizCity_TwinBrain_Progress_Notice_Projector', 'on_hil_step' ) ) {
+				BizCity_TwinBrain_Progress_Notice_Projector::on_hil_step( $chat_id, $next_state, (array) $result, $spec );
+			}
+				BizCity_TwinBrain_Progress_Notice_Projector::on_hil_milestone( $chat_id, $next_state, 'closed' );
+			}
+			if ( $chat_id !== '' && class_exists( 'BizCity_Automation_Pending_State' ) && method_exists( 'BizCity_Automation_Pending_State', 'clear_hil' ) ) {
+				BizCity_Automation_Pending_State::clear_hil( $chat_id );
+			}
+			// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — carry canonical HIL scope into the eventual run payload for read-only RunTimeline trace lookup.
+			return array_merge( $payload, array( '_hil_ready' => true, '_hil_id' => $hil_id, '_hil_identity_uuid' => (string) $opts['identity_uuid'], '_hil_session_id' => (string) $opts['session_id'], '_hil_status' => 'ready', '_hil_spec' => $spec ) );
+		}
+		if ( BizCity_TwinBrain_HIL_Repository::progress( $next_state, $repo_opts ) === '' ) {
+			return new WP_Error( 'hil_progress_failed', 'Không lưu được HIL Instance progress.', array( 'status' => 503 ) );
+		}
+		if ( class_exists( 'BizCity_TwinBrain_Progress_Notice_Projector' ) ) {
+			BizCity_TwinBrain_Progress_Notice_Projector::on_hil_milestone( $chat_id, $next_state, 'progress' );
+			// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — mixed-version projector deployments must not break the HIL waiting response.
+			if ( method_exists( 'BizCity_TwinBrain_Progress_Notice_Projector', 'on_hil_step' ) ) {
+				BizCity_TwinBrain_Progress_Notice_Projector::on_hil_step( $chat_id, $next_state, (array) $result, $spec );
+			}
+		}
+		$question = trim( (string) ( $result['question'] ?? '' ) );
+		$question = self::decorate_hil_product_question( $question, $next_state, $product_catalog );
+		if ( $chat_id !== '' && class_exists( 'BizCity_Automation_Pending_State' ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — retain identity_uuid with existing routing hint so the trace route can read the event-sourced HIL history safely.
+			BizCity_Automation_Pending_State::patch( $chat_id, array( 'intent' => 'hil_slot_collection', 'workflow_id' => (int) ( $wf['id'] ?? 0 ), 'hil_id' => $hil_id, 'hil_identity_uuid' => (string) $opts['identity_uuid'], 'hil_session_id' => (string) $opts['session_id'], 'hil_status' => (string) $next_state['status'], 'hil_last_message_id' => $message_id, 'hil_question' => $question ) );
+		}
+		if ( $question !== '' && $chat_id !== '' ) {
+			BizCity_Gateway_Sender::instance()->send( $chat_id, $question, 'text', array(
+				'_trace_source' => 'twinbrain.hil',
+				'_trace_id' => (string) ( $payload['trace_id'] ?? '' ),
+				'channel_role' => 'ASSISTANT',
+				'_no_automation_reentry' => true,
+			) );
+		}
+		// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — return a non-enqueue waiting envelope so REST/Test Listen can keep collecting slots instead of creating a failing run.
+		return array_merge( $payload, array( '_hil_waiting' => true, '_hil_id' => $hil_id, '_hil_identity_uuid' => (string) $opts['identity_uuid'], '_hil_session_id' => (string) $opts['session_id'], '_hil_state' => $next_state, '_hil_spec' => $spec, '_hil_question' => $question ) );
+	}
+
+	private static function hil_product_catalog(): array {
+		if ( ! class_exists( 'BizCity_TwinBrain_Product_Provider' ) ) {
+			return array();
+		}
+		$provider = BizCity_TwinBrain_Product_Provider::instance();
+		return method_exists( $provider, 'suggestions' ) ? $provider->suggestions( 8 ) : array();
+	}
+
+	private static function match_hil_product_reply( string $reply, array $catalog ): string {
+		$reply = trim( wp_strip_all_tags( $reply ) );
+		if ( $reply === '' ) {
+			return '';
+		}
+		if ( empty( $catalog ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-HIL-PRODUCT-MATCH — preserve bounded legacy text fallback when Woo catalog is unavailable; no fabricated match.
+			return mb_substr( $reply, 0, 160, 'UTF-8' );
+		}
+		if ( preg_match( '/^(?:chon|chọn)?\s*(\d+)$/iu', $reply, $match ) ) {
+			$index = (int) $match[1] - 1;
+			return isset( $catalog[ $index ]['name'] ) ? (string) $catalog[ $index ]['name'] : '';
+		}
+		$normalized_reply = self::normalize_hil_product_text( $reply );
+		$deterministic = array();
+		foreach ( $catalog as $product ) {
+			$name = self::normalize_hil_product_text( (string) ( $product['name'] ?? '' ) );
+			$sku  = self::normalize_hil_product_text( (string) ( $product['sku'] ?? '' ) );
+			if ( $name !== '' && ( $normalized_reply === $name || strpos( $normalized_reply, $name ) !== false || strpos( $name, $normalized_reply ) !== false ) ) {
+				$deterministic[] = (string) $product['name'];
+			} elseif ( $sku !== '' && $normalized_reply === $sku ) {
+				$deterministic[] = (string) $product['name'];
+			}
+		}
+		$deterministic = array_values( array_unique( array_filter( $deterministic ) ) );
+		if ( count( $deterministic ) === 1 ) {
+			return $deterministic[0];
+		}
+		if ( ! class_exists( 'BizCity_LLM_Client' ) || ! BizCity_LLM_Client::instance()->is_ready() ) {
+			return '';
+		}
+		$candidates = array();
+		foreach ( $catalog as $index => $product ) {
+			$candidates[] = array(
+				'index' => $index + 1,
+				'name'  => (string) ( $product['name'] ?? '' ),
+				'sku'   => (string) ( $product['sku'] ?? '' ),
+				'price' => (string) ( $product['price'] ?? '' ),
+			);
+		}
+		try {
+			$response = BizCity_LLM_Client::instance()->chat(
+				array(
+					array( 'role' => 'system', 'content' => 'Bạn là bộ match sản phẩm WooCommerce. Chỉ chọn một sản phẩm trong CANDIDATES, không được tạo sản phẩm mới. Trả JSON duy nhất: {"candidate_index":1,"confidence":0.0}. Nếu không chắc chắn, candidate_index=null và confidence dưới 0.75.' ),
+					array( 'role' => 'user', 'content' => "Khách trả lời: {$reply}\nCANDIDATES:\n" . wp_json_encode( $candidates, JSON_UNESCAPED_UNICODE ) ),
+				),
+				array(
+					'purpose'     => 'automation_hil_product_match',
+					'model'       => apply_filters( 'bizcity_automation_hil_product_match_model', 'gpt-4o-mini' ),
+					'temperature' => 0,
+					'max_tokens'  => 80,
+					'timeout'     => 6,
+					'no_fallback' => true,
+				)
+			);
+		} catch ( \Throwable $e ) {
+			return '';
+		}
+		if ( empty( $response['success'] ) ) {
+			return '';
+		}
+		$message = trim( (string) ( $response['message'] ?? '' ) );
+		$start = strpos( $message, '{' );
+		$end = strrpos( $message, '}' );
+		$decoded = ( $start !== false && $end !== false && $end >= $start ) ? json_decode( substr( $message, $start, $end - $start + 1 ), true ) : null;
+		$confidence = is_array( $decoded ) && is_numeric( $decoded['confidence'] ?? null ) ? (float) $decoded['confidence'] : 0;
+		$index = is_array( $decoded ) && is_numeric( $decoded['candidate_index'] ?? null ) ? (int) $decoded['candidate_index'] - 1 : -1;
+		return $confidence >= 0.75 && isset( $catalog[ $index ]['name'] ) ? (string) $catalog[ $index ]['name'] : '';
+	}
+
+	private static function normalize_hil_product_text( string $text ): string {
+		$text = function_exists( 'remove_accents' ) ? remove_accents( $text ) : $text;
+		$text = function_exists( 'mb_strtolower' ) ? mb_strtolower( $text, 'UTF-8' ) : strtolower( $text );
+		return trim( preg_replace( '/\s+/u', ' ', $text ) );
+	}
+
+	private static function decorate_hil_product_question( string $question, array $state, array $catalog ): string {
+		if ( (string) ( $state['pending_slot_id'] ?? '' ) !== 'product_name' || empty( $catalog ) ) {
+			return $question;
+		}
+		$lines = array();
+		foreach ( $catalog as $index => $product ) {
+			$name = trim( (string) ( $product['name'] ?? '' ) );
+			if ( $name === '' ) { continue; }
+			$price = (string) ( $product['price'] ?? '' );
+			$lines[] = ( $index + 1 ) . '. ' . $name . ( $price !== '' ? ' — ' . $price : '' );
+		}
+		return $question . ( $lines ? "\n\nSản phẩm hiện có, bạn chọn số hoặc nói tên:\n" . implode( "\n", $lines ) : '' );
 	}
 
 	private function maybe_upgrade_legacy_astro_workflow( array $wf ): array {
@@ -2098,7 +2409,7 @@ final class BizCity_Automation_Trigger_Matcher {
 	 *   • payload `_test` hoặc `_dry_run` (FE Chạy thử tự hiển thị đã đủ)
 	 *
 	 * @param array  $run_payload Canonical run payload (phải có chat_id + platform).
-	 * @param array  $matched_wfs Mảng workflow rows đã match (mỗi row có 'id', 'name').
+	 * @param array  $matched_wfs Mảng workflow rows đã matched (mỗi row có 'id', 'name').
 	 * @param string $reason      'keyword' | 'ref' — dùng cho note_event + filter context.
 	 */
 	private function send_match_ack( array $run_payload, array $matched_wfs, string $reason ): void {

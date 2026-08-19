@@ -66,6 +66,13 @@ class BizCity_Notify_Settings_REST {
 					'email_smtp_uid'       => array( 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ),
 					'email_recipients'     => array( 'required' => false ),
 					'notify_events'        => array( 'required' => false ),
+					'twin_progress_notice_enabled' => array( 'required' => false, 'sanitize_callback' => 'rest_sanitize_boolean' ),
+					'twin_progress_notice_detail'  => array( 'required' => false, 'sanitize_callback' => 'sanitize_key' ),
+					'twin_progress_send_started'   => array( 'required' => false, 'sanitize_callback' => 'rest_sanitize_boolean' ),
+					'twin_progress_send_completed' => array( 'required' => false, 'sanitize_callback' => 'rest_sanitize_boolean' ),
+					'twin_progress_send_skipped'   => array( 'required' => false, 'sanitize_callback' => 'rest_sanitize_boolean' ),
+					'twin_progress_send_failed'    => array( 'required' => false, 'sanitize_callback' => 'rest_sanitize_boolean' ),
+					'twin_progress_dedupe_window_seconds' => array( 'required' => false, 'sanitize_callback' => 'absint' ),
 				),
 			),
 		) );
@@ -154,6 +161,20 @@ class BizCity_Notify_Settings_REST {
 			);
 		}
 
+		// [2026-08-15 Johnny Chu] MPR-V5-NOTICE — persist the existing Control Plane's default-on TwinBrain progress policy.
+		foreach ( array( 'twin_progress_notice_enabled', 'twin_progress_send_started', 'twin_progress_send_completed', 'twin_progress_send_skipped', 'twin_progress_send_failed' ) as $progress_key ) {
+			if ( array_key_exists( $progress_key, $body ) ) {
+				$current[ $progress_key ] = rest_sanitize_boolean( $body[ $progress_key ] );
+			}
+		}
+		if ( array_key_exists( 'twin_progress_notice_detail', $body ) ) {
+			$detail = sanitize_key( (string) $body['twin_progress_notice_detail'] );
+			$current['twin_progress_notice_detail'] = in_array( $detail, array( 'compact', 'standard', 'full' ), true ) ? $detail : 'standard';
+		}
+		if ( array_key_exists( 'twin_progress_dedupe_window_seconds', $body ) ) {
+			$current['twin_progress_dedupe_window_seconds'] = max( 1, min( 3600, absint( $body['twin_progress_dedupe_window_seconds'] ) ) );
+		}
+
 		update_option( self::OPTION_KEY, $current, false );
 
 		// [2026-06-13 Johnny Chu] PHASE-CG-NOTIFY-BINDINGS — R-CACHE: flush after write.
@@ -190,6 +211,13 @@ class BizCity_Notify_Settings_REST {
 			// Default: chỉ bật 3 sự kiện quan trọng nhất, tránh notification spam.
 			'notify_events'       => isset( $raw['notify_events'] )       ? (array) $raw['notify_events']
 				: array( 'order_new', 'order_payment_complete', 'cf7_submit' ),
+			'twin_progress_notice_enabled' => array_key_exists( 'twin_progress_notice_enabled', $raw ) ? ! empty( $raw['twin_progress_notice_enabled'] ) : true,
+			'twin_progress_notice_detail'  => isset( $raw['twin_progress_notice_detail'] ) && in_array( (string) $raw['twin_progress_notice_detail'], array( 'compact', 'standard', 'full' ), true ) ? (string) $raw['twin_progress_notice_detail'] : 'standard',
+			'twin_progress_send_started'   => array_key_exists( 'twin_progress_send_started', $raw ) ? ! empty( $raw['twin_progress_send_started'] ) : true,
+			'twin_progress_send_completed' => array_key_exists( 'twin_progress_send_completed', $raw ) ? ! empty( $raw['twin_progress_send_completed'] ) : true,
+			'twin_progress_send_skipped'   => array_key_exists( 'twin_progress_send_skipped', $raw ) ? ! empty( $raw['twin_progress_send_skipped'] ) : true,
+			'twin_progress_send_failed'    => array_key_exists( 'twin_progress_send_failed', $raw ) ? ! empty( $raw['twin_progress_send_failed'] ) : true,
+			'twin_progress_dedupe_window_seconds' => isset( $raw['twin_progress_dedupe_window_seconds'] ) ? max( 1, min( 3600, (int) $raw['twin_progress_dedupe_window_seconds'] ) ) : 30,
 		);
 	}
 

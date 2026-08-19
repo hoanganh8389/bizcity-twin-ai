@@ -60,23 +60,37 @@ final class BizCity_Automation_Action_HTTP extends BizCity_Automation_Block_Base
 			'timeout' => self::TIMEOUT,
 			'headers' => array( 'Content-Type' => 'application/json' ),
 		);
+		$idempotency_key = sanitize_text_field( (string) ( $data['idempotency_key'] ?? ( $ctx['_side_effect']['idempotency_key'] ?? '' ) ) );
+		if ( $idempotency_key !== '' ) {
+			// [2026-08-16 Johnny Chu] MPR-V5-IDEMPOTENCY — forward the stable Runner key to HTTP providers.
+			$args['headers']['Idempotency-Key'] = $idempotency_key;
+		}
 		if ( in_array( $method, array( 'POST', 'PUT', 'PATCH' ), true ) && $body !== '' ) {
 			$args['body'] = $body;
 		}
 
 		// PG-S9 — dry-run mock (skip outbound HTTP).
 		if ( ! empty( $ctx['_dry_run'] ) ) {
-			return array( 'status' => 200, 'body' => '', 'headers' => array(), 'dry' => true, 'method' => $method, 'url' => $url );
+			// [2026-08-17 Johnny Chu] MPR-V5-GATE5 — expose a non-provider dry-run outcome without claiming confirmation.
+			return array( 'status' => 200, 'side_effect_status' => 'sent', 'body' => '', 'headers' => array(), 'dry' => true, 'method' => $method, 'url' => $url );
 		}
 
 		$res = wp_safe_remote_request( $url, $args );
 		if ( is_wp_error( $res ) ) {
 			return $res;
 		}
+		$status = (int) wp_remote_retrieve_response_code( $res );
+		if ( $status < 200 || $status >= 300 ) {
+			return new WP_Error( 'provider_rejected', 'HTTP provider rejected the external side effect.', array( 'status' => $status ) );
+		}
+		$headers = wp_remote_retrieve_headers( $res )->getAll();
+		$headers_lower = array_change_key_case( $headers, CASE_LOWER );
 		return array(
-			'status'  => wp_remote_retrieve_response_code( $res ),
-			'body'    => wp_remote_retrieve_body( $res ),
-			'headers' => wp_remote_retrieve_headers( $res )->getAll(),
+			'status'              => $status,
+			'side_effect_status'  => 'sent',
+			'provider_request_id' => (string) ( $headers_lower['x-request-id'] ?? $headers_lower['x-provider-request-id'] ?? $headers_lower['request-id'] ?? '' ),
+			'body'                => wp_remote_retrieve_body( $res ),
+			'headers'             => $headers,
 		);
 	}
 

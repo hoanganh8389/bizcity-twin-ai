@@ -186,7 +186,7 @@ final class BizCity_Automation_Action_Publish_WP_Post extends BizCity_Automation
 			'attachment_id'=> $attach_id,
 			'attachment_ids' => $attach_ids,
 			'image_urls'   => $image_urls,
-			'event_id'     => $this->mirror_to_scheduler( $ctx, (int) $post_id, $saved_title, $status, $image, $image_urls, $author ),
+			'event_id'     => $this->mirror_to_scheduler( $ctx, (int) $post_id, $saved_title, $content, $status, $image, $image_urls, $author ),
 		);
 	}
 
@@ -196,7 +196,7 @@ final class BizCity_Automation_Action_Publish_WP_Post extends BizCity_Automation
 	 * skips it; metadata holds canonical web_post_* fields for parity with
 	 * BizCity_Web_Post_Publisher contract.
 	 */
-	private function mirror_to_scheduler( array $ctx, int $post_id, string $title, string $wp_status, string $image, array $images, int $author ): int {
+	private function mirror_to_scheduler( array $ctx, int $post_id, string $title, string $content, string $wp_status, string $image, array $images, int $author ): int {
 		if ( $post_id <= 0 || ! class_exists( 'BizCity_Automation_CRM_Bridge' ) ) {
 			return 0;
 		}
@@ -214,6 +214,8 @@ final class BizCity_Automation_Action_Publish_WP_Post extends BizCity_Automation
 			'metadata'    => $this->build_event_metadata( $ctx, array(
 				'web_post_id'        => $post_id,
 				'web_title'          => $title,
+				// [2026-08-13 Johnny Chu] HOTFIX-WEB-POST-METADATA — Scheduler web_post requires the rendered body for CRM bridge validation.
+				'web_content'        => $content,
 				'web_status'         => $wp_status,
 				'web_image_url'      => $image,
 				'web_image_urls'     => $images,

@@ -64,6 +64,8 @@ final class BizCity_Diagnostics_Table_Registry {
 			[ 'name' => 'bizcity_kg_usage_log',          'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Cost_Guard', 'feature' => 'billing/quota ledger', 'purpose' => 'Per-operation KG billing/cost ledger consumed by Membership usage reports. Keep SQL — needs owner sign-off before any retention change.', 'readers' => [ 'BizCity_Membership_Usage_Report', 'BizCity_Membership_Usage' ], 'writers' => [ 'BizCity_KG_Cost_Guard::record_usage' ] ],
 
 			// ── core/knowledge (legacy / shared) ──────────────────────────
+			// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — catalog the canonical Guru table before policy-column provisioning.
+			[ 'name' => 'bizcity_characters',       'owner' => 'core/knowledge', 'group' => 'knowledge', 'critical' => true, 'class' => 'BizCity_Knowledge_Database', 'feature' => 'Guru policy', 'purpose' => 'Canonical Twin Guru records and vertical capability policy.' ],
 			// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — catalog the physical suffix used by BizCity_User_Memory.
 			[ 'name' => 'bizcity_memory_users',      'owner' => 'core/knowledge',           'group' => 'memory', 'class' => 'BizCity_User_Memory' ],
 

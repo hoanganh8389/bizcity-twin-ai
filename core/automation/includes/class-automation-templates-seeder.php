@@ -50,7 +50,7 @@ final class BizCity_Automation_Templates_Seeder {
 	// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — add global BTnet daily-session chat workflow.
 	// [2026-07-25 Johnny Chu] PHASE-0.46 W2 — add builtin template using action.capture_to_notebook.
 	// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK — wire action.learning_share_link into the @ghichu capture-to-notebook template reply.
-	const SEED_VERSION    = '1.64.0'; // [2026-08-11 Johnny Chu] PHASE-TBR-NOTE-THUKY-ZALO — seed @note and @thuky Notebook/MPR workflows.
+	const SEED_VERSION    = '1.70.0'; // [2026-08-16 Johnny Chu] PHASE-2-HIL-ORDER-SCHEMA — repair legacy generic HIL specs and synchronize trigger graph fields for order workflows.
 	const VERSION_OPTION  = 'bizcity_automation_templates_seed_version';
 	const HASH_OPTION     = 'bizcity_automation_templates_seed_hash';
 
@@ -93,6 +93,10 @@ final class BizCity_Automation_Templates_Seeder {
 		update_option( self::VERSION_OPTION, self::SEED_VERSION, false );
 		update_option( self::HASH_OPTION, $current_hash, false );
 		update_option( self::SEED_RECHECK_OPTION, time(), false );
+		if ( class_exists( 'BizCity_Automation_HIL_Upgrader' ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-2-HIL-TEMPLATE-AUTO-UPGRADE-MVP — after template reseed, run idempotent HIL upgrade for eligible existing workflows.
+			BizCity_Automation_HIL_Upgrader::maybe_upgrade_workflows( self::SEED_VERSION );
+		}
 		// [2026-06-24 Johnny Chu] PHASE-HOME-NOTEBOOKS — After seeding locally on main site,
 		// push all builtin templates to Hub so sub-sites can browse via HubTemplateTab API
 		// instead of relying on per-blog seeded copies (which caused "table is full" errors).
@@ -110,6 +114,10 @@ final class BizCity_Automation_Templates_Seeder {
 		update_option( self::HASH_OPTION, self::current_blueprints_hash(), false );
 		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — reset recheck TTL so the next request trusts this fresh reseed.
 		update_option( self::SEED_RECHECK_OPTION, time(), false );
+		if ( class_exists( 'BizCity_Automation_HIL_Upgrader' ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-2-HIL-TEMPLATE-AUTO-UPGRADE-MVP — force path still uses seed-version gate (idempotent per version).
+			BizCity_Automation_HIL_Upgrader::maybe_upgrade_workflows( self::SEED_VERSION );
+		}
 		return $rows;
 	}
 
@@ -455,6 +463,10 @@ final class BizCity_Automation_Templates_Seeder {
 				if ( ! is_array( $item ) || empty( $item['slug'] ) ) {
 					continue;
 				}
+				if ( class_exists( 'BizCity_Automation_HIL_Upgrader' ) ) {
+					// [2026-08-16 Johnny Chu] PHASE-2-HIL-TEMPLATE-AUTO-UPGRADE-MVP — inject HIL defaults for scoped templates at seed load time.
+					$item = BizCity_Automation_HIL_Upgrader::augment_template_blueprint( $item );
+				}
 				// Chuyển đổi graph sang graph_json string nếu cần
 				if ( isset( $item['graph'] ) && is_array( $item['graph'] ) && ! isset( $item['graph_json'] ) ) {
 					$item['graph_json'] = wp_json_encode( $item['graph'] );
@@ -507,6 +519,10 @@ final class BizCity_Automation_Templates_Seeder {
 			foreach ( $decoded as $item ) {
 				if ( ! is_array( $item ) || empty( $item['slug'] ) ) {
 					continue;
+				}
+				if ( class_exists( 'BizCity_Automation_HIL_Upgrader' ) ) {
+					// [2026-08-16 Johnny Chu] PHASE-2-HIL-TEMPLATE-AUTO-UPGRADE-MVP — inject HIL defaults for scoped templates at seed load time.
+					$item = BizCity_Automation_HIL_Upgrader::augment_template_blueprint( $item );
 				}
 				if ( isset( $item['graph'] ) && is_array( $item['graph'] ) && ! isset( $item['graph_json'] ) ) {
 					$item['graph_json'] = wp_json_encode( $item['graph'] );

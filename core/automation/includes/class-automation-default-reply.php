@@ -257,6 +257,14 @@ final class BizCity_Automation_Default_Reply {
 		$answer = trim( $answer );
 		if ( $answer === '' ) { return; }
 
+		// [2026-08-14 Johnny Chu] R-CH-UNI — keep Notebook evidence in the
+		// debug result, but do not append the internal source index to Zalo replies.
+		if ( strtoupper( (string) ( $run_payload['platform'] ?? '' ) ) === 'ZALO_BOT' ) {
+			self::log_notebook_debug_context( $result, $chat_id );
+			$answer = self::strip_notebook_source_block( $answer );
+			if ( $answer === '' ) { return; }
+		}
+
 		$answer = (string) apply_filters(
 			'bizcity_automation_default_reply_text',
 			$answer,
@@ -281,6 +289,36 @@ final class BizCity_Automation_Default_Reply {
 			'_trace_source' => 'automation.default_reply',
 			'_trace_id'     => $trace_id,
 			'detail'        => 'no_keyword_no_fallback',
+		) );
+	}
+
+	private static function strip_notebook_source_block( string $answer ): string {
+		$marker = '### Nguồn từ Notebook';
+		$offset = strpos( $answer, $marker );
+		if ( $offset === false ) { return trim( $answer ); }
+		return trim( substr( $answer, 0, $offset ) );
+	}
+
+	private static function log_notebook_debug_context( array $result, string $chat_id ): void {
+		$source = is_array( $result['notebook_source'] ?? null )
+			? $result['notebook_source']
+			: array();
+		$source_map = is_array( $source['map'] ?? null )
+			? $source['map']
+			: (array) ( $result['synthesis_metadata']['notebook_source_map'] ?? array() );
+		$notebook_ids = array();
+		foreach ( $source_map as $row ) {
+			if ( is_array( $row ) && (int) ( $row['notebook_id'] ?? 0 ) > 0 ) {
+				$notebook_ids[] = (int) $row['notebook_id'];
+			}
+		}
+		$notebook_ids = array_values( array_unique( $notebook_ids ) );
+		error_log( sprintf(
+			'[automation][default-reply] notebook_context chat_id=%s count=%d ids=%s source_files=%d',
+			$chat_id,
+			count( $notebook_ids ),
+			$notebook_ids ? implode( ',', $notebook_ids ) : '-',
+			(int) ( $source['counts']['source_file_count'] ?? $result['synthesis_metadata']['source_file_counts']['source_file_count'] ?? 0 )
 		) );
 	}
 

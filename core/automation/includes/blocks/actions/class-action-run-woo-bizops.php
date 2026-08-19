@@ -50,6 +50,36 @@ final class BizCity_Automation_Action_Run_Woo_Bizops extends BizCity_Automation_
 		if ( $owner_user_id <= 0 ) {
 			return $this->fail( 'permission_denied', 'Không xác định được chủ tài khoản Woo.', 'Liên kết Zalo Bot với tài khoản quản trị WooCommerce.', 'admin_capability_required' );
 		}
+		// [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — direct automation execution must use the same Guru gate as TwinBrain web mode.
+		$guru_id = (int) ( $ctx['trigger']['character_id'] ?? 0 );
+		if ( $guru_id <= 0 ) {
+			$guru_id = (int) ( $ctx['character_id'] ?? $ctx['payload']['character_id'] ?? 0 );
+		}
+		$policy = class_exists( 'BizCity_TwinBrain_Guru_Policy' )
+			? BizCity_TwinBrain_Guru_Policy::decide( array(
+				'user_id'    => $owner_user_id,
+				'guru_id'    => $guru_id,
+				'surface'    => (string) ( $ctx['trigger']['platform'] ?? $ctx['surface'] ?? 'automation' ),
+				'platform'   => (string) ( $ctx['trigger']['platform'] ?? $ctx['platform'] ?? '' ),
+				'account_id' => (string) ( $ctx['trigger']['account_id'] ?? $ctx['account_id'] ?? '' ),
+				'required_role' => (string) ( $ctx['required_role'] ?? $ctx['trigger']['required_role'] ?? '' ),
+				'required_plan' => (string) ( $ctx['required_plan'] ?? $ctx['trigger']['required_plan'] ?? '' ),
+				'target_resource' => isset( $ctx['target_resource'] ) && is_array( $ctx['target_resource'] ) ? $ctx['target_resource'] : array( 'scope' => 'woo', 'owner_user_id' => $owner_user_id, 'blog_id' => function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : 0 ),
+				'capability' => BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS,
+			) )
+			: array( 'allowed' => false, 'reason' => 'guru_policy_pending' );
+		if ( empty( $policy['allowed'] ) ) {
+			$this->note_event( 'woo_bizops_guru_denied', array( 'guru_id' => $guru_id, 'reason' => (string) ( $policy['reason'] ?? '' ) ) );
+			$denied = class_exists( 'BizCity_TwinBrain_Guru_Policy' )
+				? BizCity_TwinBrain_Guru_Policy::deny_payload( $policy )
+				: $this->fail( 'module_not_loaded', 'Policy Guru chưa được nạp.', 'Liên hệ kỹ thuật để kiểm tra policy runtime.', 'woo_bizops_not_ready' );
+			return array_merge( $denied, array(
+				'ok'            => 0,
+				'answer_md'     => (string) ( $denied['message'] ?? '' ),
+				'error_code'    => (string) ( $denied['code'] ?? 'permission_denied' ),
+				'error_message' => (string) ( $denied['message'] ?? '' ),
+			) );
+		}
 		$result = BizCity_TwinBrain_Woo_Bizops_Resolver_Service::instance()->resolve_by_query( $query, array(
 			'user_id' => $owner_user_id,
 			'surface' => 'automation_zalobot',

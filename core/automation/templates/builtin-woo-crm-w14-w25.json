@@ -1072,5 +1072,164 @@
     "template_uuid": "b22e44fb-4cd8-7dde-80bb-ce79195970b0",
     "template_version": "1.0.0",
     "visibility": "private"
+  },
+  {
+    "slug": "tpl_zalobot_order_create_v1",
+    "name": "[Order] Zalo Bot · tạo đơn hàng Woo",
+    "description": "Khách nhắn Zalo Bot theo keyword đặt đơn → tạo Woo order từ cấu hình items_json + ghi CRM order_new + reply link thanh toán.",
+    "category": "ecommerce",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "MessageCircle",
+    "tags": "zalobot,order,woocommerce,checkout,crm",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "đặt đơn",
+      "is_fallback": false,
+      "priority": 14,
+      "visibility": "private"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_zalobot_order_create_v1",
+        "template_uuid": "f6fb15de-1f89-4f46-8e5a-9fb802111f43",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot · keyword đặt đơn",
+            "instance_id": "",
+            "filter": "đặt đơn"
+          }
+        },
+        {
+          "id": "o1",
+          "type": "action",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "action.create_woo_order",
+            "label": "Tạo Woo order",
+            "items_json": "[{\"sku\":\"SKU-DEMO-001\",\"qty\":1}]",
+            "shipping_name": "{{trigger.sender_name}}",
+            "shipping_phone": "{{trigger.sender_phone}}",
+            "shipping_addr1": "",
+            "shipping_city": "",
+            "payment_method": "cod",
+            "note": "Nguồn: Zalo Bot\\nTin nhắn: {{trigger.text}}",
+            "auto_recap": true
+          }
+        },
+        {
+          "id": "c1",
+          "type": "action",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "action.create_crm_event",
+            "label": "Ghi CRM order_new",
+            "event_type": "order_new",
+            "title": "[ZaloBot] Đơn #{{o1.order_number}} — {{trigger.sender_name}}",
+            "description": "Woo Order ID: {{o1.order_id}}\\nTotal: {{o1.order_total}} {{o1.currency}}\\nStatus: {{o1.order_status}}\\nPayment URL: {{o1.payment_url}}"
+          }
+        },
+        {
+          "id": "r1",
+          "type": "action",
+          "position": { "x": 960, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply xác nhận đơn",
+            "text": "✅ Đã tạo đơn #{{o1.order_number}} ({{o1.order_total}} {{o1.currency}}).\\n{{o1.payment_url}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_o1", "source": "t1", "target": "o1" },
+        { "id": "e_o1_c1", "source": "o1", "target": "c1" },
+        { "id": "e_c1_r1", "source": "c1", "target": "r1" }
+      ]
+    },
+    "template_uuid": "f6fb15de-1f89-4f46-8e5a-9fb802111f43",
+    "template_version": "1.0.0",
+    "visibility": "private"
+  },
+  {
+    "slug": "tpl_messenger_order_create_v1",
+    "name": "[Order] Messenger · tạo đơn hàng Woo",
+    "description": "Khách nhắn Messenger theo keyword đặt đơn → tạo Woo order từ cấu hình items_json + ghi CRM order_new để sales follow-up.",
+    "category": "ecommerce",
+    "source": "builtin",
+    "trigger_type": "fb_message",
+    "icon": "Send",
+    "tags": "messenger,facebook,order,woocommerce,crm",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "đặt đơn",
+      "is_fallback": false,
+      "priority": 14,
+      "visibility": "private"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_messenger_order_create_v1",
+        "template_uuid": "3f093ee9-679d-4f84-aabf-23c17a49a0c6",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.fb_message",
+            "label": "Messenger · keyword đặt đơn",
+            "instance_id": "",
+            "filter": "đặt đơn"
+          }
+        },
+        {
+          "id": "o1",
+          "type": "action",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "action.create_woo_order",
+            "label": "Tạo Woo order",
+            "items_json": "[{\"sku\":\"SKU-DEMO-001\",\"qty\":1}]",
+            "shipping_name": "{{trigger.sender_name}}",
+            "shipping_phone": "{{trigger.sender_phone}}",
+            "shipping_addr1": "",
+            "shipping_city": "",
+            "payment_method": "cod",
+            "note": "Nguồn: Messenger\\nTin nhắn: {{trigger.text}}",
+            "auto_recap": true
+          }
+        },
+        {
+          "id": "c1",
+          "type": "action",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "action.create_crm_event",
+            "label": "Ghi CRM order_new",
+            "event_type": "order_new",
+            "title": "[Messenger] Đơn #{{o1.order_number}} — {{trigger.sender_name}}",
+            "description": "Woo Order ID: {{o1.order_id}}\\nTotal: {{o1.order_total}} {{o1.currency}}\\nStatus: {{o1.order_status}}\\nPayment URL: {{o1.payment_url}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_o1", "source": "t1", "target": "o1" },
+        { "id": "e_o1_c1", "source": "o1", "target": "c1" }
+      ]
+    },
+    "template_uuid": "3f093ee9-679d-4f84-aabf-23c17a49a0c6",
+    "template_version": "1.0.0",
+    "visibility": "private"
   }
 ]

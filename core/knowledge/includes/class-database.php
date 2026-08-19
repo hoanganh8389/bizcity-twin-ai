@@ -30,7 +30,7 @@ class BizCity_Knowledge_Database {
      *           (guru_uuid, visibility, version, license, manifest_hash, bin_path,
      *           bin_dim, bin_count, embed_model, origin_user, published_at).
      */
-    const SCHEMA_VERSION = '3.22.0'; // [2026-07-28 Johnny Chu] R-DCL — run dbDelta for memory identity_uuid ownership columns and indexes.
+    const SCHEMA_VERSION = '3.25.0'; // [2026-08-15 Johnny Chu] R-DCL — add per-Guru audience role/plan policy storage.
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -90,6 +90,8 @@ class BizCity_Knowledge_Database {
             industries TEXT COMMENT 'JSON array of industry tags',
             variables_schema TEXT COMMENT 'JSON schema for output variables',
             settings TEXT COMMENT 'JSON settings',
+            allowed_verticals LONGTEXT NULL COMMENT 'JSON allowlist of sensitive TwinBrain vertical capabilities',
+            notebook_policy ENUM('augment', 'restrict') NOT NULL DEFAULT 'augment' COMMENT 'Guru notebook scope policy',
             status ENUM('draft', 'active', 'published', 'archived') DEFAULT 'draft',
             author_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
             market_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'ID in bizcity-agent-market',
@@ -112,6 +114,12 @@ class BizCity_Knowledge_Database {
 
         // PHASE-0.21 Wave 1 — Guru marketplace columns (idempotent ALTERs).
         $this->ensure_phase_021_character_columns();
+        // [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — provision the canonical vertical policy column after the table registry declaration.
+        $this->ensure_phase_023_character_policy_columns();
+		// [2026-08-15 Johnny Chu] PHASE-TWB-GURU-NOTEBOOK — provision the canonical Guru notebook policy column.
+		$this->ensure_phase_024_notebook_policy_column();
+        // [2026-08-15 Johnny Chu] PHASE-TWB-GURU-AUDIENCE — provision per-Guru role/plan audience fields.
+        $this->ensure_phase_025_audience_policy_columns();
         
         // Knowledge Sources table
         $table_sources = $wpdb->prefix . 'bizcity_knowledge_sources';
@@ -255,6 +263,11 @@ class BizCity_Knowledge_Database {
 
         // Migration v3.0.3: Add max_tokens column to characters (Phase 0.18)
         $this->run_migration_v3_0_3();
+
+        // [2026-08-14 Johnny Chu] R-DCL — do not advance the knowledge version until the Guru policy column is physically verified.
+        if ( ! $this->ensure_phase_023_character_policy_columns() || ! $this->ensure_phase_024_notebook_policy_column() || ! $this->ensure_phase_025_audience_policy_columns() ) {
+            return;
+        }
         
         // Update version option
         update_option('bizcity_knowledge_db_version', self::SCHEMA_VERSION);
@@ -593,6 +606,81 @@ class BizCity_Knowledge_Database {
     }
 
     /**
+     * PHASE-TWB-GURU-POLICY — add the sensitive vertical allowlist column.
+     *
+     * @since 3.23.0
+     */
+    public function ensure_phase_023_character_policy_columns() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_characters';
+        if ( function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $table, 'allowed_verticals' ) ) {
+            return true;
+        }
+
+        $previous = $wpdb->suppress_errors( true );
+        $result = $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN allowed_verticals LONGTEXT NULL COMMENT 'JSON allowlist of sensitive TwinBrain vertical capabilities' AFTER settings" );
+        $error = $wpdb->last_error;
+        $wpdb->suppress_errors( $previous );
+        if ( false === $result && $error && false === strpos( $error, 'Duplicate column' ) ) {
+            error_log( '[KNOWLEDGE DB 0.23] Failed to add allowed_verticals column: ' . $error );
+        }
+		if ( function_exists( 'bizcity_column_invalidate' ) ) {
+			bizcity_column_invalidate( $table, 'allowed_verticals' );
+		}
+		return function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $table, 'allowed_verticals' );
+    }
+
+    public function ensure_phase_024_notebook_policy_column() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_characters';
+        if ( function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $table, 'notebook_policy' ) ) {
+            return true;
+        }
+        $previous = $wpdb->suppress_errors( true );
+        $result = $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN notebook_policy ENUM('augment', 'restrict') NOT NULL DEFAULT 'augment' COMMENT 'Guru notebook scope policy' AFTER allowed_verticals" );
+        $error = $wpdb->last_error;
+        $wpdb->suppress_errors( $previous );
+        if ( false === $result && $error && false === strpos( $error, 'Duplicate column' ) ) {
+            error_log( '[KNOWLEDGE DB 0.24] Failed to add notebook_policy column: ' . $error );
+        }
+        if ( function_exists( 'bizcity_column_invalidate' ) ) {
+            bizcity_column_invalidate( $table, 'notebook_policy' );
+        }
+        return function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $table, 'notebook_policy' );
+    }
+
+    public function ensure_phase_025_audience_policy_columns() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_characters';
+        $columns = array(
+            'min_role' => "VARCHAR(32) NOT NULL DEFAULT '' COMMENT 'Minimum WordPress role for Guru capability'",
+            'min_plan' => "VARCHAR(32) NOT NULL DEFAULT '' COMMENT 'Minimum membership plan for Guru capability'",
+        );
+        $ready = true;
+        foreach ( $columns as $name => $ddl ) {
+            if ( function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $table, $name ) ) {
+                continue;
+            }
+            $previous = $wpdb->suppress_errors( true );
+            $result = $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN {$name} {$ddl} AFTER notebook_policy" );
+            $error = $wpdb->last_error;
+            $wpdb->suppress_errors( $previous );
+            if ( false === $result && $error && false === strpos( $error, 'Duplicate column' ) ) {
+                error_log( '[KNOWLEDGE DB 0.25] Failed to add ' . $name . ' column: ' . $error );
+            }
+            if ( function_exists( 'bizcity_column_invalidate' ) ) {
+                bizcity_column_invalidate( $table, $name );
+            }
+            $ready = $ready && function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $table, $name );
+        }
+        if ( $ready && class_exists( 'BizCity_TwinBrain_Guru_Policy' ) ) {
+            // [2026-08-15 Johnny Chu] PHASE-TWB-GURU-AUDIENCE — discard pre-D3 policy snapshots after physical column verification.
+            BizCity_TwinBrain_Guru_Policy::invalidate();
+        }
+        return $ready;
+    }
+
+    /**
      * Legacy Knowledge Migration
      * Migrate from old quick_faq post type to new character-based knowledge system
      */
@@ -852,7 +940,9 @@ Phong cách giao tiếp:
      * Get character by ID (cached)
      */
     public function get_character($id) {
-        $cache_key = 'bk_char_' . intval($id);
+        // [2026-08-14 Johnny Chu] R-MSDB/R-CACHE — include the current blog in character cache identity.
+        $blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+        $cache_key = 'bk_char_' . $blog_id . '_' . intval($id);
         $cached = wp_cache_get( $cache_key, 'bizcity_characters' );
         if ( false !== $cached ) {
             return $cached;
@@ -868,7 +958,9 @@ Phong cách giao tiếp:
      * Get character by slug (cached)
      */
     public function get_character_by_slug($slug) {
-        $cache_key = 'bk_char_slug_' . sanitize_key($slug);
+        // [2026-08-14 Johnny Chu] R-MSDB/R-CACHE — isolate slug reads by current blog.
+        $blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+        $cache_key = 'bk_char_slug_' . $blog_id . '_' . sanitize_key($slug);
         $cached = wp_cache_get( $cache_key, 'bizcity_characters' );
         if ( false !== $cached ) {
             return $cached;
@@ -899,7 +991,9 @@ Phong cách giao tiếp:
         $args = wp_parse_args($args, $defaults);
         
         // Cache key based on query args
-        $cache_key = 'bk_chars_' . md5( serialize( $args ) );
+        // [2026-08-14 Johnny Chu] R-MSDB/R-CACHE — isolate character roster cache by current blog.
+        $blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+        $cache_key = 'bk_chars_' . $blog_id . '_' . md5( serialize( $args ) );
         $cached = wp_cache_get( $cache_key, 'bizcity_characters' );
         if ( false !== $cached ) {
             return $cached;
@@ -956,6 +1050,10 @@ Phong cách giao tiếp:
             'industries' => '[]',
             'variables_schema' => '{}',
             'settings' => '{}',
+            'allowed_verticals' => '[]',
+            'notebook_policy' => 'augment',
+            'min_role' => '',
+            'min_plan' => '',
             'status' => 'draft',
             'author_id' => get_current_user_id(),
         ];
@@ -968,12 +1066,15 @@ Phong cách giao tiếp:
         }
         
         // Ensure JSON fields are strings
-        foreach (['capabilities', 'industries', 'variables_schema', 'settings'] as $field) {
+        foreach (['capabilities', 'industries', 'variables_schema', 'settings', 'allowed_verticals'] as $field) {
             if (is_array($data[$field])) {
                 $data[$field] = json_encode($data[$field], JSON_UNESCAPED_UNICODE);
             }
         }
         
+        $data['notebook_policy'] = in_array( (string) ( $data['notebook_policy'] ?? 'augment' ), array( 'augment', 'restrict' ), true ) ? (string) $data['notebook_policy'] : 'augment';
+        $data['min_role'] = in_array( sanitize_key( (string) ( $data['min_role'] ?? '' ) ), array( '', 'subscriber', 'contributor', 'author', 'editor', 'administrator' ), true ) ? sanitize_key( (string) ( $data['min_role'] ?? '' ) ) : '';
+        $data['min_plan'] = in_array( sanitize_key( (string) ( $data['min_plan'] ?? '' ) ), array( '', 'free', 'plus', 'pro' ), true ) ? sanitize_key( (string) ( $data['min_plan'] ?? '' ) ) : '';
         $result = $wpdb->insert($table, $data);
         
         if ($result === false) {
@@ -981,6 +1082,9 @@ Phong cách giao tiếp:
         }
         
         $this->invalidate_character_cache();
+        if ( ( array_key_exists( 'allowed_verticals', $data ) || array_key_exists( 'notebook_policy', $data ) || array_key_exists( 'min_role', $data ) || array_key_exists( 'min_plan', $data ) ) && class_exists( 'BizCity_TwinBrain_Guru_Policy' ) ) {
+			BizCity_TwinBrain_Guru_Policy::invalidate( (int) $wpdb->insert_id );
+		}
         $character_id = (int) $wpdb->insert_id;
         // [2026-07-27 Johnny Chu] HOTFIX — recover insert id lost by routed WPDB connections.
         if ( $character_id <= 0 && ! empty( $data['slug'] ) ) {
@@ -1003,10 +1107,19 @@ Phong cách giao tiếp:
         $table = $wpdb->prefix . 'bizcity_characters';
         
         // Ensure JSON fields are strings
-        foreach (['capabilities', 'industries', 'variables_schema', 'settings'] as $field) {
+        foreach (['capabilities', 'industries', 'variables_schema', 'settings', 'allowed_verticals'] as $field) {
             if (isset($data[$field]) && is_array($data[$field])) {
                 $data[$field] = json_encode($data[$field], JSON_UNESCAPED_UNICODE);
             }
+        }
+		if ( array_key_exists( 'notebook_policy', $data ) ) {
+			$data['notebook_policy'] = in_array( (string) $data['notebook_policy'], array( 'augment', 'restrict' ), true ) ? (string) $data['notebook_policy'] : 'augment';
+		}
+        if ( array_key_exists( 'min_role', $data ) ) {
+            $data['min_role'] = in_array( sanitize_key( (string) $data['min_role'] ), array( '', 'subscriber', 'contributor', 'author', 'editor', 'administrator' ), true ) ? sanitize_key( (string) $data['min_role'] ) : '';
+        }
+        if ( array_key_exists( 'min_plan', $data ) ) {
+            $data['min_plan'] = in_array( sanitize_key( (string) $data['min_plan'] ), array( '', 'free', 'plus', 'pro' ), true ) ? sanitize_key( (string) $data['min_plan'] ) : '';
         }
         
         $result = $wpdb->update($table, $data, ['id' => $id]);
@@ -1016,6 +1129,9 @@ Phong cách giao tiếp:
         }
         
         $this->invalidate_character_cache( $id );
+        if ( ( array_key_exists( 'allowed_verticals', $data ) || array_key_exists( 'notebook_policy', $data ) || array_key_exists( 'min_role', $data ) || array_key_exists( 'min_plan', $data ) ) && class_exists( 'BizCity_TwinBrain_Guru_Policy' ) ) {
+            BizCity_TwinBrain_Guru_Policy::invalidate( (int) $id );
+        }
         return true;
     }
     
@@ -1043,8 +1159,9 @@ Phong cách giao tiếp:
      * @param int $id  Optional specific character ID to flush.
      */
     private function invalidate_character_cache( $id = 0 ) {
+        $blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
         if ( $id ) {
-            wp_cache_delete( 'bk_char_' . intval($id), 'bizcity_characters' );
+            wp_cache_delete( 'bk_char_' . $blog_id . '_' . intval($id), 'bizcity_characters' );
         }
         // Flush the whole group — covers list caches and slug lookups
         if ( function_exists( 'wp_cache_flush_group' ) ) {
@@ -1520,4 +1637,16 @@ Phong cách giao tiếp:
 
         return true;
     }
+}
+
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+    BizCity_Schema_Registry::register(
+        'bizcity_characters',
+        'core.knowledge',
+        BizCity_Knowledge_Database::SCHEMA_VERSION,
+        'bizcity_knowledge_db_version',
+        static function () {
+            return BizCity_Knowledge_Database::instance()->create_tables();
+        }
+    );
 }

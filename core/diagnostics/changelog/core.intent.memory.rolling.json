@@ -3,7 +3,7 @@
   "module_id": "core.intent.memory.rolling",
   "owner": "core/intent",
   "installer_id": "intent",
-  "current_version": "1.3.0",
+  "current_version": "1.4.0",
   "version_option": "bizcity_memory_rolling_db_ver",
   "tables": {
     "bizcity_memory_rolling": {
@@ -42,6 +42,7 @@
     }
   },
   "history": [
+    { "version": "1.4.0", "date": "2026-08-13", "change": "HOTFIX-MEMORY-BLOG-ID: verify both blog_id and identity_uuid before trusting the rolling-memory schema stamp; repair existing tenant tables missing blog_id with ADD-only migration and recheck both columns before marking complete." },
     { "version": "1.3.0", "date": "2026-07-29", "change": "R-CH-IDMEM — persist per-blog migration memory for identity_uuid, deduplicate repeated ALTER failures, and key in-request schema checks by blog." },
     { "version": "1.2.0", "date": "2026-07-28", "change": "R-CH-IDMEM — scope rolling conversation uniqueness by tenant, identity UUID, and legacy user projection; remove conversation_id-only ownership coupling." },
     { "version": "1.1.0", "date": "2026-07-28", "change": "PHASE-0.52 W8 — add tenant blog_id and identity_uuid to rolling memory; new rows are owned by UUID while user_id remains a legacy compatibility projection." },

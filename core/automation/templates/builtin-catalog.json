@@ -1,7 +1,7 @@
 {
-  "_note": "Catalog metadata cho 59 builtin blueprints. Graph đầy đủ vẫn nằm trong PHP seeder. File này dùng để Hub sync, admin browse, và diagnostic.",
-  "_seed_version": "1.28.0",
-  "_generated": "2026-08-11",
+  "_note": "Catalog metadata cho 61 builtin blueprints. Graph đầy đủ vẫn nằm trong PHP seeder. File này dùng để Hub sync, admin browse, và diagnostic.",
+  "_seed_version": "1.30.0",
+  "_generated": "2026-08-16",
   "templates": [
     { "slug": "tpl_zalo_cskh_v1",                   "name": "Zalo CSKH — Hỏi & đáp tự động",                          "category": "cskh",       "trigger_type": "zalo_inbound",           "icon": "MessageCircle", "tags": "zalo,cskh,kg,llm",                               "source": "builtin" },
     { "slug": "tpl_fb_lead_capture_v1",              "name": "Facebook Lead — Capture & notify",                        "category": "lead",       "trigger_type": "fb_comment",             "icon": "Zap",           "tags": "facebook,lead,crm,email",                        "source": "builtin" },
@@ -61,6 +61,8 @@
     { "slug": "tpl_http_form_to_crm_v1",             "name": "W23 · HTTP webhook form → CRM lead + Zalo sales",        "category": "lead",       "trigger_type": "webhook",                "icon": "FormInput",     "tags": "webhook,form,crm,lead,zalo",                     "source": "builtin" },
     { "slug": "tpl_zalo_menu_bot_v1",                "name": "W24 · Zalo menu bot (1/2/3 → câu trả lời tĩnh)",         "category": "cskh",       "trigger_type": "zalo_inbound",           "icon": "Menu",          "tags": "zalo,menu,bot,static,no-ai",                     "source": "builtin" },
     { "slug": "tpl_broadcast_segment_v1",            "name": "W25 · Cron phân đoạn → Zalo broadcast nhóm",             "category": "campaign",   "trigger_type": "cron",                   "icon": "Radio",         "tags": "cron,broadcast,segment,zalo,llm",                "source": "builtin" },
+    { "slug": "tpl_zalobot_order_create_v1",         "name": "W26 · Zalo Bot keyword đặt đơn → tạo Woo order",         "category": "ecommerce",  "trigger_type": "zalo_inbound",           "icon": "MessageCircle", "tags": "zalobot,order,woocommerce,checkout,crm",         "source": "builtin", "trigger_config": { "filter": "đặt đơn", "priority": 14 } },
+    { "slug": "tpl_messenger_order_create_v1",       "name": "W27 · Messenger keyword đặt đơn → tạo Woo order",        "category": "ecommerce",  "trigger_type": "fb_message",             "icon": "Send",          "tags": "messenger,facebook,order,woocommerce,crm",       "source": "builtin", "trigger_config": { "filter": "đặt đơn", "priority": 14 } },
     { "slug": "tpl_zalobot_img_capture_v1",          "name": "VIDEO-VEO3 A · Zalo Bot ảnh → capture slot (60p)",       "category": "general",    "trigger_type": "zalo_inbound",           "icon": "Camera",        "tags": "zalobot,image,capture,slot,multi-turn",          "source": "builtin", "trigger_config": { "priority": 12 } },
     { "slug": "tpl_zalobot_video_veo3_v1",           "name": "VIDEO-VEO3 B · keyword \"tạo video\" → Veo 3 → poll → reply", "category": "general", "trigger_type": "zalo_inbound",          "icon": "Video",         "tags": "zalobot,video,veo3,kling,i2v,async",             "source": "builtin", "trigger_config": { "filter": "tạo video" } },
     { "slug": "tpl_reminder_personal_zalo_bot_v1",   "name": "Nhắc tôi [time] [task] → reminder_personal → Zalo Bot", "category": "personal",   "trigger_type": "zalo_inbound",           "icon": "BellRing",      "tags": "zalobot,reminder,personal,scheduler",            "source": "builtin", "trigger_config": { "filter": "nhắc tôi" } },

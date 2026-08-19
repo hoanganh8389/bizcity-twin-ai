@@ -51,6 +51,18 @@ final class BizCity_Automation_REST {
 			),
 		) );
 
+		// [2026-08-16 Johnny Chu] CCG-1 — scoped #workflow_slug suggestions for TwinChat/TwinWeb.
+		register_rest_route( self::NS, '/command-suggestions', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'command_suggestions' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
+			'args'                => array(
+				'q'     => array( 'type' => 'string', 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ),
+				'limit' => array( 'type' => 'integer', 'default' => 20, 'sanitize_callback' => 'absint' ),
+				'zone'  => array( 'type' => 'string', 'default' => 'admin', 'sanitize_callback' => 'sanitize_key' ),
+			),
+		) );
+
 		register_rest_route( self::NS, '/workflows/(?P<id>\d+)', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
@@ -86,6 +98,12 @@ final class BizCity_Automation_REST {
 		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/validate-skill', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'validate_skill_mode' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		// [2026-08-16 Johnny Chu] CCG-2 — Automation Builder toggle for #workflow_slug visibility.
+		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/command-invokable', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'set_command_invokable' ),
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
 		) );
 
@@ -185,6 +203,21 @@ final class BizCity_Automation_REST {
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'stream_run_events' ),
 			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
+		) );
+		// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — read-only HIL Instance footnotes for Builder RunTimeline.
+		register_rest_route( self::NS, '/hil-trace', array(
+			'methods'              => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'hil_trace' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
+			'args'                => array(
+				'run_id'        => array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+				'hil_id'        => array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+				'workflow_id'   => array( 'type' => 'integer', 'sanitize_callback' => 'absint' ),
+				'chat_id'       => array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+				'identity_uuid' => array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+				'session_id'    => array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ),
+				'limit'         => array( 'type' => 'integer', 'default' => 50, 'sanitize_callback' => 'absint' ),
+			),
 		) );
 
 		// BE-4 — Public webhook trigger entry point.
@@ -330,6 +363,11 @@ final class BizCity_Automation_REST {
 		register_rest_route( self::NS, '/templates/reseed', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'reseed_templates' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		register_rest_route( self::NS, '/templates/hil-upgrade', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'hil_upgrade_templates' ),
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
 		) );
 
@@ -648,6 +686,28 @@ final class BizCity_Automation_REST {
 		), 200 );
 	}
 
+	public static function command_suggestions( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-08-16 Johnny Chu] CCG-1 — return only command-invokable workflows visible to this actor.
+		$identity = array(
+			'user_id'  => (int) get_current_user_id(),
+			'is_admin' => current_user_can( 'manage_options' ),
+			'zone'     => sanitize_key( (string) $req->get_param( 'zone' ) ),
+		);
+		$items = class_exists( 'BizCity_Automation_Command_Resolver' )
+			? BizCity_Automation_Command_Resolver::suggestions(
+				$identity,
+				array( 'zone' => $identity['zone'] ),
+				(string) $req->get_param( 'q' ),
+				(int) $req->get_param( 'limit' )
+			)
+			: array();
+		return new WP_REST_Response( array(
+			'ok'    => true,
+			'scope' => 'workflow',
+			'items' => $items,
+		), 200 );
+	}
+
 	private static function filter_customer_workflow_rows( array $rows ): array {
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customer sees own workflows plus admin-published must-use defaults.
 		$out = array();
@@ -755,6 +815,11 @@ final class BizCity_Automation_REST {
 			return $preflight;
 		}
 		$body = (array) $req->get_json_params();
+		$hil_validation = self::validate_hil_spec_in_body( $body );
+		if ( is_wp_error( $hil_validation ) ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'rejected', $preflight['context'] );
+			return $hil_validation;
+		}
 		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — G2 cross-tier slash collision.
 		$collision = self::check_slash_collision( $body, 0 );
 		if ( $collision ) {
@@ -792,6 +857,11 @@ final class BizCity_Automation_REST {
 			return $preflight;
 		}
 		$body = (array) $req->get_json_params();
+		$hil_validation = self::validate_hil_spec_in_body( $body );
+		if ( is_wp_error( $hil_validation ) ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'rejected', $preflight['context'] );
+			return $hil_validation;
+		}
 		$existing = BizCity_Automation_Repo_Workflows::find( $id );
 		if ( ! $existing ) {
 			return new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
@@ -813,6 +883,39 @@ final class BizCity_Automation_REST {
 			BizCity_Automation_Schedule_Manager::instance()->sync_workflow_events( $row );
 		}
 		return self::respond( $row );
+	}
+
+	private static function validate_hil_spec_in_body( array $body ) {
+		// [2026-08-16 Johnny Chu] MPR-V5-HIL-COMPILER — reject invalid reviewed HIL specs before workflow repository writes.
+		$config = $body['trigger_config'] ?? ( $body['trigger_config_json'] ?? null );
+		if ( is_string( $config ) ) {
+			$config = json_decode( $config, true );
+		}
+		if ( ! is_array( $config ) || ! array_key_exists( 'hil_spec', $config ) ) {
+			return null;
+		}
+		if ( ! class_exists( 'BizCity_TwinBrain_HIL_Spec' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Bộ kiểm tra HIL chưa được nạp.', array(
+				'status'    => 503,
+				'code'      => 'module_not_loaded',
+				'message'   => 'Bộ kiểm tra HIL chưa được nạp.',
+				'hint'      => 'Mở lại trang Automation hoặc kiểm tra module TwinBrain.',
+				'help_code' => 'hil_compiler_unavailable',
+			) );
+		}
+		$validation = BizCity_TwinBrain_HIL_Spec::validate( (array) $config['hil_spec'] );
+		if ( ! empty( $validation['valid'] ) ) {
+			return null;
+		}
+		return new WP_Error( 'spec_invalid', 'HIL spec chưa đạt kiểm tra hợp đồng.', array(
+			'status'    => 422,
+			'code'      => 'spec_invalid',
+			'message'   => 'HIL spec chưa đạt kiểm tra hợp đồng.',
+			'hint'      => 'Mở HIL Spec, sửa các slot bắt buộc và xác nhận side effect trước khi lưu.',
+			'help_code' => 'hil_spec_invalid',
+			'errors'    => (array) ( $validation['errors'] ?? array() ),
+			'warnings'  => (array) ( $validation['warnings'] ?? array() ),
+		) );
 	}
 
 	public static function toggle_workflow_customer_default( WP_REST_Request $req ) {
@@ -1412,6 +1515,24 @@ final class BizCity_Automation_REST {
 		$pay_source   = (string) ( $payload['source'] ?? '' );
 		$is_replay    = ! empty( $meta_payload['replay'] );
 		$is_capture   = ( $req_source === 'test_listen.capture' ) || ( $pay_source === 'channel.listener.stream' );
+		if ( $is_capture && ! $is_replay && class_exists( 'BizCity_Automation_Trigger_Matcher' ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — Test Listen must collect HIL slots before enqueue; do not create a run that fails later at the side-effect node.
+			$hil_payload = BizCity_Automation_Trigger_Matcher::instance()->prepare_hil_for_external_enqueue( $wf, $payload );
+			if ( is_wp_error( $hil_payload ) ) {
+				return $hil_payload;
+			}
+			if ( is_array( $hil_payload ) && ! empty( $hil_payload['_hil_waiting'] ) ) {
+				return new WP_REST_Response( array(
+					'ok'          => true,
+					'hil_waiting' => true,
+					'mode'        => 'hil_waiting',
+					'hil_id'      => (string) ( $hil_payload['_hil_id'] ?? '' ),
+					'question'    => (string) ( $hil_payload['_hil_question'] ?? '' ),
+					'state'       => (array) ( $hil_payload['_hil_state'] ?? array() ),
+				), 202 );
+			}
+			$payload = is_array( $hil_payload ) ? $hil_payload : $payload;
+		}
 		if ( ! $is_replay && $is_capture && class_exists( 'BizCity_Automation_Repo_Runs' ) ) {
 			$dup = BizCity_Automation_Repo_Runs::find_recent_duplicate_capture_run( (int) $wf['id'], $payload, 45 );
 			if ( is_array( $dup ) && ! empty( $dup['run']['run_id'] ) ) {
@@ -1486,6 +1607,198 @@ final class BizCity_Automation_REST {
 		$since = (int) ( $req->get_param( 'since_id' ) ?: 0 );
 		$logs  = BizCity_Automation_Repo_Runs::logs( $run_id, $since );
 		return new WP_REST_Response( array( 'ok' => true, 'run' => $run, 'logs' => $logs ), 200 );
+	}
+
+	/**
+	 * GET /hil-trace — project HIL snapshots into a redacted Builder trace.
+	 */
+	public static function hil_trace( WP_REST_Request $req ) {
+		// [2026-08-16 Johnny Chu] PHASE-3-HIL-TRACE — resolve trace scope from owned run or explicit pending identity; never infer personal identity from chat_id alone.
+		if ( ! class_exists( 'BizCity_TwinBrain_HIL_Repository' ) || ! method_exists( 'BizCity_TwinBrain_HIL_Repository', 'history' ) ) {
+			return self::hil_trace_error( 'module_not_loaded', 'HIL trace chưa được nạp.', 'Nạp lại Automation/TwinBrain runtime rồi thử lại.', 'module_not_loaded', 503 );
+		}
+
+		$run_id = trim( (string) $req->get_param( 'run_id' ) );
+		$run = $run_id !== '' ? BizCity_Automation_Repo_Runs::find( $run_id ) : null;
+		$workflow_id = absint( $req->get_param( 'workflow_id' ) );
+		$workflow = null;
+		$payload = array();
+		if ( $run_id !== '' ) {
+			if ( ! is_array( $run ) ) {
+				return self::hil_trace_error( 'not_found', 'Không tìm thấy lần chạy HIL.', 'Kiểm tra run_id hoặc mở lại lần chạy trong RunTimeline.', 'hil_trace_not_found', 404 );
+			}
+			if ( ! self::current_user_can_view_run( $run ) ) {
+				return self::workflow_permission_error();
+			}
+			$workflow_id = (int) ( $run['workflow_id'] ?? 0 );
+			$payload = is_array( $run['trigger_payload'] ?? null ) ? $run['trigger_payload'] : array();
+			$workflow = BizCity_Automation_Repo_Workflows::find( $workflow_id );
+		} else {
+			$chat_id = trim( (string) $req->get_param( 'chat_id' ) );
+			$pending = $chat_id !== '' && class_exists( 'BizCity_Automation_Pending_State' )
+				? BizCity_Automation_Pending_State::get( $chat_id )
+				: array();
+			$workflow_id = $workflow_id > 0 ? $workflow_id : (int) ( $pending['workflow_id'] ?? 0 );
+			$payload = array(
+				'_hil_id'             => (string) ( $pending['hil_id'] ?? '' ),
+				'_hil_identity_uuid'  => (string) ( $pending['hil_identity_uuid'] ?? '' ),
+				'_hil_session_id'     => (string) ( $pending['hil_session_id'] ?? '' ),
+			);
+		}
+
+		if ( ! $workflow && $workflow_id > 0 ) {
+			$workflow = BizCity_Automation_Repo_Workflows::find( $workflow_id );
+		}
+		if ( ! is_array( $workflow ) || ! self::can_view_workflow_row( $workflow ) ) {
+			return self::hil_trace_error( 'not_found', 'Không tìm thấy workflow HIL.', 'Mở đúng workflow hoặc cung cấp workflow_id thuộc tài khoản của bạn.', 'hil_trace_not_found', 404 );
+		}
+
+		$hil_id = trim( (string) ( $req->get_param( 'hil_id' ) ?: ( $payload['_hil_id'] ?? '' ) ) );
+		$identity_uuid = strtolower( trim( (string) ( $req->get_param( 'identity_uuid' ) ?: ( $payload['_hil_identity_uuid'] ?? '' ) ) ) );
+		$session_id = trim( (string) ( $req->get_param( 'session_id' ) ?: ( $payload['_hil_session_id'] ?? '' ) ) );
+		if ( $hil_id === '' || $identity_uuid === '' || $session_id === '' ) {
+			return self::hil_trace_error( 'hil_scope_missing', 'Thiếu phạm vi HIL để đọc trace.', 'Cung cấp hil_id, identity_uuid và session_id từ cùng một HIL Instance.', 'hil_trace_scope_missing', 422 );
+		}
+
+		$history = BizCity_TwinBrain_HIL_Repository::history(
+			(int) get_current_blog_id(),
+			$identity_uuid,
+			$session_id,
+			$hil_id,
+			max( 1, min( 200, absint( $req->get_param( 'limit' ) ?: 50 ) ) )
+		);
+		if ( empty( $history ) ) {
+			return self::hil_trace_error( 'not_found', 'Chưa có snapshot HIL cho phạm vi này.', 'Gửi thêm một lượt inbound hoặc kiểm tra lại identity/session của HIL Instance.', 'hil_trace_not_found', 404 );
+		}
+
+		$spec = self::workflow_hil_spec( $workflow );
+		$trace = self::project_hil_trace( $history, $spec );
+		return new WP_REST_Response( array(
+			'ok'         => true,
+			'run_id'     => $run_id,
+			'workflow_id'=> $workflow_id,
+			'hil_id'     => $hil_id,
+			'header'     => $trace['header'],
+			'footnotes'  => $trace['footnotes'],
+		), 200 );
+	}
+
+	private static function hil_trace_error( string $code, string $message, string $hint, string $help_code, int $status ) {
+		if ( class_exists( 'BizCity_Error_Payload' ) ) {
+			return BizCity_Error_Payload::make( $code, $message, $hint, $help_code );
+		}
+		return new WP_Error( $code, $message, array( 'status' => $status, 'hint' => $hint, 'help_code' => $help_code ) );
+	}
+
+	private static function workflow_hil_spec( array $workflow ): array {
+		$config = is_array( $workflow['trigger_config'] ?? null ) ? $workflow['trigger_config'] : array();
+		$spec = is_array( $config['hil_spec'] ?? null ) ? $config['hil_spec'] : array();
+		if ( class_exists( 'BizCity_Automation_HIL_Upgrader' ) ) {
+			$spec = BizCity_Automation_HIL_Upgrader::runtime_spec_for_workflow( $workflow, $spec );
+		}
+		if ( ! empty( $spec ) && class_exists( 'BizCity_TwinBrain_HIL_Spec' ) ) {
+			$validated = BizCity_TwinBrain_HIL_Spec::validate( $spec );
+			return ! empty( $validated['valid'] ) ? (array) $validated['spec'] : array();
+		}
+		return array();
+	}
+
+	private static function project_hil_trace( array $history, array $spec ): array {
+		$previous = array();
+		$footnotes = array();
+		$slots = (array) ( $spec['slots'] ?? array() );
+		foreach ( $history as $index => $state ) {
+			$current_values = is_array( $state['slot_values'] ?? null ) ? $state['slot_values'] : array();
+			$status = sanitize_key( (string) ( $state['status'] ?? 'collecting' ) );
+			$pending_slot_id = (string) ( $state['pending_slot_id'] ?? '' );
+			$filled_now = array_diff_key( $current_values, (array) ( $previous['slot_values'] ?? array() ) );
+			$action = $index === 0 ? 'open' : self::hil_trace_action( $status, $filled_now, $pending_slot_id );
+			$slot = self::hil_trace_slot( $slots, $pending_slot_id );
+			$slot_status = self::hil_trace_slots_status( $slots, $current_values );
+			$required_count = count( array_filter( $slot_status, static function ( $item ) { return ! empty( $item['required'] ); } ) );
+			$filled_count = count( array_filter( $slot_status, static function ( $item ) { return ! empty( $item['filled'] ); } ) );
+			$footnotes[] = array(
+				'ts'              => (string) ( $state['_created_at'] ?? '' ),
+				'hil_id'          => (string) ( $state['hil_id'] ?? '' ),
+				'spec_id'         => (string) ( $state['spec_id'] ?? ( $spec['spec_id'] ?? '' ) ),
+				'trigger_id'      => (string) ( $state['trigger_id'] ?? ( $spec['trigger_id'] ?? '' ) ),
+				'turn_index'      => (int) ( $state['turn_count'] ?? $index ),
+				'action'          => $action,
+				'status'          => $status,
+				'slot_id'         => $pending_slot_id,
+				'slot_label'      => (string) ( $slot['label'] ?? $pending_slot_id ),
+				'question_asked'  => self::hil_trace_question( $action, $slot, $state, $slot_status ),
+				'answer_redacted' => ! empty( $slot['redact_in_trace'] ),
+				'answer_preview'  => ! empty( $filled_now ) ? ( ! empty( $slot['redact_in_trace'] ) ? '•••• (đã lưu, ẩn do redact_in_trace)' : 'Đã nhận thông tin slot.' ) : '',
+				'slots_progress'  => array( 'filled' => $filled_count, 'required' => $required_count ),
+				'slots_status'    => $slot_status,
+				'closure_reason'  => in_array( $action, array( 'ready', 'failed', 'expired', 'paused', 'cancelled' ), true ) ? (string) ( $state['closure_reason'] ?? '' ) : null,
+			);
+			$previous = $state;
+		}
+		$latest = (array) end( $history );
+		$latest_slots = self::hil_trace_slots_status( $slots, (array) ( $latest['slot_values'] ?? array() ) );
+		return array(
+			'header' => array(
+				'hil_id'         => (string) ( $latest['hil_id'] ?? '' ),
+				'status'         => sanitize_key( (string) ( $latest['status'] ?? 'collecting' ) ),
+				'turn_count'     => (int) ( $latest['turn_count'] ?? 0 ),
+				'max_turns'      => (int) ( $spec['limits']['max_turns'] ?? 0 ),
+				'slots_filled'   => count( array_filter( $latest_slots, static function ( $item ) { return ! empty( $item['filled'] ); } ) ),
+				'slots_required' => count( array_filter( $latest_slots, static function ( $item ) { return ! empty( $item['required'] ); } ) ),
+				'ready'          => sanitize_key( (string) ( $latest['status'] ?? '' ) ) === 'ready',
+				'expires_at'     => (string) ( $latest['expires_at'] ?? '' ),
+			),
+			'footnotes' => $footnotes,
+		);
+	}
+
+	private static function hil_trace_action( string $status, array $filled_now, string $pending_slot_id ): string {
+		if ( $status === 'ready' ) { return 'ready'; }
+		if ( $status === 'confirming' ) { return 'confirm'; }
+		if ( $status === 'blocked' ) { return 'paused'; }
+		if ( $status === 'failed' ) { return 'failed'; }
+		if ( $status === 'expired' ) { return 'expired'; }
+		if ( $status === 'cancelled' ) { return 'cancelled'; }
+		return empty( $filled_now ) && $pending_slot_id !== '' ? 'reask' : 'ask';
+	}
+
+	private static function hil_trace_slot( array $slots, string $slot_id ): array {
+		foreach ( $slots as $slot ) {
+			if ( is_array( $slot ) && (string) ( $slot['id'] ?? '' ) === $slot_id ) { return $slot; }
+		}
+		return array();
+	}
+
+	private static function hil_trace_slots_status( array $slots, array $values ): array {
+		$out = array();
+		foreach ( $slots as $slot ) {
+			if ( ! is_array( $slot ) ) { continue; }
+			$id = (string) ( $slot['id'] ?? '' );
+			if ( $id === '' ) { continue; }
+			$out[] = array(
+				'id'       => $id,
+				'label'    => (string) ( $slot['label'] ?? $id ),
+				'required' => ! empty( $slot['required'] ),
+				'filled'   => array_key_exists( $id, $values ) && trim( (string) $values[ $id ] ) !== '',
+				'redacted' => ! empty( $slot['redact_in_trace'] ),
+			);
+		}
+		return $out;
+	}
+
+	private static function hil_trace_question( string $action, array $slot, array $state, array $slot_status = array() ): string {
+		if ( ! in_array( $action, array( 'ask', 'reask', 'confirm', 'reask_confirm' ), true ) ) { return ''; }
+		if ( $action === 'confirm' ) {
+			$received = array();
+			foreach ( $slot_status as $item ) {
+				if ( ! empty( $item['filled'] ) ) {
+					$received[] = (string) ( $item['label'] ?? $item['id'] ?? 'slot' ) . ' (đã nhận)';
+				}
+			}
+			return 'Xác nhận thông tin: ' . implode( '; ', $received ) . '. Đúng chưa?';
+		}
+		return (string) ( $slot['ask'] ?? '' );
 	}
 
 	public static function cancel_run( WP_REST_Request $req ): WP_REST_Response {
@@ -2231,17 +2544,26 @@ final class BizCity_Automation_REST {
 	}
 
 	// ─── BE-7 — Workflow Templates ───────────────────────────────────────
+	private static function ensure_templates_seeder_loaded(): bool {
+		if ( class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+			return true;
+		}
+		// [2026-08-16 Johnny Chu] HOTFIX-SEEDER-UNAVAILABLE — prefer bootstrap optional loader so REST requests from non-automation screens can still reseed.
+		if ( function_exists( 'bizcity_automation_load_templates_seeder' ) ) {
+			return (bool) bizcity_automation_load_templates_seeder();
+		}
+		$seeder_file = __DIR__ . '/class-automation-templates-seeder.php';
+		if ( is_readable( $seeder_file ) ) {
+			require_once $seeder_file;
+		}
+		return class_exists( 'BizCity_Automation_Templates_Seeder' );
+	}
+
 	public static function list_templates( WP_REST_Request $req ): WP_REST_Response {
 		// [2026-07-10 Johnny Chu] PHASE-ATH — auto-check seed on REST list so newly deployed JSON templates
 		// appear without requiring manual "Reseed" click.
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — load seeder defensively for REST-only/template-gallery requests.
-		if ( ! class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
-			$seeder_file = __DIR__ . '/class-automation-templates-seeder.php';
-			if ( is_readable( $seeder_file ) ) {
-				require_once $seeder_file;
-			}
-		}
-		if ( class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+		if ( self::ensure_templates_seeder_loaded() ) {
 			BizCity_Automation_Templates_Seeder::maybe_seed();
 		}
 
@@ -2354,7 +2676,8 @@ final class BizCity_Automation_REST {
 	}
 
 	public static function reseed_templates( WP_REST_Request $req ): WP_REST_Response {
-		if ( ! class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+		// [2026-08-16 Johnny Chu] HOTFIX-SEEDER-UNAVAILABLE — allow Re-seed from TwinChat/other admin shells where current_screen gate never loaded seeder.
+		if ( ! self::ensure_templates_seeder_loaded() ) {
 			return new WP_REST_Response( array( 'ok' => false, 'error' => 'seeder_unavailable' ), 500 );
 		}
 		$out = BizCity_Automation_Templates_Seeder::force_reseed();
@@ -2362,6 +2685,28 @@ final class BizCity_Automation_REST {
 			'ok'      => true,
 			'seeded'  => $out,
 			'version' => BizCity_Automation_Templates_Seeder::SEED_VERSION,
+		), 200 );
+	}
+
+	public static function hil_upgrade_templates( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-08-16 Johnny Chu] PHASE-2-HIL-TEMPLATE-AUTO-UPGRADE-MVP — admin endpoint to run/report idempotent HIL upgrade pass.
+		if ( ! class_exists( 'BizCity_Automation_HIL_Upgrader' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'hil_upgrader_unavailable' ), 500 );
+		}
+
+		$body = (array) ( $req->get_json_params() ?: array() );
+		$force = ! empty( $body['force'] );
+		$seed_version = class_exists( 'BizCity_Automation_Templates_Seeder' )
+			? (string) BizCity_Automation_Templates_Seeder::SEED_VERSION
+			: (string) get_option( 'bizcity_automation_templates_seed_version', 'seed_unknown' );
+
+		$result = BizCity_Automation_HIL_Upgrader::maybe_upgrade_workflows( $seed_version, array(
+			'force' => $force,
+		) );
+
+		return new WP_REST_Response( array(
+			'ok' => ! empty( $result['ok'] ),
+			'result' => $result,
 		), 200 );
 	}
 
@@ -2875,7 +3220,27 @@ final class BizCity_Automation_REST {
 		);
 	}
 
-	// ─── Skill mode validator ─────────────────────────────────────────────────
+	public static function set_command_invokable( WP_REST_Request $req ) {
+		// [2026-08-16 Johnny Chu] CCG-2 — persist Automation Workflow command visibility in existing trigger_config JSON.
+		$id = (int) $req->get_param( 'id' );
+		$workflow = BizCity_Automation_Repo_Workflows::find( $id );
+		if ( ! $workflow ) {
+			return new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
+		}
+		$config = is_array( $workflow['trigger_config'] ?? null ) ? $workflow['trigger_config'] : array();
+		$config['command_invokable'] = ! empty( $req->get_param( 'command_invokable' ) ) ? 1 : 0;
+		$updated = BizCity_Automation_Repo_Workflows::update( $id, array( 'trigger_config' => $config ) );
+		if ( is_wp_error( $updated ) ) {
+			return $updated;
+		}
+		return rest_ensure_response( array(
+			'ok' => true,
+			'workflow_id' => $id,
+			'command_invokable' => ! empty( $config['command_invokable'] ),
+		) );
+	}
+
+	// ─── Automation command validator ────────────────────────────────────────
 
 	/**
 	 * GET /workflows/{id}/validate-skill
@@ -2939,6 +3304,7 @@ final class BizCity_Automation_REST {
 			'has_compose_terminal' => $has_compose || $has_work,
 			// auto-append guard: if no compose but has work nodes → pipeline will inject one.
 			'is_enabled'           => $enabled,
+			'command_invokable'    => ! empty( ( $wf['trigger_config']['command_invokable'] ?? false ) ),
 		);
 
 		$issues = array();
@@ -2952,11 +3318,14 @@ final class BizCity_Automation_REST {
 			$issues[] = 'Cần node llm.compose ở cuối để tạo câu trả lời. Pipeline sẽ tự inject nếu thiếu.';
 		}
 		if ( ! $checks['is_enabled'] ) {
-			$issues[] = 'Workflow đang TẮT — bật lên để dùng qua /skill trong chat.';
+			$issues[] = 'Workflow đang TẮT — bật lên để dùng qua #slug trong chat.';
+		}
+		if ( ! $checks['command_invokable'] ) {
+			$issues[] = 'Workflow chưa bật — Cho phép chạy bằng #slug để xuất hiện trong Automation picker.';
 		}
 
 		$score = count( array_filter( $checks ) );
-		// valid when ≥3: slug + work node + compose (enabled is bonus but not blocking).
+		// valid when ≥3: slug + work node + compose (command visibility is an explicit opt-in).
 		$valid = $checks['has_slug'] && $checks['has_work_node'] && $checks['has_compose_terminal'];
 
 		return new WP_REST_Response( array(

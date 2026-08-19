@@ -154,7 +154,8 @@ class BizCity_Zalobot_User_Linker {
 		string $zalo_user_id,
 		int $bot_id,
 		object $bot,
-		string $display_name = ''
+		string $display_name = '',
+		bool $force = false
 	): bool {
 		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — preserve the linked-user short circuit before canonical link issuance.
 		if ( self::resolve_wp_user( $zalo_user_id, $bot_id ) > 0 ) {
@@ -168,7 +169,7 @@ class BizCity_Zalobot_User_Linker {
 				$zalo_user_id,
 				(string) $bot_id,
 				(int) get_current_blog_id(),
-				array( 'display_name' => $display_name )
+				array( 'display_name' => $display_name, 'force' => $force )
 			);
 			if ( is_array( $canonical ) ) {
 				if ( ! empty( $canonical['linked'] ) || ! empty( $canonical['cooldown'] ) ) {
@@ -187,7 +188,7 @@ class BizCity_Zalobot_User_Linker {
 
 		// Cooldown: don't spam login links
 		$cooldown_key = 'bzzalolink_cd_' . md5( $zalo_user_id . '_' . $bot_id );
-		if ( get_transient( $cooldown_key ) ) {
+		if ( ! $force && get_transient( $cooldown_key ) ) {
 			return false;
 		}
 
@@ -416,10 +417,29 @@ class BizCity_Zalobot_User_Linker {
 		// Zalo Bot still needs account linking for member identity, admin commands, grants and
 		// personalized automation. Guest-care must add an explicit channel mode/route later;
 		// it must not disable this linker globally.
-		add_action( 'bizcity_zalo_message_received', [ __CLASS__, 'maybe_auto_send_link' ], 3, 1 );
+		// [2026-08-09 Johnny Chu] R-CH-UNI — consume the canonical Zone 2 envelope before command/Guru consumers.
+		add_action( 'bizcity_channel_normalized', [ __CLASS__, 'handle_normalized' ], 3, 2 );
 		// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — only Zalo Bot memory no-owner events may use this linker.
 		add_action( 'bizcity_twinbrain_memory_no_owner', [ __CLASS__, 'maybe_send_login_link_from_memory' ], 7, 2 );
 		add_action( 'bizcity_zalobot_user_linked', [ __CLASS__, 'send_welcome_after_link' ], 10, 3 );
+	}
+
+	/**
+	 * Adapt the canonical Zone 2 envelope to the legacy link-prompt payload shape.
+	 */
+	public static function handle_normalized( $envelope, $trigger_key = '' ): void {
+		if ( ! is_array( $envelope ) || (string) ( $envelope['platform'] ?? '' ) !== 'ZALO_BOT' ) {
+			return;
+		}
+
+		$raw = is_array( $envelope['raw'] ?? null ) ? $envelope['raw'] : array();
+		self::maybe_auto_send_link( array(
+			'code'           => 'zalo_bot',
+			'bot_id'         => (int) ( $envelope['account_id'] ?? 0 ),
+			'from_user_id'   => (string) ( $envelope['user_id'] ?? '' ),
+			'from_user_name' => (string) ( $envelope['display_name'] ?? $raw['from_user_name'] ?? '' ),
+			'message_id'     => (string) ( $envelope['message_id'] ?? '' ),
+		) );
 	}
 
 	/**

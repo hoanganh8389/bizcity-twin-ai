@@ -39,6 +39,10 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_KG_Passage_File_Store {
 
 	const SHARD_SIZE = 1000;
+	// [2026-08-14 Johnny Chu] HOTFIX — bound the cold recovery scan so a
+	// malformed shard cannot block a channel request until max_execution_time.
+	const MAX_SCAN_BYTES = 33554432;
+	const MAX_SCAN_SECONDS = 2.0;
 
 	private static $instance = null;
 
@@ -172,12 +176,24 @@ class BizCity_KG_Passage_File_Store {
 		if ( ! file_exists( $path ) ) {
 			return new WP_Error( 'kg_passage_missing', 'shard file missing: ' . $path );
 		}
+		// [2026-08-14 Johnny Chu] HOTFIX — prefer the inline DB fallback when
+		// sequential recovery would require scanning an oversized shard.
+		$file_size = filesize( $path );
+		if ( false !== $file_size && $file_size > self::MAX_SCAN_BYTES ) {
+			return new WP_Error( 'kg_passage_scan_too_large', 'shard scan exceeds recovery limit' );
+		}
 		$bytes = @file_get_contents( $path );
 		if ( false === $bytes ) {
 			return new WP_Error( 'kg_passage_read', 'cannot read shard' );
 		}
 		$pos = 0;
+		$scanned = 0;
+		$started = microtime( true );
 		while ( null !== ( $rec = BizCity_KG_MD_Parser::decode_at( $bytes, $pos ) ) ) {
+			$scanned++;
+			if ( $scanned > self::SHARD_SIZE || ( microtime( true ) - $started ) > self::MAX_SCAN_SECONDS ) {
+				return new WP_Error( 'kg_passage_scan_timeout', 'shard recovery scan exceeded its limit' );
+			}
 			if ( isset( $rec['frontmatter']['id'] ) && (int) $rec['frontmatter']['id'] === (int) $passage_id ) {
 				return [
 					'frontmatter' => $rec['frontmatter'],

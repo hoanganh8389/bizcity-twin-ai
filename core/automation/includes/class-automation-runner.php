@@ -126,6 +126,32 @@ final class BizCity_Automation_Runner {
 			$trigger_payload['trace_id'] = (string) ( $correlation['trace_id'] ?? '' );
 			$trigger_payload['parent_event_uuid'] = (string) ( $correlation['parent_event_uuid'] ?? '' );
 		}
+		if ( ! empty( $trigger_payload['_hil_ready'] )
+			&& ! empty( $trigger_payload['_hil_id'] )
+			&& ! empty( $trigger_payload['_hil_identity_uuid'] )
+			&& ! empty( $trigger_payload['_hil_session_id'] ) ) {
+			// [2026-08-16 Johnny Chu] PHASE-2-HIL-ORDER-SCHEMA — decrypt HIL slots only in runner memory; never persist PII in trigger_payload_json.
+			$hil_state = class_exists( 'BizCity_TwinBrain_HIL_Repository' )
+				? BizCity_TwinBrain_HIL_Repository::latest(
+				(int) get_current_blog_id(),
+				(string) $trigger_payload['_hil_identity_uuid'],
+				(string) $trigger_payload['_hil_session_id'],
+				(string) $trigger_payload['_hil_id']
+				)
+				: array();
+			if ( is_array( $hil_state ) && is_array( $hil_state['slot_values'] ?? null ) ) {
+				$trigger_payload['hil_slots'] = $hil_state['slot_values'];
+			}
+			if ( ! is_array( $hil_state )
+				|| (string) ( $hil_state['status'] ?? '' ) !== 'ready'
+				|| ! class_exists( 'BizCity_TwinBrain_HIL_State' )
+				|| ! BizCity_TwinBrain_HIL_State::is_side_effect_ready( $hil_state, (array) ( $trigger_payload['_hil_spec'] ?? $wf['trigger_config']['hil_spec'] ?? array() ) ) ) {
+				// [2026-08-16 Johnny Chu] PHASE-2-HIL-ORDER-SCHEMA — never trust _hil_ready without the scoped ready snapshot and required slot values.
+				$err = new WP_Error( 'hil_state_invalid', 'HIL state không còn hợp lệ cho side effect.', array( 'status' => 409 ) );
+				$this->finish_failed( $run_id, $err, 'hil_state_invalid' );
+				return $err;
+			}
+		}
 		$had_outbound_trace_ctx = array_key_exists( '_bizcity_outbound_trace_ctx', $GLOBALS );
 		$previous_outbound_trace_ctx = $had_outbound_trace_ctx && is_array( $GLOBALS['_bizcity_outbound_trace_ctx'] )
 			? $GLOBALS['_bizcity_outbound_trace_ctx']
@@ -205,6 +231,10 @@ final class BizCity_Automation_Runner {
 			'trigger'      => $trigger_payload,
 			'_run_id'      => $run_id,
 			'_workflow_id' => (int) $wf['id'],
+			'_hil_spec'    => isset( $trigger_payload['_hil_spec'] ) && is_array( $trigger_payload['_hil_spec'] )
+				? $trigger_payload['_hil_spec']
+				: ( isset( $wf['trigger_config']['hil_spec'] ) && is_array( $wf['trigger_config']['hil_spec'] ) ? $wf['trigger_config']['hil_spec'] : array() ),
+			'_hil_ready'   => ! empty( $trigger_payload['_hil_ready'] ),
 			// [2026-06-02 Johnny Chu] AUTOMATION SCHED-OWNER — propagate
 			// workflow owner xuống ctx để action block (publish_fb_post,
 			// scheduler_*) attach event vào đúng user_id thay vì user_id=0
@@ -281,6 +311,7 @@ final class BizCity_Automation_Runner {
 					'block_id'   => (string) ( $node['data']['blockId'] ?? '' ),
 					'step'       => $step,
 					'status'     => self::LOG_STATUS_SKIP,
+					'input_json' => wp_json_encode( array( 'reason_code' => 'condition_false' ) ),
 					'started_at' => current_time( 'mysql' ),
 					'ended_at'   => current_time( 'mysql' ),
 				) );
@@ -332,6 +363,36 @@ final class BizCity_Automation_Runner {
 
 			// Once we've moved past the resume-from node, drop the skip.
 			$skip_break_once_for = '';
+			$data = $node['data'] ?? array();
+			$side_effect = array();
+			if ( $this->is_hil_side_effect_block( $block_id ) && class_exists( 'BizCity_Automation_Side_Effect_Contract' ) ) {
+				// [2026-08-16 Johnny Chu] MPR-V5-IDEMPOTENCY — calculate the provider key before the RUNNING log is persisted.
+				$side_effect_data = is_array( $data ) ? $data : array();
+				if ( empty( $side_effect_data['side_effect_key'] ) ) {
+					$side_effect_data['side_effect_key'] = $block_id;
+				}
+				$side_effect_data['blog_id'] = (int) get_current_blog_id();
+				$side_effect_data['resource_id'] = (string) ( $side_effect_data['resource_id'] ?? (int) $wf['id'] );
+				$side_effect = BizCity_Automation_Side_Effect_Contract::context( $run_id, $node_id, $side_effect_data );
+				$ctx['_side_effect'] = $side_effect;
+				$data['_side_effect'] = $side_effect;
+				$data['idempotency_key'] = (string) ( $side_effect['idempotency_key'] ?? '' );
+				if ( $is_resume && ! empty( $side_effect['idempotency_key'] ) ) {
+					$unknown_log = $this->find_unresolved_side_effect_log( $run_id, $node_id, (string) $side_effect['idempotency_key'] );
+					if ( $unknown_log ) {
+						// [2026-08-16 Johnny Chu] MPR-V5-IDEMPOTENCY — crash ambiguity is terminal for this run until provider reconciliation.
+						$err = new WP_Error( 'external_side_effect_unknown', 'External side effect chưa xác minh; cần đối soát trước khi thử lại.', array( 'status' => 409, 'side_effect_status' => 'unknown' ) );
+						BizCity_Automation_Repo_Runs::append_log_update( (int) $unknown_log['id'], array(
+							'status'      => self::LOG_STATUS_FAIL,
+							'error'       => 'external_side_effect_unknown',
+							'output_json' => wp_json_encode( array( 'side_effect_status' => 'unknown', 'idempotency_key' => $side_effect['idempotency_key'] ) ),
+							'ended_at'    => current_time( 'mysql' ),
+						) );
+						$this->finish_failed( $run_id, $err, 'external_side_effect_unknown' );
+						return $err;
+					}
+				}
+			}
 
 			$start_log = current_time( 'mysql' );
 			$log_id = BizCity_Automation_Repo_Runs::append_log( array(
@@ -340,7 +401,7 @@ final class BizCity_Automation_Runner {
 				'block_id'   => $block_id,
 				'step'       => $step,
 				'status'     => self::LOG_STATUS_RUNNING,
-				'input_json' => wp_json_encode( $node['data'] ?? array() ),
+				'input_json' => wp_json_encode( $data ),
 				'started_at' => $start_log,
 			) );
 			do_action( 'bizcity_automation_log_appended', $run_id, $log_id );
@@ -353,7 +414,13 @@ final class BizCity_Automation_Runner {
 				return $err;
 			}
 
-			$data = $node['data'] ?? array();
+			if ( ! empty( $ctx['_hil_spec'] ) && $this->is_hil_side_effect_block( $block_id ) && empty( $ctx['_hil_ready'] ) ) {
+				$err = new WP_Error( 'hil_not_ready', 'HIL chưa thu đủ thông tin hoặc chưa được xác nhận trước side effect.' );
+				$this->update_log_failed( $log_id, $err );
+				$this->finish_failed( $run_id, $err, 'hil_not_ready' );
+				return $err;
+			}
+
 			try {
 				$output = $block->execute( $ctx, $data );
 			} catch ( \Throwable $t ) {
@@ -361,13 +428,33 @@ final class BizCity_Automation_Runner {
 			}
 
 			if ( is_wp_error( $output ) ) {
-				$this->update_log_failed( $log_id, $output );
+				$side_effect_outcome = $this->side_effect_outcome( $block_id, $ctx, $output );
+				$this->update_log_failed( $log_id, $output, $side_effect_outcome );
 				$last_error = $output;
-				$this->finish_failed( $run_id, $output, $this->reason_bucket( $output ) );
+				$reason = ( $side_effect_outcome['status'] ?? '' ) === 'unknown'
+					? 'external_side_effect_unknown'
+					: $this->reason_bucket( $output );
+				$this->finish_failed( $run_id, $output, $reason );
 				return $output;
 			}
 
 			$out = is_array( $output ) ? $output : array( 'value' => $output );
+			$side_effect_outcome = $this->side_effect_outcome( $block_id, $ctx, $out );
+			if ( $side_effect_outcome && in_array( (string) ( $side_effect_outcome['status'] ?? '' ), array( 'unknown', 'failed' ), true ) ) {
+				// [2026-08-17 Johnny Chu] MPR-V5-GATE5 — ambiguous provider outcomes stop the run and require reconciliation.
+				$out['side_effect_status'] = $side_effect_outcome['status'];
+				$out['side_effect_reason']  = $side_effect_outcome['reason_code'];
+				$err_code = $side_effect_outcome['status'] === 'unknown' ? 'external_side_effect_unknown' : 'external_side_effect_failed';
+				$err = new WP_Error( $err_code, 'External side effect cần đối soát trước khi tiếp tục.', array( 'side_effect_status' => $side_effect_outcome['status'] ) );
+				$this->update_log_failed( $log_id, $err, $side_effect_outcome );
+				$this->finish_failed( $run_id, $err, $err_code );
+				return $err;
+			}
+			if ( $side_effect_outcome ) {
+				$out['side_effect_status']  = $side_effect_outcome['status'];
+				$out['side_effect_reason']  = $side_effect_outcome['reason_code'];
+				$out['provider_request_id'] = $side_effect_outcome['provider_request_id'];
+			}
 
 			BizCity_Automation_Repo_Runs::append_log_update( $log_id, array(
 				'status'      => self::LOG_STATUS_OK,
@@ -441,6 +528,31 @@ final class BizCity_Automation_Runner {
 
 	// ─── Internals ────────────────────────────────────────────────────────
 
+	private function is_hil_side_effect_block( string $block_id ): bool {
+		// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — conservative side-effect denylist for manual/cron bypass protection.
+		return in_array( $block_id, array(
+			'action.reply_zalo', 'action.reply_zalo_each_day', 'action.reply_fb_message', 'action.reply_telegram',
+			'action.send_email', 'action.notify_discord', 'action.http_request', 'action.db_write',
+			'action.create_crm_event', 'action.create_woo_order', 'action.publish_fb_post',
+			'action.publish_wp_post', 'action.schedule_event', 'action.video_submit',
+		), true );
+	}
+
+	private function find_unresolved_side_effect_log( string $run_id, string $node_id, string $idempotency_key ): array {
+		// [2026-08-16 Johnny Chu] MPR-V5-IDEMPOTENCY — inspect existing run logs before any provider call on resume.
+		foreach ( BizCity_Automation_Repo_Runs::logs( $run_id ) as $log ) {
+			if ( (string) ( $log['node_id'] ?? '' ) !== $node_id || (int) ( $log['status'] ?? -1 ) !== self::LOG_STATUS_RUNNING ) {
+				continue;
+			}
+			$input = is_array( $log['input'] ?? null ) ? $log['input'] : array();
+			$logged_key = (string) ( $input['idempotency_key'] ?? ( $input['_side_effect']['idempotency_key'] ?? '' ) );
+			if ( $logged_key === '' || $logged_key === $idempotency_key ) {
+				return $log;
+			}
+		}
+		return array();
+	}
+
 	/**
 	 * Kahn topological sort.
 	 *
@@ -497,13 +609,32 @@ final class BizCity_Automation_Runner {
 		}
 	}
 
-	private function update_log_failed( int $log_id, $err ): void {
+	private function update_log_failed( int $log_id, $err, array $outcome = array() ): void {
 		$msg = is_wp_error( $err ) ? $err->get_error_message() : (string) $err;
-		BizCity_Automation_Repo_Runs::append_log_update( $log_id, array(
+		$patch = array(
 			'status'   => self::LOG_STATUS_FAIL,
 			'error'    => substr( $msg, 0, 500 ),
 			'ended_at' => current_time( 'mysql' ),
-		) );
+		);
+		if ( ! empty( $outcome ) ) {
+			$patch['output_json'] = wp_json_encode( array(
+				'side_effect_status'  => (string) ( $outcome['status'] ?? '' ),
+				'side_effect_reason'  => (string) ( $outcome['reason_code'] ?? '' ),
+				'provider_request_id' => (string) ( $outcome['provider_request_id'] ?? '' ),
+			) );
+		}
+		BizCity_Automation_Repo_Runs::append_log_update( $log_id, $patch );
+	}
+
+	private function side_effect_outcome( string $block_id, array $ctx, $result ): array {
+		if ( ! class_exists( 'BizCity_Automation_Side_Effect_Contract' ) || empty( $ctx['_side_effect']['known'] ) ) {
+			return array();
+		}
+		if ( ! in_array( $block_id, array( 'action.http_request', 'action.reply_zalo' ), true )
+			&& ( ! is_array( $result ) || ! array_key_exists( 'side_effect_status', $result ) ) ) {
+			return array();
+		}
+		return BizCity_Automation_Side_Effect_Contract::provider_result( $result );
 	}
 
 	private function finish_failed( string $run_id, $err, string $reason_bucket ): void {
@@ -535,6 +666,22 @@ final class BizCity_Automation_Runner {
 		if ( ! $wf ) { return; }
 		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — explicit owner propagation from run context to scheduler row.
 		$owner_user_id = (int) ( $ctx['_owner_user_id'] ?? $ctx['trigger']['_owner_user_id'] ?? $ctx['trigger']['wp_user_id'] ?? ( $wf['created_by'] ?? 0 ) );
+		if ( $owner_user_id <= 0 && class_exists( 'BizCity_User_Resolver' ) ) {
+			// [2026-08-13 Johnny Chu] HOTFIX-ZALO-OWNER-FAILURE — recover the linked Zalo owner from inbound identity on failed async runs; never use current user.
+			$trigger = is_array( $ctx['trigger'] ?? null ) ? $ctx['trigger'] : array();
+			$identity_chat_id = (string) ( $trigger['identity_chat_id'] ?? '' );
+			if ( $identity_chat_id === '' ) {
+				$platform = strtolower( (string) ( $trigger['platform'] ?? $trigger['channel'] ?? '' ) );
+				$bot_id = (string) ( $trigger['bot_id'] ?? $trigger['account_id'] ?? '' );
+				$user_id = (string) ( $trigger['user_id'] ?? $trigger['sender_id'] ?? '' );
+				if ( strpos( $platform, 'zalo' ) !== false && $bot_id !== '' && $user_id !== '' ) {
+					$identity_chat_id = 'zalobot_' . $bot_id . '_' . $user_id;
+				}
+			}
+			if ( $identity_chat_id !== '' ) {
+				$owner_user_id = (int) BizCity_User_Resolver::instance()->resolve( $identity_chat_id );
+			}
+		}
 		if ( $owner_user_id <= 0 ) {
 			error_log( '[automation] emit_crm_bridge refused: owner_user_id missing for run ' . $run_id );
 			return;

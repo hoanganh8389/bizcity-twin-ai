@@ -3,7 +3,7 @@
   "module_id": "core.twin-core",
   "owner": "core/twin-core",
   "installer_id": "twin_state",
-  "current_version": "2.3.0",
+  "current_version": "2.4.0",
   "version_option": "bizcity_twin_state_db_ver",
   "tables": {
     "bizcity_twin_prompt_specs": {
@@ -98,11 +98,41 @@
       }
     }
   },
+  "event_types": {
+    "taxonomy_version": 11,
+    "added": {
+      "2.4.0": [
+        {
+          "type": "twin_hil_opened",
+          "required_fields": ["hil_id", "spec_id", "trigger_id", "session_id", "status", "state"],
+          "emitter": "BizCity_TwinBrain_HIL_Repository",
+          "schema": "core/twin-core/event-stream/schemas/events/twin_hil_opened.json"
+        },
+        {
+          "type": "twin_hil_progressed",
+          "required_fields": ["hil_id", "session_id", "status", "state"],
+          "emitter": "BizCity_TwinBrain_HIL_Repository",
+          "schema": "core/twin-core/event-stream/schemas/events/twin_hil_progressed.json"
+        },
+        {
+          "type": "twin_hil_closed",
+          "required_fields": ["hil_id", "session_id", "status", "closure_reason", "state"],
+          "emitter": "BizCity_TwinBrain_HIL_Repository",
+          "schema": "core/twin-core/event-stream/schemas/events/twin_hil_closed.json"
+        }
+      ]
+    }
+  },
   "history": [
     {
       "version": "2.3.0",
       "date": "2026-08-11",
       "change": "PHASE-TWB-WOO-BIZOPS: add admin-scoped Woo BizOps domain, intent, query and composed event taxonomy contracts."
+    },
+    {
+      "version": "2.4.0",
+      "date": "2026-08-16",
+      "change": "MPR-V5-HIL-RUNTIME: register twin_hil_opened, twin_hil_progressed and twin_hil_closed event contracts; no new table or DDL."
     },
     {
       "version": "2.2.1",

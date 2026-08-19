@@ -54,7 +54,8 @@ class BizCity_Twin_Event_Taxonomy {
 	// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — added 3 workflow_* event_types (started/step/completed) for BizCity_TwinBrain_Workflow_Pipeline.
 	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — added 5 product_* timeline event_types.
 	// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — added event-sourced Twin Goal Loop lifecycle.
-	const TAXONOMY_VERSION = 10;
+	// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — added event-sourced HIL Instance lifecycle (twin_hil_*).
+	const TAXONOMY_VERSION = 11;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -137,6 +138,12 @@ class BizCity_Twin_Event_Taxonomy {
 	const CONVERSATION_ROUTE_DECIDED = 'conversation_route_decided';
 	const CONVERSATION_CONFIRM_PROMPT = 'conversation_confirm_prompt';
 
+	// ---- MPR-V5-HIL-RUNTIME (2026-08-16) — bounded slot-collection instance lifecycle -------
+	// Schemas: core/twin-core/event-stream/schemas/events/twin_hil_*.json.
+	const TWIN_HIL_OPENED     = 'twin_hil_opened';
+	const TWIN_HIL_PROGRESSED = 'twin_hil_progressed';
+	const TWIN_HIL_CLOSED     = 'twin_hil_closed';
+
 	/**
 	 * Required payload fields per event type.
 	 * (Keep tight — extra fields go in payload freely.)
@@ -216,6 +223,11 @@ class BizCity_Twin_Event_Taxonomy {
 			self::TWIN_GOAL_CLOSED     => [ 'goal_id', 'session_id', 'status', 'completion_score', 'closure_signal', 'state' ],
 			self::CONVERSATION_ROUTE_DECIDED => [ 'trace_id', 'route', 'confidence', 'needs_confirm' ],
 			self::CONVERSATION_CONFIRM_PROMPT => [ 'trace_id', 'route', 'expires_in' ],
+
+			// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — each event carries a normalized HIL Instance snapshot.
+			self::TWIN_HIL_OPENED     => [ 'hil_id', 'spec_id', 'trigger_id', 'session_id', 'status', 'state' ],
+			self::TWIN_HIL_PROGRESSED => [ 'hil_id', 'session_id', 'status', 'state' ],
+			self::TWIN_HIL_CLOSED     => [ 'hil_id', 'session_id', 'status', 'closure_reason', 'state' ],
 		];
 	}
 

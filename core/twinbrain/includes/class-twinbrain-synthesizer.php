@@ -46,7 +46,7 @@ class BizCity_TwinBrain_Synthesizer {
 	public function synthesize( string $trace_id, string $prompt, array $answers, array $tool_results = [], array $opts = array() ): array {
 		// No perspectives at all → degraded honest answer.
 		if ( empty( $answers ) ) {
-			return $this->empty_synthesis( $prompt, 'no_perspectives' );
+			return $this->empty_synthesis( $prompt, 'no_perspectives', $opts );
 		}
 
 		// Gateway not configured → text-fallback (preserves contract).
@@ -151,6 +151,18 @@ class BizCity_TwinBrain_Synthesizer {
 		// TBR.W10 — enable web citation rule only when a web block is in scope.
 		$web_rule = $this->render_grounding_rule( $web_blocks, $grounding_profile );
 
+		/* [2026-07-24 Johnny Chu] PHASE-0.46 W5 S5.3 — "tóm tắt cuộc họp/ghi
+		 * chú hôm nay" framing. This is UX/prompt-template polish only: the
+		 * candidates are already scoped to today's captured notebooks by
+		 * BizCity_TwinBrain_Runtime's S5.2 force_ids override before this
+		 * class ever sees them. No parallel summarizer, no new retrieval —
+		 * just an extra instruction line asking the SAME anti-averaging
+		 * consensus/tensions schema to read like a meeting/day recap instead
+		 * of a generic Q&A answer. */
+		$day_scope_hint = ! empty( $opts['day_scope_summary'] )
+			? "\n10. Prompt này hỏi về ghi chú/cuộc họp \"hôm nay\" — answer_md PHẢI trình bày dạng tóm tắt theo trình tự nội dung đã ghi (theo notebook/nguồn), nêu rõ các điểm chính, quyết định và việc cần làm (nếu có) thay vì trả lời một câu hỏi rời rạc; vẫn giữ nguyên schema JSON và citation token."
+			: '';
+
 		$system = <<<SYS
 Bạn là Synthesizer của TwinBrain — một bộ tổng hợp đa lăng kính.
 
@@ -161,7 +173,7 @@ QUY TẮC TUYỆT ĐỐI:
 4. RECOMMENDATION chỉ điền khi user xin lời khuyên rõ ràng (verb: "nên", "có nên", "should", "recommend").
 5. {$this->render_notebook_citation_rule( $grounding_profile )}
 6. Trả về JSON object thuần — KHÔNG markdown wrapper, KHÔNG ```json fence.
-{$web_rule}{$persona_hint}{$twinweb_prompt_block}
+{$web_rule}{$persona_hint}{$twinweb_prompt_block}{$day_scope_hint}
 
 SCHEMA OUTPUT (BẮT BUỘC):
 {
@@ -457,14 +469,36 @@ SYS;
 		];
 	}
 
-	private function empty_synthesis( string $prompt, string $reason ): array {
+	private function empty_synthesis( string $prompt, string $reason, array $opts = array() ): array {
+		// [2026-08-14 Johnny Chu] HOTFIX-GOAL-LOOP-OUTBOUND — an empty MPR
+		// result is an internal state, not a customer-facing answer. Continue
+		// the active Goal Loop with its single next-best question when available.
+		$goal = is_array( $opts['goal_loop_state'] ?? null )
+			? $opts['goal_loop_state']
+			: ( is_array( $opts['goal_loop'] ?? null ) ? $opts['goal_loop'] : array() );
+		$action = is_array( $goal['next_best_action'] ?? null ) ? $goal['next_best_action'] : array();
+		$question = trim( (string) ( $action['question_text'] ?? $action['label'] ?? '' ) );
+		$primary_goal = trim( (string) ( $goal['primary_goal'] ?? $goal['conversation_goal']['title'] ?? '' ) );
+		if ( $question === '' ) {
+			$question = $primary_goal !== ''
+				? 'Bạn muốn mình cùng bạn chốt bước tiếp theo nào cho mục tiêu này?'
+				: 'Bạn muốn mình tiếp tục hỗ trợ mục tiêu cụ thể nào?';
+		}
+		$answer = $primary_goal !== ''
+			? 'Mình đang tiếp tục mục tiêu: ' . $primary_goal . "\n\nĐể đi tiếp, " . $question
+			: $question;
 		return [
 			'consensus'      => [],
 			'tensions'       => [],
 			'recommendation' => '',
-			'answer_md'      => "_Không có lăng kính nào trả lời được câu hỏi (`{$reason}`)._",
+			'answer_md'      => trim( $answer ),
 			'citations'      => [],
 			'fallback'       => $reason,
+			'internal_reason' => $reason,
+			'goal_loop_followup' => array(
+				'question' => $question,
+				'source'   => $primary_goal !== '' ? 'goal_loop' : 'triage',
+			),
 		];
 	}
 

@@ -534,7 +534,7 @@ final class BizCity_Probe_TwinBrain_Notebook_Source_Layer implements BizCity_Dia
 				&& (string) ( $brief['profile'] ?? '' ) === 'brief'
 				&& (string) ( $audit['profile'] ?? '' ) === 'audit'
 				&& (string) ( $guru_default['profile'] ?? '' ) === 'deep'
-				&& $deep_purpose === 'twinbrain_wisdom'
+				&& $deep_purpose === 'twinbrain_final_compose'
 				&& $brief_purpose === 'twinbrain_final_compose';
 
 			$ref = new ReflectionMethod( $composer, 'build_messages' );

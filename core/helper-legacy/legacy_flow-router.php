@@ -33,6 +33,11 @@ if ( ! function_exists( 'twf_process_flow_from_params' ) ) :
  * @return mixed
  */
 function twf_process_flow_from_params($params, $client_id='', $platform='') {
+	// [2026-08-13 Johnny Chu] HOTFIX-ZALOBOT-LEGACY-RETIRE — hard-stop every remaining caller from routing Zalo Bot through the legacy AI classifier.
+	if ( strtoupper( (string) $platform ) === 'ZALO_BOT' ) {
+		error_log( '[ZALO_BOT] twf_process_flow_from_params retired; canonical channel path owns this message.' );
+		return array();
+	}
 	$message = $params['message'];
 	$chat_id = $message['chat']['id'] ?? $client_id;
 	$platform = $platform ?? 'telegram';

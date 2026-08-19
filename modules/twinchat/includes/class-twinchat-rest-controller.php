@@ -473,6 +473,8 @@ class BizCity_TwinChat_REST_Controller {
 			'source_ids'      => isset( $body['source_ids'] ) && is_array( $body['source_ids'] ) ? $body['source_ids'] : [],
 			'use_kg'          => isset( $body['use_kg'] ) ? (bool) $body['use_kg'] : true,
 			'enable_thinking' => isset( $body['enable_thinking'] ) ? (bool) $body['enable_thinking'] : false,
+			// [2026-08-07 Johnny Chu] V4-DEPTH — forward the MPR reasoning tier to the canonical Runtime.
+			'answer_depth'    => isset( $body['answer_depth'] ) && in_array( $body['answer_depth'], array( 'fast', 'balanced', 'high', 'deep' ), true ) ? (string) $body['answer_depth'] : 'high',
 		];
 
 		// Wave 0.18.5c — Twin Guru @-mention from composer.
@@ -2366,6 +2368,7 @@ class BizCity_TwinChat_REST_Controller {
 	public function list_gurus( WP_REST_Request $request ) {
 		// [2026-07-05 Johnny Chu] HOTFIX — provider-only by default; character list is opt-in.
 		$include_characters = (bool) rest_sanitize_boolean( $request->get_param( 'include_characters' ) );
+		$include_notebooks  = (bool) rest_sanitize_boolean( $request->get_param( 'include_notebooks' ) );
 		$provider_whitelist = apply_filters(
 			'bizcity_twin_guru_provider_whitelist',
 			array( 'content-creator', 'twinsearch', 'bizcoach_pro', 'bizcoach_astro' ),
@@ -2385,6 +2388,27 @@ class BizCity_TwinChat_REST_Controller {
 
 		$db   = BizCity_Knowledge_Database::instance();
 		$rows = $db->get_characters( [ 'status' => 'active', 'limit' => 200 ] );
+		$notebooks_by_guru = array();
+		if ( $include_notebooks && class_exists( 'BizCity_KG_Database' ) ) {
+			// [2026-08-16 Johnny Chu] P2 — expose only user-visible canonical Guru attachments to the @ picker.
+			global $wpdb;
+			$kg_db = BizCity_KG_Database::instance();
+			$rows_nb = $wpdb->get_results( $wpdb->prepare(
+				'SELECT c.id AS guru_id, n.id, n.name, n.owner_id, n.notebook_scope, n.updated_at FROM ' . $wpdb->prefix . 'bizcity_characters c INNER JOIN ' . $kg_db->tbl_notebook_character_attachments() . ' a ON a.guru_uuid = c.guru_uuid INNER JOIN ' . $kg_db->tbl_notebooks() . ' n ON n.id = a.notebook_id WHERE (n.owner_id = %d OR (n.owner_id = 0 AND n.notebook_scope IN (\'business_kb\', \'guru_kb\'))) ORDER BY n.updated_at DESC LIMIT 1000',
+				get_current_user_id()
+			), ARRAY_A );
+			foreach ( (array) $rows_nb as $notebook ) {
+				$guru_id = (int) ( $notebook['guru_id'] ?? 0 );
+				if ( $guru_id <= 0 ) continue;
+				$notebooks_by_guru[ $guru_id ][] = array(
+					'id' => (int) ( $notebook['id'] ?? 0 ),
+					'name' => (string) ( $notebook['name'] ?? '' ),
+					'owner_id' => (int) ( $notebook['owner_id'] ?? 0 ),
+					'notebook_scope' => (string) ( $notebook['notebook_scope'] ?? 'personal' ),
+					'updated_at' => (string) ( $notebook['updated_at'] ?? '' ),
+				);
+			}
+		}
 		if ( is_array( $rows ) ) {
 			foreach ( $rows as $row ) {
 				$cid = (int) ( is_object( $row ) ? ( $row->id ?? 0 ) : ( $row['id'] ?? 0 ) );
@@ -2404,6 +2428,8 @@ class BizCity_TwinChat_REST_Controller {
 					'system_prompt_excerpt' => $excerpt,
 					'capabilities'         => is_array( $caps ) ? array_values( $caps ) : [],
 					'industries'           => is_array( $inds ) ? array_values( $inds ) : [],
+					'notebooks'            => array_values( $notebooks_by_guru[ $cid ] ?? array() ),
+					'notebook_count'       => count( $notebooks_by_guru[ $cid ] ?? array() ),
 				];
 			}
 		}

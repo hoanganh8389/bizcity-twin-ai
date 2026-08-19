@@ -13,9 +13,34 @@
  */
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
+// [2026-08-14 Johnny Chu] R-CH-UNI — the MU and bundled cutover copies must
+// share one runtime owner when both files are present during deployment.
+if ( defined( 'BIZCITY_ADMIN_HOOK_ZALO_BOOTSTRAPPED' ) ) {
+    return;
+}
+define( 'BIZCITY_ADMIN_HOOK_ZALO_BOOTSTRAPPED', true );
+
 if ( ! defined( 'BIZCITY_ADMIN_ZALO_DIR' ) ) {
     define( 'BIZCITY_ADMIN_ZALO_DIR', __DIR__ . '/includes/' );
 }
+
+// [2026-08-13 Johnny Chu] HOTFIX-ZALOBOT-COMMAND-ROUTER-BOOT — this legacy-compatible bundled adapter still bridges Zalo Bot into the canonical channel bus, so it must load the canonical linker and /link consumer when the standalone Zalo Bot entrypoint is not the active loader.
+$_bizcity_zalobot_user_linker = dirname( __DIR__ ) . '/bizcity-zalo-bot/includes/class-user-linker.php';
+if ( ! class_exists( 'BizCity_Zalobot_User_Linker', false ) && file_exists( $_bizcity_zalobot_user_linker ) ) {
+    require_once $_bizcity_zalobot_user_linker;
+}
+unset( $_bizcity_zalobot_user_linker );
+$_bizcity_zalobot_command_router = dirname( __DIR__ ) . '/bizcity-zalo-bot/includes/class-command-router.php';
+if ( ! class_exists( 'BizCity_Zalobot_Command_Router', false ) && file_exists( $_bizcity_zalobot_command_router ) ) {
+    require_once $_bizcity_zalobot_command_router;
+}
+unset( $_bizcity_zalobot_command_router );
+add_action( 'plugins_loaded', static function () {
+    if ( class_exists( 'BizCity_Zalobot_Command_Router' )
+        && false === has_action( 'bizcity_channel_normalized', array( 'BizCity_Zalobot_Command_Router', 'handle_normalized' ) ) ) {
+        BizCity_Zalobot_Command_Router::boot();
+    }
+}, 1 );
 // Buffer raw input cực sớm (chỉ 1 lần)
 if (!isset($GLOBALS['BIZCITY_RAW_INPUT'])) {
     $GLOBALS['BIZCITY_RAW_INPUT'] = file_get_contents('php://input');
@@ -1052,6 +1077,13 @@ function bizgpt_process_unified_message( array $ctx ): void {
         return;
     }
 
+    // [2026-08-13 Johnny Chu] HOTFIX-ZALOBOT-LEGACY-RETIRE — Zalo Bot is owned by the canonical UCL/Automation/Command Router path; never enter twf_process_flow_from_params or re-fire WAIC legacy from this adapter.
+    if ( $platform === 'ZALO_BOT' ) {
+        error_log( '[ZALO_BOT] Skip legacy twf_process_flow_from_params; canonical channel path already dispatched.' );
+        if ( $switched ) restore_current_blog();
+        return;
+    }
+
     // ── FALLBACK: nếu filter chưa có handler (plugin chưa load trên blog này)
     //    → thử load bizcity-tarot integration trực tiếp từ disk rồi retry ──
     if ( ! $intent_handled ) {
@@ -1150,99 +1182,8 @@ function bizgpt_process_unified_message( array $ctx ): void {
     if ( $switched ) restore_current_blog();
 }
 
-/* ═══════════════════════════════════════════════════════════
- * ZALO BOT MESSAGE HANDLER
- *
- * Lắng nghe waic_twf_process_flow để xử lý tin nhắn từ Zalo Bot
- * Luồng: zalobot_{bot_id}_{zalo_user_id} → business logic → reply
- * ═══════════════════════════════════════════════════════════ */
-
-/**
- * Handle Zalo Bot messages through gateway
- * Detects chat_id with prefix 'zalobot_' and routes through business logic
- *
- * @param array $trigger Trigger data từ gateway
- * @param array $raw     Raw webhook data
- */
-add_action('waic_twf_process_flow', function($trigger, $raw = []) {
-    if (!is_array($trigger)) return;
-
-    $chat_id = isset($trigger['chat_id']) ? (string)$trigger['chat_id'] : '';
-
-    // Chỉ xử lý tin nhắn có prefix zalobot_
-    if (strpos($chat_id, 'zalobot_') !== 0) return;
-
-    $parsed = bizcity_parse_zalobot_chat_id($chat_id);
-    if (!$parsed) {
-        error_log('[ZALO_BOT] Failed to parse chat_id: ' . $chat_id);
-        return;
-    }
-
-    // [2026-07-26 Johnny Chu] HOTFIX — if Automation Trigger Matcher already
-    // claimed this inbound mid, legacy admin-flow pipeline must bail to avoid
-    // a second scenario/reply on the same message.
-    $message_id = (string)($trigger['message_id'] ?? '');
-    if ($message_id !== '' && !empty($GLOBALS['bizcity_automation_matched_mids'][$message_id])) {
-        error_log('[ZALO_BOT] Skip waic legacy pipeline: matcher already claimed message_id=' . $message_id);
-        return;
-    }
-
-    // [2026-07-26 Johnny Chu] HOTFIX — `@ghichu/@notebook` capture commands are
-    // handled on `bizcity_zalo_message_received` by the notebook bridge listener;
-    // do not re-enter unified legacy flow here.
-    $trigger_text = trim((string)($trigger['text'] ?? ''));
-    if ($trigger_text !== ''
-        && class_exists('BizCity_KG_Channel_Notebook_Bridge')
-        && method_exists('BizCity_KG_Channel_Notebook_Bridge', 'parse_capture_command')) {
-        $capture_cmd = BizCity_KG_Channel_Notebook_Bridge::parse_capture_command($trigger_text);
-        if (is_array($capture_cmd)) {
-            error_log('[ZALO_BOT] Skip waic legacy pipeline: notebook capture command preempted by listener');
-            return;
-        }
-    }
-
-    // Dedup lock
-    if ($message_id) {
-        $lock_key = 'zalobot_msg_lock_' . md5($message_id . $parsed['zalo_user_id']);
-        if (get_transient($lock_key)) {
-            error_log('[ZALO_BOT] Duplicate detected, skipping: ' . $message_id);
-            return;
-        }
-        set_transient($lock_key, true, 120);
-    }
-
-    error_log(sprintf(
-        '[ZALO_BOT] 📥 Received | bot_id=%d | user=%s | source_blog=%d | text=%s',
-        $parsed['bot_id'],
-        $parsed['zalo_user_id'],
-        (int)($trigger['source_blog_id'] ?? 0),
-        mb_substr((string)($trigger['text'] ?? ''), 0, 60)
-    ));
-
-    // Dispatch vào unified pipeline
-    // fire_waic=false → tránh gọi lại waic_twf_process_flow vì đang ở trong hook đó rồi
-    $attach_url  = (string)($trigger['attachment_url'] ?? '');
-    $img_url_raw = (string)($trigger['image_url'] ?? '');
-    // Zalo Bot ảnh: attachment_url = photo_url, image_url = photo_url (từ webhook handler)
-    // Nếu attachment_url rỗng nhưng image_url có (hoặc ngược lại), dùng cái nào có
-    if ( empty($attach_url) && !empty($img_url_raw) ) {
-        $attach_url = $img_url_raw;
-    }
-
-    bizgpt_process_unified_message([
-        'platform'       => 'ZALO_BOT',
-        'client_id'      => $parsed['zalo_user_id'],
-        'bot_id'         => $parsed['bot_id'],
-        'message_text'   => (string)($trigger['text'] ?? ''),
-        'message_id'     => $message_id,
-        'attachment_url' => $attach_url,
-        'display_name'   => (string)($trigger['display_name'] ?? ''),
-        'source_blog_id' => (int)($trigger['source_blog_id'] ?? 0),
-        'wp_user_id'     => (int)($trigger['wp_user_id'] ?? 0),
-        'raw_data'       => is_array($raw) ? $raw : [],
-        'fire_waic'      => false,
-    ]);
-}, 15, 2);
+// [2026-08-14 Johnny Chu] R-CH-UNI — retire the legacy Zalo Bot reply listener.
+// Zalo Bot inbound now has one owner: UCL -> Automation Matcher -> TwinBrain.
 
 /**
  * Parse zalobot_ prefix chat_id
@@ -1367,6 +1308,10 @@ add_filter('twf_send_message_override', function($default, $chat_id, $text, $par
 }, 10, 5);
 // 5. Hàm xử lý admin flows
 function bizgpt_chatbot_run_admin_flows($question, $client_id='', $platform='zalo') {
+    // [2026-08-13 Johnny Chu] HOTFIX-ZALOBOT-LEGACY-RETIRE — defensive guard for direct callers; Zalo Bot must not invoke the legacy LLM classifier.
+    if ( strtoupper( (string) $platform ) === 'ZALO_BOT' ) {
+        return array();
+    }
     #$chat_id = get_current_user_id() ?: ('admin_' . uniqid());
 	$chat_id = $client_id;
     $params = [

@@ -57,7 +57,37 @@ class BizCity_CRM_Facebook_Ingestor {
 	}
 
 	private function __construct() {
+		// [2026-08-13 Johnny Chu] HOTFIX — consume the canonical normalized Facebook envelope after the webhook suppresses the legacy responder.
+		add_action( 'bizcity_channel_normalized', array( $this, 'on_normalized' ), 10, 2 );
 		add_action( 'waic_twf_process_flow', array( $this, 'on_workflow_trigger' ), 9, 2 );
+	}
+
+	/**
+	 * Ingest normalized Messenger/Facebook envelopes emitted by the Universal
+	 * Channel Listener. The webhook now uses this canonical path directly.
+	 */
+	public function on_normalized( $envelope, $trigger_key = '' ): void {
+		// [2026-08-13 Johnny Chu] HOTFIX — bridge UCL Facebook events into CRM before the AI replier event fan-out.
+		if ( ! is_array( $envelope ) ) { return; }
+		$platform = (string) ( $envelope['platform'] ?? '' );
+		if ( $platform !== 'FB_MESS' && $platform !== 'FB_FEED' ) { return; }
+
+		$raw = is_array( $envelope['raw'] ?? null ) ? $envelope['raw'] : array();
+		$raw['page_id'] = (string) ( $raw['page_id'] ?? $envelope['account_id'] ?? '' );
+		$raw['user_id'] = (string) ( $raw['user_id'] ?? $envelope['user_id'] ?? $raw['from_id'] ?? '' );
+		$raw['message'] = (string) ( $raw['message'] ?? $envelope['message'] ?? $envelope['raw_text'] ?? '' );
+		if ( $platform === 'FB_FEED' ) {
+			$raw['user_id'] = (string) ( $raw['from_id'] ?? $envelope['user_id'] ?? '' );
+		}
+
+		$adapter = BizCity_CRM_Channel_Registry::get( 'facebook' );
+		if ( ! $adapter ) { return; }
+		try {
+			$norm = $adapter->normalize_inbound( $raw );
+			if ( $norm ) { $this->ingest( $adapter, $norm ); }
+		} catch ( \Throwable $e ) {
+			error_log( '[bizcity-crm] normalized Facebook ingest failed: ' . $e->getMessage() );
+		}
 	}
 
 	/**

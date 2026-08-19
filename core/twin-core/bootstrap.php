@@ -48,9 +48,14 @@ if ( ! defined( 'BIZCITY_TWIN_CORE_VERSION' ) ) {
 }
 
 /* ── Autoload Classes ──────────────────────────────────────────── */
-// Skip if already loaded by legacy mu-plugin
-if ( class_exists( 'BizCity_Twin_Trace' ) ) {
-    // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — keep production boundaries available when legacy trace bootstraps first.
+$twin_includes = BIZCITY_TWIN_CORE_DIR . '/includes';
+
+// Twin Trace — always loaded so trace calls are safe even when gates are off
+if ( ! class_exists( 'BizCity_Twin_Trace' ) ) {
+    require_once $twin_includes . '/class-twin-trace.php';
+    BizCity_Twin_Trace::init();
+} else {
+    // [2026-08-16 Johnny Chu] R-DDV/R-EVT — legacy Trace ownership must not short-circuit TwinCore Event Taxonomy/Event Bus loading.
     $legacy_twin_includes = __DIR__ . '/includes';
     require_once $legacy_twin_includes . '/class-twin-runtime-audit.php';
     require_once $legacy_twin_includes . '/class-twin-secret-provider.php';
@@ -58,13 +63,7 @@ if ( class_exists( 'BizCity_Twin_Trace' ) ) {
     require_once $legacy_twin_includes . '/class-twin-runtime-reliability.php';
     require_once $legacy_twin_includes . '/class-twin-reliable-http.php';
     require_once $legacy_twin_includes . '/class-twin-mutation-guard.php';
-    return;
 }
-$twin_includes = BIZCITY_TWIN_CORE_DIR . '/includes';
-
-// Twin Trace — always loaded so trace calls are safe even when gates are off
-require_once $twin_includes . '/class-twin-trace.php';
-BizCity_Twin_Trace::init();
 
 // Source HTML Sanitizer (Wave 0.18.5b) — single source of truth for HTML→Markdown
 // conversion before kg_sources ingest. Stateless utility; no init needed.

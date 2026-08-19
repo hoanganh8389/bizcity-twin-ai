@@ -184,6 +184,23 @@ final class BizCity_Automation_Pending_State {
 		return self::set( $chat_id, $next, $ttl );
 	}
 
+	public static function clear_hil( string $chat_id ): bool {
+		// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — remove only HIL routing hints while preserving legacy slots and attachments.
+		$cur = self::get( $chat_id );
+		if ( empty( $cur ) || empty( $cur['hil_id'] ) ) {
+			return false;
+		}
+		unset( $cur['hil_id'], $cur['hil_session_id'], $cur['hil_status'] );
+		if ( (string) ( $cur['intent'] ?? '' ) === 'hil_slot_collection' ) {
+			unset( $cur['intent'], $cur['workflow_id'] );
+		}
+		if ( empty( array_filter( array( $cur['intent'] ?? '', $cur['workflow_id'] ?? 0, $cur['attachment_url'] ?? '', $cur['attachments'] ?? array() ) ) ) ) {
+			self::clear( $chat_id );
+			return true;
+		}
+		return self::set( $chat_id, $cur );
+	}
+
 	public static function append_attachment( string $chat_id, array $attachment, int $ttl = self::DEFAULT_TTL ): bool {
 		// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — append one inbound image/file without losing earlier same-batch images.
 		if ( $chat_id === '' ) { return false; }

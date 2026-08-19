@@ -40,7 +40,21 @@ class BizCity_TwinBrain_REST {
 		return 'twinbrain.rest';
 	}
 
+	public function list_verticals( WP_REST_Request $req ) {
+		// [2026-08-16 Johnny Chu] CCG-4 — registry is catalog metadata; policy/entitlement remains enforced at runtime.
+		$items = class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' )
+			? BizCity_TwinBrain_Vertical_Bridge_Registry::all()
+			: array();
+		return rest_ensure_response( array( 'ok' => true, 'scope' => 'vertical_plugin', 'items' => array_values( $items ) ) );
+	}
+
 	public function register_routes(): void {
+		// [2026-08-16 Johnny Chu] CCG-4 — shared / Vertical Plugin catalog for TwinChat/TwinWeb.
+		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/verticals', [
+			'methods'             => 'GET',
+			'permission_callback' => [ $this, 'perm_logged_in' ],
+			'callback'            => [ $this, 'list_verticals' ],
+		] );
 		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/turn', [
 			'methods'             => 'POST',
 			'permission_callback' => [ $this, 'perm_logged_in' ],
@@ -48,6 +62,7 @@ class BizCity_TwinBrain_REST {
 				'prompt'           => [ 'type' => 'string', 'required' => true ],
 				'k'                => [ 'type' => 'integer', 'required' => false ],
 				'force_notebooks'  => [ 'type' => 'array',   'required' => false ],
+				'focus_notebook_id' => [ 'type' => 'integer', 'required' => false, 'default' => 0 ],
 				'force_tools'      => [ 'type' => 'array',   'required' => false ],
 				'skip_tool_intent' => [ 'type' => 'boolean', 'required' => false ],
 				'auto_complete'    => [ 'type' => 'boolean', 'required' => false, 'default' => true ],
@@ -68,6 +83,7 @@ class BizCity_TwinBrain_REST {
 				'prompt'           => [ 'type' => 'string', 'required' => true ],
 				'k'                => [ 'type' => 'integer', 'required' => false ],
 				'force_notebooks'  => [ 'type' => 'array',   'required' => false ],
+				'focus_notebook_id' => [ 'type' => 'integer', 'required' => false, 'default' => 0 ],
 				'force_tools'      => [ 'type' => 'array',   'required' => false ],
 				'skip_tool_intent' => [ 'type' => 'boolean', 'required' => false ],
 				// TBR.W9 (2026-05-21) + TBR.W14/W15 (2026-05-22) + TBR.W17 (2026-05-27/28)
@@ -108,6 +124,17 @@ class BizCity_TwinBrain_REST {
 			'callback'            => [ $this, 'handle_tool_confirm' ],
 		] );
 
+		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/hil/compile', [
+			'methods'             => 'POST',
+			'permission_callback' => [ $this, 'perm_hil_builder' ],
+			'args'                => [
+				'trigger_id' => [ 'type' => 'string', 'required' => true ],
+				'prompt'     => [ 'type' => 'string', 'required' => true ],
+				'context'    => [ 'type' => 'object', 'required' => false ],
+			],
+			'callback'            => [ $this, 'handle_hil_compile' ],
+		] );
+
 		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/turn/(?P<trace_id>[\w\-]+)', [
 			'methods'             => 'GET',
 			'permission_callback' => [ $this, 'perm_logged_in' ],
@@ -117,6 +144,56 @@ class BizCity_TwinBrain_REST {
 
 	public function perm_logged_in() {
 		return is_user_logged_in();
+	}
+
+	public function perm_hil_builder() {
+		// [2026-08-15 Johnny Chu] MPR-V5-HIL-COMPILER — restrict prompt compilation to workflow administrators.
+		return is_user_logged_in() && current_user_can( 'manage_options' );
+	}
+
+	public function handle_hil_compile( WP_REST_Request $req ) {
+		// [2026-08-15 Johnny Chu] MPR-V5-HIL-COMPILER — expose compile/test only; persistence and execution stay outside this endpoint.
+		$trigger_id = trim( (string) $req->get_param( 'trigger_id' ) );
+		$prompt     = trim( (string) $req->get_param( 'prompt' ) );
+		if ( $trigger_id === '' || $prompt === '' ) {
+			return $this->hil_error(
+				'invalid_param',
+				'Trigger và mô tả HIL là bắt buộc.',
+				'Nhập trigger ID và mô tả rõ các thông tin cần hỏi.',
+				'hil_compile_input'
+			);
+		}
+		if ( ! class_exists( 'BizCity_TwinBrain_HIL_Compiler' ) ) {
+			return $this->hil_error(
+				'module_not_loaded',
+				'Bộ biên dịch HIL chưa được nạp.',
+				'Mở lại trang Automation hoặc kiểm tra module TwinBrain.',
+				'hil_compiler_unavailable',
+				503
+			);
+		}
+
+		$result = BizCity_TwinBrain_HIL_Compiler::compile(
+			$trigger_id,
+			$prompt,
+			(array) $req->get_param( 'context' )
+		);
+		return rest_ensure_response( $result );
+	}
+
+	private function hil_error( string $code, string $message, string $hint, string $help_code, int $status = 422 ) {
+		// [2026-08-15 Johnny Chu] MPR-V5-HIL-COMPILER — preserve the four-field Error UX contract at the REST boundary.
+		return new WP_Error(
+			$code,
+			$message,
+			array(
+				'status'    => $status,
+				'code'      => $code,
+				'message'   => $message,
+				'hint'      => $hint,
+				'help_code' => $help_code,
+			)
+		);
 	}
 
 	/**
@@ -185,12 +262,23 @@ class BizCity_TwinBrain_REST {
 		if ( $prompt === '' ) {
 			return $this->err_validation( 'twinbrain_empty_prompt', 'Prompt bắt buộc không được để trống.' );
 		}
+		$focus_notebook_id = absint( $req->get_param( 'focus_notebook_id' ) );
+		$focus_policy = '';
+		if ( $focus_notebook_id > 0 ) {
+			// [2026-08-16 Johnny Chu] P2 — keep sync and SSE focus validation identical.
+			$focus_check = $this->validate_focus_notebook( $prompt, get_current_user_id(), $focus_notebook_id );
+			if ( is_wp_error( $focus_check ) ) {
+				return $focus_check;
+			}
+			$focus_policy = (string) ( $focus_check['policy'] ?? '' );
+		}
 		// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — resolve / mint session.
 		$session_id = $this->resolve_session_id( $req, get_current_user_id() );
 		$opts = [
 			'user_id'          => get_current_user_id(),
 			'k'                => $req->get_param( 'k' ) ?: BIZCITY_TWINBRAIN_K_DEFAULT,
 			'force_notebooks'  => (array) $req->get_param( 'force_notebooks' ),
+			'focus_notebook_id' => $focus_notebook_id,
 			'force_tools'      => (array) $req->get_param( 'force_tools' ),
 			'skip_tool_intent' => (bool)  $req->get_param( 'skip_tool_intent' ),
 			'answer_depth'     => $this->sanitize_answer_depth( $req->get_param( 'answer_depth' ) ),
@@ -198,6 +286,16 @@ class BizCity_TwinBrain_REST {
 			'web_mode'         => $this->sanitize_web_mode( $req->get_param( 'web_mode' ) ),
 			'session_id'       => $session_id,
 		];
+		if ( $focus_notebook_id > 0 ) {
+			$opts['force_notebooks'] = array( $focus_notebook_id );
+		}
+		// [2026-08-16 Johnny Chu] CCG-2 — literal /vertical_slug must resolve deterministically when the client never set web_mode.
+		if ( 'off' === $opts['web_mode'] && class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) ) {
+			$vertical_command = BizCity_TwinBrain_Vertical_Bridge_Registry::extract( $prompt );
+			if ( is_array( $vertical_command ) ) {
+				$opts['web_mode'] = (string) $vertical_command['slug'];
+			}
+		}
 
 		$runtime = BizCity_TwinBrain_Runtime::instance();
 		$start   = $runtime->start_turn( $prompt, $opts );
@@ -254,11 +352,22 @@ class BizCity_TwinBrain_REST {
 		if ( ! class_exists( 'BizCity_Twin_SSE_Writer' ) ) {
 			return $this->err( 'twinbrain_sse_unavailable', 'SSE writer chưa được nạp — plugin core twin-core có thể bị tắt.', 503, [], null, true );
 		}
+		$focus_notebook_id = absint( $req->get_param( 'focus_notebook_id' ) );
+		$focus_policy = '';
+		if ( $focus_notebook_id > 0 ) {
+			// [2026-08-16 Johnny Chu] P2 — reject focused notebook requests before MPR can widen scope.
+			$focus_check = $this->validate_focus_notebook( $prompt, get_current_user_id(), $focus_notebook_id );
+			if ( is_wp_error( $focus_check ) ) {
+				return $focus_check;
+			}
+			$focus_policy = (string) ( $focus_check['policy'] ?? '' );
+		}
 
 		$opts = [
 			'user_id'          => get_current_user_id(),
 			'k'                => $req->get_param( 'k' ) ?: BIZCITY_TWINBRAIN_K_DEFAULT,
 			'force_notebooks'  => (array) $req->get_param( 'force_notebooks' ),
+			'focus_notebook_id' => $focus_notebook_id,
 			'force_tools'      => (array) $req->get_param( 'force_tools' ),
 			'skip_tool_intent' => (bool)  $req->get_param( 'skip_tool_intent' ),
 			'answer_depth'     => $this->sanitize_answer_depth( $req->get_param( 'answer_depth' ) ),
@@ -270,6 +379,16 @@ class BizCity_TwinBrain_REST {
 			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — resolve / mint session.
 			'session_id'       => $this->resolve_session_id( $req, get_current_user_id() ),
 		];
+		if ( $focus_notebook_id > 0 ) {
+			$opts['force_notebooks'] = array( $focus_notebook_id );
+		}
+		// [2026-08-16 Johnny Chu] CCG-2 — literal /vertical_slug must resolve deterministically before the fuzzy conversation router runs.
+		if ( 'off' === $opts['web_mode'] && class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) ) {
+			$vertical_command = BizCity_TwinBrain_Vertical_Bridge_Registry::extract( $prompt );
+			if ( is_array( $vertical_command ) ) {
+				$opts['web_mode'] = (string) $vertical_command['slug'];
+			}
+		}
 		$conversation_route = array();
 		// [2026-08-01 Johnny Chu] R-CH-IDMEM — scope pending confirmation by blog, user, and session.
 		$confirm_key = 'twinchat:' . (int) get_current_blog_id() . ':' . (int) ( $opts['user_id'] ?? 0 ) . ':' . (string) ( $opts['session_id'] ?? '' );
@@ -325,6 +444,14 @@ class BizCity_TwinBrain_REST {
 		}
 
 		$sse = new BizCity_Twin_SSE_Writer( true );
+
+		// [2026-08-16 Johnny Chu] CCG-5 — exact #workflow_slug bypasses MPR/skill routing and reuses Automation Runner.
+		if ( class_exists( 'BizCity_Automation_Command_Resolver' )
+			&& BizCity_Automation_Command_Resolver::extract( $prompt ) ) {
+			$this->handle_explicit_workflow_command( $prompt, $opts, $sse );
+			$sse->close( array( 'surface' => 'twinchat_workflow_command' ) );
+			exit;
+		}
 
 		// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — route /skill → Workflow Pipeline.
 		// When AskBrainPanel sends `skill` param, bypass normal MPR pipeline and
@@ -384,6 +511,7 @@ class BizCity_TwinBrain_REST {
 					$sse->close( array() );
 					exit;
 				}
+
 			}
 		}
 		if ( $skill !== '' && class_exists( 'BizCity_TwinBrain_Workflow_Pipeline' ) ) {
@@ -424,6 +552,14 @@ class BizCity_TwinBrain_REST {
 			$sse->emit( 'started', [ 'prompt' => $prompt, 'session_id' => (string) ( $opts['session_id'] ?? '' ) ] );
 			$start = $runtime->start_turn( $prompt, $opts );
 			$trace_id = (string) ( $start['trace_id'] ?? '' );
+			if ( $focus_notebook_id > 0 ) {
+				$sse->emit( 'notebook_focus_resolved', array(
+					'trace_id' => $trace_id,
+					'notebook_id' => $focus_notebook_id,
+					'guru_id' => (int) ( $start['guru_id'] ?? 0 ),
+					'policy' => $focus_policy,
+				) );
+			}
 			// [2026-08-07 Johnny Chu] V4-TRIAGE — project provider-first route metadata onto native SSE.
 			$triage_sse = (array) ( $start['pre_mpr_triage'] ?? array() );
 			$sse->emit( 'conversation_triage_started', array(
@@ -533,6 +669,87 @@ class BizCity_TwinBrain_REST {
 		// Headers + body already streamed; return null so WP REST doesn't try
 		// to serialize a JSON response over the closed event-stream.
 		exit;
+	}
+
+	private function handle_explicit_workflow_command( $prompt, array $opts, BizCity_Twin_SSE_Writer $sse ): void {
+		// [2026-08-16 Johnny Chu] CCG-5 — resolve, authorize, run and expose explicit workflow command state.
+		$user_id = (int) ( $opts['user_id'] ?? 0 );
+		$resolved = BizCity_Automation_Command_Resolver::resolve(
+			$prompt,
+			array( 'user_id' => $user_id, 'is_admin' => current_user_can( 'manage_options' ), 'zone' => 'admin' ),
+			array( 'zone' => 'admin' )
+		);
+		$trace_id = 'tb_' . wp_generate_uuid4();
+		$sse->emit( 'started', array( 'trace_id' => $trace_id, 'session_id' => (string) ( $opts['session_id'] ?? '' ), 'surface' => 'twinchat_workflow_command' ) );
+		if ( empty( $resolved['matched'] ) ) {
+			$sse->emit( 'error', array(
+				'code'      => (string) ( $resolved['reason'] ?? 'workflow_command_denied' ),
+				'message'   => 'Workflow command không được phép chạy.',
+				'hint'      => 'Chọn workflow được cấp quyền trong danh sách # rồi thử lại.',
+				'help_code' => 'automation_run_failed',
+			) );
+			return;
+		}
+		$workflow = (array) ( $resolved['workflow'] ?? array() );
+		$workflow_id = (int) ( $workflow['id'] ?? 0 );
+		$chat_id = 'twinchat_prompt_' . $user_id . '_' . sanitize_key( (string) ( $opts['session_id'] ?? 'default' ) );
+		$run_payload = array(
+			'platform' => 'TWINCHAT', 'event_subtype' => 'twinchat_prompt', 'origin_surface' => 'twinchat_prompt',
+			'text' => (string) $prompt, 'raw_text' => (string) $prompt, 'wp_user_id' => $user_id,
+			'_owner_user_id' => $user_id, 'user_id' => (string) $user_id, 'chat_id' => $chat_id,
+			'conversation_chat_id' => $chat_id, '_trigger' => 'prompt_command',
+			'command_slug' => (string) ( $resolved['slug'] ?? '' ), 'command_args' => (string) ( $resolved['args'] ?? '' ), 'zone' => 'admin',
+		);
+		$sse->emit( 'automation_run_started', array(
+			'trace_id' => $trace_id, 'workflow_id' => $workflow_id,
+			'workflow' => (string) ( $workflow['name'] ?? $workflow['slug'] ?? '' ), 'slug' => (string) ( $resolved['slug'] ?? '' ),
+		) );
+		if ( ! class_exists( 'BizCity_Automation_Runner' ) ) {
+			$sse->emit( 'error', array( 'code' => 'automation_runtime_unavailable', 'message' => 'Automation runtime chưa sẵn sàng.', 'hint' => 'Kiểm tra module Automation rồi thử lại.', 'help_code' => 'automation_run_failed' ) );
+			return;
+		}
+		$result = BizCity_Automation_Runner::instance()->run_now( $workflow_id, $run_payload );
+		if ( is_wp_error( $result ) ) {
+			$sse->emit( 'error', array( 'code' => (string) $result->get_error_code(), 'message' => 'Workflow không chạy được.', 'hint' => 'Kiểm tra lại kịch bản Automation và thử lại.', 'help_code' => 'automation_run_failed' ) );
+			return;
+		}
+		$sse->emit( 'automation_run_done', array(
+			'trace_id' => $trace_id, 'workflow_id' => $workflow_id,
+			'run_id' => is_scalar( $result ) ? (string) $result : '', 'slug' => (string) ( $resolved['slug'] ?? '' ),
+		) );
+	}
+
+	private function validate_focus_notebook( $prompt, $user_id, $notebook_id ) {
+		// [2026-08-16 Johnny Chu] P2 — focused notebook must belong to the resolved Guru attachment set.
+		if ( ! class_exists( 'BizCity_Guru_Token_Parser' ) || ! class_exists( 'BizCity_KG_Database' ) ) {
+			return new WP_Error( 'guru_notebook_focus_unavailable', 'Không thể xác thực phạm vi notebook của Guru.', array( 'status' => 503 ) );
+		}
+		$parsed = BizCity_Guru_Token_Parser::parse( (string) $prompt );
+		$guru_id = (int) ( $parsed['guru_id'] ?? 0 );
+		if ( $guru_id <= 0 ) {
+			return new WP_Error( 'guru_notebook_focus_invalid', 'Notebook focus cần Guru Workspace hợp lệ.', array( 'status' => 400 ) );
+		}
+		global $wpdb;
+		$db = BizCity_KG_Database::instance();
+		$guru_uuid = (string) $wpdb->get_var( $wpdb->prepare( 'SELECT guru_uuid FROM ' . $wpdb->prefix . 'bizcity_characters WHERE id = %d LIMIT 1', $guru_id ) );
+		if ( $guru_uuid === '' ) {
+			return new WP_Error( 'guru_notebook_focus_invalid', 'Guru Workspace không thuộc site hiện tại.', array( 'status' => 400 ) );
+		}
+		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT n.owner_id, n.notebook_scope FROM ' . $db->tbl_notebooks() . ' n INNER JOIN ' . $db->tbl_notebook_character_attachments() . ' a ON a.notebook_id = n.id WHERE a.guru_uuid = %s AND n.id = %d LIMIT 1', $guru_uuid, (int) $notebook_id ), ARRAY_A );
+		if ( ! is_array( $row ) ) {
+			return new WP_Error( 'guru_notebook_focus_invalid', 'Notebook này chưa được gắn vào Guru Workspace.', array( 'status' => 400 ) );
+		}
+		$owner_id = (int) ( $row['owner_id'] ?? 0 );
+		$scope = sanitize_key( (string) ( $row['notebook_scope'] ?? 'personal' ) );
+		$visible = ( $owner_id > 0 && $owner_id === (int) $user_id ) || ( $owner_id === 0 && in_array( $scope, array( 'business_kb', 'guru_kb' ), true ) );
+		if ( ! $visible ) {
+			return new WP_Error( 'guru_notebook_focus_invalid', 'Notebook focus không thuộc phạm vi được phép.', array( 'status' => 403 ) );
+		}
+		$guru = $wpdb->get_row( $wpdb->prepare( 'SELECT notebook_policy FROM ' . $wpdb->prefix . 'bizcity_characters WHERE id = %d LIMIT 1', $guru_id ), ARRAY_A );
+		return array(
+			'valid'  => true,
+			'policy' => in_array( (string) ( $guru['notebook_policy'] ?? 'augment' ), array( 'augment', 'restrict' ), true ) ? (string) $guru['notebook_policy'] : 'augment',
+		);
 	}
 
 	public function handle_tool_confirm( WP_REST_Request $req ) {

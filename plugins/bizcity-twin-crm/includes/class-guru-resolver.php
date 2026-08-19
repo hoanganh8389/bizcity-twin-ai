@@ -56,32 +56,37 @@ class BizCity_CRM_Guru_Resolver {
 			return $out;
 		}
 
-		global $wpdb;
-		$bind_tbl = BizCity_Channel_Binding::table();
-
 		// [2026-06-29 Johnny Chu] HOTFIX — CRM inbox stores channel_type='facebook' → UPPER='FACEBOOK'
 		// but Channel Gateway binding is saved as 'FB_MESS' (FacebookPages.jsx PLATFORM const).
-		// Build a search list so both values hit in one query.
+		// Build a search list so both canonical values can resolve through the
+		// binding repository.
 		$platform_aliases = array( $platform );
 		if ( $platform === 'FACEBOOK' ) {
 			$platform_aliases[] = 'FB_MESS';
 		} elseif ( $platform === 'FB_MESS' ) {
 			$platform_aliases[] = 'FACEBOOK';
 		}
-		// [2026-08-01 Johnny Chu] R-ZONE — keep ZALO_OA bindings isolated from ZALO_BOT.
-		$placeholders = implode( ',', array_fill( 0, count( $platform_aliases ), '%s' ) );
-
-		// Step 1 — bind (platform, account_id) → character_id.
-		$row = $wpdb->get_row( $wpdb->prepare(
-			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-			"SELECT character_id, mode FROM {$bind_tbl}
-			  WHERE UPPER(platform) IN ({$placeholders})
-			    AND ( account_id=%s OR account_id='*' )
-			    AND status=1 AND character_id > 0
-			  ORDER BY ( account_id=%s ) DESC, id DESC
-			  LIMIT 1",
-			...array_merge( $platform_aliases, array( $account_id, $account_id ) )
-		), ARRAY_A );
+		// [2026-08-14 Johnny Chu] R-MSDB/R-ZONE — resolve through the canonical
+		// binding API so blog_id, exact-account precedence, cache generation, and
+		// wildcard fallback stay identical across Channel Gateway and CRM.
+		$row      = null;
+		$wildcard = null;
+		foreach ( $platform_aliases as $platform_alias ) {
+			$candidate = BizCity_Channel_Binding::resolve( $platform_alias, $account_id );
+			if ( ! is_array( $candidate ) || (int) ( $candidate['character_id'] ?? 0 ) <= 0 ) {
+				continue;
+			}
+			if ( (string) ( $candidate['account_id'] ?? '' ) === $account_id ) {
+				$row = $candidate;
+				break;
+			}
+			if ( null === $wildcard ) {
+				$wildcard = $candidate;
+			}
+		}
+		if ( null === $row ) {
+			$row = $wildcard;
+		}
 
 		if ( ! $row ) {
 			return $out;

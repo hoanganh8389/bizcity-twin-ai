@@ -225,6 +225,34 @@ final class BizCity_Probe_Channel_Binding implements BizCity_Diagnostics_Probe {
 				: 'resolve() method missing — listener cannot inject character_id.',
 		] );
 
+		// [2026-08-13 Johnny Chu] R-MSDB/R-GCB — roster reads must remain current-blog scoped.
+		$current_blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$binding_rows = is_callable( array( 'BizCity_Channel_Binding', 'all' ) )
+			? BizCity_Channel_Binding::all()
+			: array();
+		$tenant_scope_ok = true;
+		foreach ( (array) $binding_rows as $binding_row ) {
+			if ( (int) ( $binding_row['blog_id'] ?? 0 ) !== $current_blog_id ) {
+				$tenant_scope_ok = false;
+				break;
+			}
+		}
+		$ctx->emit_step( [
+			'label'  => 'Runtime · binding roster tenant isolation',
+			'status' => $tenant_scope_ok ? 'pass' : 'fail',
+			'detail' => $tenant_scope_ok
+				? sprintf( 'all() returned %d row(s) for blog_id=%d only.', count( $binding_rows ), $current_blog_id )
+				: 'all() returned a row from another blog_id.',
+		] );
+		if ( ! $tenant_scope_ok ) {
+			return array(
+				'status'   => 'fail',
+				'summary'  => 'Channel binding roster crossed tenant boundary.',
+				'error'    => 'binding_tenant_scope_failed',
+				'fix_hint' => 'Check BizCity_Channel_Binding::all() blog_id filter and rerun this probe.',
+			);
+		}
+
 		// Orphan scan — bindings → Guru status.
 		$chars_tbl = $wpdb->prefix . 'bizcity_characters';
 		$orphan_rows = array();

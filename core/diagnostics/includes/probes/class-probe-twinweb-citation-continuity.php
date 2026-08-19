@@ -95,7 +95,7 @@ final class BizCity_Probe_TwinWeb_Citation_Continuity implements BizCity_Diagnos
 
 			$markers = array(
 				// [2026-07-16 Johnny Chu] R-DDV — only backend normalization markers are mandatory on production diagnostics.
-				'rest_origin_passthrough' => ( false !== strpos( $rest_src, "'origin_url'  => sanitize_text_field( \$origin_url )" ) ),
+				'rest_origin_passthrough' => ( false !== strpos( $rest_src, "'origin_url'  => self::normalize_source_url( \$origin_url )" ) ),
 				'rest_url_alias'          => ( false !== strpos( $rest_src, "isset( \$source['url'] )" ) ),
 				'rest_product_alias'      => ( false !== strpos( $rest_src, "isset( \$source['product_url'] )" ) ),
 			);

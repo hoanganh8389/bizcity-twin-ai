@@ -217,8 +217,10 @@ final class BizCity_Automation_Admin_SPA {
 			return;
 		}
 
-		$ver_js  = (string) filemtime( $js_path );
-		$ver_css = file_exists( $css_path ) ? (string) filemtime( $css_path ) : $ver_js;
+		// [2026-08-16 Johnny Chu] PHASE-2-HIL-DIALOG-BUTTON — bump stable asset marker so deployed admin iframes receive the green HIL applied state instead of a cached pre-status bundle.
+		$asset_revision = '2026.08.16-hil-success-2';
+		$ver_js  = $asset_revision . '.' . (string) filemtime( $js_path );
+		$ver_css = $asset_revision . '.' . (string) ( file_exists( $css_path ) ? filemtime( $css_path ) : filemtime( $js_path ) );
 
 		if ( file_exists( $css_path ) ) {
 			wp_enqueue_style( self::STYLE_HANDLE, $dist_url . 'automation-app.css', [], $ver_css );

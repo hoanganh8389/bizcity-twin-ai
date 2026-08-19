@@ -95,6 +95,44 @@ final class BizCity_TwinBrain_Product_Provider {
 	}
 
 	/**
+	 * List visible published products for a bounded choice prompt.
+	 *
+	 * @param int $limit
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function suggestions( int $limit = 8 ): array {
+		// [2026-08-16 Johnny Chu] PHASE-HIL-PRODUCT-MATCH — catalog-backed product choices for HIL, bounded and cached.
+		if ( ! $this->is_ready() ) {
+			return array();
+		}
+		$limit = max( 1, min( 12, $limit ) );
+		$cache_key = 'twprod_suggestions_' . $limit;
+		$cached = $this->cache_get( $cache_key );
+		if ( false !== $cached && is_array( $cached ) ) {
+			return $cached;
+		}
+		$raw = wc_get_products( array(
+			'status'             => 'publish',
+			'limit'              => $limit,
+			'orderby'            => 'date',
+			'order'              => 'DESC',
+			'return'             => 'objects',
+			'catalog_visibility' => 'visible',
+		) );
+		$out = array();
+		if ( is_array( $raw ) ) {
+			foreach ( $raw as $product ) {
+				$row = $this->map_product( $product, false );
+				if ( ! empty( $row ) ) {
+					$out[] = $row;
+				}
+			}
+		}
+		$this->cache_set( $cache_key, $out );
+		return $out;
+	}
+
+	/**
 	 * Get single product detail.
 	 *
 	 * @param int $product_id
@@ -292,6 +330,7 @@ final class BizCity_TwinBrain_Product_Provider {
 if ( class_exists( 'BizCity_Cache_Registry' ) && class_exists( 'BizCity_Cache' ) ) {
 	BizCity_Cache_Registry::register( 'bcpro', 'modules.twinbrain-products', array(
 		'twprod_search_{query_hash}_{limit}' => array( 'ttl' => BizCity_Cache::TTL_SHORT, 'desc' => 'Woo product search by keyword' ),
+		'twprod_suggestions_{limit}'          => array( 'ttl' => BizCity_Cache::TTL_SHORT, 'desc' => 'Visible Woo products for bounded HIL choice prompts' ),
 		'twprod_detail_{product_id}'         => array( 'ttl' => BizCity_Cache::TTL_SHORT, 'desc' => 'Woo product detail by ID' ),
 		'twprod_ids_{ids_hash}'              => array( 'ttl' => BizCity_Cache::TTL_SHORT, 'desc' => 'Woo product batch by IDs' ),
 	) );

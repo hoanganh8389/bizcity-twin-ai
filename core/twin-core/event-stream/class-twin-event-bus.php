@@ -404,6 +404,7 @@ class BizCity_Twin_Event_Bus {
 	 * @throws BizCity_Event_Validation_Exception on invalid type/source/payload.
 	 */
 	public static function dispatch_v2( string $event_type, array $payload, array $opts = [] ): string {
+		// [2026-08-17 Johnny Chu] HOTFIX — keep one canonical dispatch_v2 implementation after duplicate declaration.
 		// [2026-07-30 Johnny Chu] PHASE-1.22-CONTRACT — emit stable event envelope metadata.
 		// 1) Validate taxonomy
 		BizCity_Twin_Event_Taxonomy::assert_valid_type( $event_type );

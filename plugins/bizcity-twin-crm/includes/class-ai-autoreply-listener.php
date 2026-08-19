@@ -143,9 +143,19 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				$guru_ctx['character_id'] = $resolved_character_id;
 			}
 
-			$notebook_id = (int) ( $conv['notebook_id']
-				?? $inbox['default_notebook_id']
-				?? ( $guru_ctx['notebooks'][0] ?? 0 ) );
+			$binding_found = ! empty( $guru_ctx['trace']['binding_found'] );
+			$live_nbs      = array_values( array_filter( array_map( 'intval', (array) ( $guru_ctx['notebooks'] ?? array() ) ) ) );
+			// [2026-08-14 Johnny Chu] PHASE-0.39 GURU-BIND — live Guru notebook
+			// wins over sticky Conversation/Inbox defaults for Messenger replies.
+			if ( ! empty( $live_nbs ) ) {
+				$notebook_id = (int) $live_nbs[0];
+			} elseif ( $binding_found ) {
+				$notebook_id = 0;
+			} else {
+				$notebook_id = (int) ( (int) ( $conv['notebook_id'] ?? 0 ) > 0
+					? $conv['notebook_id']
+					: (int) ( $inbox['default_notebook_id'] ?? 0 ) );
+			}
 
 			// ── Live re-binding guard (P0-Q1, 2026-05-26) ──────────────────────────
 			// When the conversation has a sticky `notebook_id` that no longer matches
@@ -155,7 +165,6 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			// (e.g. log showed `notebook#26 (eligible=[23])` → KG passages=0).
 			// Filter `bizcity_crm_ai_autoreply_allow_stale_notebook` lets ops opt-out
 			// of auto re-pin (e.g. when an admin has intentionally pinned a conv).
-			$live_nbs = array_map( 'intval', (array) ( $guru_ctx['notebooks'] ?? array() ) );
 			if (
 				$notebook_id > 0
 				&& ! empty( $live_nbs )

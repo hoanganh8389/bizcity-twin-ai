@@ -259,11 +259,16 @@ final class BizCity_Automation_Action_Capture_To_Notebook extends BizCity_Automa
 			BizCity_Automation_Pending_State::clear( $chat_id );
 		}
 
+		// [2026-08-13 Johnny Chu] PHASE-0.46 W6 — expose the canonical Zalo upload link after a direct workflow capture.
+		$upload_url = $this->mint_zalo_upload_link( $ctx, $trigger, $user_id, (int) ( $res['notebook_id'] ?? 0 ), $chat_id );
+		$upload_prompt = $upload_url !== '' ? 'Sếp có muốn upload thêm tài liệu (Word/Excel/PDF) không? Mở link trên để tải thêm, xong nhắn "không" hoặc "xong".' : '';
+
 		$this->note_event( 'capture_to_notebook_ok', array(
 			'notebook_id' => (int) ( $res['notebook_id'] ?? 0 ),
 			'total'       => (int) ( $res['total'] ?? 0 ),
 			'succeeded'   => $succeeded,
 			'queued'      => $queued,
+			'upload_link' => $upload_url !== '' ? 1 : 0,
 		) );
 
 		// [2026-07-25 Johnny Chu] PHASE-0.46 W4.6 — expose accepted file list
@@ -284,7 +289,57 @@ final class BizCity_Automation_Action_Capture_To_Notebook extends BizCity_Automa
 			'accepted_file_count' => (int) ( $summary['file_count'] ?? 0 ),
 			'accepted_files_text' => (string) ( $summary['files_text'] ?? '' ),
 			'first_source_id'     => (int) ( $summary['first_source_id'] ?? 0 ),
+			'upload_url'          => $upload_url,
+			'upload_prompt'       => $upload_prompt,
 		);
+	}
+
+	private function mint_zalo_upload_link( array $ctx, array $trigger, int $user_id, int $notebook_id, string $chat_id ): string {
+		// [2026-08-13 Johnny Chu] PHASE-0.46 W6 — mint a bounded capability URL only for the Zalo Bot Zone 2 workflow.
+		$platform = strtoupper( (string) ( $trigger['platform'] ?? $trigger['channel'] ?? '' ) );
+		$channel  = $this->map_channel_code( $platform );
+		if ( $channel !== 'zalobot' ) {
+			return '';
+		}
+		if ( ! class_exists( 'BizCity_KG_Channel_Upload_Link_Service' ) || ! class_exists( 'BizCity_Zalobot_Upload_Link_Handler' ) ) {
+			$this->note_event( 'capture_to_notebook_upload_link_skipped', array( 'reason' => 'upload_service_unavailable' ) );
+			return '';
+		}
+
+		$provider_chat_id = trim( (string) ( $trigger['provider_chat_id'] ?? $trigger['conversation_chat_id'] ?? $chat_id ) );
+		$bot_id           = (int) ( $trigger['account_id'] ?? $trigger['bot_id'] ?? 0 );
+		if ( $provider_chat_id === '' || $bot_id <= 0 || $user_id <= 0 ) {
+			$this->note_event( 'capture_to_notebook_upload_link_skipped', array( 'reason' => 'upload_identity_missing' ) );
+			return '';
+		}
+
+		$chat_kind          = sanitize_key( (string) ( $trigger['chat_kind'] ?? 'private' ) );
+		$chat_kind          = $chat_kind === 'group' ? 'group' : 'private';
+		$automation_chat_id = 'zalobot_' . $bot_id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id;
+		$mode               = 'pending';
+		if ( class_exists( 'BizCity_KG_Channel_Notebook_Bridge' ) && method_exists( 'BizCity_KG_Channel_Notebook_Bridge', 'get_capture_session' ) ) {
+			$session = BizCity_KG_Channel_Notebook_Bridge::get_capture_session( 'zalobot', $provider_chat_id );
+			if ( is_array( $session ) && ! empty( $session['awaiting_more'] ) ) {
+				$mode = 'session';
+			}
+		}
+
+		$link = BizCity_KG_Channel_Upload_Link_Service::create( array(
+			'channel'            => 'zalobot',
+			'chat_key'           => $provider_chat_id,
+			'provider_chat_id'   => $provider_chat_id,
+			'bot_id'             => $bot_id,
+			'wp_user_id'         => $user_id,
+			'mode'               => $mode,
+			'notebook_id'        => $notebook_id,
+			'automation_chat_id' => $automation_chat_id,
+		) );
+		if ( is_wp_error( $link ) ) {
+			$this->note_event( 'capture_to_notebook_upload_link_skipped', array( 'reason' => 'upload_link_create_failed', 'code' => (string) $link->get_error_code() ) );
+			return '';
+		}
+
+		return (string) BizCity_Zalobot_Upload_Link_Handler::build_url( (string) ( $link['token'] ?? '' ) );
 	}
 
 	private function map_channel_code( string $input ): string {

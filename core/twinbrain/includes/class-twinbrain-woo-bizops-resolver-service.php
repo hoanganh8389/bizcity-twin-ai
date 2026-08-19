@@ -63,6 +63,10 @@ final class BizCity_TwinBrain_Woo_Bizops_Resolver_Service {
 		if ( strpos( $normalized, 'lan 2' ) !== false || strpos( $normalized, 'lan thu 2' ) !== false || strpos( $normalized, 'lan 3' ) !== false || strpos( $normalized, 'lan thu 3' ) !== false || strpos( $normalized, 'mua lai' ) !== false || strpos( $normalized, 'quay lai' ) !== false ) {
 			return $this->resolve_repeat_customers( $query, $normalized );
 		}
+		// [2026-08-16 Johnny Chu] PHASE-TWB-WOO-BIZOPS — explicit bounded order-list intent for TwinChat Woo queries.
+		if ( strpos( $normalized, 'danh sach don' ) !== false || strpos( $normalized, 'liet ke don' ) !== false || strpos( $normalized, 'cac don hang' ) !== false || strpos( $normalized, 'list don' ) !== false ) {
+			return $this->resolve_order_list( $query, $normalized );
+		}
 		if ( strpos( $normalized, 'can giao' ) !== false || strpos( $normalized, 'chua giao' ) !== false || strpos( $normalized, 'dong hang' ) !== false || strpos( $normalized, 'dong goi' ) !== false ) {
 			return $this->resolve_fulfillment( $query, $normalized );
 		}
@@ -108,6 +112,60 @@ final class BizCity_TwinBrain_Woo_Bizops_Resolver_Service {
 			'answer_md' => $answer,
 			'citations' => array( '[woorpt:revenue#' . $range['from'] . '..' . $range['to'] . ']' ),
 			'_degraded' => '',
+		);
+	}
+
+	private function resolve_order_list( string $query, string $normalized ): array {
+		if ( ! function_exists( 'wc_get_orders' ) || ! class_exists( 'WC_Order' ) ) {
+			return $this->error( 'module_not_loaded', 'WooCommerce chưa được nạp.', 'Kích hoạt WooCommerce rồi thử lại.', 'woo_bizops_not_ready' );
+		}
+		$range = $this->resolve_range( $normalized );
+		if ( strpos( $normalized, 'hom nay' ) === false && strpos( $normalized, 'hom qua' ) === false && strpos( $normalized, 'tuan nay' ) === false && strpos( $normalized, 'thang nay' ) === false ) {
+			$range['from'] = wp_date( 'Y-m-d', current_time( 'timestamp' ) - ( 30 * DAY_IN_SECONDS ) );
+		}
+		$status_keys = function_exists( 'wc_get_order_statuses' )
+			? array_map( static function ( $status ) { return preg_replace( '/^wc-/', '', (string) $status ); }, array_keys( wc_get_order_statuses() ) )
+			: array( 'pending', 'processing', 'on-hold', 'completed', 'cancelled', 'refunded', 'failed' );
+		$orders = wc_get_orders( array(
+			'limit'        => 50,
+			'status'       => $status_keys,
+			'date_created' => $range['from'] . '...' . $range['to'],
+			'orderby'      => 'date',
+			'order'        => 'DESC',
+			'return'       => 'objects',
+		) );
+		$rows = array();
+		$lines = array();
+		$citations = array();
+		foreach ( (array) $orders as $order ) {
+			if ( ! $order instanceof WC_Order ) { continue; }
+			$order_id = (int) $order->get_id();
+			$status = (string) $order->get_status();
+			$total = max( 0.0, (float) $order->get_total() - (float) $order->get_total_refunded() );
+			$date = $order->get_date_created();
+			$rows[] = array(
+				'id'         => $order_id,
+				'number'     => (string) $order->get_order_number(),
+				'status'     => $status,
+				'total'      => $total,
+				'currency'   => (string) $order->get_currency(),
+				'created_at'  => $date ? $date->date( 'Y-m-d H:i' ) : '',
+			);
+			$lines[] = sprintf( '- Đơn **#%s** · `%s` · %s %s · %s', (string) $order->get_order_number(), $status, $this->money( $total ), (string) $order->get_currency(), $date ? $date->date( 'Y-m-d H:i' ) : '' );
+			if ( count( $citations ) < 20 ) { $citations[] = '[wooorder:' . $order_id . ']'; }
+		}
+		$answer = sprintf( "## Danh sách đơn hàng Woo\n\nKhoảng: **%s → %s**\nSố đơn: **%d**\n\n", $range['from'], $range['to'], count( $rows ) );
+		$answer .= empty( $lines ) ? 'Không tìm thấy đơn hàng trong khoảng đã chọn.' : implode( "\n", $lines );
+		return array(
+			'success'      => true,
+			'intent_group' => 'order_list',
+			'date_from'    => $range['from'],
+			'date_to'      => $range['to'],
+			'order_count'  => count( $rows ),
+			'orders'       => $rows,
+			'answer_md'    => $answer,
+			'citations'    => $citations,
+			'_degraded'    => '',
 		);
 	}
 

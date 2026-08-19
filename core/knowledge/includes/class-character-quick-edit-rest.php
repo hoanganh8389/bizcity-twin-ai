@@ -69,6 +69,7 @@ class BizCity_Character_Quick_Edit_REST {
 		$system_prompt = isset( $character->system_prompt ) ? (string) $character->system_prompt : '';
 		$tone          = self::extract_tone( $system_prompt );
 		$prompt_body   = self::strip_tone( $system_prompt );
+		$notebook_policy = in_array( (string) ( $character->notebook_policy ?? 'augment' ), array( 'augment', 'restrict' ), true ) ? (string) $character->notebook_policy : 'augment';
 		// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W1 — expose runtime fields with server caps for Quick Sheet Tab B.
 		$settings      = self::decode_settings( $character->settings ?? '' );
 		$bounds        = self::runtime_bounds();
@@ -105,23 +106,37 @@ class BizCity_Character_Quick_Edit_REST {
 		$notebooks_available = array();
 		if ( class_exists( 'BizCity_KG_Database' ) ) {
 			global $wpdb;
-			$tbl_nb              = BizCity_KG_Database::instance()->tbl_notebooks();
+			$kg_db               = BizCity_KG_Database::instance();
+			$tbl_nb              = $kg_db->tbl_notebooks();
+			$tbl_att             = $kg_db->tbl_notebook_character_attachments();
+			$guru_uuid           = self::get_guru_uuid( $id );
 			$notebooks_attached  = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, name, description, updated_at
-				   FROM {$tbl_nb}
-				  WHERE character_id = %d
+				"SELECT DISTINCT nb.id, nb.name, nb.description, nb.owner_id, nb.notebook_scope, nb.updated_at
+				   FROM {$tbl_nb} AS nb
+				   INNER JOIN {$tbl_att} AS attachment ON attachment.notebook_id = nb.id
+				  WHERE attachment.guru_uuid = %s
 				  ORDER BY updated_at DESC
 				  LIMIT 200",
-				$id
+				$guru_uuid
 			), ARRAY_A ) ?: array();
+			if ( empty( $notebooks_attached ) ) {
+				// [2026-08-15 Johnny Chu] PHASE-TWB-GURU-NOTEBOOK — preserve legacy visibility until attachment backfill completes.
+				$notebooks_attached = $wpdb->get_results( $wpdb->prepare(
+					"SELECT id, name, description, owner_id, notebook_scope, character_id, updated_at
+					   FROM {$tbl_nb} WHERE character_id = %d ORDER BY updated_at DESC LIMIT 200",
+					$id
+				), ARRAY_A ) ?: array();
+			}
 
 			$notebooks_available = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, name, character_id, updated_at
+				"SELECT nb.id, nb.name, nb.character_id, nb.owner_id, nb.notebook_scope, nb.updated_at
 				   FROM {$tbl_nb}
-				  WHERE ( character_id IS NULL OR character_id = 0 OR character_id != %d )
+				  WHERE id NOT IN (
+					SELECT attachment.notebook_id FROM {$tbl_att} AS attachment WHERE attachment.guru_uuid = %s
+				  )
 				  ORDER BY updated_at DESC
 				  LIMIT 200",
-				$id
+				$guru_uuid
 			), ARRAY_A ) ?: array();
 			// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W1 — enrich attached notebooks with KG stats for Tab D bridge.
 			$notebooks_attached = self::enrich_notebooks_with_stats( $notebooks_attached );
@@ -145,6 +160,7 @@ class BizCity_Character_Quick_Edit_REST {
 				'temperature'       => $temperature,
 				'max_output_tokens' => $max_tokens,
 			),
+			'notebook_policy'     => $notebook_policy,
 			'runtime_bounds'      => $bounds,
 			'quick_faq'           => $quick_faq,
 			'quick_training'      => $quick_training,
@@ -174,6 +190,14 @@ class BizCity_Character_Quick_Edit_REST {
 
 		$updated = array();
 		$settings = self::decode_settings( $character->settings ?? '' );
+		if ( array_key_exists( 'notebook_policy', $params ) ) {
+			$notebook_policy = sanitize_key( (string) $params['notebook_policy'] );
+			if ( ! in_array( $notebook_policy, array( 'augment', 'restrict' ), true ) ) {
+				return new WP_Error( 'invalid_notebook_policy', 'Notebook policy không hợp lệ.', array( 'status' => 400 ) );
+			}
+			$db->update_character( $id, array( 'notebook_policy' => $notebook_policy ) );
+			$updated['notebook_policy'] = $notebook_policy;
+		}
 
 		// 1) system_prompt + tone — round-trip via marker block.
 		$has_prompt = array_key_exists( 'system_prompt', $params );
@@ -232,12 +256,27 @@ class BizCity_Character_Quick_Edit_REST {
 		// 3) Notebook attach (idempotent).
 		if ( isset( $params['attach_notebook_ids'] ) && is_array( $params['attach_notebook_ids'] ) && class_exists( 'BizCity_KG_Database' ) ) {
 			global $wpdb;
-			$tbl_nb  = BizCity_KG_Database::instance()->tbl_notebooks();
+			$kg_db  = BizCity_KG_Database::instance();
+			$guru_uuid = self::get_guru_uuid( $id );
+			if ( '' === $guru_uuid ) {
+				return new WP_Error( 'guru_uuid_missing', 'Guru chưa có định danh canonical để gắn notebook.', array( 'status' => 409 ) );
+			}
 			$ids_in  = array_filter( array_map( 'intval', $params['attach_notebook_ids'] ) );
 			$attached = array();
+			$attach_errors = array();
 			foreach ( $ids_in as $nb_id ) {
-				$wpdb->update( $tbl_nb, array( 'character_id' => $id ), array( 'id' => $nb_id ) );
-				$attached[] = (int) $nb_id;
+				$attachment = $kg_db->attach_guru( $nb_id, $guru_uuid, array(
+					'public_serving' => self::is_public_guru( $id ),
+					'attached_by'   => get_current_user_id(),
+				) );
+				if ( is_wp_error( $attachment ) ) {
+					$attach_errors[] = $attachment->get_error_message();
+				} else {
+					$attached[] = (int) $nb_id;
+				}
+			}
+			if ( ! empty( $attach_errors ) ) {
+				return new WP_Error( 'notebook_attach_failed', implode( ' ', $attach_errors ), array( 'status' => 400 ) );
 			}
 			$updated['attached_notebooks'] = $attached;
 		}
@@ -245,12 +284,21 @@ class BizCity_Character_Quick_Edit_REST {
 		// 4) Notebook detach (only when notebook is currently bound to THIS character).
 		if ( isset( $params['detach_notebook_ids'] ) && is_array( $params['detach_notebook_ids'] ) && class_exists( 'BizCity_KG_Database' ) ) {
 			global $wpdb;
-			$tbl_nb   = BizCity_KG_Database::instance()->tbl_notebooks();
+			$kg_db    = BizCity_KG_Database::instance();
+			$tbl_nb   = $kg_db->tbl_notebooks();
+			$guru_uuid = self::get_guru_uuid( $id );
+			if ( '' === $guru_uuid ) {
+				return new WP_Error( 'guru_uuid_missing', 'Guru chưa có định danh canonical để gỡ notebook.', array( 'status' => 409 ) );
+			}
 			$ids_in   = array_filter( array_map( 'intval', $params['detach_notebook_ids'] ) );
 			$detached = array();
 			foreach ( $ids_in as $nb_id ) {
-				$wpdb->update( $tbl_nb, array( 'character_id' => null ), array( 'id' => $nb_id, 'character_id' => $id ) );
-				$detached[] = (int) $nb_id;
+				$detach = $kg_db->detach_guru( $nb_id, $guru_uuid );
+				if ( is_array( $detach ) && (int) ( $detach['deleted'] ?? 0 ) > 0 ) {
+					// [2026-08-15 Johnny Chu] PHASE-TWB-GURU-NOTEBOOK — clear legacy compatibility state so migration fallback cannot resurrect a detached notebook.
+					$wpdb->update( $tbl_nb, array( 'character_id' => null ), array( 'id' => $nb_id, 'character_id' => $id ) );
+					$detached[] = (int) $nb_id;
+				}
 			}
 			$updated['detached_notebooks'] = $detached;
 		}
@@ -267,6 +315,20 @@ class BizCity_Character_Quick_Edit_REST {
 
 	/* ────────────────────────── Helpers ────────────────────────── */
 
+	private static function get_guru_uuid( $character_id ) {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_characters';
+		$uuid = $wpdb->get_var( $wpdb->prepare( "SELECT guru_uuid FROM {$table} WHERE id = %d LIMIT 1", (int) $character_id ) );
+		return strtolower( trim( (string) $uuid ) );
+	}
+
+	private static function is_public_guru( $character_id ): bool {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_characters';
+		$visibility = $wpdb->get_var( $wpdb->prepare( "SELECT visibility FROM {$table} WHERE id = %d LIMIT 1", (int) $character_id ) );
+		return 'marketplace' === (string) $visibility;
+	}
+
 	private static function normalize_nb( $row ) {
 		if ( ! is_array( $row ) ) {
 			$row = (array) $row;
@@ -276,6 +338,8 @@ class BizCity_Character_Quick_Edit_REST {
 			'name'         => (string) ( $row['name'] ?? '' ),
 			'description'  => (string) ( $row['description'] ?? '' ),
 			'character_id' => isset( $row['character_id'] ) ? (int) $row['character_id'] : 0,
+			'owner_id'     => isset( $row['owner_id'] ) ? (int) $row['owner_id'] : 0,
+			'notebook_scope' => (string) ( $row['notebook_scope'] ?? '' ),
 			'sources_count'=> isset( $row['sources_count'] ) ? (int) $row['sources_count'] : 0,
 			'passages_count'=> isset( $row['passages_count'] ) ? (int) $row['passages_count'] : 0,
 			'health'       => (string) ( $row['health'] ?? 'unknown' ),

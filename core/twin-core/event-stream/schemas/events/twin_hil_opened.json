@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/twin_hil_opened.json",
+  "title": "twin_hil_opened",
+  "description": "Initial event-sourced snapshot for one bounded HIL Instance (slot-collection loop).",
+  "type": "object",
+  "required": ["hil_id", "spec_id", "trigger_id", "session_id", "status", "state"],
+  "properties": {
+    "hil_id": { "type": "string", "pattern": "^hil_[A-Za-z0-9_-]+$" },
+    "spec_id": { "type": "string", "minLength": 1 },
+    "trigger_id": { "type": "string", "minLength": 1 },
+    "goal_id": { "type": "string" },
+    "session_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["collecting", "confirming", "ready", "blocked", "expired", "cancelled"] },
+    "state": { "type": "object" },
+    "identity_uuid": { "type": "string" }
+  },
+  "additionalProperties": true
+}
