@@ -641,16 +641,15 @@ class BizCity_Youtube_Transcriber {
             require_once ABSPATH . 'wp-admin/includes/image.php';
             require_once ABSPATH . 'wp-admin/includes/media.php';
         }
-        $upload = wp_handle_sideload(
-            [
-                'name'     => basename( $path ),
-                'type'     => 'audio/mpeg',
-                'tmp_name' => $path,
-                'error'    => 0,
-                'size'     => filesize( $path ),
-            ],
-            [ 'test_form' => false ]
-        );
+        $sideload_file = [
+            'name'     => basename( $path ),
+            'type'     => 'audio/mpeg',
+            'tmp_name' => $path,
+            'error'    => 0,
+            'size'     => filesize( $path ),
+        ];
+        // [2026-08-19 Johnny Chu] PHP74-COMPAT - wp_handle_sideload() requires its file argument by reference.
+        $upload = wp_handle_sideload( $sideload_file, [ 'test_form' => false ] );
         if ( ! empty( $upload['error'] ) ) {
             return new WP_Error( 'youtube_av_fallback_sideload_failed', $upload['error'] );
         }

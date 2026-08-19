@@ -272,7 +272,7 @@ jobs:
           path: wp-content/plugins/bizcity-twin-ai/build/junit.xml
 
       - name: Annotate test results
-        if: always()
+        if: ${{ always() && hashFiles('wp-content/plugins/bizcity-twin-ai/build/junit.xml') != '' }}
         uses: dorny/test-reporter@v1
         with:
           name: Diagnostics (PHP ${{ matrix.php }} · WP ${{ matrix.wp }})
