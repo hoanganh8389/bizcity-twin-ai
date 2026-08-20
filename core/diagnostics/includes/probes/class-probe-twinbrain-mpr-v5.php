@@ -83,16 +83,20 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 		$failed_steps = array();
 		foreach ( $steps as $step ) {
 			if ( (string) ( $step['status'] ?? '' ) === 'fail' ) {
-				$failed_steps[] = (string) ( $step['label'] ?? 'unknown_step' );
+				$failed_steps[] = (string) ( $step['label'] ?? 'unknown_step' ) . ': ' . (string) ( $step['detail'] ?? '' );
 			}
 		}
-		$failure_detail = empty( $failed_steps ) ? '' : ' Failed steps: ' . implode( ' | ', array_slice( $failed_steps, 0, 5 ) ) . '.';
+		$failure_labels = array_map( static function ( $step ) {
+			return preg_replace( '/:.*$/', '', $step );
+		}, $failed_steps );
+		$failure_detail = empty( $failure_labels ) ? '' : ' Failed steps: ' . implode( ' | ', array_slice( $failure_labels, 0, 5 ) ) . '.';
+		$failure_error = $pass ? '' : 'twinbrain_mpr_v5_aggregate_failed' . ( empty( $failed_steps ) ? '' : ' [' . implode( ' | ', array_slice( $failed_steps, 0, 3 ) ) . ']' );
 		return array(
 			'status' => $pass ? 'pass' : 'fail',
 			'summary' => $pass
 				? ( (bool) $ctx->option( 'live', false ) ? 'Synthetic aggregate PASS; opt-in live canary completed.' : 'Synthetic aggregate PASS; live canary not requested.' )
 				: 'MPR V5 aggregate evidence failed; live canary was not promoted.' . $failure_detail,
-			'error' => $pass ? '' : 'twinbrain_mpr_v5_aggregate_failed',
+			'error' => $failure_error,
 			'fix_hint' => $pass ? '' : ( 'Fix the failing Disk/Loader/Synthetic step before running the live canary.' . $failure_detail ),
 			'steps' => $steps,
 			'evidence_json' => $evidence_json,
