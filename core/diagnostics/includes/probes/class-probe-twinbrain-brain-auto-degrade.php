@@ -68,6 +68,12 @@ MEM;
 	public function estimate_ms(): int    { return 9000; }
 
 	public function precondition() {
+		// [2026-08-20 Johnny Chu] HOTFIX-DIAGNOSTICS-MOCK — this probe makes a
+		// real gateway stream call; mock diagnostics must report SKIP, not a
+		// production gateway_unavailable failure.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return new WP_Error( 'diagnostics_mock_skip', 'Auto-degrade real gateway probe skipped in diagnostics mock mode.' );
+		}
 		if ( ! class_exists( 'BizCity_TwinBrain_Final_Composer' ) ) {
 			return 'BizCity_TwinBrain_Final_Composer chưa load.';
 		}

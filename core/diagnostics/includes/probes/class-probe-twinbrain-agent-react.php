@@ -64,6 +64,12 @@ MEM;
 	public function estimate_ms(): int    { return 20000; }
 
 	public function precondition() {
+		// [2026-08-20 Johnny Chu] HOTFIX-DIAGNOSTICS-MOCK — ReAct requires a
+		// real gateway/tool loop; mock diagnostics must report SKIP, not fail on
+		// missing agent_step_done events from a mocked response.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return new WP_Error( 'diagnostics_mock_skip', 'Agent ReAct real gateway probe skipped in diagnostics mock mode.' );
+		}
 		if ( ! class_exists( 'BizCity_TwinBrain_Agent_Runner' ) ) {
 			return 'BizCity_TwinBrain_Agent_Runner chưa load — TBR.W20 bootstrap patch chưa apply.';
 		}

@@ -37,10 +37,11 @@ final class BizCity_Personal_Action_Save_Note extends BizCity_Automation_Block_B
 
 	// [2026-06-24 Johnny Chu] PHASE-HOME-NOTEBOOKS — automation block to save notes
 
-	public function id()   { return 'action.personal_save_note'; }
-	public function kind() { return 'action'; }
+	// [2026-08-20 Johnny Chu] PHP74-COMPAT — match BizCity_Automation_Block::id(): string.
+	public function id(): string { return 'action.personal_save_note'; }
+	public function kind(): string { return 'action'; }
 
-	public function meta() {
+	public function meta(): array {
 		return array(
 			'label'    => 'Personal — Lưu Ghi Chú',
 			'short'    => 'personal_note',
