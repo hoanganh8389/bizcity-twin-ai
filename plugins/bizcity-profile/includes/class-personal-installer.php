@@ -32,7 +32,8 @@ class BizCity_Personal_Installer {
 	// [2026-06-24 Johnny Chu] PHASE-HOME-NOTEBOOKS — bumped to 1.3.0: added bizcity_personal_notebooks + bizcity_personal_notebook_pages
 	// [2026-06-24 Johnny Chu] PHASE-HOME-NOTEBOOKS PATH-B — bumped to 1.4.0: added bizcity_personal_notebook_chunks (KG service chunks)
 	// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — bumped to 1.5.0: added Profile card, QR style, and analytics tables.
-	const SCHEMA_VERSION = '1.5.0';
+	// [2026-08-21 Johnny Chu] R-DCL — bumped to 1.5.1: repair cloned sites where the schema stamp exists but Profile tables are missing.
+	const SCHEMA_VERSION = '1.5.1';
 	const VERSION_OPTION = 'bizcity_personal_db_version';
 
 	/**
@@ -40,12 +41,24 @@ class BizCity_Personal_Installer {
 	 * Safe to call on every request (guarded by version check).
 	 */
 	public static function install() {
+		global $wpdb;
 		// [2026-06-24 Johnny Chu] PHASE-HOME — version guard (idempotent)
 		if ( get_option( self::VERSION_OPTION, '' ) === self::SCHEMA_VERSION ) {
-			return;
+			// [2026-08-21 Johnny Chu] R-DCL — do not trust a copied schema stamp when Profile tables were omitted by a clone.
+			$profile_tables_ready = function_exists( 'bizcity_tbl_exists' );
+			if ( $profile_tables_ready ) {
+				foreach ( array( 'bizcity_personal_profile_cards', 'bizcity_personal_profile_qrcodes', 'bizcity_personal_profile_analytics_events' ) as $profile_table ) {
+					if ( ! bizcity_tbl_exists( $wpdb->prefix . $profile_table ) ) {
+						$profile_tables_ready = false;
+						break;
+					}
+				}
+			}
+			if ( $profile_tables_ready ) {
+				return;
+			}
 		}
 
-		global $wpdb;
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
 		$charset_collate = $wpdb->get_charset_collate();
@@ -213,6 +226,11 @@ class BizCity_Personal_Installer {
 		) $charset_collate;" );
 
 		update_option( self::VERSION_OPTION, self::SCHEMA_VERSION, true );
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			foreach ( array( 'bizcity_personal_profile_cards', 'bizcity_personal_profile_qrcodes', 'bizcity_personal_profile_analytics_events' ) as $profile_table ) {
+				bizcity_tbl_invalidate( $wpdb->prefix . $profile_table );
+			}
+		}
 	}
 
 	/**

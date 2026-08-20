@@ -164,7 +164,8 @@ class BizCity_CRM_DB_Installer_V2 {
 
 	/* ----- Lifecycle ----- */
 	public static function maybe_upgrade(): void {
-		if ( get_option( self::DB_VERSION_OPTION ) === BIZCITY_CRM_DB_VERSION ) {
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-SELF-HEAL — repair when the version stamp survived but one or more CRM tables are absent.
+		if ( get_option( self::DB_VERSION_OPTION ) === BIZCITY_CRM_DB_VERSION && empty( self::missing_tables() ) ) {
 			return;
 		}
 		self::install();

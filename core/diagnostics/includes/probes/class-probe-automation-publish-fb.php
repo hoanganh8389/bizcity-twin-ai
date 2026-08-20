@@ -56,6 +56,9 @@ final class BizCity_Probe_Automation_Publish_FB implements BizCity_Diagnostics_P
 		if ( ! class_exists( 'BizCity_Scheduler_Manager' ) ) {
 			return 'BizCity_Scheduler_Manager chưa load — core/scheduler chưa boot.';
 		}
+		if ( get_current_user_id() <= 0 ) {
+			return 'Probe cần admin login để tạo event synthetic có owner hợp lệ.';
+		}
 		return true;
 	}
 
@@ -174,6 +177,8 @@ final class BizCity_Probe_Automation_Publish_FB implements BizCity_Diagnostics_P
 			'start_at'    => gmdate( 'Y-m-d H:i:s', time() + 3600 ),
 			'related_id'  => 'probe-' . wp_generate_uuid4(),
 			'workflow_id' => 0,
+			// [2026-08-21 Johnny Chu] R-SCH-REPLY — synthetic scheduler events must carry an explicit owner; CRM Bridge correctly rejects ownerless payloads.
+			'user_id'     => (int) get_current_user_id(),
 			'status'      => 'active',
 			'source'      => 'diagnostics',
 			'metadata'    => array(
@@ -268,7 +273,7 @@ final class BizCity_Probe_Automation_Publish_FB implements BizCity_Diagnostics_P
 		if ( empty( $this->created_event_ids ) ) {
 			// Quét sót: xóa mọi row tagged PROBE_TAG (idempotent).
 			global $wpdb;
-			$table = $wpdb->prefix . 'bizcity_scheduler_events';
+			$table = $wpdb->prefix . 'bizcity_crm_events';
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE title = %s", self::PROBE_TAG ) );
 			return;

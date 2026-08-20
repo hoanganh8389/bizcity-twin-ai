@@ -62,6 +62,10 @@ final class BizCity_Probe_Web_Deep_LLM implements BizCity_Diagnostics_Probe {
 		if ( ! class_exists( 'BizCity_Search_Client' ) ) {
 			return 'BizCity_Search_Client class chưa load — search gateway chưa active.';
 		}
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — ReAct live calls require an explicitly configured gateway.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua Web Deep live gateway probe.';
+		}
 		return true;
 	}
 

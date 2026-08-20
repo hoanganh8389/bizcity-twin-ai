@@ -65,6 +65,7 @@ add_action( 'init', function () {
 		&& (
 			is_admin()
 			|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+			|| ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/wp-json/bizcity-profile/v1/' ) )
 			|| ( defined( 'DOING_CRON' ) && DOING_CRON )
 			|| ( defined( 'WP_CLI' ) && WP_CLI )
 		)

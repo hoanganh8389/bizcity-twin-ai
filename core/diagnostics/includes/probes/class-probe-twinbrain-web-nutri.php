@@ -33,6 +33,8 @@ final class BizCity_Probe_TwinBrain_Web_Nutri implements BizCity_Diagnostics_Pro
 		if ( ! class_exists( 'BizCity_TwinBrain_Web_Nutri' ) ) return 'BizCity_TwinBrain_Web_Nutri chưa load.';
 		if ( ! class_exists( 'BizCity_LLM_Client' ) )          return 'BizCity_LLM_Client chưa load.';
 		if ( ! class_exists( 'BizCity_Search_Client' ) )       return 'BizCity_Search_Client chưa load.';
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — nutrition vertical is a live Search + LLM contract.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) return 'Mock mode: bỏ qua Web Nutri live gateway probe.';
 		return true;
 	}
 

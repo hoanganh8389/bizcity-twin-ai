@@ -2268,8 +2268,9 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	private function find_or_create_daily_notebook( int $user_id, string $channel, string $day_key, string $title_slug, string $title_hint, array $scope = array() ) {
 		// [2026-07-27 Johnny Chu] PHASE-0.51 W4 — unlinked channel identities must link before capture can create a notebook.
 		if ( $user_id <= 0 ) {
+			// [2026-08-21 Johnny Chu] R-CH-IDMEM — normalize the final daily-notebook guard to the canonical fail-closed identity code.
 			return new WP_Error(
-				'kg_notebook_identity_required',
+				'notebook_bridge_invalid_identity',
 				'Vui lòng liên kết tài khoản trước khi ghi chú.',
 				array( 'status' => 403 )
 			);

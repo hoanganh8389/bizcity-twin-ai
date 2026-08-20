@@ -55,6 +55,10 @@ final class BizCity_Probe_TwinBrain_Memory_Writer_LLM implements BizCity_Diagnos
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			return 'BizCity_LLM_Client chưa load — gateway router chưa active.';
 		}
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — Mode 2 intentionally requires a real LLM call.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua Memory Writer live LLM probe.';
+		}
 		if ( get_current_user_id() <= 0 ) {
 			return 'Probe cần admin login.';
 		}

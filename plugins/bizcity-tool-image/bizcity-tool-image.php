@@ -63,7 +63,7 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
    ═══════════════════════════════════════════════ */
 define( 'BZTIMG_DIR',           plugin_dir_path( __FILE__ ) );
 define( 'BZTIMG_URL',           plugin_dir_url( __FILE__ ) );
-define( 'BZTIMG_VERSION',       '3.7.1' );
+define( 'BZTIMG_VERSION',       '3.7.2' ); // [2026-08-21 Johnny Chu] HOTFIX — release stale /profile/ rewrite ownership to bizcity-profile; Tool Image owns /profile-studio/.
 define( 'BZTIMG_SCHEMA_VERSION','6.3' );   // 6.3 — add source/hub_*/protected_from_sync cols (Phase IT-3)
 define( 'BZTIMG_SLUG',          'tool-image' );
 

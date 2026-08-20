@@ -277,11 +277,12 @@ final class BizCity_Probe_TwinWeb_Customer_Channels implements BizCity_Diagnosti
 			}
 		}
 		$summary = $pass ? 'Twin GPT My Channels MVP routes, UI markers and owner-safe payload contract are in place.' : 'Twin GPT My Channels MVP contract failed one or more DDV checks. Failed steps: ' . implode( ' | ', $failed_steps );
+		$error = $pass ? '' : 'twinweb_customer_channels_contract_failed; ' . implode( ' | ', $failed_steps );
 
 		return array(
 			'status'   => $pass ? 'pass' : 'fail',
 			'summary'  => $summary,
-			'error'    => $pass ? '' : 'twinweb_customer_channels_contract_failed',
+			'error'    => $error,
 			'fix_hint' => $pass ? '' : 'Check class-twinweb-rest.php mychannels routes, App.tsx/MyChannelsPage wiring and credential redaction.',
 			'steps'    => $steps,
 		);

@@ -252,7 +252,6 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/canva/' )
-                || false !== strpos( $_SERVER['REQUEST_URI'], '/profile/' ) // [2026-08-21 Johnny Chu] HOTFIX — load Tool Image to redirect the legacy Profile URL.
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/profile-studio/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )
 				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'biz_fb_oauth' )
@@ -372,7 +371,6 @@ $_bizcity_admin_ctx =
             || false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' ) // tool-image product studio
             || false !== strpos( $_SERVER['REQUEST_URI'], '/canva/' )        // tool-image Canva studio
             || false !== strpos( $_SERVER['REQUEST_URI'], '/profile-studio/' ) // tool-image profile studio
-            || false !== strpos( $_SERVER['REQUEST_URI'], '/profile/' )       // [2026-08-21 Johnny Chu] HOTFIX — load Tool Image to redirect the legacy Profile URL.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )     // tool-image QR studio
             // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — load MCP discovery and browser consent on normal frontend requests.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/.well-known/oauth-' )
@@ -773,6 +771,16 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         require_once $_bundled_file;
     }
 }
+// [2026-08-21 Johnny Chu] HOTFIX — force-load BizCity Profile on its canonical public route even when a stale loader already defined its version constant.
+$_bizcity_profile_request_path = (string) parse_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '', PHP_URL_PATH );
+if ( 'profile' === trim( $_bizcity_profile_request_path, '/' ) && ! class_exists( 'BizCity_Personal_Page', false ) ) {
+    $_bizcity_profile_bootstrap = __DIR__ . '/plugins/bizcity-profile/bizcity-personal.php';
+    if ( file_exists( $_bizcity_profile_bootstrap ) ) {
+        require_once $_bizcity_profile_bootstrap;
+    }
+    unset( $_bizcity_profile_bootstrap );
+}
+unset( $_bizcity_profile_request_path );
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );

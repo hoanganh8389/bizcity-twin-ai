@@ -34,7 +34,12 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 	public function estimate_ms(): int    { return 800; }
 
 	public function precondition() {
-		return true; // Plugin may not be loaded; probe handles skip gracefully.
+		$plugin_dir = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcity-zalo-personal/';
+		// [2026-08-21 Johnny Chu] R-DDV-OPTIONAL-ZALO-PERSONAL — this legacy satellite is optional; do not turn an absent module into a contract FAIL.
+		if ( ! is_dir( $plugin_dir ) ) {
+			return 'Zalo Personal satellite module is not installed; skip optional channel probe.';
+		}
+		return true;
 	}
 
 	public function run( $ctx ): array {

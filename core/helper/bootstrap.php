@@ -56,8 +56,17 @@ require_once __DIR__ . '/class-bizcity-cache-registry.php';
 if ( ! function_exists( 'bizcity_tbl_exists' ) ) {
 	function bizcity_tbl_exists( $table_name ) {
 		static $s = array();
-		if ( isset( $s[ $table_name ] ) ) {
-			return $s[ $table_name ];
+		static $generation = null;
+		$current_generation = isset( $GLOBALS['bizcity_table_cache_generation'] )
+			? (int) $GLOBALS['bizcity_table_cache_generation']
+			: 0;
+		if ( $generation !== $current_generation ) {
+			$s = array();
+			$generation = $current_generation;
+		}
+		$memo_key = (int) get_current_blog_id() . ':' . (string) $table_name;
+		if ( isset( $s[ $memo_key ] ) ) {
+			return $s[ $memo_key ];
 		}
 		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table_name );
 		$present = wp_cache_get( $ck, 'bizcity_tbl' );
@@ -71,8 +80,8 @@ if ( ! function_exists( 'bizcity_tbl_exists' ) ) {
 			);
 			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
 		}
-		$s[ $table_name ] = (bool) $present;
-		return $s[ $table_name ];
+		$s[ $memo_key ] = (bool) $present;
+		return $s[ $memo_key ];
 	}
 }
 // Alias used by class-chat-history-service.php and other callers.
@@ -84,6 +93,10 @@ if ( ! function_exists( 'bizcity_table_exists' ) ) {
 // Flush per-blog cache after table creation (call from installer/activate).
 if ( ! function_exists( 'bizcity_tbl_invalidate' ) ) {
 	function bizcity_tbl_invalidate( $table_name ) {
+		// [2026-08-21 Johnny Chu] R-METADATA-CACHE — bump the request generation so a prior false memo cannot survive CREATE/ALTER TABLE.
+		$GLOBALS['bizcity_table_cache_generation'] = isset( $GLOBALS['bizcity_table_cache_generation'] )
+			? (int) $GLOBALS['bizcity_table_cache_generation'] + 1
+			: 1;
 		$ck = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table_name );
 		wp_cache_delete( $ck, 'bizcity_tbl' );
 		if ( function_exists( 'bizcity_table_type_invalidate' ) ) {

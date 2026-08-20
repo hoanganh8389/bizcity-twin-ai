@@ -23,6 +23,8 @@
       "variant": "compact",
       "props": {
         "variant": "compact",
+        "heroStyle": "brain",
+        "brainAccentColor": "#2dd4bf",
         "name": "Tên của bạn",
         "jobTitle": "Chức danh",
         "company": "Tên công ty",

@@ -84,11 +84,10 @@ class BizCity_Probe_Membership_Entitlement implements BizCity_Diagnostics_Probe 
 		$sub_table   = $wpdb->prefix . 'bizcity_member_subscriptions';
 		$usage_table = $wpdb->prefix . 'bizcity_member_usage';
 		$pay_table   = $wpdb->prefix . 'bizcity_member_payments';
-		$wpdb->suppress_errors( true );
-		$sub_exists   = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $sub_table ) );
-		$usage_exists = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $usage_table ) );
-		$pay_exists   = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $pay_table ) );
-		$wpdb->suppress_errors( false );
+		// [2026-08-21 Johnny Chu] R-SHOW-TABLES — use the cached information_schema helper for all membership table checks.
+		$sub_exists   = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $sub_table );
+		$usage_exists = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $usage_table );
+		$pay_exists   = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $pay_table );
 
 		$steps[] = array(
 			'label'  => 'loader · tables',

@@ -194,19 +194,57 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 		}
 
 		// ── CRM (plugins/bizcity-twin-crm) ────────────────────────────
-		if ( class_exists( 'BizCity_CRM_DB_Installer' ) ) {
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-REGISTRY — the active CRM installer is V2; the legacy class name never registers on current loads.
+		if ( class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
 			// Prefer maybe_upgrade (version-gated) over install (always-run) so
 			// admin_init self-heal does not re-emit 30+ dbDelta ALTER passes
 			// every 5 minutes when schema is already at the expected version.
-			$crm_cb = method_exists( 'BizCity_CRM_DB_Installer', 'maybe_upgrade' )
-				? [ 'BizCity_CRM_DB_Installer', 'maybe_upgrade' ]
-				: [ 'BizCity_CRM_DB_Installer', 'install' ];
+			$crm_cb = method_exists( 'BizCity_CRM_DB_Installer_V2', 'maybe_upgrade' )
+				? [ 'BizCity_CRM_DB_Installer_V2', 'maybe_upgrade' ]
+				: [ 'BizCity_CRM_DB_Installer_V2', 'install' ];
 			$list[] = [
 				'id'           => 'crm',
 				'label'        => 'CRM (docs/index)',
 				'callback'     => $crm_cb,
-				'version_opt'  => 'bizcity_crm_db_ver',
+				'version_opt'  => BizCity_CRM_DB_Installer_V2::DB_VERSION_OPTION,
 				'expected_ver' => defined( 'BIZCITY_CRM_DB_VERSION' ) ? BIZCITY_CRM_DB_VERSION : '',
+			];
+		}
+
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-REGISTRY — membership tables must be provisioned on new shards before entitlement probes run.
+		if ( class_exists( 'BizCity_Membership_Manager' ) ) {
+			$list[] = [
+				'id'           => 'membership',
+				'label'        => 'Membership (subscriptions/usage/payments)',
+				'callback'     => static function () {
+					if ( class_exists( 'BizCity_Membership_Manager' ) ) {
+						BizCity_Membership_Manager::instance()->maybe_upgrade();
+					}
+				},
+				'version_opt'  => BizCity_Membership_Manager::OPT_DB_VERSION,
+				'expected_ver' => BizCity_Membership_Manager::DB_VERSION,
+			];
+		}
+
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-REGISTRY — provision bundled creator tables before MCP/content probes query them.
+		if ( class_exists( 'BZCC_Installer' ) ) {
+			$list[] = [
+				'id'           => 'content_creator',
+				'label'        => 'Content Creator (templates/files)',
+				'callback'     => [ 'BZCC_Installer', 'maybe_create_tables' ],
+				'version_opt'  => 'bzcc_db_version',
+				'expected_ver' => defined( 'BZCC_DB_VERSION' ) ? BZCC_DB_VERSION : '',
+			];
+		}
+
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-REGISTRY — bundled Astro checklist is a tenant schema owner, not a probe-only dependency.
+		if ( class_exists( 'BizCoach_Astro_Checklist' ) ) {
+			$list[] = [
+				'id'           => 'bizcoach_astro_checklist',
+				'label'        => 'BizCoach Astro (checklist)',
+				'callback'     => [ 'BizCoach_Astro_Checklist', 'maybe_install' ],
+				'version_opt'  => BizCoach_Astro_Checklist::VERSION_OPTION,
+				'expected_ver' => BizCoach_Astro_Checklist::SCHEMA_VERSION,
 			];
 		}
 
@@ -296,6 +334,26 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 				'callback'     => [ 'BizCity_Channel_User_Linker', 'maybe_install' ],
 				'version_opt'  => BizCity_Channel_User_Linker::OPTION_VERSION,
 				'expected_ver' => BizCity_Channel_User_Linker::SCHEMA_VERSION,
+			];
+		}
+
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-REGISTRY — provision Zalo Bot tables in headless CI and new tenant shards.
+		if ( class_exists( 'BizCity_Zalo_Bot_Plugin' ) ) {
+			$list[] = [
+				'id'           => 'zalo_bot',
+				'label'        => 'Zalo Bot (bots/logs)',
+				'callback'     => [ BizCity_Zalo_Bot_Plugin::instance(), 'maybe_create_tables' ],
+				'version_opt'  => 'bizcity_zalo_bot_db_version',
+				'expected_ver' => BizCity_Zalo_Bot_Plugin::DB_VERSION,
+			];
+		}
+		if ( class_exists( 'BizCity_Zalobot_User_Linker' ) ) {
+			$list[] = [
+				'id'           => 'zalo_user_linker',
+				'label'        => 'Zalo Bot (user links)',
+				'callback'     => [ 'BizCity_Zalobot_User_Linker', 'install' ],
+				'version_opt'  => BizCity_Zalobot_User_Linker::DB_VERSION_OPTION,
+				'expected_ver' => BizCity_Zalobot_User_Linker::DB_VERSION,
 			];
 		}
 		if ( class_exists( 'BizCity_User_Resolver' ) ) {

@@ -238,11 +238,14 @@ final class BizCity_Probe_TwinWeb_App_Catalog implements BizCity_Diagnostics_Pro
 		$summary = $pass
 			? 'apps/effective contract is wired and workflow state rules are enforced.'
 			: 'apps/effective contract failed one or more Disk/Loader/Runtime checks. Failed steps: ' . implode( ' | ', $failed_steps );
+		$error = $pass
+			? ''
+			: 'twinweb_app_catalog_contract_failed; ' . implode( ' | ', $failed_steps );
 
 		return array(
 			'status'   => $pass ? 'pass' : 'fail',
 			'summary'  => $summary,
-			'error'    => $pass ? '' : 'twinweb_app_catalog_contract_failed',
+			'error'    => $error,
 			'fix_hint' => $pass ? '' : 'Check get_apps_effective route registration and state gating in class-twinweb-rest.php.',
 			'steps'    => $steps,
 		);
@@ -314,7 +317,8 @@ final class BizCity_Probe_TwinWeb_App_Catalog implements BizCity_Diagnostics_Pro
 			'creator'  => '/creator/',
 			'doc'      => '/tool-doc/',
 			'image'    => '/tool-image/',
-			'profile'  => '/profile-studio/',
+			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Profile now owns /profile/; /profile-studio/ belongs to the image tool.
+			'profile'  => '/profile/',
 		);
 
 		foreach ( $legacy_paths as $id => $legacy_path ) {

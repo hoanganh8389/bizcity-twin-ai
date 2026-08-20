@@ -38,7 +38,8 @@ class BizCity_Personal_Page {
 	public function register() {
 		// [2026-06-24 Johnny Chu] PHASE-HOME — full-page takeover via template_redirect.
 		// Detect: any singular page whose post_content contains [bizcity_personal shortcode.
-		add_action( 'template_redirect', array( $this, 'maybe_render' ) );
+		// [2026-08-21 Johnny Chu] HOTFIX — claim canonical /profile/ before theme 404 handlers run.
+		add_action( 'template_redirect', array( $this, 'maybe_render' ), 0 );
 
 		// Shortcode [bizcity_personal] for embedding in WP pages.
 		add_shortcode( 'bizcity_personal', array( $this, 'render_shortcode' ) );
@@ -49,6 +50,15 @@ class BizCity_Personal_Page {
 	 * Outputs a standalone HTML shell (no WP theme).
 	 */
 	public function maybe_render() {
+		// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — /profile/ is the canonical Profile SPA path; /personal/ remains a compatibility page.
+		if ( self::is_canonical_profile_route() ) {
+			add_filter( 'show_admin_bar', '__return_false' );
+			status_header( 200 );
+			header( 'Content-Type: text/html; charset=UTF-8' );
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo self::get_page_html( home_url( '/profile/' ) );
+			exit;
+		}
 		if ( ! is_singular() ) {
 			return;
 		}
@@ -84,6 +94,17 @@ class BizCity_Personal_Page {
 		self::enqueue_assets();
 		echo '<div id="bizcity-personal-root" style="height:' . $h . ';min-height:400px"></div>';
 		return ob_get_clean();
+	}
+
+	/**
+	 * Detect the canonical standalone Profile app path.
+	 *
+	 * @return bool
+	 */
+	private static function is_canonical_profile_route() {
+		$request_path = (string) parse_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '', PHP_URL_PATH );
+		$profile_path = (string) parse_url( home_url( '/profile/' ), PHP_URL_PATH );
+		return '' !== $request_path && trim( $request_path, '/' ) === trim( $profile_path, '/' );
 	}
 
 	/**

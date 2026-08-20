@@ -56,6 +56,10 @@ final class BizCity_Probe_TwinBrain_Web_Med implements BizCity_Diagnostics_Probe
 		if ( ! class_exists( 'BizCity_Search_Client' ) ) {
 			return 'BizCity_Search_Client class chưa load — search gateway chưa active.';
 		}
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — medical vertical is a live Search + LLM contract.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua Web Med live gateway probe.';
+		}
 		return true;
 	}
 

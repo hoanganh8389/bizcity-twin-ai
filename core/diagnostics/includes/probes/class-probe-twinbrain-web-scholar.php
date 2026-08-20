@@ -36,6 +36,8 @@ final class BizCity_Probe_TwinBrain_Web_Scholar implements BizCity_Diagnostics_P
 		if ( ! class_exists( 'BizCity_TwinBrain_Web_Scholar' ) ) return 'BizCity_TwinBrain_Web_Scholar chưa load.';
 		if ( ! class_exists( 'BizCity_LLM_Client' ) )            return 'BizCity_LLM_Client chưa load.';
 		if ( ! class_exists( 'BizCity_Search_Client' ) )         return 'BizCity_Search_Client chưa load.';
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — scholar vertical is a live Search + LLM contract.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) return 'Mock mode: bỏ qua Web Scholar live gateway probe.';
 		return true;
 	}
 

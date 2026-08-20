@@ -34,6 +34,10 @@ final class BizCity_Probe_Astro_Pro_Charts_A5 implements BizCity_Diagnostics_Pro
 		if ( ! defined( 'BCPRO_DIR' ) ) {
 			return new WP_Error( 'bcpro_inactive', 'BCPRO_DIR chưa định nghĩa. Kích hoạt bizcoach-pro trước khi chạy probe.' );
 		}
+		// [2026-08-21 Johnny Chu] R-GW-8 — the Astro Hub provider is server-only; a client checkout without bizcity-llm-router must skip Hub evidence.
+		if ( ! is_dir( WP_PLUGIN_DIR . '/bizcity-llm-router' ) ) {
+			return 'Standalone client topology: bizcity-llm-router is not installed; skip Hub-side A5 checks.';
+		}
 		return true;
 	}
 

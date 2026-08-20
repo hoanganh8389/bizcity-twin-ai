@@ -3,7 +3,7 @@
   "module_id": "modules.personal",
   "owner": "plugins/bizcity-profile",
   "installer_id": "personal",
-  "current_version": "1.5.0",
+  "current_version": "1.5.1",
   "version_option": "bizcity_personal_db_version",
   "tables": {
     "bizcity_home_finance_categories": {
@@ -221,6 +221,7 @@
     { "version": "1.2.0", "date": "2026-06-24", "change": "Rename tables bizcity_home_* -> bizcity_personal_* (PHASE-HOME-ARCH)" },
     { "version": "1.3.0", "date": "2026-06-24", "change": "Add bizcity_personal_notebooks + bizcity_personal_notebook_pages (PHASE-HOME-NOTEBOOKS)" },
     { "version": "1.4.0", "date": "2026-06-24", "change": "Add bizcity_personal_notebook_chunks for KG ingest pipeline (PHASE-HOME-NOTEBOOKS PATH-B)" },
-    { "version": "1.5.0", "date": "2026-08-20", "change": "Add Profile card registry, QR style, and privacy-minimal analytics event tables (PHASE-PROFILE-QR)" }
+    { "version": "1.5.0", "date": "2026-08-20", "change": "Add Profile card registry, QR style, and privacy-minimal analytics event tables (PHASE-PROFILE-QR)" },
+    { "version": "1.5.1", "date": "2026-08-21", "change": "Repair Profile schema when the database version option exists but cloned sites are missing the three Profile tables (R-DCL)" }
   ]
 }

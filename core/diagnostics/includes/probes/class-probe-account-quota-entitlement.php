@@ -50,6 +50,10 @@ final class BizCity_Probe_Account_Quota_Entitlement implements BizCity_Diagnosti
 				'BizCity_LLM_Client chưa load. Kiểm core/bizcity-llm bootstrap.'
 			);
 		}
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — hub account reads cannot be asserted without a real credential.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua live hub account/entitlement probe.';
+		}
 		return true;
 	}
 

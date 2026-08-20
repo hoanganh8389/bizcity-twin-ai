@@ -54,6 +54,10 @@ final class BizCity_Probe_Web_Search_Ping implements BizCity_Diagnostics_Probe {
 				'BizCity_Search_Client chưa load. Đảm bảo core/bizcity-llm/includes/class-search-client.php require_once trước probe.'
 			);
 		}
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — live search is intentionally unavailable in mock mode.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua live Search Gateway probe.';
+		}
 		return true;
 	}
 

@@ -3962,13 +3962,13 @@ class BizCity_TwinWeb_REST {
 				'id'            => 'profile',
 				'label'         => 'My Profiles',
 				'icon'          => 'profile',
-				// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — My Profiles opens the Tool Image Profile Studio route.
+				// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — My Profiles opens the BizCity Profile SPA; Tool Image uses /profile-studio/.
 				'href'          => home_url( '/gpt/profile/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile-studio/' ) ),
+				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile/' ) ),
 				'required_plan' => 'free',
 				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — Profile Studio belongs to bizcity-tool-image, not BizCity Personal.
-				'dependency_ok' => defined( 'BZTIMG_VERSION' ) || class_exists( 'BizCity_Profile_Studio_Page' ),
+				// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — My Profiles belongs to bizcity-profile, not Tool Image.
+				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),

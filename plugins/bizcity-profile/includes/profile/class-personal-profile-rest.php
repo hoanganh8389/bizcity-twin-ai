@@ -69,6 +69,12 @@ final class BizCity_Personal_Profile_REST {
 			),
 		) );
 
+		register_rest_route( self::NS, '/profile/cards/(?P<id>\d+)/content', array(
+			'methods'              => WP_REST_Server::EDITABLE,
+			'callback'            => array( $this, 'update_content' ),
+			'permission_callback' => array( $this, 'check_logged_in' ),
+		) );
+
 		register_rest_route( self::NS, '/profile/cards/(?P<id>\d+)/publish', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( $this, 'publish_card' ),
@@ -226,6 +232,8 @@ final class BizCity_Personal_Profile_REST {
 		}
 		$item['public_url'] = $this->published_url( (int) $item['bzpb_project_id'] );
 		$item['qr'] = BizCity_Personal_Profile_QR_Manager::get_for_owner( (int) $item['id'], get_current_user_id() );
+		$project = BizCity_Personal_Profile_BZPB_Bridge::get_project_config( (int) $item['bzpb_project_id'], get_current_user_id() );
+		$item['content'] = is_wp_error( $project ) ? array() : $this->profile_content_from_config( $project['config'] );
 		return rest_ensure_response( array( 'success' => true, 'item' => $item ) );
 	}
 
@@ -239,6 +247,136 @@ final class BizCity_Personal_Profile_REST {
 			return $this->error_response( 'not_found', 'Không cập nhật được danh thiếp Profile.', 'Kiểm tra quyền sở hữu và thử lại.', 'profile_card_update_failed', 404 );
 		}
 		return rest_ensure_response( array( 'success' => true, 'item' => BizCity_Personal_Profile_Card_Manager::get( (int) $request['id'], get_current_user_id() ) ) );
+	}
+
+	public function update_content( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-BRAIN-HERO — save the simple Profile editor through the existing SiteConfig source of truth.
+		$card = BizCity_Personal_Profile_Card_Manager::get( (int) $request['id'], get_current_user_id() );
+		if ( ! is_array( $card ) ) {
+			return $this->error_response( 'not_found', 'Không tìm thấy danh thiếp Profile.', 'Mở lại danh sách danh thiếp của bạn.', 'profile_card_not_found', 404 );
+		}
+		$project = BizCity_Personal_Profile_BZPB_Bridge::get_project_config( (int) $card['bzpb_project_id'], get_current_user_id() );
+		if ( is_wp_error( $project ) ) {
+			return $this->error_response( 'not_found', 'Không đọc được cấu hình Profile.', 'Tải lại danh thiếp rồi thử lại.', 'profile_config_not_found', 404 );
+		}
+		$payload = $request->get_json_params();
+		$payload = is_array( $payload ) ? $payload : array();
+		$normalized = $this->normalize_content_payload( $payload );
+		if ( is_wp_error( $normalized ) ) {
+			return $this->error_response( 'invalid_param', 'Thông tin Profile chưa hợp lệ.', 'Kiểm tra các đường link và thử lưu lại.', 'profile_content_invalid', 400 );
+		}
+		$config = $project['config'];
+		$found  = false;
+		foreach ( is_array( $config['blocks'] ?? null ) ? $config['blocks'] : array() as $index => $block ) {
+			if ( 'profile-card' !== (string) ( $block['type'] ?? '' ) ) { continue; }
+			$config['blocks'][ $index ]['props'] = array_merge( is_array( $block['props'] ?? null ) ? $block['props'] : array(), $normalized );
+			$found = true;
+			break;
+		}
+		if ( ! $found ) {
+			return $this->error_response( 'not_found', 'Profile block chưa tồn tại.', 'Tạo lại danh thiếp từ template Profile rồi thử lại.', 'profile_block_required', 400 );
+		}
+		$saved = BizCity_Personal_Profile_BZPB_Bridge::save_project_config( (int) $card['bzpb_project_id'], get_current_user_id(), $config, $project['title'] );
+		if ( is_wp_error( $saved ) ) {
+			return $this->error_response( 'gateway_degraded', 'Không lưu được thông tin Profile lúc này.', 'Kiểm tra Page Builder rồi thử lại.', 'profile_content_save_failed', 502 );
+		}
+		return rest_ensure_response( array( 'success' => true, 'content' => $normalized ) );
+	}
+
+	private function normalize_content_payload( array $payload ) {
+		$normalized = array();
+		$text_fields = array( 'name', 'jobTitle', 'company', 'bio' );
+		foreach ( $text_fields as $field ) {
+			if ( array_key_exists( $field, $payload ) ) {
+				$normalized[ $field ] = 'bio' === $field ? sanitize_textarea_field( (string) $payload[ $field ] ) : sanitize_text_field( (string) $payload[ $field ] );
+			}
+		}
+		if ( array_key_exists( 'avatarUrl', $payload ) ) {
+			$avatar_url = $this->normalize_public_url( $payload['avatarUrl'] );
+			if ( is_wp_error( $avatar_url ) ) { return $avatar_url; }
+			$normalized['avatarUrl'] = $avatar_url;
+		}
+		if ( array_key_exists( 'coverUrl', $payload ) ) {
+			$cover_url = $this->normalize_public_url( $payload['coverUrl'] );
+			if ( is_wp_error( $cover_url ) ) { return $cover_url; }
+			$normalized['coverUrl'] = $cover_url;
+		}
+		if ( array_key_exists( 'heroStyle', $payload ) ) {
+			$hero_style = sanitize_key( (string) $payload['heroStyle'] );
+			if ( ! in_array( $hero_style, array( 'brain', 'photo' ), true ) ) { return new WP_Error( 'invalid_param' ); }
+			$normalized['heroStyle'] = $hero_style;
+		}
+		if ( array_key_exists( 'brainAccentColor', $payload ) ) {
+			$color = sanitize_hex_color( (string) $payload['brainAccentColor'] );
+			if ( ! $color ) { return new WP_Error( 'invalid_param' ); }
+			$normalized['brainAccentColor'] = $color;
+		}
+		if ( array_key_exists( 'contactFields', $payload ) ) {
+			$fields = $this->normalize_contact_fields( $payload['contactFields'] );
+			if ( is_wp_error( $fields ) ) { return $fields; }
+			$normalized['contactFields'] = $fields;
+		}
+		if ( array_key_exists( 'socialLinks', $payload ) ) {
+			$links = $this->normalize_social_links( $payload['socialLinks'] );
+			if ( is_wp_error( $links ) ) { return $links; }
+			$normalized['socialLinks'] = $links;
+		}
+		return $normalized;
+	}
+
+	private function normalize_contact_fields( $fields ) {
+		if ( ! is_array( $fields ) || count( $fields ) > 8 ) { return new WP_Error( 'invalid_param' ); }
+		$allowed = array( 'phone', 'email', 'website', 'address', 'link' );
+		$normalized = array();
+		foreach ( $fields as $field ) {
+			if ( ! is_array( $field ) ) { return new WP_Error( 'invalid_param' ); }
+			$type  = sanitize_key( (string) ( $field['type'] ?? 'link' ) );
+			$value = trim( (string) ( $field['value'] ?? '' ) );
+			if ( ! in_array( $type, $allowed, true ) || '' === $value ) { continue; }
+			if ( 'email' === $type ) { $value = sanitize_email( $value ); }
+			if ( in_array( $type, array( 'website', 'link' ), true ) ) {
+				$value = $this->normalize_public_url( $value );
+				if ( is_wp_error( $value ) ) { return $value; }
+			}
+			if ( '' === $value ) { continue; }
+			$normalized[] = array( 'type' => $type, 'label' => sanitize_text_field( (string) ( $field['label'] ?? $type ) ), 'value' => $value );
+		}
+		return $normalized;
+	}
+
+	private function normalize_social_links( $links ) {
+		if ( ! is_array( $links ) || count( $links ) > 8 ) { return new WP_Error( 'invalid_param' ); }
+		$allowed = array( 'x', 'instagram', 'threads', 'facebook', 'youtube', 'tiktok', 'linkedin' );
+		$normalized = array();
+		foreach ( $links as $link ) {
+			if ( ! is_array( $link ) ) { return new WP_Error( 'invalid_param' ); }
+			$platform = sanitize_key( (string) ( $link['platform'] ?? '' ) );
+			$url      = $this->normalize_public_url( $link['url'] ?? '' );
+			if ( is_wp_error( $url ) ) { return $url; }
+			if ( ! in_array( $platform, $allowed, true ) || '' === $url ) { continue; }
+			$normalized[] = array( 'platform' => $platform, 'url' => $url );
+		}
+		return $normalized;
+	}
+
+	private function normalize_public_url( $value ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-BRAIN-HERO — normalize public links to one safe HTTP URL contract.
+		$value = trim( (string) $value );
+		if ( '' === $value ) { return ''; }
+		if ( 0 !== strpos( strtolower( $value ), 'http://' ) && 0 !== strpos( strtolower( $value ), 'https://' ) ) {
+			$value = 'https://' . $value;
+		}
+		$value = esc_url_raw( $value );
+		return wp_http_validate_url( $value ) ? $value : new WP_Error( 'invalid_param' );
+	}
+
+	private function profile_content_from_config( array $config ) {
+		$allowed = array( 'variant', 'heroStyle', 'brainAccentColor', 'avatarUrl', 'coverUrl', 'name', 'jobTitle', 'company', 'bio', 'contactFields', 'socialLinks', 'messagingLinks', 'quickActions', 'ctaSave', 'ctaShare' );
+		foreach ( is_array( $config['blocks'] ?? null ) ? $config['blocks'] : array() as $block ) {
+			if ( 'profile-card' !== (string) ( $block['type'] ?? '' ) || ! is_array( $block['props'] ?? null ) ) { continue; }
+			return array_intersect_key( $block['props'], array_flip( $allowed ) );
+		}
+		return array();
 	}
 
 	public function delete_card( WP_REST_Request $request ) {

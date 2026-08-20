@@ -112,6 +112,7 @@ class BizCity_Scheduler_Manager {
 	 * (e.g. shard provisioned after the option was first saved).
 	 */
 	public function ensure_schema(): void {
+		global $wpdb;
 		if ( $this->is_installing ) {
 			return;
 		}
@@ -129,6 +130,11 @@ class BizCity_Scheduler_Manager {
 			$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
 			delete_transient( self::TBL_OK_TRANSIENT . $blog_id );
 			unset( self::$ready_blogs[ $blog_id ] );
+			// [2026-08-21 Johnny Chu] R-METADATA-CACHE — clear the shared table memo before migration changes physical names.
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $this->table );
+				bizcity_tbl_invalidate( $wpdb->prefix . self::LEGACY_SCHEDULER_TABLE );
+			}
 
 			$this->migrate( $stored );
 
@@ -202,7 +208,14 @@ class BizCity_Scheduler_Manager {
 		global $wpdb;
 
 		$legacy = $wpdb->prefix . self::LEGACY_SCHEDULER_TABLE;
+		// [2026-08-21 Johnny Chu] SCHEDULER-MIGRATION-IDEMPOTENCY — do not repeat ADD COLUMN when an interrupted run left the column in place.
+		if ( ! $this->table_exists( $legacy ) || $this->column_exists( $legacy, 'reminder_claimed_at' ) ) {
+			return;
+		}
 		$wpdb->query( "ALTER TABLE {$legacy} ADD COLUMN reminder_claimed_at DATETIME DEFAULT NULL AFTER reminder_sent" );
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $legacy );
+		}
 	}
 
 	/**
@@ -286,12 +299,25 @@ class BizCity_Scheduler_Manager {
 		}
 
 		// 3) ALTER ADD new columns + index.
-		$wpdb->query( "ALTER TABLE `{$unified}`
-			ADD COLUMN event_type VARCHAR(32) NOT NULL DEFAULT 'meeting' AFTER status,
-			ADD COLUMN metadata LONGTEXT NULL AFTER event_type,
-			ADD COLUMN google_account_id BIGINT UNSIGNED DEFAULT NULL AFTER google_calendar_id,
-			ADD KEY idx_event_type (event_type)
-		" );
+		$alter_clauses = array();
+		if ( ! $this->column_exists( $unified, 'event_type' ) ) {
+			$alter_clauses[] = "ADD COLUMN event_type VARCHAR(32) NOT NULL DEFAULT 'meeting' AFTER status";
+		}
+		if ( ! $this->column_exists( $unified, 'metadata' ) ) {
+			$alter_clauses[] = "ADD COLUMN metadata LONGTEXT NULL AFTER event_type";
+		}
+		if ( ! $this->column_exists( $unified, 'google_account_id' ) ) {
+			$alter_clauses[] = "ADD COLUMN google_account_id BIGINT UNSIGNED DEFAULT NULL AFTER google_calendar_id";
+		}
+		if ( ! $this->index_exists( $unified, 'idx_event_type' ) ) {
+			$alter_clauses[] = 'ADD KEY idx_event_type (event_type)';
+		}
+		if ( ! empty( $alter_clauses ) ) {
+			$wpdb->query( "ALTER TABLE `{$unified}` " . implode( ', ', $alter_clauses ) );
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $unified );
+			}
+		}
 
 		// 4) Backfill from CRM legacy table if it exists.
 		if ( $this->table_exists( $crm_legacy ) ) {
@@ -353,23 +379,46 @@ class BizCity_Scheduler_Manager {
 		global $wpdb;
 		$t = $this->table;
 
-		// Guard: skip if columns already exist (idempotent re-run).
-		$has_contact_id = (bool) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM information_schema.COLUMNS
-			 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'contact_id'",
-			$wpdb->prefix . self::TABLE_NAME
-		) );
-		if ( $has_contact_id ) {
-			return;
+		$alter_clauses = array();
+		if ( ! $this->column_exists( $t, 'contact_id' ) ) {
+			$alter_clauses[] = 'ADD COLUMN contact_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER updated_at';
 		}
+		if ( ! $this->column_exists( $t, 'conversation_id' ) ) {
+			$alter_clauses[] = 'ADD COLUMN conversation_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER contact_id';
+		}
+		if ( ! $this->column_exists( $t, 'campaign_id' ) ) {
+			$alter_clauses[] = 'ADD COLUMN campaign_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER conversation_id';
+		}
+		if ( ! $this->index_exists( $t, 'idx_contact_id' ) ) {
+			$alter_clauses[] = 'ADD KEY idx_contact_id (contact_id)';
+		}
+		if ( ! $this->index_exists( $t, 'idx_campaign_id' ) ) {
+			$alter_clauses[] = 'ADD KEY idx_campaign_id (campaign_id)';
+		}
+		if ( ! empty( $alter_clauses ) ) {
+			$wpdb->query( "ALTER TABLE `{$t}` " . implode( ', ', $alter_clauses ) );
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $t );
+			}
+		}
+	}
 
-		$wpdb->query( "ALTER TABLE `{$t}`
-			ADD COLUMN contact_id      BIGINT UNSIGNED NULL DEFAULT NULL AFTER updated_at,
-			ADD COLUMN conversation_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER contact_id,
-			ADD COLUMN campaign_id     BIGINT UNSIGNED NULL DEFAULT NULL AFTER conversation_id,
-			ADD KEY idx_contact_id  (contact_id),
-			ADD KEY idx_campaign_id (campaign_id)
-		" );
+	private function column_exists( string $table, string $column ): bool {
+		global $wpdb;
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			' SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
+			$table,
+			$column
+		) );
+	}
+
+	private function index_exists( string $table, string $index ): bool {
+		global $wpdb;
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			' SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s LIMIT 1',
+			$table,
+			$index
+		) );
 	}
 
 	/** Table-existence helper (used only in migrate paths). */

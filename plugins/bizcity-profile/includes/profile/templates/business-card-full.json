@@ -23,6 +23,8 @@
       "variant": "full",
       "props": {
         "variant": "full",
+        "heroStyle": "brain",
+        "brainAccentColor": "#2dd4bf",
         "name": "Tên của bạn",
         "jobTitle": "Chức danh",
         "company": "Tên công ty",

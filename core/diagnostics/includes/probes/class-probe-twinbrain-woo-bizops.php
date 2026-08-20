@@ -26,7 +26,13 @@ final class BizCity_Probe_TwinBrain_Woo_Bizops implements BizCity_Diagnostics_Pr
 	public function order(): int { return 48; }
 	public function icon(): string { return 'bar-chart-3'; }
 	public function estimate_ms(): int { return 250; }
-	public function precondition(): bool { return true; }
+	public function precondition() {
+		// [2026-08-21 Johnny Chu] R-DDV-OPTIONAL-WOO — BizOps cannot be runtime-validated when WooCommerce is inactive.
+		if ( ! function_exists( 'wc_get_orders' ) ) {
+			return 'WooCommerce chưa active; bỏ qua Woo BizOps contract probe.';
+		}
+		return true;
+	}
 
 	public function run( $ctx ): array {
 		// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — Disk/Loader/Runtime foundation probe.

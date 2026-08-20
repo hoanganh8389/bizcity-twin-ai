@@ -96,7 +96,12 @@ class BizCity_Membership_Manager {
 	 */
 	public function maybe_upgrade() {
 		$current = get_option( self::OPT_DB_VERSION, '' );
-		if ( version_compare( (string) $current, self::DB_VERSION, '>=' ) ) {
+		$tables_ready = function_exists( 'bizcity_tbl_exists' )
+			&& bizcity_tbl_exists( self::table() )
+			&& ( ! class_exists( 'BizCity_Membership_Usage' ) || bizcity_tbl_exists( BizCity_Membership_Usage::instance()->table() ) )
+			&& ( ! class_exists( 'BizCity_Membership_Payments' ) || bizcity_tbl_exists( BizCity_Membership_Payments::instance()->table() ) );
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-SELF-HEAL — a current version option cannot mask missing tenant tables.
+		if ( version_compare( (string) $current, self::DB_VERSION, '>=' ) && $tables_ready ) {
 			return;
 		}
 		$this->ensure_table();

@@ -158,6 +158,10 @@ class BizCity_Memory_Unified_Installer {
 
 		dbDelta( $sql );
 
+		// [2026-08-21 Johnny Chu] R-METADATA-CACHE — discard any pre-DDL false result before verifying the new unified table.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $table );
+		}
 		$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( ! $exists ) {
 			error_log( '[BizCity_Memory_Unified_Installer] dbDelta FAILED for ' . $table );

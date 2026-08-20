@@ -284,9 +284,14 @@ class BizCity_Zalo_Bot_Plugin {
 	 * @since 1.4.1 — moved from init to admin_init, removed SHOW TABLES per-request
 	 */
 	public function maybe_create_tables() {
-		// Fast bail: version already matches — no DB queries needed
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-SELF-HEAL — a matching option is insufficient when a shard table was dropped or never provisioned.
 		$installed_version = get_option( 'bizcity_zalo_bot_db_version' );
-		if ( $installed_version === self::DB_VERSION ) {
+		$bots_table = $GLOBALS['wpdb']->prefix . 'bizcity_zalo_bots';
+		$logs_table = $GLOBALS['wpdb']->prefix . 'bizcity_zalo_bot_logs';
+		$tables_ready = function_exists( 'bizcity_tbl_exists' )
+			? bizcity_tbl_exists( $bots_table ) && bizcity_tbl_exists( $logs_table )
+			: false;
+		if ( $installed_version === self::DB_VERSION && $tables_ready ) {
 			return;
 		}
 
