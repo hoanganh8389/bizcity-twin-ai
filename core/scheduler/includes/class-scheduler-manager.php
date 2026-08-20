@@ -226,27 +226,28 @@ class BizCity_Scheduler_Manager {
 		$unified          = $wpdb->prefix . self::TABLE_NAME;
 		$crm_legacy       = $unified . '_legacy_' . gmdate( 'Ymd' );
 
-		// 1) Free the unified name: if a CRM-style table sits there, rename it.
-		if ( $this->table_exists( $unified ) && ! $this->table_exists( $legacy_scheduler ) ) {
-			// Could be: (a) we already migrated (no-op) or (b) old CRM small schema.
-			// Detect by presence of `event_type` column (v3 marker).
+		// [2026-08-19 Johnny Chu] HOTFIX-SCHEDULER-IDEMPOTENCY - a canonical unified table must never be renamed away when a stale legacy table also exists.
+		$unified_exists = $this->table_exists( $unified );
+		$legacy_exists  = $this->table_exists( $legacy_scheduler );
+		$has_event_type = false;
+		if ( $unified_exists ) {
 			$has_event_type = (bool) $wpdb->get_var( $wpdb->prepare(
 				"SELECT COUNT(*) FROM information_schema.COLUMNS
 				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'event_type'",
 				$unified
 			) );
 			if ( $has_event_type ) {
-				return; // Already on v3.
+				return; // Already canonical v3; migrate_to_4() handles later columns.
 			}
 		}
 
-		if ( $this->table_exists( $unified ) ) {
-			// Old CRM table is in the way — rename it aside.
+		if ( $unified_exists ) {
+			// Old CRM table is in the way — rename it aside before promoting legacy scheduler data.
 			$wpdb->query( "RENAME TABLE `{$unified}` TO `{$crm_legacy}`" );
 		}
 
 		// 2) Rename scheduler → unified (if scheduler exists).
-		if ( $this->table_exists( $legacy_scheduler ) ) {
+		if ( $legacy_exists ) {
 			$wpdb->query( "RENAME TABLE `{$legacy_scheduler}` TO `{$unified}`" );
 		} else {
 			// Fresh subsite — create unified table directly with full v3 schema.

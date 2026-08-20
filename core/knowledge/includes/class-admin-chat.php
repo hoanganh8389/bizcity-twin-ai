@@ -490,54 +490,8 @@ class BizCity_Admin_Chat {
             ];
         }
 
-        // Legacy fallback: direct OpenRouter call (only if bizcity_llm not loaded)
-        $api_key = get_site_option( 'bizcity_openrouter_api_key', '' );
-
-        if (empty($api_key)) {
-            // Fallback to OpenAI
-            return $this->call_openai($messages);
-        }
-
-        $model = $character->model_id;
-
-        $response = wp_remote_post('https://openrouter.ai/api/v1/chat/completions', [
-            'timeout' => 60,
-            'headers' => [
-                'Content-Type'  => 'application/json',
-                'Authorization' => 'Bearer ' . $api_key,
-                'HTTP-Referer'  => home_url(),
-                'X-Title'       => get_bloginfo('name'),
-            ],
-            'body' => wp_json_encode([
-                'model'       => $model,
-                'messages'    => $messages,
-                'temperature' => floatval($character->creativity_level ?? 0.7),
-                'max_tokens'  => 3000,
-            ]),
-        ]);
-
-        if (is_wp_error($response)) {
-            return ['message' => 'Lỗi kết nối OpenRouter: ' . $response->get_error_message(), 'provider' => 'openrouter'];
-        }
-
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-
-        if (isset($body['choices'][0]['message']['content'])) {
-            return [
-                'message'  => trim($body['choices'][0]['message']['content']),
-                'provider' => 'openrouter',
-                'model'    => $model,
-                'usage'    => $body['usage'] ?? [],
-            ];
-        }
-
-        if (isset($body['error']['message'])) {
-            error_log('[AdminChat] OpenRouter error: ' . $body['error']['message']);
-            // Fallback to OpenAI
-            return $this->call_openai($messages);
-        }
-
-        return ['message' => 'Xin lỗi, không nhận được phản hồi.', 'provider' => 'openrouter'];
+        // [2026-08-19 Johnny Chu] R-GW-8 - never bypass the gateway when its helper is unavailable.
+        return $this->call_openai($messages);
     }
 
     /* ================================================================

@@ -56,6 +56,7 @@ final class BizCity_Probe_BizCoach_Pro implements BizCity_Diagnostics_Probe {
 	public function estimate_ms(): int    { return 2500; }
 
 	public function precondition() {
+		global $wpdb;
 		if ( ! class_exists( 'BizCoach_Pro_Sprint_Diagnostic' ) ) {
 			if ( defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'includes/class-sprint-diagnostic.php' ) ) {
 				require_once BCPRO_DIR . 'includes/class-sprint-diagnostic.php';
@@ -64,6 +65,11 @@ final class BizCity_Probe_BizCoach_Pro implements BizCity_Diagnostics_Probe {
 		if ( ! class_exists( 'BizCoach_Pro_Sprint_Diagnostic' ) ) {
 			return new WP_Error( 'class_missing',
 				'BizCoach_Pro_Sprint_Diagnostic chưa load — bizcoach-pro plugin chưa active hoặc BCPRO_DIR chưa định nghĩa.' );
+		}
+		// [2026-08-19 Johnny Chu] R-DDV-LEGACY-DEPENDENCY - public CI does not ship the legacy bizcoach-map schema owner.
+		$coachees_table = $wpdb->prefix . 'bccm_coachees';
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $coachees_table ) ) {
+			return new WP_Error( 'legacy_schema_missing', 'BizCoach Pro phụ thuộc schema legacy bizcoach-map; bảng bccm_coachees chưa có trong môi trường này.' );
 		}
 		// [2026-08-16 Johnny Chu] R-DDV/R-PERF — diagnostics admin is outside the Intent page gate; load its contract before the lazy BizCoach provider.
 		if ( ! class_exists( 'BizCity_Intent_Provider' ) ) {

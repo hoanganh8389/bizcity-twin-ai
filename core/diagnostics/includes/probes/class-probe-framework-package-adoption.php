@@ -27,7 +27,19 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 	public function order(): int { return 21; }
 	public function icon(): string { return 'package-check'; }
 	public function estimate_ms(): int { return 400; }
-	public function precondition() { return true; }
+	public function precondition() {
+		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( dirname( dirname( dirname( dirname( __FILE__ ) ) ) ) ) . '/';
+		$optional_dirs = array(
+			$root . 'plugins/bizcity-pagebuilder',
+			$root . 'plugins/bizcity-video-kling',
+		);
+		foreach ( $optional_dirs as $dir ) {
+			if ( ! is_dir( $dir ) ) {
+				return new WP_Error( 'optional_package_missing', 'PageBuilder/Video Kling proprietary package is not deployed in this CI checkout.' );
+			}
+		}
+		return true;
+	}
 
 	public function run( $ctx ): array {
 		// [2026-08-10 Johnny Chu] PHASE-1.24-DDV — package adoption evidence for PageBuilder and Video Kling.

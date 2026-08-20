@@ -453,7 +453,7 @@ class BizCity_Pro_Learning_Diagnostic {
 				$provider_ready ? 'PASS' : 'WARN',
 				'OpenRouter API key present on gateway',
 				$provider_ready ? 'ready' : 'missing',
-				$provider_ready ? '' : 'Gateway has no <code>bizcity_openrouter_api_key</code> set — OCR calls will fail.'
+				$provider_ready ? '' : 'Gateway API key chưa cấu hình — OCR calls will fail.'
 			);
 		} else {
 			$rows[] = $this->row( 'E0.OCR.3', 'L3', 'SKIP', '/tools/ocr/health live probe', '—', 'Client not configured.' );

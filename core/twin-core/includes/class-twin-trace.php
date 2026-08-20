@@ -276,9 +276,11 @@ class BizCity_Twin_Trace {
             'parent_id'  => $parent_id,
             'feature'    => self::safe_label( $feature ),
             'operation'  => self::safe_label( $operation ),
+            // [2026-08-19 Johnny Chu] PHASE-1.23-TRACE-CONTEXT - retain only the redacted span context for the matching exit event.
+            'context'    => self::safe_context( $context ),
             'started_at' => microtime( true ),
         ];
-        self::runtime_log( 'enter', self::$runtime_spans[ $event_id ], self::safe_context( $context ) );
+        self::runtime_log( 'enter', self::$runtime_spans[ $event_id ], self::$runtime_spans[ $event_id ]['context'] );
         return $event_id;
     }
 
@@ -297,6 +299,7 @@ class BizCity_Twin_Trace {
         $span = self::$runtime_spans[ $event_id ];
         unset( self::$runtime_spans[ $event_id ] );
         $result = in_array( $result, [ 'pass', 'fail', 'degraded' ], true ) ? $result : 'fail';
+        $data = array_merge( (array) ( $span['context'] ?? array() ), $data );
         $data['elapsed_ms'] = round( ( microtime( true ) - (float) $span['started_at'] ) * 1000, 2 );
         $data['result'] = $result;
         self::runtime_log( 'exit', $span, self::safe_context( $data ) );

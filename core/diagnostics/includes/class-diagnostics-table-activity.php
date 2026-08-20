@@ -14,6 +14,9 @@
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 if ( class_exists( 'BizCity_Diagnostics_Table_Activity' ) ) {
+	if ( method_exists( 'BizCity_Diagnostics_Table_Activity', 'boot' ) ) {
+		BizCity_Diagnostics_Table_Activity::boot();
+	}
 	return;
 }
 
