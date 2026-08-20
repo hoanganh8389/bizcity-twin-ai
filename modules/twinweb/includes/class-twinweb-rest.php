@@ -2613,6 +2613,19 @@ class BizCity_TwinWeb_REST {
 
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — only a linked Zalo identity can pin a direct/group chat target.
 		$link_status = $this->get_zalo_link_status_for_user( $user_id, $bot_id );
+		// [2026-08-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — resolve and persist only an owner-authorized Zalo target.
+		$target = $this->resolve_mychannels_zalo_chat_target( $identity, $bot_id, $link_status, $chat_id );
+		if ( is_wp_error( $target ) ) {
+			return $this->mychannels_error( (string) $target->get_error_code(), 'Chat Zalo này chưa được xác thực cho tài khoản của bạn.', 'Chọn chat bot vừa thấy hoặc gửi tin nhắn trong chat rồi thử lại.', 'permission_denied' );
+		}
+		$settings['selected_zalo_chat_id'] = sanitize_text_field( (string) ( $target['chat_id'] ?? $chat_id ) );
+		$settings['selected_zalo_chat_label'] = $label !== '' ? $label : sanitize_text_field( (string) ( $target['label'] ?? '' ) );
+		$settings = $this->save_mychannels_settings_for_user( $user_id, $settings );
+		return rest_ensure_response( array( 'success' => true, 'settings' => $settings, 'target' => $target ) );
+	}
+
+	public function get_mychannels_facebook_pages( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — expose only current-user or site-shared pages, never credentials.
 		unset( $request );
 		$identity = $this->mychannels_identity();
 		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem Fanpage.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
@@ -3949,12 +3962,13 @@ class BizCity_TwinWeb_REST {
 				'id'            => 'profile',
 				'label'         => 'My Profiles',
 				'icon'          => 'profile',
-				// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — My Profiles opens the canonical Profile SPA.
+				// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — My Profiles opens the Tool Image Profile Studio route.
 				'href'          => home_url( '/gpt/profile/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile/' ) ),
+				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile-studio/' ) ),
 				'required_plan' => 'free',
 				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
+				// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — Profile Studio belongs to bizcity-tool-image, not BizCity Personal.
+				'dependency_ok' => defined( 'BZTIMG_VERSION' ) || class_exists( 'BizCity_Profile_Studio_Page' ),
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),

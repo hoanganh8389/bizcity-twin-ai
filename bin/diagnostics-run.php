@@ -212,7 +212,8 @@ foreach ( $ids as $id ) {
 
     $line = sprintf( "[%-13s] %-50s %5dms", $badge, $id, (int) $res['duration_ms'] );
     if ( ! empty( $res['summary'] ) ) {
-        $line .= ' · ' . substr( (string) $res['summary'], 0, 80 );
+        // [2026-08-21 Johnny Chu] DIAGNOSTICS-CLI-EVIDENCE — keep probe failure details visible in CI logs.
+        $line .= ' · ' . substr( (string) $res['summary'], 0, 240 );
     }
     if ( $status === 'fail' && ! empty( $res['error'] ) ) {
         $line .= "\n      ↳ " . substr( (string) $res['error'], 0, 200 );

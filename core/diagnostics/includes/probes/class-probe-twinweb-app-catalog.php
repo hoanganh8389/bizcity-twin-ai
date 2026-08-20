@@ -229,11 +229,19 @@ final class BizCity_Probe_TwinWeb_App_Catalog implements BizCity_Diagnostics_Pro
 			$ctx->emit_step( $step );
 		}
 
+		$failed_steps = array();
+		foreach ( $steps as $step ) {
+			if ( is_array( $step ) && 'fail' === (string) ( $step['status'] ?? '' ) ) {
+				$failed_steps[] = (string) ( $step['label'] ?? 'unlabeled step' ) . ': ' . (string) ( $step['detail'] ?? 'no detail' );
+			}
+		}
+		$summary = $pass
+			? 'apps/effective contract is wired and workflow state rules are enforced.'
+			: 'apps/effective contract failed one or more Disk/Loader/Runtime checks. Failed steps: ' . implode( ' | ', $failed_steps );
+
 		return array(
 			'status'   => $pass ? 'pass' : 'fail',
-			'summary'  => $pass
-				? 'apps/effective contract is wired and workflow state rules are enforced.'
-				: 'apps/effective contract failed one or more Disk/Loader/Runtime checks.',
+			'summary'  => $summary,
 			'error'    => $pass ? '' : 'twinweb_app_catalog_contract_failed',
 			'fix_hint' => $pass ? '' : 'Check get_apps_effective route registration and state gating in class-twinweb-rest.php.',
 			'steps'    => $steps,

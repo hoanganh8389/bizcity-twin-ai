@@ -252,6 +252,7 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/canva/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/profile/' ) // [2026-08-21 Johnny Chu] HOTFIX — load Tool Image to redirect the legacy Profile URL.
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/profile-studio/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )
 				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'biz_fb_oauth' )
@@ -371,6 +372,7 @@ $_bizcity_admin_ctx =
             || false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' ) // tool-image product studio
             || false !== strpos( $_SERVER['REQUEST_URI'], '/canva/' )        // tool-image Canva studio
             || false !== strpos( $_SERVER['REQUEST_URI'], '/profile-studio/' ) // tool-image profile studio
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/profile/' )       // [2026-08-21 Johnny Chu] HOTFIX — load Tool Image to redirect the legacy Profile URL.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )     // tool-image QR studio
             // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — load MCP discovery and browser consent on normal frontend requests.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/.well-known/oauth-' )

@@ -172,7 +172,8 @@ class BizCity_Profile_Studio_Page {
     public static function init() {
         add_action( 'init',              array( __CLASS__, 'register_rewrite' ) );
         add_filter( 'query_vars',        array( __CLASS__, 'register_query_var' ) );
-        add_action( 'template_redirect', array( __CLASS__, 'render' ) );
+        // [2026-08-21 Johnny Chu] HOTFIX — render the legacy alias before BizCity Personal can claim /profile/.
+        add_action( 'template_redirect', array( __CLASS__, 'render' ), 0 );
 
         /* AJAX handlers */
         add_action( 'wp_ajax_bztimg_profile_face_swap',        array( __CLASS__, 'ajax_face_swap' ) );
@@ -195,6 +196,12 @@ class BizCity_Profile_Studio_Page {
             'index.php?bztimg_profile_studio=1',
             'top'
         );
+        // [2026-08-21 Johnny Chu] HOTFIX — keep old /profile/ links working without a redirect or rewrite-flush dependency.
+        add_rewrite_rule(
+            '^profile/?$',
+            'index.php?bztimg_profile_studio=1',
+            'top'
+        );
     }
 
     public static function register_query_var( $vars ) {
@@ -205,7 +212,14 @@ class BizCity_Profile_Studio_Page {
     /* ═══════════ Render full-page ═══════════ */
 
     public static function render() {
-        if ( ! get_query_var( 'bztimg_profile_studio' ) ) {
+        $is_profile_studio = (bool) get_query_var( 'bztimg_profile_studio' );
+        if ( ! $is_profile_studio ) {
+            // [2026-08-21 Johnny Chu] HOTFIX — support /profile/ directly when stale rewrite rules still produce a 404 query state.
+            $request_path = (string) parse_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '', PHP_URL_PATH );
+            $legacy_path  = (string) parse_url( home_url( '/profile/' ), PHP_URL_PATH );
+            $is_profile_studio = '' !== $request_path && trim( $request_path, '/' ) === trim( $legacy_path, '/' );
+        }
+        if ( ! $is_profile_studio ) {
             return;
         }
 
