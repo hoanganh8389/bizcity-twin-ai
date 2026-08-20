@@ -2613,23 +2613,6 @@ class BizCity_TwinWeb_REST {
 
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — only a linked Zalo identity can pin a direct/group chat target.
 		$link_status = $this->get_zalo_link_status_for_user( $user_id, $bot_id );
-		if ( empty( $link_status['linked'] ) ) {
-			return $this->mychannels_error( 'permission_denied', 'Bạn cần liên kết Zalo trước khi ghim chat.', 'Gửi lệnh /link trong Zalo Bot rồi quay lại ghim chat.', 'zalo_link_required' );
-		}
-
-		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — pin through the same resolver so clicking a seen group can become the active inbox/send target.
-		$target = $this->resolve_mychannels_zalo_chat_target( $identity, $bot_id, $link_status, $chat_id );
-		if ( is_wp_error( $target ) ) {
-			return $this->mychannels_error( (string) $target->get_error_code(), $target->get_error_message(), 'Chọn chat trong danh sách bot vừa thấy rồi ghim lại.', 'invalid_param_generic' );
-		}
-
-		$settings['selected_zalo_chat_id'] = sanitize_text_field( (string) ( $target['chat_id'] ?? $chat_id ) );
-		$settings['selected_zalo_chat_label'] = $label !== '' ? $label : sanitize_text_field( (string) ( $target['label'] ?? '' ) );
-		$settings = $this->save_mychannels_settings_for_user( $user_id, $settings );
-		return rest_ensure_response( array( 'success' => true, 'settings' => $settings, 'link_status' => $link_status ) );
-	}
-
-	public function get_mychannels_facebook_pages( WP_REST_Request $request ) {
 		unset( $request );
 		$identity = $this->mychannels_identity();
 		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem Fanpage.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
@@ -2873,6 +2856,24 @@ class BizCity_TwinWeb_REST {
 			return $this->mychannels_error( (string) $enabled_row->get_error_code(), 'Không bật được workflow.', 'Thử lại hoặc liên hệ quản trị viên.', 'automation_run_failed' );
 		}
 		return rest_ensure_response( array( 'success' => true, 'workflow_id' => (int) $enabled_row['id'], 'enabled' => true, 'preflight' => $preflight, 'item' => $template ? $this->build_myworkflow_card( $identity, $template ) : null ) );
+	}
+
+	/**
+	 * Load the Automation bootstrap only for customer workflow API calls.
+	 *
+	 * @return bool
+	 */
+	private function ensure_customer_automation_runtime() {
+		// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — prevent a lazy-load gap from appearing as My Workflows OFF.
+		if ( class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
+			return true;
+		}
+		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : '';
+		$file = $root ? $root . '/core/automation/bootstrap.php' : '';
+		if ( $file && file_exists( $file ) ) {
+			require_once $file;
+		}
+		return class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Repo_Workflows' );
 	}
 
 	// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — build preflight shape: scan + cross-check user My Channels state.
@@ -4306,24 +4307,6 @@ class BizCity_TwinWeb_REST {
 				'_degraded' => true,
 				'code'      => 'guru_scope_empty',
 				'message'   => 'Guru phu trach TwinWeb chua duoc gan.',
-
-		/**
-		 * Load the Automation bootstrap only for customer workflow API calls.
-		 *
-		 * @return bool
-		 */
-		private function ensure_customer_automation_runtime() {
-			// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — prevent a lazy-load gap from appearing as My Workflows OFF.
-			if ( class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
-				return true;
-			}
-			$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : '';
-			$file = $root ? $root . '/core/automation/bootstrap.php' : '';
-			if ( $file && file_exists( $file ) ) {
-				require_once $file;
-			}
-			return class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Repo_Workflows' );
-		}
 				'hint'      => 'Vao Channel Gateway > TwinWeb de gan Guru.',
 				'help_code' => 'twinweb_guru_scope',
 				'data'      => array(
