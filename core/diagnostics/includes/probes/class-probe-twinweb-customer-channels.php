@@ -116,7 +116,8 @@ final class BizCity_Probe_TwinWeb_Customer_Channels implements BizCity_Diagnosti
 			}
 		}
 		if ( '' !== $page_src ) {
-			foreach ( array( 'Kênh của tôi', 'Tạo mã /link', 'Chat Zalo nhận automation', 'Chat bot vừa thấy', 'Dùng làm mặc định', 'Kết nối Fanpage', 'runPreflight' ) as $marker ) {
+			// [2026-08-20 Johnny Chu] R-DDV-FE — assert stable component/action wiring instead of mutable translated labels.
+			foreach ( array( 'export function MyChannelsPage', 'createLinkCommand', 'pinZaloChat', 'selectFacebookPage', 'runPreflight', 'runActivate', 'myChannelsApi.get' ) as $marker ) {
 				if ( false === strpos( $page_src, $marker ) ) { $optional_missing[] = 'Page:' . $marker; }
 			}
 		}
@@ -269,9 +270,17 @@ final class BizCity_Probe_TwinWeb_Customer_Channels implements BizCity_Diagnosti
 		$ctx->emit_step( $step );
 		if ( $meta_isolation_status === 'fail' ) { $pass = false; }
 
+		$failed_steps = array();
+		foreach ( $steps as $step ) {
+			if ( is_array( $step ) && 'fail' === (string) ( $step['status'] ?? '' ) ) {
+				$failed_steps[] = (string) ( $step['label'] ?? 'unlabeled step' ) . ': ' . (string) ( $step['detail'] ?? 'no detail' );
+			}
+		}
+		$summary = $pass ? 'Twin GPT My Channels MVP routes, UI markers and owner-safe payload contract are in place.' : 'Twin GPT My Channels MVP contract failed one or more DDV checks. Failed steps: ' . implode( ' | ', $failed_steps );
+
 		return array(
 			'status'   => $pass ? 'pass' : 'fail',
-			'summary'  => $pass ? 'Twin GPT My Channels MVP routes, UI markers and owner-safe payload contract are in place.' : 'Twin GPT My Channels MVP contract failed one or more DDV checks.',
+			'summary'  => $summary,
 			'error'    => $pass ? '' : 'twinweb_customer_channels_contract_failed',
 			'fix_hint' => $pass ? '' : 'Check class-twinweb-rest.php mychannels routes, App.tsx/MyChannelsPage wiring and credential redaction.',
 			'steps'    => $steps,
