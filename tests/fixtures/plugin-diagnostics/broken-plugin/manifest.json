@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "id": "broken.fixture",
+  "name": "Broken Diagnostics Fixture",
+  "version": "1.0.0",
+  "requires": {
+    "framework": ">=99.0.0"
+  },
+  "hooks": [
+    "bizcity.fixture.invalid hook"
+  ],
+  "permissions": [
+    "invalid permission"
+  ],
+  "scope_bindings": [
+    {
+      "permission": "invalid permission",
+      "scope_level": "global"
+    }
+  ],
+  "schema": {
+    "tables": ["fixture_items"],
+    "changelog": "core/diagnostics/changelog/missing-fixture.json"
+  },
+  "capabilities": {
+    "tools": [
+      {
+        "id": "broken.tool",
+        "class": "BizCity_Broken_Tool",
+        "primary": true,
+        "schema": {
+          "description": "Broken tool"
+        }
+      }
+    ]
+  }
+}

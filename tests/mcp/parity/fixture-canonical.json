@@ -1,0 +1,21 @@
+{
+  "fixture_id": "mcp-parity-brain-search-v1",
+  "query": "canonical retrieval parity fixture",
+  "retrieval_snapshot_id": "snap_fixture_001",
+  "kg_revision": "kg-fixture-r1",
+  "passages": [
+    {
+      "source_id": 11,
+      "passage_id": 101,
+      "citation_id": "src:11#p101",
+      "score": { "final": 0.91, "source": "vector" }
+    },
+    {
+      "source_id": 12,
+      "passage_id": 202,
+      "citation_id": "src:12#p202",
+      "score": { "final": 0.72, "source": "keyword" }
+    }
+  ],
+  "allowed_citations": ["src:11#p101", "src:12#p202"]
+}
