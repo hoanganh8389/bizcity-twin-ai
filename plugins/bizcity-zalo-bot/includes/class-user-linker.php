@@ -157,9 +157,19 @@ class BizCity_Zalobot_User_Linker {
 		string $display_name = '',
 		bool $force = false
 	): bool {
+		$zalo_user_hash = substr( md5( $zalo_user_id ), 0, 10 );
 		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — preserve the linked-user short circuit before canonical link issuance.
 		if ( self::resolve_wp_user( $zalo_user_id, $bot_id ) > 0 ) {
+			error_log( sprintf( '[Zalo Link Trace] login_link_skipped reason=already_linked bot_id=%d zalo_user_hash=%s', $bot_id, $zalo_user_hash ) );
 			return false;
+		}
+
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-DUPLINK - collapse near-simultaneous callers (auto-linker, command router, memory hook) into a single dispatched link.
+		// Return true (not false) here — a link was just dispatched by another caller, so this is not an error.
+		$dispatch_lock_key = 'bzzalolink_lock_' . md5( $zalo_user_id . '_' . $bot_id );
+		if ( get_transient( $dispatch_lock_key ) ) {
+			error_log( sprintf( '[Zalo Link Trace] login_link_deduped reason=dispatch_lock bot_id=%d zalo_user_hash=%s', $bot_id, $zalo_user_hash ) );
+			return true;
 		}
 
 		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — issue the login URL through the Channel Gateway admin BE first.
@@ -173,6 +183,7 @@ class BizCity_Zalobot_User_Linker {
 			);
 			if ( is_array( $canonical ) ) {
 				if ( ! empty( $canonical['linked'] ) || ! empty( $canonical['cooldown'] ) ) {
+					error_log( sprintf( '[Zalo Link Trace] login_link_skipped reason=%s bot_id=%d zalo_user_hash=%s', ! empty( $canonical['linked'] ) ? 'canonical_already_linked' : 'canonical_cooldown', $bot_id, $zalo_user_hash ) );
 					return false;
 				}
 				if ( ! empty( $canonical['url'] ) ) {
@@ -180,15 +191,21 @@ class BizCity_Zalobot_User_Linker {
 						. "Để AI biết bạn là ai và hỗ trợ cá nhân hóa tốt hơn, vui lòng đăng nhập:\n"
 						. "🔗 {$canonical['url']}\n\nLink có hiệu lực trong 30 phút.";
 					self::send_via_bot( $bot, $zalo_user_id, $message );
+					// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - lock only after a link was actually dispatched; a cooldown refusal must not suppress an explicit login command.
+					set_transient( $dispatch_lock_key, 1, 8 );
 					set_transient( 'bzzalolink_cd_' . md5( $zalo_user_id . '_' . $bot_id ), 1, self::LINK_MSG_COOLDOWN );
 					return true;
 				}
+			}
+			if ( is_wp_error( $canonical ) ) {
+				error_log( sprintf( '[Zalo Link Trace] canonical_issue_failed code=%s bot_id=%d zalo_user_hash=%s', (string) $canonical->get_error_code(), $bot_id, $zalo_user_hash ) );
 			}
 		}
 
 		// Cooldown: don't spam login links
 		$cooldown_key = 'bzzalolink_cd_' . md5( $zalo_user_id . '_' . $bot_id );
 		if ( ! $force && get_transient( $cooldown_key ) ) {
+			error_log( sprintf( '[Zalo Link Trace] login_link_skipped reason=legacy_cooldown bot_id=%d zalo_user_hash=%s', $bot_id, $zalo_user_hash ) );
 			return false;
 		}
 
@@ -259,6 +276,9 @@ class BizCity_Zalobot_User_Linker {
 			. "Link có hiệu lực trong 30 phút.";
 
 		self::send_via_bot( $bot, $zalo_user_id, $message );
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - mark dedupe state only after legacy link dispatch completes.
+		set_transient( $dispatch_lock_key, 1, 8 );
+		error_log( sprintf( '[Zalo Link Trace] legacy_login_link_dispatched bot_id=%d zalo_user_hash=%s', $bot_id, $zalo_user_hash ) );
 
 		// Set cooldown
 		set_transient( $cooldown_key, 1, self::LINK_MSG_COOLDOWN );
@@ -394,6 +414,8 @@ class BizCity_Zalobot_User_Linker {
 		// the ?bzzalolink= flow at init:1. Skip legacy callback if it's loaded
 		// to avoid double-handling and the spurious "Link không hợp lệ" page.
 		if ( class_exists( 'BizCity_CRM_Magic_Link_Handler' ) ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — ensure the canonical handler is registered even when Zalo Bot loads first.
+			BizCity_CRM_Magic_Link_Handler::register();
 			return;
 		}
 		add_action( 'init', [ __CLASS__, 'handle_login_callback' ], 5 );
@@ -625,6 +647,13 @@ class BizCity_Zalobot_User_Linker {
 	public static function handle_login_callback(): void {
 		$token = sanitize_text_field( $_GET[ self::LINK_PARAM ] ?? '' );
 		if ( $token === '' ) {
+			return;
+		}
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — legacy linker must never consume encrypted CRM tokens.
+		if ( strpos( $token, 'bzm2_' ) === 0 ) {
+			if ( class_exists( 'BizCity_CRM_Magic_Link_Handler' ) ) {
+				BizCity_CRM_Magic_Link_Handler::register();
+			}
 			return;
 		}
 

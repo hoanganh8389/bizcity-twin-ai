@@ -230,12 +230,12 @@ class BizCity_Network_OAuth_Page {
 		return substr( hash( 'sha256', 'bizcity-net-oauth-iv|' . $salt, true ), 0, 16 );
 	}
 	private static function encrypt( string $plain ): string {
-		$enc = openssl_encrypt( $plain, 'AES-128-CBC', self::key(), 0, self::iv() );
-		return $enc === false ? '' : base64_encode( $enc );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate legacy AES-128 OAuth storage encoding.
+		return BizCity_Codec::encrypt_legacy_storage( $plain, self::key(), self::iv(), 'AES-128-CBC' );
 	}
 	private static function decrypt( string $cipher ) {
-		$raw = base64_decode( $cipher, true );
-		if ( $raw === false ) { return false; }
-		return openssl_decrypt( $raw, 'AES-128-CBC', self::key(), 0, self::iv() );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate legacy AES-128 OAuth storage decoding.
+		$plain = BizCity_Codec::decrypt_legacy_storage( $cipher, self::key(), self::iv(), 'AES-128-CBC' );
+		return $plain === $cipher ? false : $plain;
 	}
 }

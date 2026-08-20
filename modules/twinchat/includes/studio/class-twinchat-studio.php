@@ -121,6 +121,11 @@ class BizCity_TwinChat_Studio {
 	 * @return int|WP_Error  Job ID
 	 */
 	public function enqueue_generate( $notebook_id, $tool_type, $user_id, array $opts = [] ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not create an
+		// unscheduled production Studio job in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Studio worker is isolated during diagnostics CLI.' );
+		}
 		$notebook_id = (int) $notebook_id;
 		$tool_type   = sanitize_key( (string) $tool_type );
 		$user_id     = (int) $user_id;
@@ -154,6 +159,11 @@ class BizCity_TwinChat_Studio {
 	 * NOTE: $job_id replaces the old $output_id parameter.
 	 */
 	public function run_background_job( $job_id, $notebook_id, $tool_type, $user_id, $opts = [] ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — direct, shutdown,
+		// Action Scheduler, and WP-Cron worker calls share this boundary.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$job_id      = (int) $job_id;
 		$notebook_id = (int) $notebook_id;
 		$tool_type   = sanitize_key( (string) $tool_type );
@@ -230,6 +240,11 @@ class BizCity_TwinChat_Studio {
 	}
 
 	protected function schedule_run( $output_id, $notebook_id, $tool_type, $user_id, $opts ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not register
+		// shutdown, Action Scheduler, WP-Cron, or loopback work in diagnostics.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$args = [ (int) $output_id, (int) $notebook_id, $tool_type, (int) $user_id, $opts ];
 
 		// Strategy A (preferred): same-process execution AFTER REST response is

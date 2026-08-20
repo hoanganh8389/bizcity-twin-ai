@@ -49,6 +49,11 @@ class BizCity_TwinChat_Learning_Notifier {
 
 	/** Called by the pipeline at end-of-job. */
 	public function notify( array $job ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
+		// persist production notification buckets or schedule their flush.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$nb     = (int) $job['notebook_id'];
 		$key    = $this->transient_key( $nb );
 		$bucket = get_transient( $key );
@@ -76,6 +81,11 @@ class BizCity_TwinChat_Learning_Notifier {
 	}
 
 	protected function schedule_flush( $nb ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not enqueue a
+		// notification flush from diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$args = [ (int) $nb ];
 		if ( function_exists( 'as_schedule_single_action' ) ) {
 			as_schedule_single_action( time() + self::BATCH_DELAY_S, self::HOOK_FLUSH, $args, 'bizcity_twinchat_learning_' . (int) $nb );
@@ -88,6 +98,11 @@ class BizCity_TwinChat_Learning_Notifier {
 
 	/** Flush handler — coalesces all pending job notifications into one chat row. */
 	public static function flush( $notebook_id ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — queued flush
+		// callbacks must be inert in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$nb     = (int) $notebook_id;
 		$self   = self::instance();
 		$key    = $self->transient_key( $nb );

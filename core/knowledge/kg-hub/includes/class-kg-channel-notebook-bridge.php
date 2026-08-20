@@ -67,6 +67,11 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * hook so media/file notebook captures can hand off learning to cron.
 	 */
 	public static function bind_async_dispatch(): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
+		// bind bridge worker/watchdog callbacks or schedule their hooks.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		add_action( self::HOOK_ASYNC_CAPTURE_INGEST, array( __CLASS__, 'run_async_capture_ingest' ), 10, 1 );
 		// [2026-07-28 Johnny Chu] AUTOMATION BE-ASYNC — recover bridge placeholders that failed after staging but before successful ingest.
 		add_action( self::HOOK_ASYNC_CAPTURE_WATCHDOG, array( __CLASS__, 'watchdog' ) );
@@ -79,6 +84,11 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * in core cron registry (adopt-only: single-event queue, no recurring loop).
 	 */
 	public static function ensure_async_dispatch_registration(): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
+		// register or schedule the bridge watchdog.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
 			if ( ! wp_next_scheduled( self::HOOK_ASYNC_CAPTURE_WATCHDOG ) ) {
 				wp_schedule_event( time() + 60, self::ASYNC_CAPTURE_WATCHDOG_INTERVAL, self::HOOK_ASYNC_CAPTURE_WATCHDOG );
@@ -116,6 +126,11 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	}
 
 	public static function watchdog(): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — bridge watchdogs
+		// must not mutate placeholders or schedule retries in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		// [2026-07-28 Johnny Chu] AUTOMATION BE-ASYNC — resume failed bridge placeholders only when durable staging remains.
 		if ( ! class_exists( 'BizCity_TwinChat_Sources_Database' ) || ! class_exists( 'BizCity_KG_Database' ) ) {
 			return;
@@ -210,6 +225,11 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * notebook-bridge ingest items.
 	 */
 	public static function run_async_capture_ingest( $job ): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — bridge ingest entry
+		// must not switch blog/user context or process staged files in diagnostics.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		if ( ! is_array( $job ) ) {
 			return;
 		}
@@ -705,6 +725,11 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * @return array|WP_Error { notebook_id, notebook_name, notebook_created, source_id, duplicate }
 	 */
 	public function capture( array $envelope ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — capture is a
+		// production bridge entry and must not create notebook/source state in diagnostics.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Notebook bridge is isolated during diagnostics CLI.' );
+		}
 		$user_id = (int) ( $envelope['user_id'] ?? 0 );
 		$channel = sanitize_key( (string) ( $envelope['channel'] ?? '' ) );
 		if ( $user_id <= 0 || $channel === '' ) {
@@ -988,6 +1013,11 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * @return array|WP_Error { notebook_id, notebook_name, notebook_created, batch_id, total, succeeded, items:array, failed:array }
 	 */
 	public function capture_batch( array $base_envelope, array $items ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — batch capture must
+		// not create placeholders or schedule bridge ingest in diagnostics.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Notebook bridge is isolated during diagnostics CLI.' );
+		}
 		$user_id = (int) ( $base_envelope['user_id'] ?? 0 );
 		$channel = sanitize_key( (string) ( $base_envelope['channel'] ?? '' ) );
 		if ( $user_id <= 0 || $channel === '' ) {
@@ -1349,6 +1379,11 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * item as a single cron event.
 	 */
 	private function enqueue_async_capture_ingest( int $notebook_id, int $user_id, array $ingest_payload, array $item_ctx, array $inbound ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not stage files,
+		// create placeholders, or schedule bridge ingest in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Notebook bridge is isolated during diagnostics CLI.' );
+		}
 		$job_id = wp_generate_uuid4();
 		$queue_payload = $ingest_payload;
 

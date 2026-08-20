@@ -190,6 +190,11 @@ class BizCity_TwinChat_Learning_Pipeline {
 	 * @param int $job_id
 	 */
 	public static function run( $job_id ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — block queued and
+		// direct learning worker execution in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$job_id = (int) $job_id;
 		@set_time_limit( 0 );
 		@ignore_user_abort( true );

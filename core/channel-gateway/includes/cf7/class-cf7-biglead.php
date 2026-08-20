@@ -762,26 +762,20 @@ class BizCity_CF7_BigLead {
 		if ( $plain === '' ) {
 			return '';
 		}
-		if ( ! function_exists( 'openssl_encrypt' ) ) {
-			return $plain;
-		}
 		$key = substr( hash( 'sha256', defined( 'AUTH_KEY' ) ? AUTH_KEY : wp_salt( 'auth' ), true ), 0, 32 );
 		$iv  = openssl_random_pseudo_bytes( 16 );
-		$enc = openssl_encrypt( $plain, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv );
-		return false === $enc ? '' : base64_encode( $iv . $enc );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate legacy BigLead raw encryption.
+		return BizCity_Codec::encrypt_raw_payload( $plain, $key, $iv );
 	}
 
 	private static function decrypt( string $encoded ): string {
 		// [2026-08-04 Johnny Chu] PHASE-CG-BIGLEAD — decrypt bearer token for runtime only.
-		if ( $encoded === '' || ! function_exists( 'openssl_decrypt' ) ) {
+		if ( $encoded === '' ) {
 			return $encoded;
 		}
-		$raw = base64_decode( $encoded, true );
-		if ( false === $raw || strlen( $raw ) < 17 ) {
-			return $encoded;
-		}
-		$key   = substr( hash( 'sha256', defined( 'AUTH_KEY' ) ? AUTH_KEY : wp_salt( 'auth' ), true ), 0, 32 );
-		$plain = openssl_decrypt( substr( $raw, 16 ), 'AES-256-CBC', $key, OPENSSL_RAW_DATA, substr( $raw, 0, 16 ) );
-		return false === $plain ? '' : $plain;
+		$key = substr( hash( 'sha256', defined( 'AUTH_KEY' ) ? AUTH_KEY : wp_salt( 'auth' ), true ), 0, 32 );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate legacy BigLead raw decryption.
+		$plain = BizCity_Codec::decrypt_raw_payload( $encoded, $key );
+		return '' === $plain ? $encoded : $plain;
 	}
 }

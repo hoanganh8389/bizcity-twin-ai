@@ -208,8 +208,12 @@ class BizCity_Channel_User_Linker {
 	 */
 	public static function on_magic_link_consumed( $row, int $wp_user_id ): void {
 		if ( ! is_array( $row ) || $wp_user_id <= 0 ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - trace malformed canonical consume payloads.
+			error_log( '[Zalo Link Trace] canonical_bind_skipped reason=invalid_payload' );
 			return;
 		}
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - provision the canonical tenant identity table in the explicit magic-link consume context.
+		self::maybe_install();
 		$meta = ! empty( $row['meta_json'] ) ? json_decode( (string) $row['meta_json'], true ) : array();
 		$identity = is_array( $meta ) && ! empty( $meta['channel_identity'] ) && is_array( $meta['channel_identity'] )
 			? $meta['channel_identity'] : array();
@@ -221,14 +225,20 @@ class BizCity_Channel_User_Linker {
 		$external = (string) ( $identity['external_user_id'] ?? $row['chat_id'] ?? '' );
 		$account   = (string) ( $identity['account_id'] ?? $row['bot_id'] ?? '' );
 		$blog_id   = (int) ( $identity['blog_id'] ?? $row['blog_id'] ?? get_current_blog_id() );
+		error_log( sprintf( '[Zalo Link Trace] canonical_bind_start row_id=%d platform=%s account_id=%s external_hash=%s wp_user_id=%d blog_id=%d has_identity=%d', (int) ( $row['id'] ?? 0 ), $platform, $account, $external !== '' ? substr( md5( $external ), 0, 10 ) : '-', $wp_user_id, $blog_id, ! empty( $identity ) ? 1 : 0 ) );
 		if ( ! self::supported_platform( $platform ) || $external === '' || $account === '' ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - expose the exact missing identity field without logging user identifiers.
+			error_log( sprintf( '[Zalo Link Trace] canonical_bind_failed reason=identity_incomplete supported=%d external_present=%d account_present=%d', self::supported_platform( $platform ) ? 1 : 0, $external !== '' ? 1 : 0, $account !== '' ? 1 : 0 ) );
 			return;
 		}
 
 		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — use one canonical bind path for login-link consumption.
 		if ( ! self::bind_identity( $platform, $external, $account, $wp_user_id, $blog_id ) ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - report the bind stop after table/identity validation.
+			error_log( sprintf( '[Zalo Link Trace] canonical_bind_failed reason=bind_identity_false platform=%s account_id=%s external_hash=%s wp_user_id=%d blog_id=%d', $platform, $account, substr( md5( $external ), 0, 10 ), $wp_user_id, $blog_id ) );
 			return;
 		}
+		error_log( sprintf( '[Zalo Link Trace] canonical_bind_ok platform=%s account_id=%s external_hash=%s wp_user_id=%d blog_id=%d', $platform, $account, substr( md5( $external ), 0, 10 ), $wp_user_id, $blog_id ) );
 		do_action( 'bizcity_channel_user_linked', $platform, $account, $external, $wp_user_id, $blog_id );
 
 		if ( $platform === self::PLATFORM_ZALO_BOT ) {
@@ -248,6 +258,8 @@ class BizCity_Channel_User_Linker {
 		$account_id       = trim( $account_id );
 		$blog_id          = $blog_id > 0 ? $blog_id : (int) get_current_blog_id();
 		if ( ! self::supported_platform( $platform ) || $external_user_id === '' || $account_id === '' || $wp_user_id <= 0 || ! self::table_exists() ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - expose the canonical bind precondition result.
+			error_log( sprintf( '[Zalo Link Trace] bind_identity_rejected platform=%s account_present=%d external_present=%d wp_user_id=%d table_present=%d blog_id=%d', $platform, $account_id !== '' ? 1 : 0, $external_user_id !== '' ? 1 : 0, $wp_user_id, self::table_exists() ? 1 : 0, $blog_id ) );
 			return false;
 		}
 
@@ -270,6 +282,8 @@ class BizCity_Channel_User_Linker {
 			? $wpdb->update( self::table(), $data, array( 'id' => (int) $existing['id'] ) )
 			: $wpdb->insert( self::table(), $data + array( 'created_at' => $now ) );
 		if ( false === $ok ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - trace canonical row write failure without logging SQL.
+			error_log( sprintf( '[Zalo Link Trace] bind_identity_failed reason=db_write platform=%s account_id=%s external_hash=%s blog_id=%d', $platform, $account_id, substr( md5( $external_user_id ), 0, 10 ), $blog_id ) );
 			return false;
 		}
 
@@ -284,9 +298,16 @@ class BizCity_Channel_User_Linker {
 	/**
 	 * Confirm a browser-consumed Zalo Bot login in the originating chat.
 	 */
-	private static function notify_zalobot_linked( string $bot_id, string $zalo_user_id, int $wp_user_id ): void {
+	public static function notify_zalobot_linked( string $bot_id, string $zalo_user_id, int $wp_user_id ): void {
 		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — send confirmation through the canonical Gateway Sender using bot + chat identity.
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-NOTIFY — make direct and hook-based confirmation delivery idempotent.
+		$notice_key = $bot_id . ':' . $zalo_user_id . ':' . $wp_user_id;
+		if ( ! empty( $GLOBALS['bizcity_zalobot_link_notice_sent'][ $notice_key ] ) ) {
+			return;
+		}
 		if ( $bot_id === '' || $zalo_user_id === '' || ! class_exists( 'BizCity_Gateway_Sender' ) ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - trace notification prerequisites without logging the chat ID.
+			error_log( sprintf( '[Zalo Link Trace] notify_skipped bot_present=%d user_present=%d sender_loaded=%d', $bot_id !== '' ? 1 : 0, $zalo_user_id !== '' ? 1 : 0, class_exists( 'BizCity_Gateway_Sender' ) ? 1 : 0 ) );
 			return;
 		}
 		$user = get_user_by( 'id', $wp_user_id );
@@ -305,12 +326,17 @@ class BizCity_Channel_User_Linker {
 				)
 			);
 		}
-		BizCity_Gateway_Sender::instance()->send(
+		$result = BizCity_Gateway_Sender::instance()->send(
 			$chat_id,
 			"✅ Đăng nhập và kết nối thành công!\nTài khoản WordPress: {$name}\nTừ bây giờ Zalo Bot sẽ nhận diện đúng danh tính của bạn.",
 			'text',
 			array( 'bot_id' => (int) $bot_id, 'source' => 'channel_user_linker' )
 		);
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - capture the final outbound result for the browser-login confirmation.
+		error_log( sprintf( '[Zalo Link Trace] notify_result sent=%d platform=%s error_code=%s', is_array( $result ) && ! empty( $result['sent'] ) ? 1 : 0, is_array( $result ) ? (string) ( $result['platform'] ?? '' ) : 'unknown', is_array( $result ) ? (string) ( $result['code'] ?? '' ) : '' ) );
+		if ( is_array( $result ) && ! empty( $result['sent'] ) ) {
+			$GLOBALS['bizcity_zalobot_link_notice_sent'][ $notice_key ] = true;
+		}
 	}
 
 	/**

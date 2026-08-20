@@ -136,13 +136,9 @@ final class BizCity_CG_Flow_Ref_Codec {
 	 * Returns URL-safe single base64 over the (already-base64) openssl ciphertext.
 	 */
 	private static function fallback_encode( string $chat_id, string $slug ): string {
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate byte-compatible legacy URL encoding.
 		$plaintext = $slug . '|' . $chat_id;
-		$cipher    = openssl_encrypt( $plaintext, self::CIPHER, self::secret_key(), 0, self::iv() );
-		if ( false === $cipher ) {
-			return '';
-		}
-		$data = base64_encode( $cipher );
-		return rtrim( strtr( $data, '+/', '-_' ), '=' );
+		return BizCity_Codec::legacy_url_encode( $plaintext, self::secret_key(), self::iv() );
 	}
 
 	/**
@@ -150,14 +146,8 @@ final class BizCity_CG_Flow_Ref_Codec {
 	 * Returns chat_id string on success, '' on failure (callers cast to int).
 	 */
 	private static function fallback_decode( string $encrypted, string $slug ): string {
-		$data = base64_decode( strtr( $encrypted, '-_', '+/' ), true );
-		if ( false === $data ) {
-			return '';
-		}
-		$decrypted = openssl_decrypt( $data, self::CIPHER, self::secret_key(), 0, self::iv() );
-		if ( false === $decrypted ) {
-			return '';
-		}
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate byte-compatible legacy URL decoding.
+		$decrypted = BizCity_Codec::legacy_url_decode( $encrypted, self::secret_key(), self::iv() );
 		$prefix = $slug . '|';
 		if ( strpos( $decrypted, $prefix ) !== 0 ) {
 			return '';

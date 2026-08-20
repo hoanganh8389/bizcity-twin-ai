@@ -188,6 +188,11 @@ add_action( BizCity_Automation_Runner::CRON_HOOK, function () {
 // loopback request fires the runner immediately while the FE response has
 // already returned `run_id` so EventSource can stream per-node logs live.
 add_action( 'bizcity_automation_run_async', function ( $run_id ) {
+	// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — queued automation
+	// callbacks must not execute production runs in diagnostics CLI.
+	if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+		return;
+	}
 	if ( ! is_string( $run_id ) || $run_id === '' ) { return; }
 	if ( class_exists( 'BizCity_Automation_Runner' ) ) {
 		BizCity_Automation_Runner::instance()->execute( $run_id );

@@ -40,6 +40,11 @@ class BizCity_KG_Scoped_REST_Controller {
 	}
 
 	public static function bind_async_ingest() {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
+		// bind production ingest/watchdog callbacks or scheduler hooks.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		// [2026-07-23 Johnny Chu] PHASE-0.43 — run large scoped file ingest out-of-band so REST upload does not hit Cloudflare 524.
 		add_action( self::HOOK_ASYNC_INGEST, array( __CLASS__, 'run_async_ingest' ), 10, 1 );
 		// [2026-07-24 Johnny Chu] PHASE-0.46-ASYNC-INGEST — persist recovery state on the placeholder and sweep jobs lost by a scheduler/process failure.
@@ -54,6 +59,11 @@ class BizCity_KG_Scoped_REST_Controller {
 	 * is observable in cron registry/logs.
 	 */
 	public static function ensure_async_watchdog_registration() {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not register or
+		// schedule the scoped ingest watchdog in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
 			BizCity_Cron_Manager::instance()->register( array(
 				'id'          => self::JOB_ASYNC_WATCHDOG,
@@ -204,6 +214,11 @@ class BizCity_KG_Scoped_REST_Controller {
 	}
 
 	public function ingest_source( WP_REST_Request $req ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
+		// create placeholders, move uploads, or enter production KG ingest.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'KG ingest worker is isolated during diagnostics CLI.' );
+		}
 		$scope = $this->resolve_scope( $req );
 		if ( is_wp_error( $scope ) ) return $scope;
 
@@ -325,6 +340,11 @@ class BizCity_KG_Scoped_REST_Controller {
 	}
 
 	private function enqueue_async_file_ingest( array $scope, array $payload, int $user_id ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — defensive guard before
+		// upload staging, placeholder writes, and scheduler/loopback registration.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'KG ingest worker is isolated during diagnostics CLI.' );
+		}
 		$file = isset( $payload['file'] ) && is_array( $payload['file'] ) ? $payload['file'] : array();
 		$tmp  = isset( $file['tmp_name'] ) ? (string) $file['tmp_name'] : '';
 		$name = isset( $file['name'] ) ? sanitize_file_name( (string) $file['name'] ) : 'upload.bin';
@@ -623,6 +643,11 @@ class BizCity_KG_Scoped_REST_Controller {
 	}
 
 	private static function schedule_async_retry( array $job, $source_id, $message, string $error_code = '' ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — retries must not
+		// reschedule ingest or mutate source state in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return false;
+		}
 		$meta    = isset( $job['payload']['metadata'] ) && is_array( $job['payload']['metadata'] ) ? $job['payload']['metadata'] : array();
 		$attempt = (int) ( $meta['async_attempt'] ?? 0 );
 		if ( $attempt >= self::ASYNC_MAX_ATTEMPTS ) {
@@ -647,6 +672,11 @@ class BizCity_KG_Scoped_REST_Controller {
 	}
 
 	public static function watchdog() {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — watchdog/retry must not
+		// mutate placeholders or schedule ingest from diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		if ( ! class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
 			return;
 		}
@@ -742,6 +772,11 @@ class BizCity_KG_Scoped_REST_Controller {
 	 * the temp file was already unlinked (terminal failure / max attempts already consumed).
 	 */
 	public static function retry_async_source( int $source_id, int $notebook_id = 0 ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — manual retry must not
+		// mutate a placeholder or schedule ingest in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'KG ingest worker is isolated during diagnostics CLI.' );
+		}
 		if ( ! class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
 			return new WP_Error( 'service_unavailable', 'Sources service not available.', array( 'status' => 503 ) );
 		}
@@ -836,6 +871,11 @@ class BizCity_KG_Scoped_REST_Controller {
 	}
 
 	public static function run_async_ingest( $job ): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — async ingest entry
+		// must not switch blog/user context or process files in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		if ( ! is_array( $job ) ) {
 			return;
 		}

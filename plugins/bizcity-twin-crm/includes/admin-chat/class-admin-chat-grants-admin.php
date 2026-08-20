@@ -26,8 +26,9 @@ class BizCity_CRM_Admin_Chat_Grants_Admin {
 	}
 
 	public static function register_menu(): void {
+		// [2026-08-19 Johnny Chu] AUDIT-MENU-GAPS — CRM plugin screens belong under Twin Plugins.
 		add_submenu_page(
-			'bizcity-crm',
+			'bizcity-twin-plugins',
 			'Admin Chat Grants',
 			'Admin Chat Grants',
 			'manage_options',

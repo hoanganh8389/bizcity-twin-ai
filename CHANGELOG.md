@@ -13,10 +13,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BizCity Profile REST foundation — 2026-08-20
+
+| Area | Change | Status |
+|---|---|---|
+| REST namespace | Canonicalized the Personal/Profile REST API to `bizcity-profile/v1`; PHP class names, storage tables, shortcode, and `/personal/` page path remain compatibility identifiers. | Implemented locally; deploy and route smoke required |
+| Multisite POST guard | Added `bizcity-profile/v1` to the `bizgpt-multisite.php` route registry and POST bypass, including normalized `rest_route` and URI fallback handling. | Implemented locally; multisite smoke required |
+| Profile schema | Added and implemented the R-DCL entry for Profile card, QR style, and analytics event tables under `modules.personal` schema version 1.5.0. | Implemented locally; provisioning and Diagnostics evidence required |
+| Page Builder bridge | Profile card publish now delegates to `bzpb/v1/publish` with trace/idempotency headers and updates the Profile registry only after BZPB success. | Implemented locally; publish smoke required |
+| Channel context | Added published-card/entrypoint validation and short-lived `WEBCHAT`/`TWINWEB` context resolution through `BizCity_Channel_Binding`; no browser-supplied Guru ID or provider credential is exposed. | Implemented locally; channel binding smoke required |
+| Entrypoint configuration | Added owner-scoped `GET/PUT /profile/cards/{id}/entrypoints`, Page Builder SiteConfig persistence with mutation headers, and a clean Profile UI panel for channel toggles, WebChat presentation, and tracking tags. | Implemented locally; save/binding smoke required |
+
+### TwinBrain MPR V5.9 Media HIL interaction slice — 2026-08-19
+
+| Area | Change | Status |
+|---|---|---|
+| HIL media runtime | `BizCity_TwinBrain_HIL_Runtime` now supports explicit `chọn ảnh khác` for media slots, keeps the same pending slot on that branch, and returns candidate-aware prompts (no-candidate upload guidance vs indexed selection guidance). | Fixed locally; deploy + Diagnostics rerun required |
+| HIL progress notice | `BizCity_TwinBrain_Progress_Notice_Projector::on_hil_step()` now emits `hil_evidence_candidate_found` when scoped media candidates exist, then keeps waiting guidance user-safe without exposing raw URLs/tokens. | Fixed locally; deploy + canary evidence required |
+| HIL synthetic DDV | `twinbrain.hil` fixture now verifies `select-other keeps pending slot` and `missing candidate asks for upload` contracts for media slots. | Fixed locally; rerun required |
+
+### TwinBrain MPR V5.10 Intent compatibility migration slice — 2026-08-19
+
+| Area | Change | Status |
+|---|---|---|
+| Intent compatibility adapter | Added `core/twinbrain/includes/class-twinbrain-intent-compat-adapter.php` to expose deterministic Slot Analysis / Clarify Gate / Confirm Analyzer / Memory Spec compatibility fields from Prompt Intent + Goal context, without provider calls or dual-write Goal truth. | Fixed locally; deploy + Diagnostics rerun required |
+| Runtime decision stage | `BizCity_TwinBrain_Runtime::start_turn()` now emits `decision.stage=intent_compat_ready` and returns `intent_compat` envelope for migration surfaces. | Fixed locally; deploy + event evidence required |
+| TwinChat surface migration | TwinChat stream pipeline now forwards `prompt_intent` + `intent_compat` into completion opts and emits SSE `decision.stage=intent_compat_ready` with compact compatibility telemetry (`clarify_needed`, `slot_missing_count`, `confirm_intent`, `memory_scope`) for timeline observability. | Fixed locally; deploy + timeline/event evidence required |
+| Zalo workflow migration | `llm.mpr_think` action output now carries `prompt_intent` + `intent_compat`; compact per-event summaries retain compatibility keys so Zalo workflow traces can audit migration state without leaking raw payloads. | Fixed locally; deploy + workflow evidence required |
+| Automation bridge migration | `BizCity_Automation_TwinBrain_Bridge::run_with_capture()` and `action.ask_guru` now preserve Prompt Intent/Intent Compat (plus related triage/context fields) across `complete_turn`, preventing contract loss between start and completion phases. | Fixed locally; deploy + workflow evidence required |
+| Legacy pending read window | HIL payload preparation now accepts legacy `_resume.attachment_url` / `attachment_url` / `media_url` fallback when canonical `attachments[]` is absent. | Fixed locally; deploy + canary verification required |
+| V5 product-match gate | HIL product matching defaults to deterministic mode; optional LLM matcher is now explicit opt-in via filter `bizcity_twinbrain_v5_allow_llm_product_match`. | Fixed locally; deploy + behavior verification required |
+| Aggregate DDV | `twinbrain.mpr_v5` now checks the V5.10 compatibility adapter, deterministic fixture contract, and disk-level surface wiring markers for TwinChat/Zalo/Automation bridge migration. | Fixed locally; rerun required |
+
 ### TwinBrain MPR V5 Gate 6 outbound evidence hardening — 2026-08-19
 
 | Area | Change | Status |
 |---|---|---|
+| Live canary surfaces | `POST /wp-json/bizcity-diagnostics/v1/smoke/run-live` now supports explicit surface routing: `zalo_bot` (legacy default) and `twinchat` (new). The aggregate probe `twinbrain.mpr_v5` dispatches live execution by `live_surface`, preserving existing Zalo linked-identity contract while adding TwinChat runtime trace/stage evidence capture. | Fixed locally; deploy + live evidence required |
+| Live canary run options | Added `GET /wp-json/bizcity-diagnostics/v1/smoke/run-live/options` to return required fields, payload templates, REST endpoint metadata, and WP-CLI fallback command snippets for `twinchat` and `zalo_bot` surfaces. | Fixed locally; deploy + usage verification required |
+| Windows execution helper | The live-canary options response now includes PowerShell `Invoke-RestMethod` snippets with JSON bodies for both surfaces. Auth values remain explicit placeholders for the current admin REST nonce/session cookie and are never persisted as evidence. | Fixed locally; deploy + usage verification required |
 | Channel Gateway outbound evidence | `BizCity_Gateway_Sender` now publishes explicit `idempotency_key` metadata alongside `side_effect_status` and `provider_request_id` in `bizcity_channel_outbound_logged` payloads for both adapter and legacy send paths. This aligns with Gate 6 aggregate disk checks and live-canary evidence capture requirements. | Fixed locally; deploy + OPcache refresh + probe rerun required |
 | Goal Contract probe version gate | `twinbrain.goal_contracts` no longer requires strict `current_version === DB_VERSION` for `core.twinbrain.json`. The probe now accepts `current_version >= DB_VERSION` so module-level changelog bumps (for taxonomy/non-DDL rows) do not false-fail the R-DCL table contract check. | Fixed locally; deploy + probe rerun required |
 | MPR V5 roadmap/probe parity | Documented the Gate 6 marker fix in the MPR V5 roadmap as source-level closure for aggregate step-4 (`Gateway outbound idempotency evidence`) while keeping §21 DoD checkboxes unchanged until synthetic rerun and live canary evidence pass. | Updated locally |
@@ -96,6 +131,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Area | Canonical record | Change / evidence | Status | Next action |
 |---|---|---|---|---|
+| Zalo magic-link completion gate | `R-PERF-LOADER` + `R-CH-IDMEM` | The public `my-account` SSO return did not load the admin-gated `bizcity-zalo-bot` bundle, so the magic-link row could be consumed without the compatibility linker dispatching the success message back to Zalo. The main loader now permits that bundle only when `bzzalolink`, `zid`, or the SSO return cookie is present. | Fixed locally 2026-08-20 | Deploy and verify one fresh Zalo login: `consumed_at`, linked user row, and a Zalo `send_message OK` trace. Confirm ordinary frontend HTML still skips the Zalo Bot bundle. |
+| Canonical ZALO_BOT consume path | `R-CH-IDMEM` + `R-PERF-LOADER` | The new links use `platform=ZALO_BOT`, while the CRM compatibility callback only handled legacy `platform=ZALO`. The callback surface now also enables the early Channel Gateway gate, so `BizCity_Channel_User_Linker::on_magic_link_consumed()` can bind the tenant row before the success redirect. | Fixed locally 2026-08-20 | Verify `bizcity_channel_user_links` contains `platform=ZALO_BOT`, `account_id=bot_id`, `external_user_id=chat_id`, and the authenticated `wp_user_id`. |
 | Diagnostics probe lazy queue | `R-PERF-LOADER` + `R-DDV` | Removed an early `bizcity_diagnostics_load_probes_once()` flush from `core/diagnostics/bootstrap.php`; it could mark the loader complete before the remaining probe queue declarations were registered, leaving the Diagnostics catalog empty or incomplete. | Fixed locally 2026-08-16 | Deploy to the affected site and verify `GET /wp-json/bizcity-diagnostics/v1/smoke/probes` returns a non-empty catalog as an admin. |
 | Canonical loader rule | `R-PERF-LOADER` + `R-DDV` | Codified PHASE-1.23 lessons: surface-scoped loading, pre-`plugins_loaded` evidence, compat/main/bundle parity, shell iframe isolation, file/class delta as primary signal, and QM A/B instrumentation. The observed shell gates reduced approximately 6 MB and are now mandatory guidance for new core/module/plugin loaders. | Fixed locally | Read `docs/rules/PHASE-0-RULE-PERFORMANCE-LOADER.md` before any loader/context-gate change. |
 | PHASE-1.23 roadmap status | `R-PERF-LOADER` + `R-DDV` | Updated the root-cause document from analysis-only to implementation status: Wave 1–3 done locally, Wave 5 in progress, Wave 4 WooCommerce REST profiling next, and Wave 6 surface manifest/thin cron bridge planned. Added A/B, regression matrix and stop conditions. | Fixed locally | Establish deploy parity and route-level Woo evidence before shared-runtime changes. |

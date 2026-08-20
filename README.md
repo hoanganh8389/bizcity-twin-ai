@@ -32,6 +32,11 @@
 - Direct backend: [libedemo.bizcity.vn/twin](https://libedemo.bizcity.vn/twin/)
 - GPT frontend: [libedemo.bizcity.vn/gpt](https://libedemo.bizcity.vn/gpt/)
 
+### Demo credentials
+
+- Username: `demo`
+- Password: `123456@`
+
 </div>
 
 ---

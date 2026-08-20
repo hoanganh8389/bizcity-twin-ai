@@ -468,7 +468,10 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		BizCity_CRM_Asset_Cache_Invalidator::bootstrap();
 
 		// PHASE 3.5 Wave A — Admin Chat magic-link landing handler (init priority 1).
-		BizCity_CRM_Magic_Link_Handler::register();
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — tolerate a partial deploy while the legacy linker stays fail-closed for bzm2_ tokens.
+		if ( class_exists( 'BizCity_CRM_Magic_Link_Handler' ) ) {
+			BizCity_CRM_Magic_Link_Handler::register();
+		}
 
 		// PHASE 3.5 Wave B — Cascade revoke hooks for admin chat grants.
 		BizCity_CRM_Admin_Chat_Grants::register();

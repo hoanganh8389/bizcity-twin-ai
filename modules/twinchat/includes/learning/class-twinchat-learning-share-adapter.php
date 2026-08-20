@@ -154,7 +154,8 @@ class BizCity_TwinChat_Learning_Share_Adapter {
 			) );
 		}
 
-		$json = base64_decode( $this->pad_b64( strtr( $body_b64, '-_', '+/' ) ) );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate share token URL-safe JSON decoding.
+		$json = BizCity_Codec::base64url_decode( $body_b64 );
 		$data = is_string( $json ) ? json_decode( $json, true ) : null;
 		if ( ! is_array( $data ) || empty( $data['nb'] ) ) {
 			return new WP_Error( 'token_invalid', 'Link theo dõi không hợp lệ.', array(
@@ -196,14 +197,15 @@ class BizCity_TwinChat_Learning_Share_Adapter {
 
 	protected function encode( array $payload ) {
 		$json    = wp_json_encode( $payload );
-		$body_b64 = rtrim( strtr( base64_encode( $json ), '+/', '-_' ), '=' );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — preserve share token wire format through shared Base64URL/HMAC primitives.
+		$body_b64 = BizCity_Codec::base64url_encode( $json );
 		return $body_b64 . '.' . $this->sign( $body_b64 );
 	}
 
 	protected function sign( $body_b64 ) {
 		// Same HMAC family already used for the passage_worker internal token
 		// (wp_hash()) — no new secret to manage/rotate.
-		return substr( hash_hmac( 'sha256', (string) $body_b64, wp_salt( 'auth' ) ), 0, 40 );
+		return substr( BizCity_Codec::hmac_sha256( (string) $body_b64, wp_salt( 'auth' ), false ), 0, 40 );
 	}
 
 	/** Restore base64 padding stripped during encode() (URL-safe tokens omit it). */

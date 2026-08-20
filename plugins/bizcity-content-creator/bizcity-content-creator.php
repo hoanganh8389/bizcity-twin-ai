@@ -36,6 +36,16 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 	return;
 }
 
+// [2026-08-20 Johnny Chu] HOTFIX-LOAD-ORDER - keep the bundled Content Creator from causing a fatal when a partial/alternate loader skipped Core Helper.
+$_bzcc_helper_bootstrap = dirname( __DIR__, 2 ) . '/core/helper/bootstrap.php';
+if ( ! class_exists( 'BizCity_Cache', false ) && file_exists( $_bzcc_helper_bootstrap ) ) {
+	require_once $_bzcc_helper_bootstrap;
+}
+unset( $_bzcc_helper_bootstrap );
+if ( ! class_exists( 'BizCity_Cache', false ) ) {
+	return;
+}
+
 /* ── Constants ── */
 define( 'BZCC_VERSION', '0.1.41' ); // [2026-06-08 Johnny Chu] HOTFIX — bump to flush rewrite rules (underscore slug fix)
 // [2026-06-11 Johnny Chu] R-PERF — DB schema version tách riêng khỏi BZCC_VERSION

@@ -59,6 +59,11 @@ final class BizCity_Automation_Runner {
 
 	/** Convenience: enqueue + execute right away. */
 	public function run_now( int $workflow_id, $payload = null ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — direct automation
+		// execution is not part of diagnostics mock mode.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Automation worker is isolated during diagnostics CLI.' );
+		}
 		$run_id = BizCity_Automation_Repo_Runs::enqueue( $workflow_id, $payload );
 		if ( is_wp_error( $run_id ) ) { return $run_id; }
 		return $this->execute( $run_id );
@@ -71,6 +76,11 @@ final class BizCity_Automation_Runner {
 	 * @return array|WP_Error  { status, ctx, logs_count }
 	 */
 	public function execute( string $run_id ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — defense in depth for
+		// callback, REST sync, replay, resume, and direct runner calls.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Automation worker is isolated during diagnostics CLI.' );
+		}
 		$run = BizCity_Automation_Repo_Runs::find( $run_id );
 		if ( ! $run ) {
 			return new WP_Error( 'run_not_found', 'run_id không tồn tại', array( 'run_id' => $run_id ) );

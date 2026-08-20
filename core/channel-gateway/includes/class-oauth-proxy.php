@@ -60,12 +60,13 @@ class BizCity_OAuth_Proxy {
 		if ( count( $parts ) !== 3 ) {
 			return 'Invalid format token_package';
 		}
-		$signature = base64_decode( strtr( $parts[2], '-_', '+/' ), true );
-		$expected  = hash_hmac( 'sha256', $parts[0] . '.' . $parts[1], $secret, true );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — use shared JWT base64url/HMAC primitives.
+		$signature = BizCity_Codec::base64url_decode( $parts[2] );
+		$expected  = BizCity_Codec::hmac_sha256( $parts[0] . '.' . $parts[1], $secret, true );
 		if ( ! hash_equals( $expected, $signature ) ) {
 			return 'The signature is incorrect';
 		}
-		$payload = json_decode( base64_decode( strtr( $parts[1], '-_', '+/' ), true ), true );
+		$payload = BizCity_Codec::json_base64url_decode( $parts[1] );
 		if ( ! is_array( $payload ) ) {
 			return 'Incorrect body JWT';
 		}

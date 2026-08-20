@@ -296,9 +296,13 @@ class BizCity_Zalobot_Command_Router {
 		$cooldown_key = 'bzzalolink_cd_' . md5( $zalo_uid . '_' . $bot_id );
 		delete_transient( $cooldown_key );
 
-		self::send( $bot, $zalo_uid, 'ℹ️ Bạn chưa đăng nhập bằng tài khoản nào.' );
 		$sent = BizCity_Zalobot_User_Linker::maybe_send_login_link( $zalo_uid, $bot_id, $bot, $display, true );
 		if ( ! $sent ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - do not claim an account is unlinked before the explicit login-link dispatch succeeds.
+			self::trace( 'login_link_failed', array(
+				'bot_id'         => $bot_id,
+				'zalo_user_hash' => substr( md5( $zalo_uid ), 0, 10 ),
+			) );
 			self::send( $bot, $zalo_uid, '❌ Chưa tạo được đường link đăng nhập. Vui lòng thử lại sau.' );
 		}
 	}

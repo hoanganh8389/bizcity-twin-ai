@@ -41,6 +41,17 @@
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 if ( defined( 'BIZCITY_TWINBRAIN_LOADED' ) ) {
+	// [2026-08-20 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI — an early compatibility
+	// loader may set the module sentinel before the full class list is loaded.
+	// Recover the provider-free adapter instead of treating the sentinel as proof
+	// that every TwinBrain contract is available.
+	if ( ! class_exists( 'BizCity_TwinBrain_Intent_Compat_Adapter', false ) ) {
+		$intent_compat_file = __DIR__ . '/includes/class-twinbrain-intent-compat-adapter.php';
+		if ( is_readable( $intent_compat_file ) ) {
+			require_once $intent_compat_file;
+		}
+		unset( $intent_compat_file );
+	}
 	return;
 }
 define( 'BIZCITY_TWINBRAIN_LOADED', true );
@@ -89,6 +100,8 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-reposit
 // [2026-08-03 Johnny Chu] G12.3 — current Goal Contract projection and per-goal JSONL trace; provisioning remains explicit, never file-scope DDL.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-contract-store.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-intent-adapter.php';
+// [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — deterministic Slot/Clarify/Confirm/Memory compatibility envelope for workflow-by-workflow migration.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-intent-compat-adapter.php';
 // [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G3 — load deterministic Goal Delta before Runtime hooks.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-delta.php';
 // [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G8 — load deterministic Parser and Reflector before Runtime hooks.

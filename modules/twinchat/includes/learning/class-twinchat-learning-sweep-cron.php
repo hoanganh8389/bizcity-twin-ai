@@ -77,6 +77,11 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 	}
 
 	public static function bind() {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
+		// register a production learning sweep callback or schedule hook.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		add_filter( 'cron_schedules', [ __CLASS__, 'register_schedule' ] );
 		add_action( self::HOOK, [ __CLASS__, 'tick' ] );
 		if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
@@ -108,6 +113,11 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 
 	/** Per-blog scheduling — uses get_option so each multisite blog ticks independently. */
 	public static function maybe_schedule() {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not register,
+		// reschedule, or synchronize learning sweep cron in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		// [2026-07-15 Johnny Chu] R-CRON-TIER Wave 2 — tier-based interval
 		// (free 10m / pro 5m / premium 1m), reschedule only when changed.
 		$want = self::desired_schedule();
@@ -221,6 +231,11 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 	 *   3. Else enqueue with origin='sweep'.
 	 */
 	public static function tick() {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — a queued sweep must
+		// not query ghost chunks or enqueue learning jobs in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		// Emergency kill-switch (when cron option is corrupt or sweep is firing
 		// every request due to wp-cron rebuild loop). Set in wp-config.php:
 		//   define('DISABLE_BIZCITY_LEARNING_SWEEP', true);

@@ -239,6 +239,10 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 				false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
+                // [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - magic-link consume must load the canonical Channel User Linker before CRM init.
+                || ! empty( $_GET['bzzalolink'] )
+                || ! empty( $_GET['zid'] )
+                || ! empty( $_COOKIE['bizcity_crm_magic_link_return'] )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], 'fbhook=1' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
@@ -741,6 +745,10 @@ $_bizcity_admin_only_slugs = [
     'bizcity-tool-image',       // /tool-image/, /canva/, /profile-studio/, /qr-studio/
     'bizcity-pagebuilder',      // /tool-pagebuilder/ is covered by admin_ctx
 ];
+// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - load the Zalo Bot linker on the public magic-link landing and SSO return request.
+$_bizcity_magic_link_completion_request = ! empty( $_GET['bzzalolink'] )
+    || ! empty( $_GET['zid'] )
+    || ! empty( $_COOKIE['bizcity_crm_magic_link_return'] );
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
         continue; // Already loaded (activated as regular plugin or by mu-plugin)
@@ -749,8 +757,11 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         continue;
     }
     // [2026-06-09 Johnny Chu] PERF-2 — Skip admin-only plugins on plain frontend HTML renders.
+    // [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - the login callback must
+    // retain the active Zalo linker so consume() can dispatch the confirmation message.
     if ( ( ( ! $_bizcity_admin_ctx && ! $_bizcity_agent_public_request ) || $_bizcity_twinchat_admin_page )
-        && in_array( $_slug, $_bizcity_admin_only_slugs, true ) ) {
+        && in_array( $_slug, $_bizcity_admin_only_slugs, true )
+        && ! ( $_slug === 'bizcity-zalo-bot' && $_bizcity_magic_link_completion_request ) ) {
         continue;
     }
     // Guard: only load if plugin folder exists — skip gracefully if not deployed
@@ -767,6 +778,7 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         require_once $_bundled_file;
     }
 }
+unset( $_bizcity_magic_link_completion_request );
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );

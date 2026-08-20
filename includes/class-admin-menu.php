@@ -933,17 +933,20 @@ class BizCity_Admin_Menu {
 
 
 	/**
-	 * Render the unified Workspace landing page.
+	 * Redirect the legacy Workspace parent to the canonical TwinChat surface.
 	 */
 	public static function render_workspace_page(): void {
-		// [2026-08-11 Johnny Chu] PHASE-1.26 — keep the new parent useful without duplicating module business logic.
-		$td = 'bizcity-twin-ai';
-		?>
-		<div class="wrap">
-			<h1><?php esc_html_e( 'Twin AI Workspace', $td ); ?></h1>
-			<p><?php esc_html_e( 'Truy cập Twin Chat, Gateway, Knowledge, Scheduler, Automation và các module lõi.', $td ); ?></p>
-		</div>
-		<?php
+		// [2026-08-20 Johnny Chu] PHASE-1.26-MENU — send Workspace directly to the canonical TwinChat iframe.
+		$target = add_query_arg(
+			array(
+				'page'  => self::SLUG_CHAT,
+				'plugin' => 'twinchat',
+				'_iurl' => '/twinchat/?bizcity_iframe=1',
+			),
+			admin_url( 'admin.php' )
+		);
+		wp_safe_redirect( $target );
+		exit;
 	}
 
 	/**

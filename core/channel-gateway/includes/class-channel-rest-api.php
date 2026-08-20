@@ -1115,7 +1115,8 @@ class BizCity_Channel_REST_API {
 							$verify_result = true;
 							// error_log( '[bizcity-cg] TRACE zalooa_fallback pass (no mac or no secret)' );
 						} else {
-							$_expected     = hash_hmac( 'sha256', $request->get_body(), $_app_secret );
+							// [2026-08-20 Johnny Chu] CODEC-CORE — use shared webhook HMAC verification.
+							$_expected     = BizCity_Codec::hmac_sha256( $request->get_body(), $_app_secret, false );
 							$verify_result = hash_equals( $_expected, (string) $_mac_param );
 							// error_log( '[bizcity-cg] TRACE zalooa_fallback mac_check=' . ( $verify_result ? 'pass' : 'FAIL' ) );
 						}

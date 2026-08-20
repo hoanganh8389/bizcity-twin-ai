@@ -85,23 +85,19 @@ abstract class BizCity_Integration {
 	}
 
 	public function encrypt_value( string $value ): string {
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate legacy integration storage encryption.
 		if ( $value === '' ) {
 			return '';
 		}
-		$encrypted = openssl_encrypt( $value, $this->cipher, $this->get_encryption_key(), 0, $this->get_encryption_iv() );
-		return $encrypted !== false ? base64_encode( $encrypted ) : '';
+		return BizCity_Codec::encrypt_legacy_storage( $value, $this->get_encryption_key(), $this->get_encryption_iv() );
 	}
 
 	public function decrypt_value( string $value ): string {
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate legacy integration storage decryption.
 		if ( $value === '' ) {
 			return '';
 		}
-		$decoded = base64_decode( $value, true );
-		if ( $decoded === false ) {
-			return $value; // Already plain text
-		}
-		$decrypted = openssl_decrypt( $decoded, $this->cipher, $this->get_encryption_key(), 0, $this->get_encryption_iv() );
-		return $decrypted !== false ? $decrypted : $value;
+		return BizCity_Codec::decrypt_legacy_storage( $value, $this->get_encryption_key(), $this->get_encryption_iv() );
 	}
 
 	/**

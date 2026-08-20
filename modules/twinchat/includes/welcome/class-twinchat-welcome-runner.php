@@ -50,6 +50,11 @@ class BizCity_TwinChat_Welcome_Runner {
 	 * @return void
 	 */
 	public function run_job( $job_id ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — direct worker calls
+		// must not execute production welcome jobs in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$job_id = (int) $job_id;
 		$db     = BizCity_TwinChat_Welcome_Database::instance();
 		$row    = $db->get( $job_id );
@@ -153,6 +158,89 @@ class BizCity_TwinChat_Welcome_Runner {
 				'source_id'   => $source_id,
 				'error'       => mb_substr( $err, 0, 400 ),
 			], $notebook_id );
+
+			// [2026-07-25 Johnny Chu] PHASE-0.47-KG-WELCOME-FIX — R-ERROR-UX: the
+			// "đã tải lên / đang học tiếp" notice must never vanish silently just
+			// because AI summary generation failed (empty content_text race,
+			// LLM error, JSON parse failure, ...). Push a plain fallback bubble
+			// so the user still gets confirmation + can ask questions directly.
+			$this->push_fallback_notice( $job_id, $notebook_id, $source_id, $user_id );
+		}
+	}
+
+	/**
+	 * R-ERROR-UX fallback when generate()/LLM fails: push a plain "uploaded,
+	 * still learning" system bubble (no AI summary/suggestions) into chat +
+	 * the learning SSE stream, so the notification is never silently swallowed.
+	 *
+	 * [2026-07-25 Johnny Chu] PHASE-0.47-KG-WELCOME-FIX — new method.
+	 */
+	private function push_fallback_notice( $job_id, $notebook_id, $source_id, $user_id ) {
+		try {
+			$title = '';
+			if ( class_exists( 'BizCity_KG' ) ) {
+				$source = BizCity_KG::get_source(
+					[ 'plugin' => 'twinchat', 'scope_type' => 'notebook', 'scope_id' => (string) $notebook_id ],
+					$source_id
+				);
+				if ( is_array( $source ) ) {
+					$title = (string) ( $source['title'] ?? '' );
+				}
+			}
+			$label   = $title !== '' ? $title : __( 'Tài liệu mới', 'bizcity-twin-ai' );
+			$content = sprintf(
+				/* translators: %s: source title */
+				__( "✅ Đã tải lên **%s** và đang tiếp tục học nội dung.\n\nMình chưa tạo được tóm tắt tự động cho tài liệu này, nhưng bạn có thể đặt câu hỏi trực tiếp về nội dung ngay bây giờ.", 'bizcity-twin-ai' ),
+				$label
+			);
+
+			$session_id = $this->resolve_or_create_session( $notebook_id, $user_id );
+			$msg_id     = 0;
+			if ( class_exists( 'BizCity_TwinChat_Database' ) ) {
+				$msg_id = (int) BizCity_TwinChat_Database::instance()->insert_message( [
+					'notebook_id' => $notebook_id,
+					'user_id'     => $user_id,
+					'session_id'  => $session_id,
+					'role'        => 'assistant',
+					'content'     => $content,
+					'kg_entities' => [
+						'welcome'      => true,
+						'fallback'     => true,
+						'source_id'    => $source_id,
+						'source_title' => $label,
+						'key_topics'   => [],
+						'suggestions'  => [],
+					],
+				] );
+
+				BizCity_TwinChat_Database::instance()->upsert_session( [
+					'notebook_id' => $notebook_id,
+					'session_id'  => $session_id,
+					'user_id'     => $user_id,
+					'title'       => mb_substr( $label, 0, 80 ),
+					'preview'     => mb_substr( $content, 0, 200 ),
+				] );
+			}
+
+			if ( class_exists( 'BizCity_TwinChat_Learning_Events' ) ) {
+				BizCity_TwinChat_Learning_Events::instance()->push( $notebook_id, 'chat', [
+					'message_id' => $msg_id,
+					'session_id' => $session_id,
+					'role'       => 'assistant',
+					'content'    => $content,
+					'meta'       => [
+						'kind'         => 'welcome',
+						'fallback'     => true,
+						'source_id'    => $source_id,
+						'source_title' => $label,
+						'suggestions'  => [],
+						'key_topics'   => [],
+					],
+				] );
+			}
+		} catch ( \Throwable $e2 ) {
+			// Last-resort guard: never let the fallback notice itself crash the job.
+			error_log( "[twinchat-welcome] job#{$job_id} fallback notice failed: " . $e2->getMessage() );
 		}
 	}
 

@@ -240,16 +240,13 @@ class BizCity_CF7_ZNS_Config {
 	 * @return string
 	 */
 	private static function encrypt( $plain ) {
-		if ( ! function_exists( 'openssl_encrypt' ) || empty( $plain ) ) {
+		if ( empty( $plain ) ) {
 			return $plain; // fallback: store as-is if openssl unavailable
 		}
 		$key = substr( hash( 'sha256', AUTH_KEY, true ), 0, 32 );
 		$iv  = openssl_random_pseudo_bytes( 16 );
-		$enc = openssl_encrypt( $plain, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv );
-		if ( false === $enc ) {
-			return '';
-		}
-		return base64_encode( $iv . $enc );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate legacy CF7 raw encryption.
+		return BizCity_Codec::encrypt_raw_payload( $plain, $key, $iv );
 	}
 
 	/**
@@ -259,17 +256,11 @@ class BizCity_CF7_ZNS_Config {
 	 * @return string
 	 */
 	private static function decrypt( $enc_b64 ) {
-		if ( ! function_exists( 'openssl_decrypt' ) || empty( $enc_b64 ) ) {
+		if ( empty( $enc_b64 ) ) {
 			return $enc_b64;
 		}
-		$raw = base64_decode( $enc_b64, true );
-		if ( ! $raw || strlen( $raw ) < 17 ) {
-			return '';
-		}
-		$key    = substr( hash( 'sha256', AUTH_KEY, true ), 0, 32 );
-		$iv     = substr( $raw, 0, 16 );
-		$cipher = substr( $raw, 16 );
-		$plain  = openssl_decrypt( $cipher, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv );
-		return ( false === $plain ) ? '' : $plain;
+		$key = substr( hash( 'sha256', AUTH_KEY, true ), 0, 32 );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate legacy CF7 raw decryption.
+		return BizCity_Codec::decrypt_raw_payload( $enc_b64, $key );
 	}
 }

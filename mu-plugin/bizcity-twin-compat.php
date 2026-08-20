@@ -192,6 +192,8 @@ $_bc_llm_context = is_admin()
     || ( defined( 'WP_CLI' ) && WP_CLI )
     || false !== strpos( $_bc_llm_uri, '/wp-json/' )
     || false !== strpos( $_bc_llm_uri, '/bizhook/' )
+    // [2026-08-13 Johnny Chu] HOTFIX-ZALO-LLM-LOADER — load the gateway client for the Zalo Bot /zalohook/ rewrite.
+    || false !== strpos( $_bc_llm_uri, '/zalohook/' )
     || false !== strpos( $_bc_llm_uri, '/tool-' )
     || false !== strpos( $_bc_llm_uri, '/gpt' )
     || false !== strpos( $_bc_llm_uri, '/twin' );
@@ -270,6 +272,12 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
                 || false !== strpos( (string) $_SERVER['QUERY_STRING'], 'fb_callback=1' )
             )
         );
+}
+// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - compat loader must expose the magic-link callback surface before the main plugin runs.
+if ( ! empty( $_GET['bzzalolink'] )
+    || ! empty( $_GET['zid'] )
+    || ! empty( $_COOKIE['bizcity_crm_magic_link_return'] ) ) {
+    $_bizcity_admin_ctx = true;
 }
 $_bc_knowledge = BIZCITY_TWIN_AI_DIR . 'core/knowledge/bootstrap.php';
 // [2026-08-09 Johnny Chu] R-PERF — do not preload Knowledge on plain frontend HTML.

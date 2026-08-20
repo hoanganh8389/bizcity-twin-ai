@@ -162,7 +162,8 @@ class BizCity_CG_Zalo_OA_Integration extends BizCity_Channel_Integration {
 		}
 
 		$body     = $request->get_body();
-		$expected = hash_hmac( 'sha256', $body, $app_secret );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — use shared webhook HMAC verification.
+		$expected = BizCity_Codec::hmac_sha256( $body, $app_secret, false );
 		// error_log( '[bizcity-zalooa] TRACE mac expected=' . substr( $expected, 0, 16 ) . '... provided=' . substr( (string) $mac_param, 0, 16 ) . '...' );
 
 		if ( ! hash_equals( $expected, (string) $mac_param ) ) {

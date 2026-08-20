@@ -1477,6 +1477,11 @@ final class BizCity_Automation_REST {
 
 	// ─── Run handlers ────────────────────────────────────────────────────
 	public static function run_workflow( WP_REST_Request $req ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
+		// create an automation run, schedule a loopback, or execute synchronously.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Automation worker is isolated during diagnostics CLI.' );
+		}
 		$wf = BizCity_Automation_Repo_Workflows::find( (int) $req['id'] );
 		if ( ! $wf ) {
 			return new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
@@ -1846,6 +1851,11 @@ final class BizCity_Automation_REST {
 	 * Pre-condition: run is paused.
 	 */
 	public static function resume_run( WP_REST_Request $req ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — resume must not
+		// schedule a queued production run from diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Automation worker is isolated during diagnostics CLI.' );
+		}
 		$run_id = (string) $req['run_id'];
 		$run    = BizCity_Automation_Repo_Runs::find( $run_id );
 		if ( ! $run ) { return new WP_Error( 'not_found', 'Run không tồn tại.', array( 'status' => 404 ) ); }
@@ -1864,6 +1874,11 @@ final class BizCity_Automation_REST {
 	 * into a new run with parent_run_id link. Schedules async exec.
 	 */
 	public static function replay_run( WP_REST_Request $req ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — replay must not
+		// create a new production run during diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Automation worker is isolated during diagnostics CLI.' );
+		}
 		$src_id = (string) $req['run_id'];
 		$src    = BizCity_Automation_Repo_Runs::find( $src_id );
 		if ( ! $src ) { return new WP_Error( 'not_found', 'Run gốc không tồn tại.', array( 'status' => 404 ) ); }

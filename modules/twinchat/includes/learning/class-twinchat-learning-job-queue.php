@@ -40,6 +40,11 @@ class BizCity_TwinChat_Learning_Job_Queue {
 	 * @return int|WP_Error new job id
 	 */
 	public function enqueue( array $args ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not insert an
+		// unscheduled production learning row in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Learning worker is isolated during diagnostics CLI.' );
+		}
 		global $wpdb;
 		$db = BizCity_TwinChat_Learning_Database::instance();
 		if ( ! $db->is_ready() ) {
@@ -139,6 +144,11 @@ class BizCity_TwinChat_Learning_Job_Queue {
 
 	/** Schedule the worker hook. Prefer Action Scheduler when available. */
 	protected function schedule( $job_id, $notebook_id ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
+		// create Action Scheduler, WP-Cron, or loopback learning work.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$args  = [ (int) $job_id ];
 		$group = 'bizcity_twinchat_learning_' . (int) $notebook_id;
 

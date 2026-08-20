@@ -500,11 +500,11 @@ class BizCity_Broadcast_Dispatcher {
 		$secret_enc = (string) ( $raw['secret_key_enc'] ?? '' );
 		$secret     = '';
 		if ( $secret_enc ) {
-			// Simple AES-256-CBC decrypt (same as BizCity_CF7_ZNS_Config)
-			if ( function_exists( 'openssl_decrypt' ) && defined( 'AUTH_KEY' ) ) {
+			// [2026-08-20 Johnny Chu] CODEC-CORE — delegate fixed-IV AES-256 fallback decoding.
+			if ( defined( 'AUTH_KEY' ) && class_exists( 'BizCity_Codec' ) ) {
 				$key = substr( hash( 'sha256', AUTH_KEY ), 0, 32 );
 				$iv  = substr( hash( 'sha256', 'bizcity_zns_iv' ), 0, 16 );
-				$dec = openssl_decrypt( base64_decode( $secret_enc ), 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv );
+				$dec = BizCity_Codec::decrypt_fixed_iv_raw( $secret_enc, $key, $iv, 'AES-256-CBC' );
 				if ( false !== $dec ) {
 					$secret = $dec;
 				}

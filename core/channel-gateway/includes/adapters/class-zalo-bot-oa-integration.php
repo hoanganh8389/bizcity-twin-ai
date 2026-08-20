@@ -139,7 +139,8 @@ class BizCity_Zalo_Bot_OA_Integration extends BizCity_Channel_Integration {
 		}
 
 		$body     = $request->get_body();
-		$expected = hash_hmac( 'sha256', $body, $app_secret );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — use shared webhook HMAC verification.
+		$expected = BizCity_Codec::hmac_sha256( $body, $app_secret, false );
 
 		if ( ! hash_equals( $expected, (string) $mac_param ) ) {
 			return new WP_Error( 'zalobot_mac_invalid', 'Webhook mac mismatch', [ 'status' => 403 ] );

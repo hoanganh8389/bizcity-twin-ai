@@ -28,6 +28,8 @@ $token   = (string) ( $ctx['token'] ?? '' );
 // Handle inline POST signon (CASE B).
 $signon_error = '';
 if ( $state === 'login' && ! empty( $_POST['bzml_signon'] ) ) {
+	// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - trace the direct username/password path separately from Google SSO.
+	error_log( sprintf( '[BizCity Magic Link] username_post_received row_id=%d token_present=%d blog_id=%d', (int) ( $row['id'] ?? 0 ), $token !== '' ? 1 : 0, (int) get_current_blog_id() ) );
 	check_admin_referer( 'bzml_signon_' . substr( hash( 'sha256', $token ), 0, 16 ) );
 	$user = wp_signon( array(
 		'user_login'    => sanitize_user( wp_unslash( $_POST['user_login'] ?? '' ) ),
@@ -35,9 +37,14 @@ if ( $state === 'login' && ! empty( $_POST['bzml_signon'] ) ) {
 		'remember'      => true,
 	), is_ssl() );
 	if ( is_wp_error( $user ) ) {
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - identify credential failure before consume is expected.
+		error_log( sprintf( '[BizCity Magic Link] username_signon_failed code=%s row_id=%d', (string) $user->get_error_code(), (int) ( $row['id'] ?? 0 ) ) );
 		$signon_error = $user->get_error_message();
 	} else {
-		BizCity_CRM_Magic_Link::consume( (int) $row['id'], (int) $user->ID );
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - prove direct login reached the one-time consume call.
+		error_log( sprintf( '[BizCity Magic Link] username_signon_ok row_id=%d user_id=%d', (int) ( $row['id'] ?? 0 ), (int) $user->ID ) );
+		$consumed = BizCity_CRM_Magic_Link::consume( (int) $row['id'], (int) $user->ID );
+		error_log( sprintf( '[BizCity Magic Link] username_consume_result row_id=%d consumed=%d user_id=%d', (int) ( $row['id'] ?? 0 ), $consumed ? 1 : 0, (int) $user->ID ) );
 		$redirect = home_url( '/my-account/?welcome=1&platform=' . rawurlencode( strtolower( (string) $row['platform'] ) ) );
 		$redirect = (string) apply_filters( 'bizcity_crm_magic_link_redirect', $redirect, $row, (int) $user->ID );
 		wp_safe_redirect( $redirect );
@@ -47,8 +54,21 @@ if ( $state === 'login' && ! empty( $_POST['bzml_signon'] ) ) {
 
 $sso_url = '';
 if ( $state === 'login' ) {
-	$here    = ( is_ssl() ? 'https' : 'http' ) . '://' . ( $_SERVER['HTTP_HOST'] ?? '' ) . ( $_SERVER['REQUEST_URI'] ?? '' );
-	$sso_url = site_url( '?auth=sso&redirect_to=' . rawurlencode( $here ) );
+	// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - carry the token in the explicit SSO return URL; cookie-only recovery was lost by OAuth redirect.
+	$return_url = add_query_arg(
+		array(
+			'welcome'             => '1',
+			'platform'            => strtolower( (string) ( $row['platform'] ?? 'zalo_bot' ) ),
+			'bzzalolink'          => $token,
+			'bizcity_blog_id'     => (int) ( $row['blog_id'] ?? get_current_blog_id() ),
+			'bizcity_sso_return'  => '1',
+		),
+		home_url( '/my-account/' )
+	);
+	// [2026-08-20 Johnny Chu] R-MSDB/HOTFIX-ZALOBOT-LINK - use the mapped public tenant URL; site_url() can resolve the network canonical host on multisite.
+	$sso_entry_url = home_url( '/?auth=sso' );
+	error_log( sprintf( '[BizCity Magic Link] sso_url_build token_present=%d return_has_bzzalolink=%d return_len=%d entry_host=%s blog_id=%d', $token !== '' ? 1 : 0, strpos( $return_url, 'bzzalolink=' ) !== false ? 1 : 0, strlen( $return_url ), (string) wp_parse_url( $sso_entry_url, PHP_URL_HOST ), (int) get_current_blog_id() ) );
+	$sso_url = add_query_arg( 'redirect_to', rawurlencode( $return_url ), $sso_entry_url );
 }
 
 status_header( $state === 'error' ? 410 : 200 );

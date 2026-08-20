@@ -35,6 +35,11 @@ class BizCity_TwinChat_Welcome_Job_Queue {
 	 * @return int|WP_Error new job id on success
 	 */
 	public function enqueue( array $args ) {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not leave an
+		// unscheduled production welcome row behind in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return new WP_Error( 'diagnostics_async_isolated', 'Welcome worker is isolated during diagnostics CLI.' );
+		}
 		$notebook_id = (int) ( $args['notebook_id'] ?? 0 );
 		$source_id   = (int) ( $args['source_id']   ?? 0 );
 		$user_id     = (int) ( $args['user_id']     ?? get_current_user_id() );
@@ -88,6 +93,12 @@ class BizCity_TwinChat_Welcome_Job_Queue {
 	 * welcome bubble still appears within seconds of the upload completing.
 	 */
 	protected function schedule( $job_id, $notebook_id ) {
+		// [2026-08-20 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI — headless diagnostics
+		// must not schedule or execute production welcome jobs after probes.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
+
 		$args = [ (int) $job_id ];
 
 		// Path A — wp-cron (loopback). Cheap; no external dep.

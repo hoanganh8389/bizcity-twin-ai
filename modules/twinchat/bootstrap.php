@@ -226,6 +226,11 @@ add_action( 'init', static function () {
 // NOTE: Use string literal (not BizCity_TwinChat_Studio::HOOK_RUN) so a missing class file
 // during partial deploys / OPcache race never causes a top-level fatal.
 add_action( 'bizcity_twinchat_studio_run', static function ( $output_id, $notebook_id, $tool_type, $user_id, $opts = [] ) {
+	// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — queued Studio callbacks
+	// must not enter the production worker during diagnostics CLI.
+	if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+		return;
+	}
 	if ( class_exists( 'BizCity_TwinChat_Studio' ) ) {
 		BizCity_TwinChat_Studio::instance()->run_background_job( $output_id, $notebook_id, $tool_type, $user_id, $opts );
 	}
@@ -262,6 +267,11 @@ add_action( 'bizcity_twinchat_after_ingest', static function ( $scope_id, $user_
 // Sprint 5.1 — async worker callback.
 // NOTE: Use string literal (not BizCity_TwinChat_Welcome_Job_Queue::HOOK_RUN) — same reason as above.
 add_action( 'bizcity_twinchat_welcome_run', static function ( $job_id ) {
+	// [2026-08-20 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI — do not execute queued
+	// production welcome jobs while the headless diagnostics runner is alive.
+	if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+		return;
+	}
 	if ( class_exists( 'BizCity_TwinChat_Welcome_Runner' ) ) {
 		BizCity_TwinChat_Welcome_Runner::instance()->run_job( (int) $job_id );
 	}

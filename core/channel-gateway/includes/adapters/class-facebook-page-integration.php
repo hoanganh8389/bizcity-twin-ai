@@ -147,7 +147,8 @@ class BizCity_Facebook_Page_Integration extends BizCity_Channel_Integration {
 		}
 
 		$body     = $request->get_body();
-		$expected = 'sha256=' . hash_hmac( 'sha256', $body, $app_secret );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — use shared webhook HMAC verification.
+		$expected = 'sha256=' . BizCity_Codec::hmac_sha256( $body, $app_secret, false );
 
 		if ( ! hash_equals( $expected, $sig_header ) ) {
 			return new WP_Error( 'fb_sig_invalid', 'X-Hub-Signature-256 mismatch', [ 'status' => 403 ] );

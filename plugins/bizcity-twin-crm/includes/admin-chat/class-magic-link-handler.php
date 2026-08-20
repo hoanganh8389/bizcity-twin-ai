@@ -19,9 +19,15 @@ class BizCity_CRM_Magic_Link_Handler {
 
 	const QUERY_VAR_PRIMARY = 'bzzalolink';
 	const QUERY_VAR_ALIAS   = 'zid';
-	const RETURN_COOKIE      = 'bizcity_crm_magic_link_return';
+	const QUERY_VAR_BLOG    = 'bizcity_blog_id';
+	const QUERY_VAR_SSO     = 'bizcity_sso_return';
 
 	public static function register(): void {
+		static $registered = false;
+		if ( $registered ) {
+			return;
+		}
+		$registered = true;
 		// Hook EARLY on `init` so we win over any legacy gitignored bot plugin
 		// that may have its own ?bzzalolink= handler firing on init/parse_request
 		// and exiting with a generic "Link không hợp lệ" page.
@@ -29,8 +35,6 @@ class BizCity_CRM_Magic_Link_Handler {
 		// Belt-and-braces: also hook template_redirect very early in case some
 		// other plugin short-circuits init.
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_handle' ), -100 );
-		// [2026-08-13 Johnny Chu] HOTFIX-MAGIC-LINK-SSO-RETURN — consume the token when SSO returns to my-account instead of the original landing URL.
-		add_action( 'template_redirect', array( __CLASS__, 'maybe_consume_return_cookie' ), -90 );
 		add_action( 'bizcity_crm_magic_link_consumed', array( __CLASS__, 'on_consumed' ), 10, 2 );
 	}
 
@@ -61,6 +65,10 @@ class BizCity_CRM_Magic_Link_Handler {
 		if ( $token === '' ) {
 			return;
 		}
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - trace the direct username POST before any SSO-related branch is considered.
+		if ( ! empty( $_POST['bzml_signon'] ) ) {
+			error_log( sprintf( '[BizCity Magic Link] handler_username_post_seen method=%s blog_id=%d', (string) ( $_SERVER['REQUEST_METHOD'] ?? '' ), (int) get_current_blog_id() ) );
+		}
 		// [2026-08-01 Johnny Chu] HOTFIX-ZALOBOT-LINK — the init:1 landing
 		// handler must not exit before the anonymous login form can process its
 		// POST. Let the same handler run again at template_redirect, where the
@@ -76,8 +84,19 @@ class BizCity_CRM_Magic_Link_Handler {
 		nocache_headers();
 		header( 'Referrer-Policy: no-referrer' );
 
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - switch to the issuing tenant before verify() queries the shard-local token table.
+		$callback_blog_id = isset( $_GET[ self::QUERY_VAR_BLOG ] ) ? absint( $_GET[ self::QUERY_VAR_BLOG ] ) : 0;
+		$switched         = false;
+		if ( is_multisite() && $callback_blog_id > 0 && $callback_blog_id !== (int) get_current_blog_id() ) {
+			switch_to_blog( $callback_blog_id );
+			$switched = true;
+		}
+
 		$result = BizCity_CRM_Magic_Link::verify( $token );
 		if ( is_wp_error( $result ) ) {
+			if ( $switched ) {
+				restore_current_blog();
+			}
 			self::render_landing( array(
 				'state'   => 'error',
 				'code'    => $result->get_error_code(),
@@ -87,7 +106,6 @@ class BizCity_CRM_Magic_Link_Handler {
 		}
 
 		// Switch to the issuing blog (multisite scope safety).
-		$switched = false;
 		if ( is_multisite() && (int) $result['blog_id'] !== get_current_blog_id() ) {
 			switch_to_blog( (int) $result['blog_id'] );
 			$switched = true;
@@ -97,6 +115,8 @@ class BizCity_CRM_Magic_Link_Handler {
 		// this user already consumed the token is safe and idempotent. Do not
 		// turn a successful bind into a misleading "already used" error page.
 		if ( ! empty( $result['_already_consumed_by_current_user'] ) ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - replay the canonical bind hook so a prior consume interrupted before identity persistence can self-heal.
+			do_action( 'bizcity_crm_magic_link_consumed', $result, get_current_user_id() );
 			if ( $switched ) {
 				restore_current_blog();
 			}
@@ -109,10 +129,11 @@ class BizCity_CRM_Magic_Link_Handler {
 		// prefetch/scanners cannot burn a valid Zalo linker before the user acts.
 		if ( is_user_logged_in() ) {
 			$user_id = get_current_user_id();
-			// [2026-08-13 Johnny Chu] HOTFIX-MAGIC-LINK-SSO-RETURN — authenticated SSO return is the explicit link action; consume without a second confirmation click.
-			if ( empty( $_POST['bzml_confirm'] ) && self::return_cookie_matches( $token ) ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — the token-bearing return URL is the explicit login action; no cookie recovery is needed.
+			$is_explicit_sso_return = ! empty( $_GET[ self::QUERY_VAR_SSO ] );
+			if ( empty( $_POST['bzml_confirm'] ) && $is_explicit_sso_return ) {
+				// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — consume the CRM row directly from the URL returned by OAuth.
 				$consumed = BizCity_CRM_Magic_Link::consume( (int) $result['id'], $user_id );
-				self::clear_return_cookie();
 				if ( $switched ) {
 					restore_current_blog();
 				}
@@ -130,7 +151,6 @@ class BizCity_CRM_Magic_Link_Handler {
 			if ( ! empty( $_POST['bzml_confirm'] ) ) {
 				check_admin_referer( 'bzml_confirm_' . substr( hash( 'sha256', $token ), 0, 16 ) );
 				$consumed = BizCity_CRM_Magic_Link::consume( (int) $result['id'], $user_id );
-				self::clear_return_cookie();
 				if ( $switched ) {
 					restore_current_blog();
 				}
@@ -145,6 +165,8 @@ class BizCity_CRM_Magic_Link_Handler {
 				) );
 				exit;
 			}
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — keep a direct browser visit read-only until the user confirms.
+			error_log( sprintf( '[BizCity Magic Link] consume_waiting_for_confirm row_id=%d explicit_sso_return=%d user_id=%d blog_id=%d', (int) ( $result['id'] ?? 0 ), $is_explicit_sso_return ? 1 : 0, (int) $user_id, (int) get_current_blog_id() ) );
 			self::render_landing( array(
 				'state' => 'confirm',
 				'row'   => $result,
@@ -153,8 +175,7 @@ class BizCity_CRM_Magic_Link_Handler {
 			exit;
 		}
 
-		// CASE B: anonymous → render login landing with token preserved in form.
-		self::set_return_cookie( $token );
+		// CASE B: anonymous → render login landing with token preserved in the SSO return URL.
 		self::render_landing( array(
 			'state' => 'login',
 			'row'   => $result,
@@ -167,61 +188,6 @@ class BizCity_CRM_Magic_Link_Handler {
 	}
 
 	/**
-	 * Recover a token when an SSO callback redirects to my-account.
-	 */
-	public static function maybe_consume_return_cookie(): void {
-		if ( ! is_user_logged_in() || ! empty( $_GET[ self::QUERY_VAR_PRIMARY ] ) ) {
-			return;
-		}
-		$token = isset( $_COOKIE[ self::RETURN_COOKIE ] )
-			? sanitize_text_field( wp_unslash( $_COOKIE[ self::RETURN_COOKIE ] ) )
-			: '';
-		if ( $token === '' ) {
-			return;
-		}
-		self::clear_return_cookie();
-		$result = BizCity_CRM_Magic_Link::verify( $token );
-		if ( is_wp_error( $result ) ) {
-			return;
-		}
-		$user_id  = get_current_user_id();
-		$switched = false;
-		if ( is_multisite() && (int) $result['blog_id'] !== get_current_blog_id() ) {
-			switch_to_blog( (int) $result['blog_id'] );
-			$switched = true;
-		}
-		$consumed = BizCity_CRM_Magic_Link::consume( (int) $result['id'], $user_id );
-		if ( $switched ) {
-			restore_current_blog();
-		}
-		if ( $consumed ) {
-			wp_safe_redirect( self::success_redirect_url( $result, $user_id ) );
-			exit;
-		}
-	}
-
-	public static function clear_return_cookie(): void {
-		if ( headers_sent() ) {
-			return;
-		}
-		setcookie( self::RETURN_COOKIE, '', time() - 3600, '/', '', is_ssl(), true );
-	}
-
-	private static function set_return_cookie( string $token ): void {
-		if ( $token === '' || headers_sent() ) {
-			return;
-		}
-		setcookie( self::RETURN_COOKIE, $token, time() + 1800, '/', '', is_ssl(), true );
-	}
-
-	private static function return_cookie_matches( string $token ): bool {
-		$cookie = isset( $_COOKIE[ self::RETURN_COOKIE ] )
-			? sanitize_text_field( wp_unslash( $_COOKIE[ self::RETURN_COOKIE ] ) )
-			: '';
-		return $cookie !== '' && hash_equals( hash( 'sha256', $token ), hash( 'sha256', $cookie ) );
-	}
-
-	/**
 	 * After consume — best-effort bind chat_id ↔ user via legacy linker if available.
 	 *
 	 * @param array $row
@@ -229,12 +195,55 @@ class BizCity_CRM_Magic_Link_Handler {
 	 */
 	public static function on_consumed( $row, $user_id ): void {
 		if ( ! is_array( $row ) || ! $user_id ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - trace malformed CRM consume payloads.
+			error_log( '[BizCity Magic Link] compatibility_bind_skipped reason=invalid_payload' );
 			return;
 		}
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - trace the compatibility listener platform decision.
+		error_log( sprintf( '[BizCity Magic Link] compatibility_bind_start platform=%s row_id=%d user_id=%d', strtoupper( (string) ( $row['platform'] ?? '' ) ), (int) ( $row['id'] ?? 0 ), (int) $user_id ) );
 
-		// Best-effort: if Zalo linker is available (gitignored bot plugin) — call it
-		// to bind chat_id ↔ wp_user. This is a pure mapping (NOT a privilege grant).
-		if ( strtoupper( (string) ( $row['platform'] ?? '' ) ) === 'ZALO'
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — invoke the canonical linker directly when its consume hook was not registered by the current load path.
+		$canonical_available = class_exists( 'BizCity_Channel_User_Linker' )
+			&& method_exists( 'BizCity_Channel_User_Linker', 'on_magic_link_consumed' )
+		;
+		$canonical_hooked = false;
+		if ( $canonical_available ) {
+			$canonical_hooked = function_exists( 'has_action' )
+				&& false !== has_action( 'bizcity_crm_magic_link_consumed', array( 'BizCity_Channel_User_Linker', 'on_magic_link_consumed' ) );
+			if ( ! $canonical_hooked ) {
+				try {
+					BizCity_Channel_User_Linker::on_magic_link_consumed( $row, (int) $user_id );
+				} catch ( Throwable $e ) {
+					error_log( sprintf( '[BizCity Magic Link] canonical_direct_bind_failed row_id=%d reason=%s', (int) ( $row['id'] ?? 0 ), sanitize_key( (string) $e->getMessage() ) ) );
+				}
+			}
+		}
+
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-NOTIFY — canonical hook/direct invocation is the sole notification owner when available; never send a second legacy welcome.
+		if ( ! $canonical_available
+			&& strtoupper( (string) ( $row['platform'] ?? '' ) ) === 'ZALO_BOT'
+			&& ! class_exists( 'BizCity_Gateway_Sender' )
+			&& class_exists( 'BizCity_Zalobot_User_Linker' )
+			&& method_exists( 'BizCity_Zalobot_User_Linker', 'send_welcome_after_link' )
+		) {
+			$meta     = ! empty( $row['meta_json'] ) ? json_decode( (string) $row['meta_json'], true ) : array();
+			$identity = is_array( $meta ) && ! empty( $meta['channel_identity'] ) && is_array( $meta['channel_identity'] )
+				? $meta['channel_identity'] : array();
+			$fallback_chat_id = (string) ( $identity['external_user_id'] ?? '' );
+			$fallback_bot_id  = (int) ( $identity['account_id'] ?? $row['bot_id'] ?? 0 );
+			if ( $fallback_chat_id !== '' && $fallback_bot_id > 0 ) {
+				try {
+					BizCity_Zalobot_User_Linker::send_welcome_after_link( $fallback_bot_id, $fallback_chat_id, (int) $user_id );
+					error_log( sprintf( '[BizCity Magic Link] fallback_notify_dispatched row_id=%d bot_id=%d user_hash=%s', (int) ( $row['id'] ?? 0 ), $fallback_bot_id, substr( md5( $fallback_chat_id ), 0, 10 ) ) );
+				} catch ( Throwable $e ) {
+					error_log( sprintf( '[BizCity Magic Link] fallback_notify_failed row_id=%d reason=%s', (int) ( $row['id'] ?? 0 ), sanitize_key( (string) $e->getMessage() ) ) );
+				}
+			}
+		}
+
+		// Best-effort legacy identity fallback when the canonical Channel Gateway linker is unavailable.
+		if ( ! $canonical_available
+			&& in_array( strtoupper( (string) ( $row['platform'] ?? '' ) ), array( 'ZALO', 'ZALO_BOT' ), true )
 			&& class_exists( 'BizCity_Zalobot_User_Linker' )
 			&& method_exists( 'BizCity_Zalobot_User_Linker', 'link' )
 		) {
@@ -280,11 +289,15 @@ class BizCity_CRM_Magic_Link_Handler {
 		// Allow theme overrides via locate_template().
 		$theme = locate_template( array( 'bizcity-magic-link-landing.php' ) );
 		if ( $theme ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - prove whether production renders a theme override or the plugin template.
+			error_log( sprintf( '[BizCity Magic Link] landing_template source=theme state=%s path_hash=%s', (string) ( $ctx['state'] ?? '' ), substr( hash( 'sha256', $theme ), 0, 12 ) ) );
 			include $theme;
 			return;
 		}
 		$tpl = BIZCITY_CRM_DIR . '/templates/magic-link-landing.php';
 		if ( file_exists( $tpl ) ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - prove the active landing implementation without logging its server path.
+			error_log( sprintf( '[BizCity Magic Link] landing_template source=plugin state=%s', (string) ( $ctx['state'] ?? '' ) ) );
 			include $tpl;
 			return;
 		}

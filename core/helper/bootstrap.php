@@ -27,6 +27,9 @@ $_helper_includes = __DIR__ . '/includes/';
 // [2026-06-05 Johnny Chu] R-ERROR-UX — canonical error payload builder
 require_once $_helper_includes . 'class-bizcity-error-payload.php';
 
+// [2026-08-20 Johnny Chu] CODEC-CORE — shared base64url, JSON state, authenticated payload, and legacy crypto primitives.
+require_once __DIR__ . '/class-bizcity-codec.php';
+
 // [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — canonical phone identity normalizer.
 require_once $_helper_includes . 'class-bizcity-phone-normalizer.php';
 
