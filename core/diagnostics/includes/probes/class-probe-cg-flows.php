@@ -234,8 +234,8 @@ final class BizCity_Probe_CG_Flows implements BizCity_Diagnostics_Probe {
 		);
 		$ctx->emit_step( $s );
 
-		// Ref codec round-trip. Prefers legacy twf_*; falls back to internal AES.
-		$legacy_present = function_exists( 'twf_encrypt_chat_id' ) && function_exists( 'twf_decrypt_chat_id' );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — ref codec round-trip uses the standard implementation directly.
+		$standard_codec_present = class_exists( 'BizCity_CG_Flow_Ref_Codec' );
 		$enc_token = BizCity_CG_Flow_Ref_Codec::encode( 42 );
 		$dec_id    = BizCity_CG_Flow_Ref_Codec::decode( $enc_token );
 		$codec_ok  = ( $enc_token !== '' && $dec_id === 42 );
@@ -244,7 +244,7 @@ final class BizCity_Probe_CG_Flows implements BizCity_Diagnostics_Probe {
 			'status' => $codec_ok ? 'pass' : 'fail',
 			'detail' => 'encode(42)=' . ( $enc_token !== '' ? substr( $enc_token, 0, 16 ) . '… (' . strlen( $enc_token ) . 'B)' : 'EMPTY' )
 				. ' → decode=' . $dec_id
-				. ' · ' . ( $legacy_present ? 'via legacy twf_*' : 'via internal AES fallback' ),
+				. ' · ' . ( $standard_codec_present ? 'via BizCity_Codec standard' : 'codec class missing' ),
 		);
 		$ctx->emit_step( $s );
 

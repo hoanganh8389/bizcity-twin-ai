@@ -17,26 +17,16 @@ class BizCity_CRM_Gmail_SMTP_Repo {
 	/** Lightweight encryption (XOR + base64) — readable only with WP secret salt. */
 	public static function encrypt( string $plain ): string {
 		if ( $plain === '' ) { return ''; }
-		$key  = defined( 'AUTH_KEY' ) ? AUTH_KEY : 'bizcity-fallback-key';
-		$key  = hash( 'sha256', $key, true );
-		$out  = '';
-		for ( $i = 0, $n = strlen( $plain ); $i < $n; $i++ ) {
-			$out .= chr( ord( $plain[ $i ] ) ^ ord( $key[ $i % 32 ] ) );
-		}
-		return base64_encode( $out );
+		$key = defined( 'AUTH_KEY' ) ? AUTH_KEY : 'bizcity-fallback-key';
+		// [2026-08-20 Johnny Chu] CODEC-CORE — preserve legacy XOR/Base64 storage through the shared primitive.
+		return BizCity_Codec::legacy_xor_encode( $plain, $key );
 	}
 
 	public static function decrypt( string $enc ): string {
 		if ( $enc === '' ) { return ''; }
-		$raw = base64_decode( $enc, true );
-		if ( $raw === false ) { return ''; }
 		$key = defined( 'AUTH_KEY' ) ? AUTH_KEY : 'bizcity-fallback-key';
-		$key = hash( 'sha256', $key, true );
-		$out = '';
-		for ( $i = 0, $n = strlen( $raw ); $i < $n; $i++ ) {
-			$out .= chr( ord( $raw[ $i ] ) ^ ord( $key[ $i % 32 ] ) );
-		}
-		return $out;
+		// [2026-08-20 Johnny Chu] CODEC-CORE — preserve legacy XOR/Base64 reader through the shared primitive.
+		return BizCity_Codec::legacy_xor_decode( $enc, $key );
 	}
 
 	private static function table(): string {

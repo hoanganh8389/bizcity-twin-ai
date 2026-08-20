@@ -57,9 +57,9 @@ final class BizCity_CRM_Campaign_Ref_Codec {
 			return '';
 		}
 
-		// === PRIMARY: twf_encrypt_chat_id (legacy biz-id.php format) ===
-		if ( function_exists( 'twf_encrypt_chat_id' ) ) {
-			$tok = (string) twf_encrypt_chat_id( $campaign_id );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — standard flow codec preserves the historical URL wire format without twf runtime calls.
+		if ( class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ) {
+			$tok = BizCity_CG_Flow_Ref_Codec::encode( $campaign_id, 'vietqr' );
 			if ( $tok !== '' ) {
 				return $tok;
 			}
@@ -129,9 +129,9 @@ final class BizCity_CRM_Campaign_Ref_Codec {
 			}
 		}
 
-		// === 1. PRIMARY: twf_decrypt_chat_id (handles new AND legacy) ===
-		if ( function_exists( 'twf_decrypt_chat_id' ) ) {
-			$decoded = (int) twf_decrypt_chat_id( $raw );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — standard flow codec reads historical URL tokens without twf runtime calls.
+		if ( class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ) {
+			$decoded = (int) BizCity_CG_Flow_Ref_Codec::decode( $raw, 'vietqr' );
 			if ( $decoded > 0 ) {
 				// 1a. Is it a campaign id directly?
 				if ( self::campaign_id_exists( $decoded ) ) {
@@ -161,13 +161,11 @@ final class BizCity_CRM_Campaign_Ref_Codec {
 			return (int) $legacy[ $token ];
 		}
 
-		if ( function_exists( 'twf_encrypt_chat_id' ) ) {
-			$found = self::scan_legacy_match( $token );
-			if ( $found > 0 ) {
-				$legacy[ $token ] = (string) $found;
-				update_option( self::OPTION_LEGACY, $legacy, false );
-				return $found;
-			}
+		$found = self::scan_legacy_match( $token );
+		if ( $found > 0 ) {
+			$legacy[ $token ] = (string) $found;
+			update_option( self::OPTION_LEGACY, $legacy, false );
+			return $found;
 		}
 
 		return 0;
@@ -240,7 +238,8 @@ final class BizCity_CRM_Campaign_Ref_Codec {
 	private static function derive_token( int $campaign_id, int $salt = 0 ): string {
 		$secret = self::secret();
 		$payload = $campaign_id . ':' . $salt;
-		$hmac = hash_hmac( 'sha1', $payload, $secret, true );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — preserve campaign HMAC-SHA1 token output through the shared primitive.
+		$hmac = BizCity_Codec::hmac_sha1( $payload, $secret, true );
 		return self::base62( $hmac, self::TOKEN_LEN );
 	}
 
@@ -339,7 +338,7 @@ final class BizCity_CRM_Campaign_Ref_Codec {
 		foreach ( (array) $rows as $r ) {
 			$flow_id = (int) $r['imported_from_bizgpt_flow_id'];
 			if ( $flow_id <= 0 ) { continue; }
-			$candidate = self::strip_prefix( (string) twf_encrypt_chat_id( $flow_id ) );
+			$candidate = self::strip_prefix( class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ? BizCity_CG_Flow_Ref_Codec::encode( $flow_id, 'vietqr' ) : '' );
 			if ( $candidate !== '' && hash_equals( $candidate, $token ) ) {
 				return (int) $r['id'];
 			}

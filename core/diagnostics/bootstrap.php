@@ -415,6 +415,10 @@ bizcity_diagnostics_require_probe( 'class-probe-scheduler-automation.php' );
 // 3-layer + INSERT/SELECT/DELETE round-trip + REST route registration.
 bizcity_diagnostics_require_probe( 'class-probe-cg-flows.php' );
 
+// [2026-08-20 Johnny Chu] CODEC-CORE-DDV — shared codec Disk/Loader/Runtime,
+// tamper rejection, legacy wire round-trip, and active twf_* call sweep.
+bizcity_diagnostics_require_probe( 'class-probe-codec-standard.php' );
+
 // AUTOMATION BE-1 (2026-05-29) — Native xyflow automation backend smoke.
 // 3-layer (disk/loader/runtime) + create workflow + enqueue run round-trip.
 bizcity_diagnostics_require_probe( 'class-probe-automation.php' );

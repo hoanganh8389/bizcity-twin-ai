@@ -116,6 +116,7 @@ class BizCity_TwinWeb_Identity {
 
 	private static function sign( $sid, $expiry ) {
 		$secret = defined( 'NONCE_SALT' ) ? NONCE_SALT : wp_salt( 'nonce' );
-		return hash_hmac( 'sha256', $sid . '|' . $expiry, $secret );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — use shared HMAC for guest identity cookie signatures.
+		return BizCity_Codec::hmac_sha256( $sid . '|' . $expiry, $secret, false );
 	}
 }

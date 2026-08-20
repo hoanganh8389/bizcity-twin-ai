@@ -733,15 +733,16 @@ class BizCity_Facebook_OAuth {
 	 */
 	private function encode_state( int $blog_id, int $user_id, string $app_source = 'admin' ): string {
 		$payload = $blog_id . '|' . $user_id . '|' . $app_source . '|' . time();
-		$sig = hash_hmac( 'sha256', $payload, $this->get_hmac_key() );
-		return base64_encode( $payload . '|' . $sig );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — preserve Facebook OAuth state format through shared Base64/HMAC primitives.
+		$sig = BizCity_Codec::hmac_sha256( $payload, $this->get_hmac_key(), false );
+		return BizCity_Codec::base64_encode( $payload . '|' . $sig );
 	}
 
 	/**
 	 * Decode & verify state parameter.
 	 */
 	private function decode_state( string $state ): ?array {
-		$decoded = base64_decode( $state, true );
+		$decoded = BizCity_Codec::base64_decode( $state, true );
 		if ( ! $decoded ) return null;
 
 		$parts = explode( '|', $decoded );
@@ -758,7 +759,7 @@ class BizCity_Facebook_OAuth {
 		}
 
 		// Verify signature
-		$expected_sig = hash_hmac( 'sha256', $payload, $this->get_hmac_key() );
+		$expected_sig = BizCity_Codec::hmac_sha256( $payload, $this->get_hmac_key(), false );
 
 		if ( ! hash_equals( $expected_sig, $sig ) ) return null;
 

@@ -93,7 +93,8 @@ class BizCity_AdminHook_Telegram {
 		}
 		$user_id = twf_get_user_id_by_chat_id($chat_id);
 		if (!$user_id) {
-			$login_url = site_url('/telegram-login/?cid=' . (function_exists('twf_encrypt_chat_id') ? twf_encrypt_chat_id($chat_id, 'vietqr') : ''));
+			$login_token = class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ? BizCity_CG_Flow_Ref_Codec::encode( (int) $chat_id, 'vietqr' ) : '';
+			$login_url = site_url('/telegram-login/?cid=' . $login_token);
 			if (function_exists('twf_telegram_send_message')) {
 				twf_telegram_send_message($chat_id, "Bạn chưa liên kết tài khoản. Vui lòng bấm: $login_url");
 			}

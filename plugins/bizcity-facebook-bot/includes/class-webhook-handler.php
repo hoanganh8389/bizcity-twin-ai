@@ -515,13 +515,10 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		$this->log_info( '=== HANDLE REFERRAL START ===' );
 		
 		// Decrypt referral
-		$ref_decrypted = $ref;
-		if ( function_exists( 'twf_decrypt_chat_id' ) ) {
-			$ref_decrypted = twf_decrypt_chat_id( $ref );
-			if ( ! $ref_decrypted ) {
-				$ref_decrypted = $ref;
-			}
-		}
+		$ref_decrypted = class_exists( 'BizCity_CG_Flow_Ref_Codec' )
+			? BizCity_CG_Flow_Ref_Codec::decode( $ref, 'vietqr' )
+			: $ref;
+		$ref_decrypted = $ref_decrypted ? $ref_decrypted : $ref;
 		
 		$this->log_info( 'Referral', array( 'ref' => $ref, 'decrypted' => $ref_decrypted ) );
 		

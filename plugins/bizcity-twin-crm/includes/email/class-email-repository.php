@@ -428,25 +428,21 @@ final class BizCity_CRM_Email_Repository {
 		if ( $plain === '' ) { return ''; }
 		if ( ! function_exists( 'openssl_encrypt' ) ) {
 			// Fallback: base64 with marker (NOT secure, but better than nothing).
-			return 'b64:' . base64_encode( $plain );
+			return 'b64:' . BizCity_Codec::base64_encode( $plain );
 		}
 		$iv  = random_bytes( 16 );
-		$enc = openssl_encrypt( $plain, 'aes-256-cbc', self::key(), OPENSSL_RAW_DATA, $iv );
-		return 'aes:' . base64_encode( $iv . $enc );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — preserve email AES storage through the shared raw payload primitive.
+		return 'aes:' . BizCity_Codec::encrypt_raw_payload( $plain, self::key(), $iv );
 	}
 
 	public static function decrypt( string $blob ): string {
 		if ( $blob === '' ) { return ''; }
 		if ( strpos( $blob, 'b64:' ) === 0 ) {
-			return (string) base64_decode( substr( $blob, 4 ) );
+			return (string) BizCity_Codec::base64_decode( substr( $blob, 4 ), false );
 		}
 		if ( strpos( $blob, 'aes:' ) === 0 && function_exists( 'openssl_decrypt' ) ) {
-			$raw = base64_decode( substr( $blob, 4 ) );
-			if ( strlen( $raw ) < 17 ) { return ''; }
-			$iv  = substr( $raw, 0, 16 );
-			$ct  = substr( $raw, 16 );
-			$out = openssl_decrypt( $ct, 'aes-256-cbc', self::key(), OPENSSL_RAW_DATA, $iv );
-			return $out === false ? '' : $out;
+			// [2026-08-20 Johnny Chu] CODEC-CORE — preserve email AES reader through the shared raw payload primitive.
+			return BizCity_Codec::decrypt_raw_payload( substr( $blob, 4 ), self::key(), 'aes-256-cbc' );
 		}
 		return $blob; // legacy plaintext
 	}

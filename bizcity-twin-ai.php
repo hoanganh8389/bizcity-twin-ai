@@ -239,10 +239,6 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 				false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
-                // [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - magic-link consume must load the canonical Channel User Linker before CRM init.
-                || ! empty( $_GET['bzzalolink'] )
-                || ! empty( $_GET['zid'] )
-                || ! empty( $_COOKIE['bizcity_crm_magic_link_return'] )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], 'fbhook=1' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
@@ -725,8 +721,8 @@ $_bizcity_bundled_must_load = [
     // [2026-08-19 Johnny Chu] HOTFIX — không bundle Video Kling; chỉ menu /gpt/video/ khi plugin được cài và active riêng.
     // 'bizcity-video-kling'         => 'BIZCITY_VIDEO_KLING_VERSION', // B-roll Video — Kling/Sora/Veo3/SeeDance image-to-video via PiAPI
     'bizcity-pagebuilder'         => 'BZPB_VERSION',               // Page Builder — AI tạo website drag-and-drop, 19 block types, export HTML
-    // [2026-06-24 Johnny Chu] PHASE-HOME — Personal Assistant (Trợ lý cá nhân) — scheduler, budget, KG, journal
-    'bizcity-personal'            => 'BIZCITY_PERSONAL_VERSION',    // Personal Assistant — calendar, tasks, budget, journal at /personal/
+    // [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — load the Profile module from its physical slug while preserving Personal identifiers.
+    'bizcity-profile'             => 'BIZCITY_PERSONAL_VERSION',    // Profile + Personal Assistant — canonical app path /profile/
 ];
 // [2026-06-09 Johnny Chu] PERF-2 — Admin-only bundled plugins (no public shortcodes, no
 // public URL patterns outside /tool-* or /kling-video/ covered by $_bizcity_admin_ctx).
@@ -745,10 +741,6 @@ $_bizcity_admin_only_slugs = [
     'bizcity-tool-image',       // /tool-image/, /canva/, /profile-studio/, /qr-studio/
     'bizcity-pagebuilder',      // /tool-pagebuilder/ is covered by admin_ctx
 ];
-// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - load the Zalo Bot linker on the public magic-link landing and SSO return request.
-$_bizcity_magic_link_completion_request = ! empty( $_GET['bzzalolink'] )
-    || ! empty( $_GET['zid'] )
-    || ! empty( $_COOKIE['bizcity_crm_magic_link_return'] );
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
         continue; // Already loaded (activated as regular plugin or by mu-plugin)
@@ -757,16 +749,17 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         continue;
     }
     // [2026-06-09 Johnny Chu] PERF-2 — Skip admin-only plugins on plain frontend HTML renders.
-    // [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - the login callback must
-    // retain the active Zalo linker so consume() can dispatch the confirmation message.
     if ( ( ( ! $_bizcity_admin_ctx && ! $_bizcity_agent_public_request ) || $_bizcity_twinchat_admin_page )
-        && in_array( $_slug, $_bizcity_admin_only_slugs, true )
-        && ! ( $_slug === 'bizcity-zalo-bot' && $_bizcity_magic_link_completion_request ) ) {
+        && in_array( $_slug, $_bizcity_admin_only_slugs, true ) ) {
         continue;
     }
     // Guard: only load if plugin folder exists — skip gracefully if not deployed
     $_bundled_dir  = __DIR__ . '/plugins/' . $_slug;
     $_bundled_file = $_bundled_dir . '/' . $_slug . '.php';
+    // [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — bizcity-profile keeps the shipped bizcity-personal.php entrypoint for compatibility.
+    if ( 'bizcity-profile' === $_slug ) {
+        $_bundled_file = $_bundled_dir . '/bizcity-personal.php';
+    }
     // [2026-07-26 Johnny Chu] R-GW-8 — cutover fallback: legacy slug
     // `bizcity-admin-hook-zalo` may be deployed under
     // `plugins/bizcity-zalo-bizcity/bizcity-admin-hook-zalo.php`.
@@ -778,7 +771,6 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         require_once $_bundled_file;
     }
 }
-unset( $_bizcity_magic_link_completion_request );
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );

@@ -1,9 +1,9 @@
 {
   "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
   "module_id": "modules.personal",
-  "owner": "plugins/bizcity-personal",
+  "owner": "plugins/bizcity-profile",
   "installer_id": "personal",
-  "current_version": "1.4.0",
+  "current_version": "1.5.0",
   "version_option": "bizcity_personal_db_version",
   "tables": {
     "bizcity_home_finance_categories": {
@@ -150,6 +150,69 @@
         "idx_notebook": { "cols": ["notebook_id"], "unique": false, "since": "1.4.0" },
         "idx_hash": { "cols": ["content_hash"], "unique": false, "since": "1.4.0" }
       }
+    },
+    "bizcity_personal_profile_cards": {
+      "since": "1.5.0",
+      "purpose": "Profile card registry linking an owner to a Page Builder project and primary QR style.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.5.0", "pk": true },
+        "owner_user_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.5.0" },
+        "bzpb_project_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.5.0" },
+        "label": { "type": "VARCHAR(120) NOT NULL DEFAULT ''", "since": "1.5.0" },
+        "template_key": { "type": "VARCHAR(60) NOT NULL DEFAULT ''", "since": "1.5.0" },
+        "qr_id": { "type": "BIGINT UNSIGNED NULL DEFAULT NULL", "since": "1.5.0" },
+        "status": { "type": "ENUM('draft','published','archived') NOT NULL DEFAULT 'draft'", "since": "1.5.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" },
+        "updated_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.5.0" }
+      },
+      "indexes": {
+        "uniq_project": { "cols": ["bzpb_project_id"], "unique": true, "since": "1.5.0" },
+        "idx_owner": { "cols": ["owner_user_id"], "unique": false, "since": "1.5.0" },
+        "idx_status": { "cols": ["status"], "unique": false, "since": "1.5.0" }
+      }
+    },
+    "bizcity_personal_profile_qrcodes": {
+      "since": "1.5.0",
+      "purpose": "Client-side QR style and target configuration for a Profile card.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.5.0", "pk": true },
+        "card_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.5.0" },
+        "target_type": { "type": "ENUM('profile_page','vcard_file','custom_url') NOT NULL DEFAULT 'profile_page'", "since": "1.5.0" },
+        "custom_url": { "type": "VARCHAR(500) NULL DEFAULT NULL", "since": "1.5.0" },
+        "style_json": { "type": "LONGTEXT NOT NULL", "since": "1.5.0" },
+        "download_count": { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "1.5.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" },
+        "updated_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.5.0" }
+      },
+      "indexes": {
+        "uniq_card": { "cols": ["card_id"], "unique": true, "since": "1.5.0" }
+      }
+    },
+    "bizcity_personal_profile_analytics_events": {
+      "since": "1.5.0",
+      "purpose": "Privacy-minimal public Profile view and interaction events.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.5.0", "pk": true },
+        "card_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.5.0" },
+        "event_type": { "type": "VARCHAR(40) NOT NULL DEFAULT ''", "since": "1.5.0", "note": "Whitelist includes view, qr_scan, qr_download, click_phone, click_email, click_map, click_link, click_social, click_message_app, save_contact, share." },
+        "visitor_hash": { "type": "CHAR(64) NOT NULL DEFAULT ''", "since": "1.5.0" },
+        "referrer": { "type": "VARCHAR(255) NOT NULL DEFAULT ''", "since": "1.5.0" },
+        "meta_json": { "type": "VARCHAR(255) NULL DEFAULT NULL", "since": "1.5.0" },
+        "occurred_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" }
+      },
+      "indexes": {
+        "idx_card_time": { "cols": ["card_id", "occurred_at"], "unique": false, "since": "1.5.0" },
+        "idx_card_type": { "cols": ["card_id", "event_type"], "unique": false, "since": "1.5.0" }
+      }
     }
   },
   "history": [
@@ -157,6 +220,7 @@
     { "version": "1.1.0", "date": "2026-06-24", "change": "Add bizcity_home_journal table + journal_id FK on entries (PHASE-HOME W4)" },
     { "version": "1.2.0", "date": "2026-06-24", "change": "Rename tables bizcity_home_* -> bizcity_personal_* (PHASE-HOME-ARCH)" },
     { "version": "1.3.0", "date": "2026-06-24", "change": "Add bizcity_personal_notebooks + bizcity_personal_notebook_pages (PHASE-HOME-NOTEBOOKS)" },
-    { "version": "1.4.0", "date": "2026-06-24", "change": "Add bizcity_personal_notebook_chunks for KG ingest pipeline (PHASE-HOME-NOTEBOOKS PATH-B)" }
+    { "version": "1.4.0", "date": "2026-06-24", "change": "Add bizcity_personal_notebook_chunks for KG ingest pipeline (PHASE-HOME-NOTEBOOKS PATH-B)" },
+    { "version": "1.5.0", "date": "2026-08-20", "change": "Add Profile card registry, QR style, and privacy-minimal analytics event tables (PHASE-PROFILE-QR)" }
   ]
 }

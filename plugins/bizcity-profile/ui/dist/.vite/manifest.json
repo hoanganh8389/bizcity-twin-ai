@@ -1,0 +1,12 @@
+{
+  "index.html": {
+    "file": "assets/profile.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true
+  },
+  "style.css": {
+    "file": "assets/profile.css",
+    "src": "style.css"
+  }
+}

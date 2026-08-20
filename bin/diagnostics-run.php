@@ -10,6 +10,7 @@
  *   php bin/diagnostics-run.php
  *   php bin/diagnostics-run.php --junit=build/junit.xml
  *   php bin/diagnostics-run.php --filter=core.*
+ *   php bin/diagnostics-run.php --codec
  *   php bin/diagnostics-run.php --skip-network
  *
  * Exit codes
@@ -56,6 +57,12 @@ foreach ( array_slice( $argv, 1 ) as $a ) {
     } else {
         $opts[ $kv ] = true;
     }
+}
+
+// [2026-08-20 Johnny Chu] CODEC-CORE-DDV — provide a focused CLI gate for the
+// shared codec probe so codec migrations can be checked without run-all noise.
+if ( ! empty( $opts['codec'] ) ) {
+    $opts['filter'] = 'core.helper.codec_standard';
 }
 
 /* ── Locate WP root ─────────────────────────────────────────────────── */

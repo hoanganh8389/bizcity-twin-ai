@@ -40,11 +40,6 @@ class BizCity_KG_Scoped_REST_Controller {
 	}
 
 	public static function bind_async_ingest() {
-		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
-		// bind production ingest/watchdog callbacks or scheduler hooks.
-		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
-			return;
-		}
 		// [2026-07-23 Johnny Chu] PHASE-0.43 — run large scoped file ingest out-of-band so REST upload does not hit Cloudflare 524.
 		add_action( self::HOOK_ASYNC_INGEST, array( __CLASS__, 'run_async_ingest' ), 10, 1 );
 		// [2026-07-24 Johnny Chu] PHASE-0.46-ASYNC-INGEST — persist recovery state on the placeholder and sweep jobs lost by a scheduler/process failure.

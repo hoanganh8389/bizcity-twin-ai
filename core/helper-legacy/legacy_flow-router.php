@@ -275,7 +275,7 @@ function twf_process_flow_from_params($params, $client_id='', $platform='') {
 				twf_telegram_send_photo($chat_id, 'https://bizgpt.vn/wp-content/uploads/doraemon/dang-nhap.gif', '!');
 			else:
 				$domain_clean = preg_replace('#^https?://(www\.)?#', '', rtrim($domain, '/'));
-				$enc = twf_encrypt_chat_id($client_id, 'vietqr');
+				$enc = class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ? BizCity_CG_Flow_Ref_Codec::encode( (int) $client_id, 'vietqr' ) : '';
 				$login_url = 'https://' . $domain_clean . '/telegram-login/?zid=' . $enc;
 				twf_telegram_send_photo($chat_id, 'https://bizgpt.vn/wp-content/uploads/doraemon/please.gif', '');
 				return twf_telegram_send_message($chat_id, "Sếp hãy nhấn vào link bên dưới để xác nhận quyền quản trị: $login_url");
@@ -287,7 +287,7 @@ function twf_process_flow_from_params($params, $client_id='', $platform='') {
 			if($domain):
 				$blog_id = get_current_blog_id();
 				$blog_info = get_blog_details( $blog_id );
-				$zid = twf_encrypt_chat_id($client_id);
+				$zid = class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ? BizCity_CG_Flow_Ref_Codec::encode( (int) $client_id, 'vietqr' ) : '';
 				$domain =$blog_info->domain;
 			endif;
 			$link = 'https://'.$domain.'/my-account/?client_id='.$zid;
@@ -299,7 +299,7 @@ function twf_process_flow_from_params($params, $client_id='', $platform='') {
 			if($domain):
 				$blog_id = get_current_blog_id();
 				$blog_info = get_blog_details( $blog_id );
-				$zid = twf_encrypt_chat_id($client_id);
+				$zid = class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ? BizCity_CG_Flow_Ref_Codec::encode( (int) $client_id, 'vietqr' ) : '';
 				$domain =$blog_info->domain;
 			endif;
 			$link = 'https://'.$domain.'/my-account/?client_id='.$zid;

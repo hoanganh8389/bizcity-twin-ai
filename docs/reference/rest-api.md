@@ -7,10 +7,27 @@
 > - **NEVER** `bizcity/v1` — reserved for the upstream LLM Router (`bizcity-llm-router`) on the BizCity server.
 > - **CHANNEL adapters** (Zalo, Facebook, Telegram, WebChat, Gmail, …) MUST use `bizcity-channel/v1`.
 > - **Other modules** declare their own namespace: `bizcity-<module>/v1`.
+> - **Profile/Personal** uses the canonical first-party namespace `bizcity-profile/v1`;
+>   legacy PHP/storage identifiers remain `BizCity_Personal_*` / `bizcity_personal_*`.
 
 All routes return JSON. User-scoped routes require `X-WP-Nonce` (cookie auth)
 or Bearer JWT (auth/login flow). Listed permissions are the WordPress
 capability checked by `permission_callback`.
+
+## bizcity-profile/v1 — Profile/Personal
+
+| Method | Path | Class | Permission |
+|---|---|---|---|
+| GET | `/me` | `BizCity_Personal_REST` | public identity envelope |
+| GET | `/overview` | `BizCity_Personal_REST` | logged-in user |
+| GET, POST | `/calendar` | `BizCity_Personal_REST` | logged-in user |
+| GET, PATCH, DELETE | `/calendar/(?P<id>\d+)` | `BizCity_Personal_REST` | logged-in user |
+| GET, POST | `/tasks` | `BizCity_Personal_REST` | logged-in user |
+| GET, PATCH, DELETE | `/tasks/(?P<id>\d+)` | `BizCity_Personal_REST` | logged-in user |
+| GET, POST, PATCH, DELETE | `/finance/*` | `BizCity_Personal_REST` | logged-in user |
+| GET, POST, DELETE | `/journal/*` | `BizCity_Personal_REST` | logged-in user |
+| GET, POST, PATCH, DELETE | `/notebooks/*` | `BizCity_Personal_Notebook_REST` | logged-in user |
+| GET, POST, PATCH, DELETE | `/profile/*` | `BizCity_Personal_Profile_REST` | route-specific owner/public contract |
 
 ---
 

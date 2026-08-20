@@ -588,11 +588,11 @@ function bizcity_save_oauth_zalo_client_mapping( $user_info, $user_id ) {
     }
     
     // Decrypt zid để lấy client_id
-    if ( ! function_exists( 'twf_decrypt_chat_id' ) ) {
+    if ( ! class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ) {
         return;
     }
     
-    $client_id = twf_decrypt_chat_id( $zid, 'vietqr' );
+    $client_id = BizCity_CG_Flow_Ref_Codec::decode( $zid, 'vietqr' );
     if ( ! $client_id ) {
         error_log( '[OAuth Zalo] Failed to decrypt zid: ' . $zid );
         return;

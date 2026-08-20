@@ -836,7 +836,7 @@ function bizgpt_process_unified_message( array $ctx ): void {
                     send_zalo_botbanhang( "⚠️ Domain không hợp lệ. Ví dụ: demoai.babyhub.vn", $client_id );
                     return;
                 }
-                $enc       = twf_encrypt_chat_id( $client_id, 'vietqr' );
+				$enc       = class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ? BizCity_CG_Flow_Ref_Codec::encode( (int) $client_id, 'vietqr' ) : '';
                 $login_url = 'https://' . $domain . '/telegram-login/?zid=' . $enc;
                 send_zalo_botbanhang( "Dạ. Sếp hãy nhấn vào link bên dưới để xác nhận quyền quản trị:\n$login_url", $client_id );
                 return;

@@ -24,6 +24,22 @@ final class BizCity_Codec {
 	}
 
 	/**
+	 * [2026-08-20 Johnny Chu] CODEC-CORE — canonical ordinary Base64 encoding for binary/storage formats.
+	 */
+	public static function base64_encode( string $value ): string {
+		return base64_encode( $value );
+	}
+
+	/**
+	 * Decode ordinary Base64 for binary/storage formats.
+	 *
+	 * @return string|false
+	 */
+	public static function base64_decode( string $value, bool $strict = true ) {
+		return base64_decode( $value, $strict );
+	}
+
+	/**
 	 * Decode a URL-safe base64 value.
 	 *
 	 * @return string|false
@@ -69,6 +85,13 @@ final class BizCity_Codec {
 	 */
 	public static function hmac_sha256( string $value, string $key, bool $raw = true ): string {
 		return hash_hmac( 'sha256', $value, $key, $raw );
+	}
+
+	/**
+	 * [2026-08-20 Johnny Chu] CODEC-CORE — preserve legacy HMAC-SHA1 token formats.
+	 */
+	public static function hmac_sha1( string $value, string $key, bool $raw = true ): string {
+		return hash_hmac( 'sha1', $value, $key, $raw );
 	}
 
 	/**
@@ -174,6 +197,40 @@ final class BizCity_Codec {
 		}
 		$plain = openssl_decrypt( $raw, $cipher, $key, OPENSSL_RAW_DATA, $iv );
 		return false === $plain ? false : $plain;
+	}
+
+	/**
+	 * Preserve the legacy XOR/Base64 password format during migration.
+	 * New secret storage must use authenticated encryption instead.
+	 */
+	public static function legacy_xor_encode( string $plain, string $key ): string {
+		return self::base64_encode( self::xor_bytes( $plain, hash( 'sha256', $key, true ) ) );
+	}
+
+	/**
+	 * Decode the legacy XOR/Base64 password format.
+	 */
+	public static function legacy_xor_decode( string $encoded, string $key ): string {
+		$raw = self::base64_decode( $encoded, true );
+		if ( false === $raw ) {
+			return '';
+		}
+		return self::xor_bytes( $raw, hash( 'sha256', $key, true ) );
+	}
+
+	/**
+	 * [2026-08-20 Johnny Chu] CODEC-CORE — preserve caller-supplied legacy XOR key semantics.
+	 */
+	public static function xor_bytes( string $value, string $key ): string {
+		if ( $key === '' ) {
+			return $value;
+		}
+		$out = '';
+		$key_length = strlen( $key );
+		for ( $i = 0, $length = strlen( $value ); $i < $length; $i++ ) {
+			$out .= chr( ord( $value[ $i ] ) ^ ord( $key[ $i % $key_length ] ) );
+		}
+		return $out;
 	}
 
 	/**

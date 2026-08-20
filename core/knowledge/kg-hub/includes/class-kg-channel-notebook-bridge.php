@@ -67,11 +67,6 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * hook so media/file notebook captures can hand off learning to cron.
 	 */
 	public static function bind_async_dispatch(): void {
-		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
-		// bind bridge worker/watchdog callbacks or schedule their hooks.
-		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
-			return;
-		}
 		add_action( self::HOOK_ASYNC_CAPTURE_INGEST, array( __CLASS__, 'run_async_capture_ingest' ), 10, 1 );
 		// [2026-07-28 Johnny Chu] AUTOMATION BE-ASYNC — recover bridge placeholders that failed after staging but before successful ingest.
 		add_action( self::HOOK_ASYNC_CAPTURE_WATCHDOG, array( __CLASS__, 'watchdog' ) );

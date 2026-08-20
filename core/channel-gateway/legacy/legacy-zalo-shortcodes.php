@@ -39,11 +39,11 @@ if ( ! function_exists( 'bizcity_legacy_zalo_login_form_shortcode' ) ) {
 			return 'Link không hợp lệ.';
 		}
 
-		if ( ! function_exists( 'twf_decrypt_chat_id' ) ) {
+		if ( ! class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ) {
 			return 'Thiếu hàm xác thực — liên hệ admin.';
 		}
 
-		$client_id = twf_decrypt_chat_id( $zid, 'vietqr' );
+		$client_id = BizCity_CG_Flow_Ref_Codec::decode( $zid, 'vietqr' );
 		if ( ! $client_id ) {
 			return 'Link không hợp lệ.';
 		}

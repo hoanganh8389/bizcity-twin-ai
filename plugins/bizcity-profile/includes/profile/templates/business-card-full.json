@@ -1,0 +1,60 @@
+{
+  "name": "Danh thiep Profile day du",
+  "theme": {
+    "bg0": "#f7f9fc",
+    "bg1": "#ffffff",
+    "bg2": "#eef3fb",
+    "text0": "#172033",
+    "text1": "#68758b",
+    "accent": "#d59621",
+    "accentDim": "#fff4d6",
+    "borderDefault": "#e7eaf0",
+    "borderSubtle": "#f0f2f6",
+    "fontSans": "Inter",
+    "fontDisplay": "Inter",
+    "fontMono": "JetBrains Mono",
+    "radius": 12,
+    "radiusLg": 24
+  },
+  "blocks": [
+    {
+      "id": "profile-card-1",
+      "type": "profile-card",
+      "variant": "full",
+      "props": {
+        "variant": "full",
+        "name": "Tên của bạn",
+        "jobTitle": "Chức danh",
+        "company": "Tên công ty",
+        "bio": "Giới thiệu ngắn về bạn.",
+        "quickActions": ["call", "email"],
+        "contactFields": [
+          { "type": "phone", "label": "Số điện thoại", "value": "" },
+          { "type": "email", "label": "Email", "value": "" },
+          { "type": "address", "label": "Địa chỉ", "value": "" }
+        ],
+        "socialLinks": [],
+        "messagingLinks": [],
+        "chatEntrypoints": [],
+        "ctaSave": true,
+        "ctaShare": true,
+        "profileCardId": 0
+      }
+    },
+    {
+      "id": "lead-form-1",
+      "type": "lead-form",
+      "props": {
+        "title": "Kết nối với tôi",
+        "subtitle": "Để lại thông tin, tôi sẽ liên hệ lại sớm.",
+        "submitText": "Gửi thông tin",
+        "fields": [
+          { "name": "name", "label": "Họ tên", "type": "text", "required": true },
+          { "name": "phone", "label": "Số điện thoại", "type": "tel", "required": true },
+          { "name": "email", "label": "Email", "type": "email", "required": false },
+          { "name": "message", "label": "Lời nhắn", "type": "textarea", "required": false }
+        ]
+      }
+    }
+  ]
+}

@@ -2690,6 +2690,8 @@ class BizCity_TwinWeb_REST {
 
 	// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — preflight: scan workflow channel requirements vs user's My Channels state.
 	public function get_automation_preflight( WP_REST_Request $request ) {
+		// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — load Automation repos only when customer workflow preflight is requested.
+		$this->ensure_customer_automation_runtime();
 		$identity = $this->mychannels_identity();
 		if ( is_wp_error( $identity ) ) {
 			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để kiểm tra preflight.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
@@ -2723,6 +2725,8 @@ class BizCity_TwinWeb_REST {
 
 	// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — owner-scoped activate: preflight → enable workflow if channels ready.
 	public function activate_my_workflow( WP_REST_Request $request ) {
+		// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — make the repo available for the actual customer activation request without loading it on plain HTML.
+		$this->ensure_customer_automation_runtime();
 		$identity = $this->mychannels_identity();
 		if ( is_wp_error( $identity ) ) {
 			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
@@ -2765,6 +2769,7 @@ class BizCity_TwinWeb_REST {
 	public function get_myworkflows_catalog( WP_REST_Request $request ) {
 		unset( $request );
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customer-facing My Workflows catalog from global templates.
+		$this->ensure_customer_automation_runtime();
 		$identity = $this->mychannels_identity();
 		if ( is_wp_error( $identity ) ) {
 			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem My Workflows.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
@@ -2799,6 +2804,7 @@ class BizCity_TwinWeb_REST {
 
 	public function toggle_myworkflow( WP_REST_Request $request ) {
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — one-click ON/OFF for user-owned customer workflow copies.
+		$this->ensure_customer_automation_runtime();
 		$identity = $this->mychannels_identity();
 		if ( is_wp_error( $identity ) ) {
 			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để bật workflow.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
@@ -3826,7 +3832,8 @@ class BizCity_TwinWeb_REST {
 				'iframe_href'   => '',
 				'required_plan' => 'free',
 				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				'dependency_ok' => class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Repo_Workflows' ),
+				// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — workflow APIs lazy-load Automation; do not report OFF before the route is used.
+				'dependency_ok' => true,
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),
@@ -3939,14 +3946,14 @@ class BizCity_TwinWeb_REST {
 			),
 			array(
 				'id'            => 'profile',
-				'label'         => 'Portrait Studio',
+				'label'         => 'My Profiles',
 				'icon'          => 'profile',
-				// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — parent URL stays /gpt/{app}/ while iframe opens the legacy workspace.
+				// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — My Profiles opens the canonical Profile SPA.
 				'href'          => home_url( '/gpt/profile/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile-studio/' ) ),
+				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile/' ) ),
 				'required_plan' => 'free',
 				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				'dependency_ok' => defined( 'BZTIMG_VERSION' ),
+				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),
@@ -4299,6 +4306,24 @@ class BizCity_TwinWeb_REST {
 				'_degraded' => true,
 				'code'      => 'guru_scope_empty',
 				'message'   => 'Guru phu trach TwinWeb chua duoc gan.',
+
+		/**
+		 * Load the Automation bootstrap only for customer workflow API calls.
+		 *
+		 * @return bool
+		 */
+		private function ensure_customer_automation_runtime() {
+			// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — prevent a lazy-load gap from appearing as My Workflows OFF.
+			if ( class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
+				return true;
+			}
+			$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : '';
+			$file = $root ? $root . '/core/automation/bootstrap.php' : '';
+			if ( $file && file_exists( $file ) ) {
+				require_once $file;
+			}
+			return class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Repo_Workflows' );
+		}
 				'hint'      => 'Vao Channel Gateway > TwinWeb de gan Guru.',
 				'help_code' => 'twinweb_guru_scope',
 				'data'      => array(

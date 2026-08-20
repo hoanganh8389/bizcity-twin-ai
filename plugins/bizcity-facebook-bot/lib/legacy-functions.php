@@ -211,12 +211,11 @@ if ( ! function_exists( 'handle_referral' ) ) {
 			return;
 		}
 
-		$ref_decrypted = $ref;
-		if ( function_exists( 'twf_decrypt_chat_id' ) ) {
-			$ref_decrypted = twf_decrypt_chat_id( $ref );
-			if ( ! $ref_decrypted ) {
-				return;
-			}
+		$ref_decrypted = class_exists( 'BizCity_CG_Flow_Ref_Codec' )
+			? BizCity_CG_Flow_Ref_Codec::decode( $ref, 'vietqr' )
+			: 0;
+		if ( ! $ref_decrypted ) {
+			return;
 		}
 
 		// Spam lock (3 minutes)

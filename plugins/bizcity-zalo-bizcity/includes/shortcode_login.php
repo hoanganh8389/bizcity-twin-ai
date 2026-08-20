@@ -3,7 +3,7 @@
 add_shortcode('zalo_login_form', function() {
     ob_start();
     $zid = $_GET['zid'] ?? '';
-    $client_id = twf_decrypt_chat_id($zid, 'vietqr');
+	$client_id = class_exists( 'BizCity_CG_Flow_Ref_Codec' ) ? BizCity_CG_Flow_Ref_Codec::decode( $zid, 'vietqr' ) : 0;
     if (!$client_id) return 'Link không hợp lệ hoặc đã hết hạn.';
 
     $blog_id = get_current_blog_id();

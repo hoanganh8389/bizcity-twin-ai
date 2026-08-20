@@ -36,7 +36,8 @@ final class BizCity_CRM_Order_Public_Token {
 	 */
 	public static function encode( int $order_id ): string {
 		$secret = wp_salt( 'nonce' );
-		$raw    = hash_hmac( 'sha256', (string) $order_id, $secret, true ); // 32 bytes raw binary
+		// [2026-08-20 Johnny Chu] CODEC-CORE — use shared HMAC-SHA256 for public order tokens.
+		$raw    = BizCity_Codec::hmac_sha256( (string) $order_id, $secret, true ); // 32 bytes raw binary
 		return self::bin_to_base62( $raw, self::TOKEN_LEN );
 	}
 

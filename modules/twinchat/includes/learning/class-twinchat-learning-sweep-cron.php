@@ -77,11 +77,6 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 	}
 
 	public static function bind() {
-		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not
-		// register a production learning sweep callback or schedule hook.
-		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
-			return;
-		}
 		add_filter( 'cron_schedules', [ __CLASS__, 'register_schedule' ] );
 		add_action( self::HOOK, [ __CLASS__, 'tick' ] );
 		if ( defined( 'DOING_CRON' ) && DOING_CRON ) {

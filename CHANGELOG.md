@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Profile SPA developer asset loading — 2026-08-20
+
+| Area | Change | Status |
+|---|---|---|
+| Vite assets | Profile UI now emits stable `assets/profile.js` and `assets/profile.css` files instead of hash-named bundles; the PHP runtime adds a `time()` cache version in local/development mode and preserves the stable plugin version in production. | Implemented locally; rebuild and browser smoke required |
+
+### Twin GPT Profile and Workflow navigation — 2026-08-20
+
+| Area | Change | Status |
+|---|---|---|
+| Profile app path | Twin AI now must-loads the physical `bizcity-profile` bundle, exposes `My Profiles`, and serves the Profile SPA at `/profile/`; `/personal/` remains a compatibility alias. | Implemented locally; route and browser smoke required |
+| My Workflows | Removed the false `OFF` state caused by surface-gated Automation classes, lazy-loads Automation for workflow API calls, and routes customer users to channel preflight plus the real ON/OFF controls. | Implemented locally; channel activation smoke required |
+
 ### BizCity Profile REST foundation — 2026-08-20
 
 | Area | Change | Status |
@@ -131,8 +144,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Area | Canonical record | Change / evidence | Status | Next action |
 |---|---|---|---|---|
-| Zalo magic-link completion gate | `R-PERF-LOADER` + `R-CH-IDMEM` | The public `my-account` SSO return did not load the admin-gated `bizcity-zalo-bot` bundle, so the magic-link row could be consumed without the compatibility linker dispatching the success message back to Zalo. The main loader now permits that bundle only when `bzzalolink`, `zid`, or the SSO return cookie is present. | Fixed locally 2026-08-20 | Deploy and verify one fresh Zalo login: `consumed_at`, linked user row, and a Zalo `send_message OK` trace. Confirm ordinary frontend HTML still skips the Zalo Bot bundle. |
-| Canonical ZALO_BOT consume path | `R-CH-IDMEM` + `R-PERF-LOADER` | The new links use `platform=ZALO_BOT`, while the CRM compatibility callback only handled legacy `platform=ZALO`. The callback surface now also enables the early Channel Gateway gate, so `BizCity_Channel_User_Linker::on_magic_link_consumed()` can bind the tenant row before the success redirect. | Fixed locally 2026-08-20 | Verify `bizcity_channel_user_links` contains `platform=ZALO_BOT`, `account_id=bot_id`, `external_user_id=chat_id`, and the authenticated `wp_user_id`. |
 | Diagnostics probe lazy queue | `R-PERF-LOADER` + `R-DDV` | Removed an early `bizcity_diagnostics_load_probes_once()` flush from `core/diagnostics/bootstrap.php`; it could mark the loader complete before the remaining probe queue declarations were registered, leaving the Diagnostics catalog empty or incomplete. | Fixed locally 2026-08-16 | Deploy to the affected site and verify `GET /wp-json/bizcity-diagnostics/v1/smoke/probes` returns a non-empty catalog as an admin. |
 | Canonical loader rule | `R-PERF-LOADER` + `R-DDV` | Codified PHASE-1.23 lessons: surface-scoped loading, pre-`plugins_loaded` evidence, compat/main/bundle parity, shell iframe isolation, file/class delta as primary signal, and QM A/B instrumentation. The observed shell gates reduced approximately 6 MB and are now mandatory guidance for new core/module/plugin loaders. | Fixed locally | Read `docs/rules/PHASE-0-RULE-PERFORMANCE-LOADER.md` before any loader/context-gate change. |
 | PHASE-1.23 roadmap status | `R-PERF-LOADER` + `R-DDV` | Updated the root-cause document from analysis-only to implementation status: Wave 1–3 done locally, Wave 5 in progress, Wave 4 WooCommerce REST profiling next, and Wave 6 surface manifest/thin cron bridge planned. Added A/B, regression matrix and stop conditions. | Fixed locally | Establish deploy parity and route-level Woo evidence before shared-runtime changes. |

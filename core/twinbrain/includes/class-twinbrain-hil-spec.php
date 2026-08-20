@@ -45,6 +45,9 @@ final class BizCity_TwinBrain_HIL_Spec {
 			$slot_id = strtolower( trim( (string) ( $slot['id'] ?? '' ) ) );
 			$slot_id = preg_replace( '/[^a-z0-9_.-]+/i', '_', $slot_id );
 			$validation = is_array( $slot['validation'] ?? null ) ? $slot['validation'] : array();
+			// [2026-08-20 Johnny Chu] HOTFIX-HIL-OPTIONAL-KEY — normalize once
+			// so missing confirmation keys never reach a direct array read.
+			$confirmation = (string) ( $slot['confirmation'] ?? 'never' );
 			$slots[] = array(
 				'id'               => $slot_id,
 				'label'            => self::text( $slot['label'] ?? $slot_id, 120 ),
@@ -54,8 +57,8 @@ final class BizCity_TwinBrain_HIL_Spec {
 				'sources'          => self::string_list( $slot['sources'] ?? array(), 8 ),
 				'choices'          => self::choice_map( $slot['choices'] ?? array() ),
 				'validation'       => $validation,
-				'confirmation'     => in_array( (string) ( $slot['confirmation'] ?? 'never' ), self::CONFIRMATION_MODES, true )
-					? (string) $slot['confirmation']
+				'confirmation'     => in_array( $confirmation, self::CONFIRMATION_MODES, true )
+					? $confirmation
 					: 'never',
 				'redact_in_trace'  => ! empty( $slot['redact_in_trace'] ),
 			);
@@ -149,7 +152,7 @@ final class BizCity_TwinBrain_HIL_Spec {
 					$errors[] = $prefix . '.ask_missing';
 				}
 			}
-			if ( $slot['confirmation'] !== 'never' ) {
+			if ( (string) ( $slot['confirmation'] ?? 'never' ) !== 'never' ) {
 				$confirmation_required = true;
 			}
 			if ( $slot['type'] === 'choice' && empty( $slot['choices'] ) ) {

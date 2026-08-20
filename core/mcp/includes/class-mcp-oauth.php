@@ -633,7 +633,8 @@ final class BizCity_MCP_OAuth {
 	}
 
 	private static function base64url_encode( $value ) {
-		return rtrim( strtr( base64_encode( $value ), '+/', '-_' ), '=' );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — delegate MCP URL-safe Base64 to the shared helper.
+		return BizCity_Codec::base64url_encode( (string) $value );
 	}
 
 	private static function maybe_serve_oauth_post_routes( $path ) {
@@ -714,7 +715,7 @@ final class BizCity_MCP_OAuth {
 	private static function client_id_from_authorization_header( WP_REST_Request $request ) {
 		$header = (string) $request->get_header( 'authorization' );
 		if ( $header !== '' && stripos( $header, 'basic ' ) === 0 ) {
-			$decoded = base64_decode( trim( substr( $header, 6 ) ), true );
+			$decoded = BizCity_Codec::base64_decode( trim( substr( $header, 6 ) ), true );
 			if ( is_string( $decoded ) && $decoded !== '' ) {
 				$parts = explode( ':', $decoded, 2 );
 				$user  = isset( $parts[0] ) ? sanitize_text_field( (string) $parts[0] ) : '';

@@ -67,12 +67,7 @@ final class BizCity_CG_Flow_Ref_Codec {
 		if ( $id <= 0 ) {
 			return '';
 		}
-		if ( function_exists( 'twf_encrypt_chat_id' ) ) {
-			$token = (string) twf_encrypt_chat_id( $id, $bucket );
-			if ( '' !== $token ) {
-				return $token;
-			}
-		}
+		// [2026-08-20 Johnny Chu] CODEC-CORE — use BizCity_Codec directly; legacy twf functions are no longer runtime dependencies.
 		return self::fallback_encode( (string) $id, $bucket );
 	}
 
@@ -88,12 +83,7 @@ final class BizCity_CG_Flow_Ref_Codec {
 		if ( '' === $ref ) {
 			return 0;
 		}
-		if ( function_exists( 'twf_decrypt_chat_id' ) ) {
-			$plain = twf_decrypt_chat_id( $ref, $bucket );
-			if ( false !== $plain && is_numeric( $plain ) && (int) $plain > 0 ) {
-				return (int) $plain;
-			}
-		}
+		// [2026-08-20 Johnny Chu] CODEC-CORE — decode the historical wire format without twf runtime calls.
 		$plain = self::fallback_decode( $ref, $bucket );
 		return ( '' !== $plain && is_numeric( $plain ) && (int) $plain > 0 ) ? (int) $plain : 0;
 	}
