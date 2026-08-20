@@ -37,7 +37,9 @@ dữ liệu nằm trong tầm kiểm soát của bạn.
 
 ## Bắt đầu ngay
 
-→ [Roadmap tổng + changelog tổng cấp dự án](PROJECT-ROADMAP-CHANGELOG.md)
+→ [Chuẩn phát triển plugin và scaffold](extending/PLUGIN-STANDARD.md)
+
+→ [Twin Plugin Standard — contracts, API, SSE và extension surfaces](extending/PLUGIN-TWIN-STANDARD.md)
 
 → [Cài đặt nhanh trong 5 phút](getting-started/quick-install.md)
 

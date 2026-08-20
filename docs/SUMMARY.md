@@ -128,15 +128,11 @@
 * [Tạo sub-plugin](developer/extending/sub-plugin.md)
 * [Tạo Agent Tool](developer/extending/agent-tool.md)
 * [Tạo Automation Block](developer/extending/automation-block.md)
+* [Plugin Standard — Intent & Scaffold](extending/PLUGIN-STANDARD.md)
+* [Twin Plugin Standard — Public Contracts](extending/PLUGIN-TWIN-STANDARD.md)
 * [R-GW-8: Client Standalone (quan trọng)](developer/rules/gateway-standalone.md)
 * [PHP 7.4 Compatibility](developer/rules/php74-compat.md)
 * [Conventions & Coding Rules](developer/rules/overview.md)
-
-## 🧭 Framework Roadmaps & Audits
-
-* [Phase 1.24 — Framework Adoption and Release Readiness](roadmaps/PHASE-1.24-FRAMEWORK-ADOPTION-RELEASE-READINESS.md)
-* [Phase 1.24 — PageBuilder & Video Kling Framework Audit](roadmaps/PHASE-1.24-FRAMEWORK-AUDIT.md)
-* [Phase 1.25 — PiAPI Image Gateway & Plugin Framework Audit](roadmaps/PHASE-1.25-PIAPI-IMAGE-GATEWAY-PLUGIN-FRAMEWORK-AUDIT.md)
 
 ## ❓ FAQ & Hỗ Trợ
 

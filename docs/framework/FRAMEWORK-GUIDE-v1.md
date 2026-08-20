@@ -25,6 +25,7 @@ A helper or existing code path is not automatically a public contract.
 | Add an LLM/Search/Video/Astro/PiAPI feature | [API catalog](../api/README.md) | Existing client wrapper first; no direct provider HTTP |
 | Add a browser or SPA capability | [Sub-plugin quickstart](../extending/sub-plugin-quickstart.md) | Same-origin REST/AJAX + nonce, then PHP wrapper |
 | Add a Tool/Agent/Skill/Channel/Adapter | [Agent/tool recipe](../extending/agent-tool-recipe.md) and [HOOKS.md](../extension/HOOKS.md) | Typed contract or explicit legacy adapter |
+| Build a community plugin scaffold | [PLUGIN-STANDARD.md](../extending/PLUGIN-STANDARD.md) and [PLUGIN-TWIN-STANDARD.md](../extending/PLUGIN-TWIN-STANDARD.md) | `manifest.json` + bootstrap + declared capability contract |
 | Receive a channel message | [Channel unify rule](../rules/PHASE-0-RULE-CHANNEL-UNIFY.md) | Normalized envelope + identity tuple + zone guard |
 | Read/write KG or memory | [Brain Unification](../rules/PHASE-0-RULE-BRAIN-UNIFICATION.md) | Facade/service only; no direct KG table access |
 | Add a REST/AJAX error | [Error UX rule](../rules/PHASE-0-RULE-ERROR-UX.md) | `code`, `message`, `hint`, `help_code` |
@@ -35,6 +36,51 @@ A helper or existing code path is not automatically a public contract.
 
 When two rows appear to apply, follow both boundaries. The more restrictive
 security, identity, storage, or runtime rule wins.
+
+## 1.2 The Four-Layer Verification Model
+
+Every contract in this framework is checked through the same four layers, in
+the same order, for both a local developer and CI:
+
+```text
+CLI            ->  bin/twin (doctor · validate · test · diagnostics · inspect)
+Diagnostics    ->  core/diagnostics (Runtime · Config · Hooks · Plugin/SDK
+                    contracts · Schema · Permissions · API · Compatibility)
+Verdict        ->  PASS / WARN / FAIL, exit code 0 / 1 / 2
+GitHub Checks  ->  .github/workflows/ci.yml jobs (public-contracts, lint-php,
+                    schema-changelog, diagnostics-mock, sdk-package-build)
+```
+
+`bin/twin` is the single entrypoint that ties the previously scattered
+`bin/*.php` / `bin/*.mjs` / `wp bizcity diag` commands together:
+
+| Command | Layer it drives | Needs WordPress? |
+|---|---|---|
+| `php bin/twin doctor` | Local environment sanity (PHP version, extensions, node/wp-cli availability) | No |
+| `php bin/twin validate [--plugin=P]` | Static manifest/registry/contract-audit/SDK checks | No |
+| `php bin/twin test [--filter=F]` | Contract fixture tests + PHPUnit | No |
+| `php bin/twin diagnostics [opts]` | Full runtime probe engine (`core/diagnostics`) | Yes |
+| `php bin/twin inspect manifest\|registry\|probe` | Read-only inspection of one artifact | `probe` only |
+
+CI keeps each underlying script as its own job step (fine-grained GitHub
+Checks annotations); `bin/twin` runs the same scripts locally so a developer
+or agent gets the identical PASS/FAIL verdict before pushing. Do not
+duplicate validator logic inside `bin/twin` — add new checks to the owning
+script under `bin/`, `core/diagnostics/includes/probes/`, or
+`core/twin-core/contracts/tests/`, then wire them into the relevant `twin_cmd_*`
+step list.
+
+Local developer, GitHub Actions, Codex, and an in-editor agent should all be
+able to run the exact same command and get the exact same verdict. That
+property does **not** fully hold yet — see
+[PHASE-1.27-AGENTIC-CLI-DIAGNOSTICS-PARITY.md](../roadmaps/PHASE-1.27-AGENTIC-CLI-DIAGNOSTICS-PARITY.md)
+for the gap analysis (per-plugin `twin diagnostics plugin <slug>`, the
+10-point structural checklist, and the WordPress-runtime dependency that
+currently breaks parity in sandboxes without a booted WordPress instance),
+and [PHASE-1.28-RUNTIME-READINESS-CLOSURE.md](../roadmaps/PHASE-1.28-RUNTIME-READINESS-CLOSURE.md)
+for the verdict contract, CI adoption gate, and runtime boundary proofs
+(multisite isolation, error envelope, idempotency, channel identity, and
+per-package adoption) required before any of that can be called done.
 
 ## 2. The One-Sentence Architecture
 

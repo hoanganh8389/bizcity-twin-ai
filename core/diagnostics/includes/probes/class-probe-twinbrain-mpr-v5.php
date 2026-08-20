@@ -80,13 +80,20 @@ final class BizCity_Probe_TwinBrain_MPR_V5 implements BizCity_Diagnostics_Probe 
 		}
 
 		$evidence_json = wp_json_encode( $this->sanitize_evidence( $evidence ), JSON_UNESCAPED_SLASHES );
+		$failed_steps = array();
+		foreach ( $steps as $step ) {
+			if ( (string) ( $step['status'] ?? '' ) === 'fail' ) {
+				$failed_steps[] = (string) ( $step['label'] ?? 'unknown_step' );
+			}
+		}
+		$failure_detail = empty( $failed_steps ) ? '' : ' Failed steps: ' . implode( ' | ', array_slice( $failed_steps, 0, 5 ) ) . '.';
 		return array(
 			'status' => $pass ? 'pass' : 'fail',
 			'summary' => $pass
 				? ( (bool) $ctx->option( 'live', false ) ? 'Synthetic aggregate PASS; opt-in live canary completed.' : 'Synthetic aggregate PASS; live canary not requested.' )
-				: 'MPR V5 aggregate evidence failed; live canary was not promoted.',
+				: 'MPR V5 aggregate evidence failed; live canary was not promoted.' . $failure_detail,
 			'error' => $pass ? '' : 'twinbrain_mpr_v5_aggregate_failed',
-			'fix_hint' => $pass ? '' : 'Fix the failing Disk/Loader/Synthetic step before running the live canary.',
+			'fix_hint' => $pass ? '' : ( 'Fix the failing Disk/Loader/Synthetic step before running the live canary.' . $failure_detail ),
 			'steps' => $steps,
 			'evidence_json' => $evidence_json,
 			'artifacts' => array( array( 'kind' => 'json', 'id' => (string) ( $evidence['trace_id'] ?? 'mpr_v5_evidence' ), 'label' => 'Sanitized MPR V5 evidence JSON' ) ),
