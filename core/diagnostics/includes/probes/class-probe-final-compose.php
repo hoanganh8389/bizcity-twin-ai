@@ -53,6 +53,11 @@ final class BizCity_Probe_Final_Compose implements BizCity_Diagnostics_Probe {
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			return 'BizCity_LLM_Client chưa load — gateway chưa active.';
 		}
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — Final Composer streams a
+		// real LLM call; mock diagnostics must SKIP, not fail on gateway_unavailable.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua Final Composer live gateway probe.';
+		}
 		$client = BizCity_LLM_Client::instance();
 		if ( method_exists( $client, 'is_ready' ) && ! $client->is_ready() ) {
 			return 'Gateway API key chưa cấu hình (Settings → BizCity LLM).';

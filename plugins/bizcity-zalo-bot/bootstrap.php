@@ -178,6 +178,30 @@ class BizCity_Zalo_Bot_Plugin {
 		$ts = wp_next_scheduled( 'bizcity_zalo_bot_daily_memory' );
 		if ( $ts ) { wp_unschedule_event( $ts, 'bizcity_zalo_bot_daily_memory' ); }
 		register_activation_hook( BIZCITY_ZALO_BOT_FILE, array( 'BizCity_Zalo_Bot_Database', 'activate' ) );
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-CLI-SCHEMA-ORCHESTRATION — this
+		// bundled sub-plugin is require_once'd by bizcity-twin-ai, so its own
+		// register_activation_hook() above never fires (WP only calls
+		// activation hooks for plugins passed to activate_plugin()). Expose
+		// table provisioning to BizCity_Site_Provisioner so headless CI
+		// diagnostics, new-blog multisite provisioning and manual self-heal
+		// still create bizcity_zalo_bots/bizcity_zalo_bot_logs.
+		add_filter( 'bizcity_register_installers', array( $this, 'register_site_provisioner_installer' ) );
+	}
+
+	/**
+	 * bizcity_register_installers callback — see init_hooks() note above.
+	 * @since 2026-08-21
+	 */
+	public function register_site_provisioner_installer( $list ) {
+		$list   = is_array( $list ) ? $list : array();
+		$list[] = array(
+			'id'           => 'zalo_bot',
+			'label'        => 'Zalo Bot (bots/logs)',
+			'callback'     => array( $this, 'maybe_create_tables' ),
+			'version_opt'  => 'bizcity_zalo_bot_db_version',
+			'expected_ver' => self::DB_VERSION,
+		);
+		return $list;
 	}
 	/**
 	 * Enqueue admin assets

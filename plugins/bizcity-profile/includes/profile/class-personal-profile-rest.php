@@ -76,6 +76,26 @@ final class BizCity_Personal_Profile_REST {
 			'permission_callback' => array( $this, 'check_logged_in' ),
 		) );
 
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.2: quick-add shortcode blocks from the simple Profile editor.
+		register_rest_route( self::NS, '/profile/cards/(?P<id>\d+)/shortcodes', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'list_shortcodes' ),
+				'permission_callback' => array( $this, 'check_logged_in' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'add_shortcode' ),
+				'permission_callback' => array( $this, 'check_logged_in' ),
+			),
+		) );
+
+		register_rest_route( self::NS, '/profile/cards/(?P<id>\d+)/shortcodes/(?P<block_id>[a-zA-Z0-9_-]+)', array(
+			'methods'             => WP_REST_Server::DELETABLE,
+			'callback'            => array( $this, 'remove_shortcode' ),
+			'permission_callback' => array( $this, 'check_logged_in' ),
+		) );
+
 		register_rest_route( self::NS, '/profile/channel-accounts', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( $this, 'channel_accounts' ),
@@ -305,6 +325,134 @@ final class BizCity_Personal_Profile_REST {
 			if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::PUBLIC_URL_CACHE_GROUP ); }
 		}
 		return rest_ensure_response( array( 'success' => true, 'content' => $normalized ) );
+	}
+
+	/**
+	 * List `shortcode`-type blocks currently in the card's Page Builder project.
+	 * Same storage as the advanced editor — this is a read of the shared SiteConfig,
+	 * not a separate copy.
+	 */
+	public function list_shortcodes( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.2 quick-add shortcode
+		$card = BizCity_Personal_Profile_Card_Manager::get( (int) $request['id'], get_current_user_id() );
+		if ( ! is_array( $card ) ) {
+			return $this->error_response( 'not_found', 'Không tìm thấy danh thiếp Profile.', 'Mở lại danh sách danh thiếp của bạn.', 'profile_card_not_found', 404 );
+		}
+		$project = BizCity_Personal_Profile_BZPB_Bridge::get_project_config( (int) $card['bzpb_project_id'], get_current_user_id() );
+		if ( is_wp_error( $project ) ) {
+			return $this->error_response( 'not_found', 'Không đọc được cấu hình Profile.', 'Tải lại danh thiếp rồi thử lại.', 'profile_config_not_found', 404 );
+		}
+		return rest_ensure_response( array( 'success' => true, 'items' => $this->shortcode_blocks_from_config( $project['config'] ) ) );
+	}
+
+	public function add_shortcode( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.2: append a new shortcode block into the shared BZPB project config.
+		$card = BizCity_Personal_Profile_Card_Manager::get( (int) $request['id'], get_current_user_id() );
+		if ( ! is_array( $card ) ) {
+			return $this->error_response( 'not_found', 'Không tìm thấy danh thiếp Profile.', 'Mở lại danh sách danh thiếp của bạn.', 'profile_card_not_found', 404 );
+		}
+		$shortcode = trim( (string) $request->get_param( 'shortcode' ) );
+		if ( '' === $shortcode || ! preg_match( '/^\[\s*[a-zA-Z0-9_-]+/', $shortcode ) ) {
+			return $this->error_response( 'invalid_param', 'Shortcode chưa hợp lệ.', 'Nhập shortcode dạng [ten-shortcode ...].', 'profile_shortcode_invalid', 400 );
+		}
+		$label = sanitize_text_field( (string) $request->get_param( 'label' ) );
+		$project = BizCity_Personal_Profile_BZPB_Bridge::get_project_config( (int) $card['bzpb_project_id'], get_current_user_id() );
+		if ( is_wp_error( $project ) ) {
+			return $this->error_response( 'not_found', 'Không đọc được cấu hình Profile.', 'Tải lại danh thiếp rồi thử lại.', 'profile_config_not_found', 404 );
+		}
+		$config = $project['config'];
+		$new_block = array(
+			'id'      => 'bzp-sc-' . substr( md5( wp_generate_uuid4() ), 0, 12 ),
+			'type'    => 'shortcode',
+			'variant' => 'default',
+			'props'   => array( 'shortcode' => $shortcode, 'label' => $label ),
+		);
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.2: place quick-added shortcode directly after lead-form in the active page.
+		$config = $this->insert_shortcode_after_lead_form( $config, $new_block );
+		$saved = BizCity_Personal_Profile_BZPB_Bridge::save_project_config( (int) $card['bzpb_project_id'], get_current_user_id(), $config, $project['title'] );
+		if ( is_wp_error( $saved ) ) {
+			return $this->error_response( 'gateway_degraded', 'Không lưu được shortcode lúc này.', 'Kiểm tra Page Builder rồi thử lại.', 'profile_shortcode_save_failed', 502 );
+		}
+		return rest_ensure_response( array( 'success' => true, 'items' => $this->shortcode_blocks_from_config( $config ) ) );
+	}
+
+	private function insert_shortcode_after_lead_form( array $config, array $new_block ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.2: keep paged and legacy configs aligned with the canvas source.
+		if ( ! empty( $config['pages'] ) && is_array( $config['pages'] ) ) {
+			$page_index = 0;
+			$page_blocks = is_array( $config['pages'][ $page_index ]['blocks'] ?? null )
+				? $config['pages'][ $page_index ]['blocks']
+				: array();
+			$insert_at = count( $page_blocks );
+			foreach ( $page_blocks as $index => $block ) {
+				if ( 'lead-form' === (string) ( $block['type'] ?? '' ) ) {
+					$insert_at = (int) $index + 1;
+					break;
+				}
+			}
+			array_splice( $page_blocks, $insert_at, 0, array( $new_block ) );
+			$config['pages'][ $page_index ]['blocks'] = $page_blocks;
+			$config['blocks'] = $page_blocks;
+			return $config;
+		}
+
+		$blocks = is_array( $config['blocks'] ?? null ) ? $config['blocks'] : array();
+		$insert_at = count( $blocks );
+		foreach ( $blocks as $index => $block ) {
+			if ( 'lead-form' === (string) ( $block['type'] ?? '' ) ) {
+				$insert_at = (int) $index + 1;
+				break;
+			}
+		}
+		array_splice( $blocks, $insert_at, 0, array( $new_block ) );
+		$config['blocks'] = $blocks;
+		return $config;
+	}
+
+	public function remove_shortcode( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.2: remove one shortcode block by id; never touches other block types.
+		$card = BizCity_Personal_Profile_Card_Manager::get( (int) $request['id'], get_current_user_id() );
+		if ( ! is_array( $card ) ) {
+			return $this->error_response( 'not_found', 'Không tìm thấy danh thiếp Profile.', 'Mở lại danh sách danh thiếp của bạn.', 'profile_card_not_found', 404 );
+		}
+		$block_id = sanitize_text_field( (string) $request['block_id'] );
+		$project = BizCity_Personal_Profile_BZPB_Bridge::get_project_config( (int) $card['bzpb_project_id'], get_current_user_id() );
+		if ( is_wp_error( $project ) ) {
+			return $this->error_response( 'not_found', 'Không đọc được cấu hình Profile.', 'Tải lại danh thiếp rồi thử lại.', 'profile_config_not_found', 404 );
+		}
+		$config = $project['config'];
+		$blocks = is_array( $config['blocks'] ?? null ) ? $config['blocks'] : array();
+		$kept   = array();
+		$found  = false;
+		foreach ( $blocks as $block ) {
+			if ( ! $found && 'shortcode' === (string) ( $block['type'] ?? '' ) && $block_id === (string) ( $block['id'] ?? '' ) ) {
+				$found = true;
+				continue;
+			}
+			$kept[] = $block;
+		}
+		if ( ! $found ) {
+			return $this->error_response( 'not_found', 'Không tìm thấy shortcode này.', 'Tải lại danh sách rồi thử lại.', 'profile_shortcode_not_found', 404 );
+		}
+		$config['blocks'] = $kept;
+		$saved = BizCity_Personal_Profile_BZPB_Bridge::save_project_config( (int) $card['bzpb_project_id'], get_current_user_id(), $config, $project['title'] );
+		if ( is_wp_error( $saved ) ) {
+			return $this->error_response( 'gateway_degraded', 'Không xóa được shortcode lúc này.', 'Kiểm tra Page Builder rồi thử lại.', 'profile_shortcode_save_failed', 502 );
+		}
+		return rest_ensure_response( array( 'success' => true, 'items' => $this->shortcode_blocks_from_config( $config ) ) );
+	}
+
+	private function shortcode_blocks_from_config( array $config ) {
+		$items = array();
+		foreach ( is_array( $config['blocks'] ?? null ) ? $config['blocks'] : array() as $block ) {
+			if ( 'shortcode' !== (string) ( $block['type'] ?? '' ) ) { continue; }
+			$items[] = array(
+				'id'        => (string) ( $block['id'] ?? '' ),
+				'shortcode' => (string) ( $block['props']['shortcode'] ?? '' ),
+				'label'     => (string) ( $block['props']['label'] ?? '' ),
+			);
+		}
+		return $items;
 	}
 
 	private function normalize_content_payload( array $payload ) {

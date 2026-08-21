@@ -109,6 +109,11 @@ function bizcity_personal_profile_load_probe() {
 	if ( is_readable( $probe_wave5 ) ) {
 		require_once $probe_wave5;
 	}
+	// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.2 quick-edit/Page Builder evidence probe.
+	$probe_wave62 = BIZCITY_PERSONAL_DIR . 'includes/profile/class-probe-personal-profile-wave62.php';
+	if ( is_readable( $probe_wave62 ) ) {
+		require_once $probe_wave62;
+	}
 }
 
 add_action( 'current_screen', function ( $screen ) {

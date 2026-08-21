@@ -67,6 +67,11 @@ final class BizCity_Probe_KG_Graph_RAG_Ask implements BizCity_Diagnostics_Probe 
 		if ( ! class_exists( 'BizCity_Knowledge_Embedding' ) ) {
 			return new WP_Error( 'embedder_missing', 'BizCity_Knowledge_Embedding chưa load — không thể tạo embedding thật cho probe.' );
 		}
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — ask() embeds, reranks and
+		// answers via real LLM/embedding calls; mock diagnostics must SKIP.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua KG Graph RAG ask() live gateway probe.';
+		}
 		return true;
 	}
 

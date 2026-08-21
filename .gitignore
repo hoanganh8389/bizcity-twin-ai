@@ -26,9 +26,10 @@ vendor/
 /plugins/bizcity-profile/
 /plugins/___bizcity-video-kling_/
 # bizcoach-pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — in-house, do NOT publish
-
+/plugins/bizcoach-pro/
 
 # bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).
+/plugins/bizcity-twin-crm/
 
 /plugins/bizcity-zalo-personal/
 /core/intent/includes/backup-legacy/
