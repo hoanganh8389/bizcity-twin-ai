@@ -167,6 +167,22 @@ add_filter( 'bizcity_diagnostics_register_tables', static function ( $tables ) {
 	return $tables;
 }, 10 );
 
+// [2026-08-21 Johnny Chu] R-DDV-SITE-PROVISIONER — expose membership schema
+// repair to headless diagnostics and multisite provisioning.
+add_filter( 'bizcity_register_installers', static function ( $list ) {
+	$list = is_array( $list ) ? $list : array();
+	if ( class_exists( 'BizCity_Membership_Manager' ) ) {
+		$list[] = array(
+			'id'           => 'membership',
+			'label'        => 'Membership (subscriptions/usage/payments)',
+			'callback'     => array( 'BizCity_Membership_Manager', 'maybe_upgrade' ),
+			'version_opt'  => BizCity_Membership_Manager::OPT_DB_VERSION,
+			'expected_ver' => BizCity_Membership_Manager::DB_VERSION,
+		);
+	}
+	return $list;
+}, 20, 1 );
+
 // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP M8 — R-DDV probe core.membership.entitlement
 // (3-layer evidence Disk/Loader/Runtime). Rule: validate qua probe, KHÔNG wp-cli ad-hoc.
 add_filter( 'bizcity_diagnostics_register_probes', static function ( $probes ) {
