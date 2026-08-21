@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.tool-image",
+  "name": "BizCity Tool Image",
+  "version": "3.7.2",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.3"
+  },
+  "permissions": [],
+  "scope_bindings": [],
+  "approval_gates": [],
+  "capabilities": {
+    "tools": [],
+    "skills": [],
+    "agents": [],
+    "channels": [],
+    "kg_source_adapters": [],
+    "workflow_blocks": [],
+    "personas": [],
+    "output_renderers": []
+  }
+}

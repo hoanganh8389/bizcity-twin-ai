@@ -104,6 +104,11 @@ function bizcity_personal_profile_load_probe() {
 	if ( is_readable( $probe ) ) {
 		require_once $probe;
 	}
+	// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 demo-fix evidence probe, same lazy-load gate.
+	$probe_wave5 = BIZCITY_PERSONAL_DIR . 'includes/profile/class-probe-personal-profile-wave5.php';
+	if ( is_readable( $probe_wave5 ) ) {
+		require_once $probe_wave5;
+	}
 }
 
 add_action( 'current_screen', function ( $screen ) {

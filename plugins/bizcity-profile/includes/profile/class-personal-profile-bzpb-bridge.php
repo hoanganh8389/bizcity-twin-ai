@@ -113,11 +113,28 @@ final class BizCity_Personal_Profile_BZPB_Bridge {
 		return is_wp_error( $result ) ? $result : true;
 	}
 
-	public static function ensure_contact_form( $project_id ) {
+	public static function ensure_contact_form( $project_id, $block_id = 'lead-form-1' ) {
 		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 1: auto-detect an existing site CF7 form or create a default one.
 		if ( ! class_exists( 'WPCF7_ContactForm' ) ) {
 			return new WP_Error( 'module_not_loaded', 'Contact Form 7 chưa được kích hoạt.', array( 'status' => 503 ) );
 		}
+		$project_id = (int) $project_id;
+		$block_id   = sanitize_key( (string) $block_id );
+		$dedup_key  = 'bzpb_p' . $project_id . '_b' . $block_id;
+
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.1 item 1: check the authoritative project+block key BEFORE any title-based match.
+		$owned = get_posts( array(
+			'post_type'      => 'wpcf7_contact_form',
+			'post_status'    => 'publish',
+			'posts_per_page' => 1,
+			'meta_key'       => '_bzpb_block_id',
+			'meta_value'     => $dedup_key,
+			'fields'         => 'ids',
+		) );
+		if ( ! empty( $owned ) ) {
+			return array( 'cf7_form_id' => (int) $owned[0], 'created' => false );
+		}
+
 		$candidates = get_posts( array(
 			'post_type'      => 'wpcf7_contact_form',
 			'post_status'    => 'publish',
@@ -128,6 +145,10 @@ final class BizCity_Personal_Profile_BZPB_Bridge {
 		) );
 		$chosen = 0;
 		foreach ( (array) $candidates as $post_id ) {
+			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.1 item 1: never hijack a form already dedicated to another project/block.
+			if ( get_post_meta( (int) $post_id, '_bzpb_block_id', true ) ) {
+				continue;
+			}
 			if ( preg_match( '/(liên hệ|lien he|contact)/i', (string) get_the_title( (int) $post_id ) ) ) {
 				$chosen = (int) $post_id;
 				break;
@@ -140,8 +161,8 @@ final class BizCity_Personal_Profile_BZPB_Bridge {
 			return new WP_Error( 'module_not_loaded', 'Page Builder chưa sẵn sàng.', array( 'status' => 503 ) );
 		}
 		$request = new WP_REST_Request( 'POST', '/bzpb/v1/create-cf7-form' );
-		$request->set_param( 'project_id', (int) $project_id );
-		$request->set_param( 'block_id', 'lead-form-1' );
+		$request->set_param( 'project_id', $project_id );
+		$request->set_param( 'block_id', $block_id );
 		$request->set_param( 'title', 'Liên hệ' );
 		$request->set_param( 'fields', array(
 			array( 'name' => 'name', 'label' => 'Họ tên', 'type' => 'text', 'required' => true ),

@@ -49,10 +49,22 @@ class BizCity_CF7_Tracking_Frontend {
 		if ( is_admin() ) {
 			return;
 		}
+		echo self::render_tracking_script(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- self-built script, no raw user input.
+	}
 
+	/**
+	 * Build the CF7 pixel-fire script as a string.
+	 *
+	 * [2026-08-21 Johnny Chu] PHASE-PB-TRACKING — extracted so BizCity Page
+	 * Builder canvas pages (which never trigger wp_footer()) can call this
+	 * directly instead of relying on the hook.
+	 *
+	 * @return string
+	 */
+	public static function render_tracking_script(): string {
 		$mappings = get_option( 'bizcity_cg_cf7_mappings', array() );
 		if ( ! is_array( $mappings ) || empty( $mappings ) ) {
-			return;
+			return '';
 		}
 
 		// Collect forms with page_tracking configured
@@ -100,15 +112,16 @@ class BizCity_CF7_Tracking_Frontend {
 		}
 
 		if ( empty( $trackable ) ) {
-			return;
+			return '';
 		}
 
 		// Build JS config — safe to expose (no secrets)
 		$js_config = wp_json_encode( $trackable );
 		if ( ! $js_config ) {
-			return;
+			return '';
 		}
 
+		ob_start();
 		?>
 <script id="bizcity-cf7-tracking">
 /* BizCity CF7 Tracking — PHASE-PB-LEADFORM Wave 4 */
@@ -146,5 +159,6 @@ class BizCity_CF7_Tracking_Frontend {
 }());
 </script>
 		<?php
+		return (string) ob_get_clean();
 	}
 }
