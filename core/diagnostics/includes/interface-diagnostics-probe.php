@@ -71,10 +71,10 @@ if ( ! interface_exists( 'BizCity_Diagnostics_Probe' ) ) {
 		public function estimate_ms(): int;
 
 		/**
-		 * Precondition check — return WP_Error to short-circuit with
-		 * status=precheck-fail; return true to proceed.
+		 * Precondition check — return WP_Error or a non-empty string to
+		 * short-circuit with status=precheck-fail; return true to proceed.
 		 *
-		 * @return true|WP_Error
+		 * @return true|WP_Error|string
 		 */
 		public function precondition();
 

@@ -176,11 +176,17 @@ final class BizCity_Diagnostics_Smoke_Runner {
 
 		// Precondition gate.
 		$pc = $probe->precondition();
-		if ( is_wp_error( $pc ) ) {
+		// [2026-08-21 Johnny Chu] R-DDV-PRECONDITION-CONTRACT — legacy probes
+		// return a string for an intentional skip; do not execute run() unless
+		// precondition() explicitly returns true.
+		if ( true !== $pc ) {
+			$error = is_wp_error( $pc )
+				? $pc->get_error_message()
+				: ( is_scalar( $pc ) && (string) $pc !== '' ? (string) $pc : 'Precondition did not pass.' );
 			return [
 				'id'          => $id,
 				'status'      => 'precheck-fail',
-				'error'       => $pc->get_error_message(),
+				'error'       => $error,
 				'duration_ms' => 0,
 			];
 		}
