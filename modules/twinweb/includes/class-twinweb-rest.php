@@ -3697,8 +3697,11 @@ class BizCity_TwinWeb_REST {
 			array( 'id' => 'chat',    'label' => 'Chat',        'icon' => 'chat',    'enabled' => true ),
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — expose My Workflows shortcut in legacy /me fallback app list.
 			array( 'id' => 'myworkflows', 'label' => 'My Workflows', 'icon' => 'workflow', 'enabled' => true ),
+			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 10: prioritize My Profiles ahead of My Plan in the legacy fallback catalog too.
+			array( 'id' => 'profile', 'label' => 'My Profiles', 'icon' => 'profile', 'enabled' => true ),
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — expose My Plan artifact workspace in legacy /me fallback app list.
-			array( 'id' => 'mycontent', 'label' => 'My Plan', 'icon' => 'doc', 'enabled' => true ),
+			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 11: display label renamed to My Artifacts; id/route unchanged (R-TWEB-6).
+			array( 'id' => 'mycontent', 'label' => 'My Artifacts', 'icon' => 'doc', 'enabled' => true ),
 			// [2026-07-31 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — expose canonical My Files workspace in the normal app catalog.
 			array( 'id' => 'myfiles', 'label' => 'My Files', 'icon' => 'file', 'enabled' => true ),
 			// [2026-07-30 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — expose My MCP through the server-owned app catalog.
@@ -3851,10 +3854,24 @@ class BizCity_TwinWeb_REST {
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),
+			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 10: My Profiles moved up to replace My Plan's former position.
+			array(
+				'id'            => 'profile',
+				'label'         => 'My Profiles',
+				'icon'          => 'profile',
+				'href'          => home_url( '/gpt/profile/' ),
+				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile/' ) ),
+				'required_plan' => 'free',
+				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
+				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
+				'auth_required' => true,
+				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
+			),
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — My Plan artifact dashboard; internal route, no iframe.
+			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 11: display label renamed to My Artifacts; id/route unchanged (R-TWEB-6).
 			array(
 				'id'            => 'mycontent',
-				'label'         => 'My Plan',
+				'label'         => 'My Artifacts',
 				'icon'          => 'doc',
 				'href'          => home_url( '/gpt/myplan/' ),
 				'iframe_href'   => '',
@@ -3955,20 +3972,6 @@ class BizCity_TwinWeb_REST {
 				'required_plan' => 'free',
 				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
 				'dependency_ok' => defined( 'BZTIMG_VERSION' ),
-				'auth_required' => true,
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			),
-			array(
-				'id'            => 'profile',
-				'label'         => 'My Profiles',
-				'icon'          => 'profile',
-				// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — My Profiles opens the BizCity Profile SPA; Tool Image uses /profile-studio/.
-				'href'          => home_url( '/gpt/profile/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile/' ) ),
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — My Profiles belongs to bizcity-profile, not Tool Image.
-				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),

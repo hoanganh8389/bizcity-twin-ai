@@ -80,17 +80,19 @@ class BizCity_Memory_Unified_Installer {
 			return;
 		}
 		static $checked = false;
-		if ( $checked ) {
+		if ( $checked && get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION ) {
 			return;
 		}
-		$checked = true;
 
 		if ( get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION ) {
 			return;
 		}
 
-		$this->install();
-		update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-SELF-HEAL — only persist the schema stamp after physical verification succeeds.
+		if ( $this->install() ) {
+			update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+			$checked = true;
+		}
 	}
 
 	/**

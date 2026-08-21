@@ -88,4 +88,73 @@ final class BizCity_Personal_Profile_BZPB_Bridge {
 		}
 		return $data;
 	}
+
+	public static function get_publish_state( $project_id, $user_id ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 8: read publish status/page id for slug rename.
+		global $wpdb;
+		$table = $wpdb->prefix . 'bzpb_projects';
+		if ( ! function_exists( 'bizcity_tbl_exists' ) || ! bizcity_tbl_exists( $table ) ) {
+			return new WP_Error( 'module_not_loaded', 'Page Builder project store chưa sẵn sàng.', array( 'status' => 503 ) );
+		}
+		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT published_page_id, status FROM `' . $table . '` WHERE id = %d AND user_id = %d LIMIT 1', (int) $project_id, (int) $user_id ) );
+		if ( ! $row ) {
+			return new WP_Error( 'not_found', 'Không tìm thấy project Page Builder.', array( 'status' => 404 ) );
+		}
+		return array( 'published_page_id' => (int) $row->published_page_id, 'status' => (string) $row->status );
+	}
+
+	public static function rename_published_page( $project_id, $user_id, $slug ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 8: rename the published WP page slug; no-op if not yet published.
+		$state = self::get_publish_state( $project_id, $user_id );
+		if ( is_wp_error( $state ) ) { return $state; }
+		$page_id = (int) $state['published_page_id'];
+		if ( $page_id <= 0 ) { return true; }
+		$result = wp_update_post( array( 'ID' => $page_id, 'post_name' => sanitize_title( (string) $slug ) ), true );
+		return is_wp_error( $result ) ? $result : true;
+	}
+
+	public static function ensure_contact_form( $project_id ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 1: auto-detect an existing site CF7 form or create a default one.
+		if ( ! class_exists( 'WPCF7_ContactForm' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Contact Form 7 chưa được kích hoạt.', array( 'status' => 503 ) );
+		}
+		$candidates = get_posts( array(
+			'post_type'      => 'wpcf7_contact_form',
+			'post_status'    => 'publish',
+			'posts_per_page' => 20,
+			'orderby'        => 'date',
+			'order'          => 'ASC',
+			'fields'         => 'ids',
+		) );
+		$chosen = 0;
+		foreach ( (array) $candidates as $post_id ) {
+			if ( preg_match( '/(liên hệ|lien he|contact)/i', (string) get_the_title( (int) $post_id ) ) ) {
+				$chosen = (int) $post_id;
+				break;
+			}
+		}
+		if ( $chosen > 0 ) {
+			return array( 'cf7_form_id' => $chosen, 'created' => false );
+		}
+		if ( ! class_exists( 'BZPB_Rest_API' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Page Builder chưa sẵn sàng.', array( 'status' => 503 ) );
+		}
+		$request = new WP_REST_Request( 'POST', '/bzpb/v1/create-cf7-form' );
+		$request->set_param( 'project_id', (int) $project_id );
+		$request->set_param( 'block_id', 'lead-form-1' );
+		$request->set_param( 'title', 'Liên hệ' );
+		$request->set_param( 'fields', array(
+			array( 'name' => 'name', 'label' => 'Họ tên', 'type' => 'text', 'required' => true ),
+			array( 'name' => 'phone', 'label' => 'Số điện thoại', 'type' => 'tel', 'required' => true ),
+			array( 'name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => false ),
+			array( 'name' => 'message', 'label' => 'Lời nhắn', 'type' => 'textarea', 'required' => false ),
+		) );
+		$response = rest_do_request( $request );
+		if ( is_wp_error( $response ) ) { return $response; }
+		$data = is_object( $response ) && method_exists( $response, 'get_data' ) ? $response->get_data() : array();
+		if ( ! is_array( $data ) || empty( $data['success'] ) || empty( $data['cf7_form_id'] ) ) {
+			return new WP_Error( 'cf7_create_failed', 'Không tạo được form liên hệ mặc định.', array( 'status' => 500 ) );
+		}
+		return array( 'cf7_form_id' => (int) $data['cf7_form_id'], 'created' => true );
+	}
 }

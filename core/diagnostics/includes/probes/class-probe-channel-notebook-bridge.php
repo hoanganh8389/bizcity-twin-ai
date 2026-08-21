@@ -157,9 +157,12 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 
 		// [2026-07-25 Johnny Chu] PHASE-0.46 W4.5.4 — ensure the new bridge async
 		// capture job is visible in core cron registry (dispatch observability gate).
-		$cron_job_ok = false;
+		$diagnostics_cli = defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI;
+		$cron_job_ok = $diagnostics_cli;
 		$cron_detail = 'BizCity_Cron_Manager not loaded.';
-		if ( class_exists( 'BizCity_Cron_Manager', false ) ) {
+		if ( $diagnostics_cli ) {
+			$cron_detail = 'SKIP — BIZCITY_DIAGNOSTICS_CLI intentionally blocks production cron registration.';
+		} elseif ( class_exists( 'BizCity_Cron_Manager', false ) ) {
 			$jobs = BizCity_Cron_Manager::instance()->all();
 			if ( is_array( $jobs ) ) {
 				foreach ( $jobs as $job ) {
@@ -176,7 +179,7 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 		}
 		$steps[] = array(
 			'label'  => 'Loader · cron job kg.notebook_capture_ingest_dispatch',
-			'status' => $cron_job_ok ? 'PASS' : 'FAIL',
+			'status' => $diagnostics_cli ? 'SKIP' : ( $cron_job_ok ? 'PASS' : 'FAIL' ),
 			'detail' => $cron_detail,
 		);
 		if ( ! $cron_job_ok ) { $loader_ok = false; }

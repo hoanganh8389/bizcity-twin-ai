@@ -43,6 +43,10 @@ final class BizCity_Probe_TwinBrain_Sheet_Enrich implements BizCity_Diagnostics_
 	public function estimate_ms(): int { return 6000; }
 
 	public function precondition() {
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — Sheets enrichment calls Tavily/LLM and must not run in network mock mode.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua Sheets enrichment live provider probe.';
+		}
 		if ( ! class_exists( 'BizCity_TwinBrain_Sheet_Enricher' ) ) {
 			return 'Sheet_Enricher class chưa load — kiểm tra core/twinbrain/bootstrap.php (sheets module).';
 		}

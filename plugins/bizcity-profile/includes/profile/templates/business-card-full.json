@@ -37,7 +37,9 @@
         ],
         "socialLinks": [],
         "messagingLinks": [],
-        "chatEntrypoints": [],
+        "chatEntrypoints": [
+          { "channelCode": "webchat", "enabled": true, "presentation": "profile_float", "trackingTag": "", "fallbackUrl": "" }
+        ],
         "ctaSave": true,
         "ctaShare": true,
         "profileCardId": 0

@@ -1372,14 +1372,15 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		$key = $this->generate_encryption_key( $blog_id );
 		
 		// Try to base64 decode the payload
-		$encrypted_data = base64_decode( $encrypted_payload );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — preserve Zalo webhook XOR/Base64 decoding through shared primitives.
+		$encrypted_data = BizCity_Codec::base64_decode( $encrypted_payload, false );
 		if ( $encrypted_data === false ) {
 			error_log( '[ZaloHook] Base64 decode failed' );
 			return false;
 		}
 		
 		// Simple XOR decryption (you can implement AES here if needed)
-		$decrypted = $this->xor_decrypt( $encrypted_data, $key );
+		$decrypted = BizCity_Codec::xor_bytes( $encrypted_data, $key );
 		
 		// Try to decode JSON
 		$result = json_decode( $decrypted, true );

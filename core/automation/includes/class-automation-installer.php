@@ -70,6 +70,7 @@ final class BizCity_Automation_Installer {
 	public static function invalidate_tables_cache(): void {
 		$blog_id = (int) get_current_blog_id();
 		unset( self::$tables_present_cache[ $blog_id ] );
+		wp_cache_delete( 'bz_automation_tables_' . $blog_id, 'bizcity_tbl' );
 		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — also drop the cached identity-schema result.
 		wp_cache_delete( 'bz_autotplid_' . $blog_id, 'bizcity_tbl' );
 	}
@@ -92,15 +93,17 @@ final class BizCity_Automation_Installer {
 		if ( isset( self::$checked_blog_ids[ $blog_id ] ) ) {
 			return;
 		}
-		self::$checked_blog_ids[ $blog_id ] = true;
 
 		$stamped = get_option( self::DB_VERSION_OPTION, '' );
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — do not trust a stale stamp if template identity columns are missing.
 		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — cache the identity check so this fast path
 		// stays a single cached lookup instead of a live information_schema query every request
 		// (this was the root cause of the repeated SHOW COLUMNS/SHOW INDEX spam on every pageload).
-		if ( $stamped === self::DB_VERSION && self::templates_identity_schema_ready_cached() ) {
+		if ( $stamped === self::DB_VERSION
+			&& self::all_tables_present_cached()
+			&& self::templates_identity_schema_ready_cached() ) {
 			// Trust the stamp — no SHOW TABLES on every request.
+			self::$checked_blog_ids[ $blog_id ] = true;
 			return;
 		}
 
@@ -109,6 +112,7 @@ final class BizCity_Automation_Installer {
 		// repeating it on every request. Diagnostics "Chẩn đoán" button (bizcity_auto_create action)
 		// or clearing HEAL_BACKOFF_OPTION forces an immediate retry.
 		if ( self::within_heal_backoff() ) {
+			self::$checked_blog_ids[ $blog_id ] = true;
 			return;
 		}
 
@@ -127,6 +131,7 @@ final class BizCity_Automation_Installer {
 				return;
 			}
 		}
+		self::$checked_blog_ids[ $blog_id ] = true;
 		// First time at this DB_VERSION → verify + create missing tables.
 		foreach ( self::TABLE_SUFFIXES as $suffix ) {
 			BizCity_Diagnostics_Auto_Create::run( $suffix );
@@ -233,6 +238,19 @@ final class BizCity_Automation_Installer {
 			}
 		}
 		return true;
+	}
+
+	/** Cached all-table readiness check used by the version fast path. */
+	private static function all_tables_present_cached(): bool {
+		$blog_id = (int) get_current_blog_id();
+		$cache_key = 'bz_automation_tables_' . $blog_id;
+		$cached = wp_cache_get( $cache_key, 'bizcity_tbl' );
+		if ( false !== $cached ) {
+			return (bool) $cached;
+		}
+		$ready = self::all_tables_present();
+		wp_cache_set( $cache_key, $ready ? 1 : 0, 'bizcity_tbl', HOUR_IN_SECONDS );
+		return $ready;
 	}
 
 	public static function table( string $suffix ): string {

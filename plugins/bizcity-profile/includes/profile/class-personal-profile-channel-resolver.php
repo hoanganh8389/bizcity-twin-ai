@@ -49,6 +49,10 @@ final class BizCity_Personal_Profile_Channel_Resolver {
 		}
 
 		$entrypoint = self::find_entrypoint( (int) $card['bzpb_project_id'], $channel_code, $presentation );
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — resolve the legacy empty config to the default FloatChat without mutating SiteConfig.
+		if ( ! is_array( $entrypoint ) && 'webchat' === $channel_code && 'profile_float' === $presentation ) {
+			$entrypoint = array( 'enabled' => true, 'trackingTag' => '' );
+		}
 		if ( ! is_array( $entrypoint ) || empty( $entrypoint['enabled'] ) ) {
 			return new WP_Error( 'not_found', 'Entrypoint chat chưa được bật cho Profile này.', array( 'status' => 404 ) );
 		}

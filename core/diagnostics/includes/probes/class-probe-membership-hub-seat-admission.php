@@ -63,28 +63,25 @@ final class BizCity_Probe_Membership_Hub_Seat_Admission implements BizCity_Diagn
 
 		$manager_file   = $this->resolve_plugin_file( 'core/membership/includes/class-membership-manager.php' );
 		$projector_file = $this->resolve_plugin_file( 'core/membership/includes/class-membership-woo-projector.php' );
-		$llm_file       = $this->resolve_plugin_file( 'core/bizcity-llm/includes/class-llm-client.php' );
 
 		$manager_src   = ( $manager_file !== '' && is_readable( $manager_file ) ) ? (string) file_get_contents( $manager_file ) : '';
 		$projector_src = ( $projector_file !== '' && is_readable( $projector_file ) ) ? (string) file_get_contents( $projector_file ) : '';
-		$llm_src       = ( $llm_file !== '' && is_readable( $llm_file ) ) ? (string) file_get_contents( $llm_file ) : '';
 
 		$disk_ok = ( $manager_src !== '' )
 			&& strpos( $manager_src, 'count_seat_used' ) !== false
 			&& ( $projector_src !== '' )
 			&& strpos( $projector_src, 'resolve_seat_limit' ) !== false
 			&& strpos( $projector_src, 'count_seat_used' ) !== false
-			&& ( $llm_src !== '' )
-			&& strpos( $llm_src, 'bizcity_hub_member_seat_limit' ) !== false;
+			// [2026-08-21 Johnny Chu] SPRINT-11 DDV-FIX — seat-limit option belongs to the Woo projector, not the LLM client.
+			&& strpos( $projector_src, 'bizcity_hub_member_seat_limit' ) !== false;
 
 		$step = array(
 			'label'  => 'Disk - seat counter + seat-limit marker contracts',
 			'status' => $disk_ok ? 'pass' : 'fail',
 			'detail' => sprintf(
-				'manager=%s projector=%s llm=%s',
+				'manager=%s projector=%s seat_limit_owner=projector',
 				$manager_src !== '' ? 'ok' : 'missing',
-				$projector_src !== '' ? 'ok' : 'missing',
-				$llm_src !== '' ? 'ok' : 'missing'
+				$projector_src !== '' ? 'ok' : 'missing'
 			),
 		);
 		$steps[] = $step;

@@ -1069,6 +1069,11 @@ final class BizCity_Automation_Trigger_Matcher {
 
 	// ─── (3) Cron scan trigger.cron ──────────────────────────────────────
 	public function on_cron_scan(): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — cron trigger scans
+		// must not enqueue scheduled production workflows in diagnostics CLI.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		// [2026-06-21 Johnny Chu] HOTFIX — guard missing tables on multisite blogs not yet
 		// provisioned (e.g. cloned sites where MUCD copied options but not bizcity_* tables).
 		// tables_present_cached() does ONE SHOW TABLES per blog per request, safe for every tick.

@@ -265,12 +265,17 @@ if ( $_wc_admin_ctx ) {
     require_once BIZCITY_WEBCHAT_INCLUDES . 'class-session-memory-spec.php';    // Phase 1.6 Session Memory Spec
 }
 
+// [2026-08-21 Johnny Chu] MEMBERSHIP-AJAX-PUBLIC — auth/profile AJAX handlers
+// serve the public login modal and must not be limited to wp-admin requests.
+if ( class_exists( 'BizCity_WebChat_Auth_Ajax' ) ) {
+    BizCity_WebChat_Auth_Ajax::boot();
+}
+
 // Initialize classes — admin context
 if ( is_admin() ) {
     if ( class_exists( 'BizCity_WebChat_Admin_Menu' ) )     BizCity_WebChat_Admin_Menu::instance();
     if ( class_exists( 'BizCity_WebChat_Admin_Dashboard' ) ) BizCity_WebChat_Admin_Dashboard::instance(); // Chat dashboard
     if ( class_exists( 'BizCity_WebChat_Ajax_Handlers' ) )  BizCity_WebChat_Ajax_Handlers::instance(); // V3 AJAX handlers
-    BizCity_WebChat_Auth_Ajax::boot(); // AJAX Login/Register for guest modal
 }
 
 // [2026-06-11 Johnny Chu] R-PERF — REST API, Automation Provider, Plugin Gathering: admin/REST context only

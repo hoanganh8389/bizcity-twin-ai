@@ -64,6 +64,10 @@ final class BizCity_Probe_KG_Filestore_Standalone implements BizCity_Diagnostics
 	public function estimate_ms(): int { return 8000; } // 4 real embed calls (passage + 2 entities + 1 relation)
 
 	public function precondition() {
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — this probe performs real embedding calls and cannot be asserted in network mock mode.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua KG filestore standalone live embedding probe.';
+		}
 		$need = [
 			'BizCity_KG_Notebook_Service', 'BizCity_KG_Source_Service', 'BizCity_KG_Graph_Service',
 			'BizCity_KG_Database', 'BizCity_KG_Content_Router', 'BizCity_KG_Vector_Index',

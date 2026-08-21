@@ -1060,14 +1060,8 @@ class BizCity_Zalo_Bot_Admin_Menu {
 		$key = defined( 'AUTH_KEY' ) ? AUTH_KEY : 'bizcity_default_key_2026';
 		
 		// Simple base64 + XOR encryption
-		$encrypted = '';
-		$key_length = strlen( $key );
-		
-		for ( $i = 0; $i < strlen( $secret ); $i++ ) {
-			$encrypted .= $secret[$i] ^ $key[$i % $key_length];
-		}
-		
-		return base64_encode( $encrypted );
+		// [2026-08-20 Johnny Chu] CODEC-CORE — preserve Zalo secret XOR/Base64 format through shared primitives.
+		return BizCity_Codec::base64_encode( BizCity_Codec::xor_bytes( $secret, $key ) );
 	}
 	
 	/**
@@ -1082,17 +1076,12 @@ class BizCity_Zalo_Bot_Admin_Menu {
 		$key = defined( 'AUTH_KEY' ) ? AUTH_KEY : 'bizcity_default_key_2026';
 		
 		// Decode and decrypt
-		$encrypted = base64_decode( $encrypted_secret );
+		$encrypted = BizCity_Codec::base64_decode( $encrypted_secret, false );
 		if ( $encrypted === false ) {
 			return '';
 		}
 		
-		$decrypted = '';
-		$key_length = strlen( $key );
-		
-		for ( $i = 0; $i < strlen( $encrypted ); $i++ ) {
-			$decrypted .= $encrypted[$i] ^ $key[$i % $key_length];
-		}
+		$decrypted = BizCity_Codec::xor_bytes( $encrypted, $key );
 							
 		#return $decrypted;
 		return $encrypted_secret;

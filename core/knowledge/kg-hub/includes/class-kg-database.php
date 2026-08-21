@@ -125,6 +125,18 @@ class BizCity_KG_Database {
 		}
 
 		$database->create_tables();
+		// [2026-08-21 Johnny Chu] R-METADATA-CACHE — clear table-existence memo after KG DDL, including the Guru attachment map added to readiness.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			foreach ( array(
+				$database->tbl_notebooks(),
+				$database->tbl_passages(),
+				$database->tbl_entities(),
+				$database->tbl_relations(),
+				$database->tbl_notebook_character_attachments(),
+			) as $table_name ) {
+				bizcity_tbl_invalidate( $table_name );
+			}
+		}
 		// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — re-read physical schema after additive KG DDL.
 		if ( function_exists( 'bizcity_columns_invalidate' ) ) {
 			bizcity_columns_invalidate( $database->tbl_passages(), [ 'storage_ver', 'file_shard', 'file_offset', 'file_length' ] );
@@ -175,6 +187,11 @@ class BizCity_KG_Database {
 	private function is_filestore_schema_ready() {
 		global $wpdb;
 		$passages = $this->tbl_passages();
+		$attachments = $this->tbl_notebook_character_attachments();
+		// [2026-08-21 Johnny Chu] KG-GURU-SCHEMA-READINESS — attach_guru()/detach_guru() require the virtual attachment map even when filestore columns are current.
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $attachments ) ) {
+			return false;
+		}
 		// [2026-08-04 Johnny Chu] HOTFIX — require the complete unified chunk write contract before trusting the schema version.
 		$chunk_columns = [
 			'source_id', 'blog_id', 'project_id', 'plugin_name', 'notebook_id',

@@ -76,6 +76,11 @@ class BizCity_Zalo_Bot_Database {
 		
 		$result_bots = dbDelta( $sql_bots );
 		$result_logs = dbDelta( $sql_logs );
+		// [2026-08-21 Johnny Chu] R-METADATA-CACHE — invalidate both physical table keys after DDL before diagnostics re-checks them.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $table_bots );
+			bizcity_tbl_invalidate( $table_logs );
+		}
 		
 		// Log results for debugging
 		if ( ! empty( $result_bots ) || ! empty( $result_logs ) ) {

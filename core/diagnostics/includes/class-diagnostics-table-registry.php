@@ -54,6 +54,8 @@ final class BizCity_Diagnostics_Table_Registry {
 			[ 'name' => 'bizcity_kg_sources',            'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'critical' => true, 'class' => 'BizCity_KG_Database' ],
 			[ 'name' => 'bizcity_kg_xref',               'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Database' ],
 			[ 'name' => 'bizcity_kg_passage_identities', 'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Database' ],
+			// [2026-08-21 Johnny Chu] KG-GURU-SCHEMA-INVENTORY — canonical notebook↔Guru attachment map used by attach_guru()/virtual merge.
+			[ 'name' => 'bizcity_notebook_character_attachments', 'owner' => 'core/knowledge/kg-hub', 'group' => 'knowledge', 'critical' => true, 'class' => 'BizCity_KG_Database' ],
 			// [2026-07-27 Johnny Chu] PHASE-0.53-MCP Wave A — core/mcp (Twin Client Brain MCP gateway).
 			[ 'name' => 'bizcity_mcp_api_keys',             'owner' => 'core/mcp', 'group' => 'mcp', 'critical' => true, 'class' => 'BizCity_MCP_Installer' ],
 			[ 'name' => 'bizcity_mcp_retrieval_snapshots',  'owner' => 'core/mcp', 'group' => 'mcp', 'critical' => true, 'class' => 'BizCity_MCP_Installer' ],
@@ -125,6 +127,10 @@ final class BizCity_Diagnostics_Table_Registry {
 
 			// ── core/scheduler ────────────────────────────────────────────
 			[ 'name' => 'bizcity_crm_events', 'owner' => 'core/scheduler', 'group' => 'scheduler', 'critical' => true ],
+			// [2026-08-21 Johnny Chu] AUTOMATION-SCHEMA-INVENTORY — catalog all runtime workflow tables, not only the log projection.
+			[ 'name' => 'bizcity_automation_workflows', 'owner' => 'core/automation', 'group' => 'automation', 'critical' => true, 'class' => 'BizCity_Automation_Installer' ],
+			[ 'name' => 'bizcity_automation_runs',      'owner' => 'core/automation', 'group' => 'automation', 'critical' => true, 'class' => 'BizCity_Automation_Installer' ],
+			[ 'name' => 'bizcity_automation_templates', 'owner' => 'core/automation', 'group' => 'automation', 'class' => 'BizCity_Automation_Installer' ],
 			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-CATALOG — automation step
 			// logs remain SQL-backed because REST/SSE readers and update paths are active.
 			[ 'name' => 'bizcity_automation_logs', 'owner' => 'core/automation', 'group' => 'automation', 'class' => 'BizCity_Automation_Repo_Runs', 'feature' => 'workflow step trace', 'purpose' => 'Mutable per-node execution status/error rows consumed by Automation REST, Twin GPT timeline and SSE mirror. Retention: 7 days; migration gate remains before retirement.', 'readers' => [ 'BizCity_Automation_Repo_Runs::logs', 'BizCity_TwinWeb_REST' ], 'writers' => [ 'BizCity_Automation_Repo_Runs::append_log', 'BizCity_Automation_Repo_Runs::append_log_update' ] ],
@@ -139,6 +145,8 @@ final class BizCity_Diagnostics_Table_Registry {
 			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-CATALOG — bundled channel
 			// tables are active legacy message/audit readers; do not classify as dead.
 			[ 'name' => 'bizcity_facebook_bot_logs', 'owner' => 'plugins/bizcity-facebook-bot', 'group' => 'channel', 'class' => 'BizCity_Facebook_Bot_Database', 'feature' => 'Facebook inbound/outbound audit', 'purpose' => 'Legacy Facebook event log still used by bot admin and client-history readers.', 'readers' => [ 'BizCity_Facebook_Bot_Database::get_logs' ], 'writers' => [ 'BizCity_Facebook_Bot_Database::insert_log', 'BizCity_Facebook_Bot_Database::log_event' ] ],
+			// [2026-08-21 Johnny Chu] ZALO-SCHEMA-INVENTORY — connected-channel probes query the bot configuration table directly through the bundled owner.
+			[ 'name' => 'bizcity_zalo_bots', 'owner' => 'plugins/bizcity-zalo-bot', 'group' => 'channel', 'critical' => true, 'class' => 'BizCity_Zalo_Bot_Database' ],
 			[ 'name' => 'bizcity_zalo_bot_logs', 'owner' => 'plugins/bizcity-zalo-bot', 'group' => 'channel', 'class' => 'BizCity_Zalo_Bot_Database', 'feature' => 'Zalo Bot inbound/outbound audit', 'purpose' => 'Legacy Zalo Bot message log still used by memory, admin dashboard and REST readers.', 'readers' => [ 'BizCity_Zalo_Bot_Memory', 'BizCity_Zalo_Bot_REST' ], 'writers' => [ 'BizCity_Zalo_Bot_Webhook_Handler', 'BizCity_Zalo_Bot_REST' ] ],
 
 			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-CATALOG — cleanup audit is

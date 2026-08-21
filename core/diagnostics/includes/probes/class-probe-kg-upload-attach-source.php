@@ -61,6 +61,10 @@ final class BizCity_Probe_KG_Upload_Attach_Source implements BizCity_Diagnostics
 	public function estimate_ms(): int { return 6000; } // embed() calls per chunk promoted
 
 	public function precondition() {
+		// [2026-08-21 Johnny Chu] R-DDV-MOCK-GATEWAY — source promotion registers real vectors and requires a live embedding provider.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			return 'Mock mode: bỏ qua KG upload/vector promotion live probe.';
+		}
 		$need = [
 			'BizCity_KG_Notebook_Service', 'BizCity_KG_Source_Service', 'BizCity_KG_Database',
 			'BizCity_KG_Content_Router', 'BizCity_KG_Notebook_Folder', 'BizCity_TwinChat_Sources_Database',

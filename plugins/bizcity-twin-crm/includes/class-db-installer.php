@@ -156,6 +156,10 @@ class BizCity_CRM_DB_Installer_V2 {
 			'crm_audit_log'                 => self::tbl_crm_audit_log(),
 			'broadcasts'                    => self::tbl_broadcasts(),
 			'broadcast_recipients'          => self::tbl_broadcast_recipients(),
+			// [2026-08-21 Johnny Chu] CRM-ORDER-SCHEMA-INVENTORY — order recap, CSAT and shipment tables are owned by migrate_phase_045() and must participate in self-heal detection.
+			'order_recap_log'               => self::tbl_order_recap_log(),
+			'order_csat'                     => self::tbl_order_csat(),
+			'shipment_status_log'            => self::tbl_shipment_status_log(),
 			// [2026-06-07 Johnny Chu] PHASE-0.40.G1 — notes_doc new table
 			'crm_notes_doc'                 => self::tbl_notes_doc(),
 			'crm_admin_chat_audit'          => self::tbl_admin_chat_audit(), // [2026-06-07 Johnny Chu] PHASE-3.5-WC
@@ -179,24 +183,15 @@ class BizCity_CRM_DB_Installer_V2 {
 	 * information_schema SELECT + dual-cache (static + wp_cache 1h) per rule.
 	 */
 	public static function table_exists( string $table ): bool {
-		static $s = array();
-		if ( isset( $s[ $table ] ) ) {
-			return $s[ $table ]; // free: static hit
+		// [2026-08-21 Johnny Chu] R-METADATA-CACHE — use the shared generation-aware helper so CRM DDL invalidates in-request false results too.
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $table );
 		}
-		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
-		$present = wp_cache_get( $ck, 'bizcity_tbl' );
-		if ( false === $present ) {
-			global $wpdb;
-			$present = (int) (bool) $wpdb->get_var(
-				$wpdb->prepare(
-					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-					$table
-				)
-			);
-			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
-		}
-		$s[ $table ] = (bool) $present;
-		return $s[ $table ];
+		global $wpdb;
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table
+		) );
 	}
 
 	/**
@@ -209,6 +204,9 @@ class BizCity_CRM_DB_Installer_V2 {
 		$blog_id = (int) get_current_blog_id();
 		foreach ( self::all_tables() as $tbl ) {
 			wp_cache_delete( 'bz_tbl_' . $blog_id . '_' . crc32( $tbl ), 'bizcity_tbl' );
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $tbl );
+			}
 		}
 	}
 

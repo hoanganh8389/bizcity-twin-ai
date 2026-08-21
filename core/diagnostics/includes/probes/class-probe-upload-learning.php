@@ -61,9 +61,10 @@ final class BizCity_Probe_Upload_Learning implements BizCity_Diagnostics_Probe {
 		$webchat        = $wpdb->prefix . 'bizcity_webchat_sources';
 		$learning_v2    = $wpdb->prefix . 'bizcity_kg_learning_jobs';
 		$learning_v1    = $wpdb->prefix . 'bizcity_learning_jobs';
-		$webchat_ok     = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $webchat ) );
-		$learning_v2_ok = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $learning_v2 ) );
-		$learning_v1_ok = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $learning_v1 ) );
+		// [2026-08-21 Johnny Chu] R-SHOW-TABLES — use cached information_schema metadata for upload/learning schema checks.
+		$webchat_ok     = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $webchat );
+		$learning_v2_ok = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $learning_v2 );
+		$learning_v1_ok = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $learning_v1 );
 		$learning_ok    = $learning_v2_ok || $learning_v1_ok;
 		$learning_name  = $learning_v2_ok ? $learning_v2 : ( $learning_v1_ok ? $learning_v1 : '(none)' );
 		$ctx->emit_step( [
@@ -95,19 +96,23 @@ final class BizCity_Probe_Upload_Learning implements BizCity_Diagnostics_Probe {
 				break;
 			}
 		}
+		$diagnostics_cli = defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI;
 		$ctx->emit_step( [
 			'label'  => 'Cron sweep scheduled',
-			'status' => $cron_ok ? 'pass' : 'fail',
-			'detail' => $cron_ok ? $cron_hit : 'no learning sweep cron hook',
+			// [2026-08-21 Johnny Chu] R-CLI-ASYNC-ISOLATION — diagnostics must not register production cron jobs.
+			'status' => $diagnostics_cli ? 'skip' : ( $cron_ok ? 'pass' : 'fail' ),
+			'detail' => $diagnostics_cli
+				? 'SKIP — BIZCITY_DIAGNOSTICS_CLI intentionally blocks production cron scheduling.'
+				: ( $cron_ok ? $cron_hit : 'no learning sweep cron hook' ),
 		] );
 
-		$ok = $found && $webchat_ok && $learning_ok && $cron_ok;
+		$ok = $found && $webchat_ok && $learning_ok && ( $diagnostics_cli || $cron_ok );
 		if ( ! $ok ) {
 			$failures = [];
 			if ( ! $found )       { $failures[] = 'classes missing'; }
 			if ( ! $webchat_ok )  { $failures[] = 'webchat_sources missing'; }
 			if ( ! $learning_ok ) { $failures[] = 'learning_jobs missing'; }
-			if ( ! $cron_ok )     { $failures[] = 'cron sweep chưa schedule'; }
+			if ( ! $cron_ok && ! $diagnostics_cli ) { $failures[] = 'cron sweep chưa schedule'; }
 			return [
 				'status'   => 'fail',
 				'summary'  => 'Upload pipeline incomplete — ' . implode( '; ', $failures ),

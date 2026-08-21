@@ -87,6 +87,10 @@ class BizCity_Membership_Manager {
 			KEY idx_status (status),
 			KEY idx_plan (plan_slug)
 		) {$cs};" );
+		// [2026-08-21 Johnny Chu] R-METADATA-CACHE — make the new subscription table visible to same-request probes.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $t );
+		}
 	}
 
 	/**

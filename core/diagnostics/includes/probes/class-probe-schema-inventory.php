@@ -132,9 +132,10 @@ final class BizCity_Probe_Schema_Inventory implements BizCity_Diagnostics_Probe 
 					count( $auto_fixable ),
 					count( $missing ) + count( $drift )
 				),
+				// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-EVIDENCE — include the physical drift targets in CI error output, not only the aggregate count.
 				'error'     => $critical_missing
-					? sprintf( '%d bảng critical đang thiếu', count( $critical_missing ) )
-					: sprintf( '%d bảng drift cột', count( $drift ) ),
+					? sprintf( '%d bảng critical đang thiếu: %s', count( $critical_missing ), implode( ', ', array_slice( $critical_missing, 0, 8 ) ) )
+					: sprintf( '%d bảng drift cột: %s', count( $drift ), implode( ', ', array_slice( $drift, 0, 8 ) ) ),
 				'fix_hint'  => $fix_hint,
 				'artifacts' => [
 					[ 'kind' => 'missing',          'id' => count( $missing ),          'label' => implode( ', ', array_slice( $missing, 0, 8 ) ) ],

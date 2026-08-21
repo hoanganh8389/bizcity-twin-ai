@@ -41,6 +41,10 @@ class BZCC_Installer {
 		);
 		foreach ( $tables as $table_name ) {
 			wp_cache_delete( self::table_exists_cache_key( $table_name ), 'bizcity_tbl' );
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				// [2026-08-21 Johnny Chu] R-METADATA-CACHE — clear shared static false memos after creator DDL.
+				bizcity_tbl_invalidate( $table_name );
+			}
 		}
 		self::$tables_exist_cache = null;
 	}

@@ -14,6 +14,7 @@ if ( class_exists( 'BizCity_Personal_Profile_REST' ) ) { return; }
 final class BizCity_Personal_Profile_REST {
 
 	const NS = 'bizcity-profile/v1';
+	const PUBLIC_URL_CACHE_GROUP = 'bzp_profile_public_urls';
 
 	private static $instance = null;
 
@@ -72,6 +73,12 @@ final class BizCity_Personal_Profile_REST {
 		register_rest_route( self::NS, '/profile/cards/(?P<id>\d+)/content', array(
 			'methods'              => WP_REST_Server::EDITABLE,
 			'callback'            => array( $this, 'update_content' ),
+			'permission_callback' => array( $this, 'check_logged_in' ),
+		) );
+
+		register_rest_route( self::NS, '/profile/channel-accounts', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( $this, 'channel_accounts' ),
 			'permission_callback' => array( $this, 'check_logged_in' ),
 		) );
 
@@ -193,6 +200,18 @@ final class BizCity_Personal_Profile_REST {
 				return $this->error_response( 'gateway_degraded', 'Không tạo được project Page Builder.', 'Kiểm tra Page Builder rồi thử lại.', 'profile_project_create_failed', 502 );
 			}
 			$project_id = (int) $created['project_id'];
+			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 1: auto-attach an existing or newly created CF7 contact form.
+			$cf7 = BizCity_Personal_Profile_BZPB_Bridge::ensure_contact_form( $project_id );
+			if ( is_wp_error( $cf7 ) && class_exists( 'WPCF7_ContactForm' ) ) {
+				return $this->error_response( 'gateway_degraded', 'Không chuẩn bị được form liên hệ mặc định.', 'Kiểm tra Contact Form 7 rồi tạo lại Profile.', 'profile_contact_form_failed', 503 );
+			}
+			if ( ! is_wp_error( $cf7 ) ) {
+				foreach ( $config['blocks'] as $index => $block ) {
+					if ( 'lead-form' === (string) ( $block['type'] ?? '' ) && empty( $block['props']['cf7FormId'] ) ) {
+						$config['blocks'][ $index ]['props']['cf7FormId'] = (int) $cf7['cf7_form_id'];
+					}
+				}
+			}
 		} else {
 			$owned_project = BizCity_Personal_Profile_BZPB_Bridge::get_project_config( $project_id, get_current_user_id() );
 			if ( is_wp_error( $owned_project ) ) {
@@ -280,6 +299,11 @@ final class BizCity_Personal_Profile_REST {
 		if ( is_wp_error( $saved ) ) {
 			return $this->error_response( 'gateway_degraded', 'Không lưu được thông tin Profile lúc này.', 'Kiểm tra Page Builder rồi thử lại.', 'profile_content_save_failed', 502 );
 		}
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 8: rename the live public URL when a card is already published.
+		if ( isset( $normalized['slug'] ) && 'published' === (string) ( $card['status'] ?? '' ) ) {
+			BizCity_Personal_Profile_BZPB_Bridge::rename_published_page( (int) $card['bzpb_project_id'], get_current_user_id(), $normalized['slug'] );
+			if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::PUBLIC_URL_CACHE_GROUP ); }
+		}
 		return rest_ensure_response( array( 'success' => true, 'content' => $normalized ) );
 	}
 
@@ -305,6 +329,11 @@ final class BizCity_Personal_Profile_REST {
 			$hero_style = sanitize_key( (string) $payload['heroStyle'] );
 			if ( ! in_array( $hero_style, array( 'brain', 'photo' ), true ) ) { return new WP_Error( 'invalid_param' ); }
 			$normalized['heroStyle'] = $hero_style;
+		}
+		if ( array_key_exists( 'slug', $payload ) ) {
+			$slug = sanitize_title( (string) $payload['slug'] );
+			if ( '' === $slug ) { return new WP_Error( 'invalid_param' ); }
+			$normalized['slug'] = $slug;
 		}
 		if ( array_key_exists( 'brainAccentColor', $payload ) ) {
 			$color = sanitize_hex_color( (string) $payload['brainAccentColor'] );
@@ -371,7 +400,7 @@ final class BizCity_Personal_Profile_REST {
 	}
 
 	private function profile_content_from_config( array $config ) {
-		$allowed = array( 'variant', 'heroStyle', 'brainAccentColor', 'avatarUrl', 'coverUrl', 'name', 'jobTitle', 'company', 'bio', 'contactFields', 'socialLinks', 'messagingLinks', 'quickActions', 'ctaSave', 'ctaShare' );
+		$allowed = array( 'variant', 'heroStyle', 'brainAccentColor', 'slug', 'avatarUrl', 'coverUrl', 'name', 'jobTitle', 'company', 'bio', 'contactFields', 'socialLinks', 'messagingLinks', 'quickActions', 'ctaSave', 'ctaShare' );
 		foreach ( is_array( $config['blocks'] ?? null ) ? $config['blocks'] : array() as $block ) {
 			if ( 'profile-card' !== (string) ( $block['type'] ?? '' ) || ! is_array( $block['props'] ?? null ) ) { continue; }
 			return array_intersect_key( $block['props'], array_flip( $allowed ) );
@@ -399,6 +428,14 @@ final class BizCity_Personal_Profile_REST {
 			return $this->error_response( 'gateway_degraded', 'Không thể publish trang Profile lúc này.', 'Kiểm tra Page Builder rồi thử lại.', 'pagebuilder_publish_failed', 502 );
 		}
 		BizCity_Personal_Profile_Card_Manager::update( (int) $card['id'], get_current_user_id(), array( 'status' => 'published' ) );
+		$project = BizCity_Personal_Profile_BZPB_Bridge::get_project_config( (int) $card['bzpb_project_id'], get_current_user_id() );
+		if ( ! is_wp_error( $project ) ) {
+			$content = $this->profile_content_from_config( $project['config'] );
+			if ( ! empty( $content['slug'] ) ) {
+				BizCity_Personal_Profile_BZPB_Bridge::rename_published_page( (int) $card['bzpb_project_id'], get_current_user_id(), $content['slug'] );
+			}
+		}
+		if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::PUBLIC_URL_CACHE_GROUP ); }
 		return rest_ensure_response( array(
 			'success' => true,
 			'item'    => BizCity_Personal_Profile_Card_Manager::get( (int) $card['id'], get_current_user_id() ),
@@ -520,7 +557,14 @@ final class BizCity_Personal_Profile_REST {
 		$payload = $request->get_json_params();
 		$payload = is_array( $payload ) ? $payload : array();
 		$qr = BizCity_Personal_Profile_QR_Manager::save( (int) $request['id'], get_current_user_id(), $payload );
-		if ( is_wp_error( $qr ) ) { return $this->error_response( 'invalid_param', 'Không lưu được cấu hình QR.', 'Kiểm tra màu, kích thước và URL rồi thử lại.', 'profile_qr_save_failed', 400 ); }
+		if ( is_wp_error( $qr ) ) {
+			// [2026-08-21 Johnny Chu] HOTFIX — preserve schema/storage failures as infrastructure errors.
+			$error_code = (string) $qr->get_error_code();
+			if ( in_array( $error_code, array( 'db_error', 'module_not_loaded' ), true ) ) {
+				return $this->error_response( 'gateway_degraded', 'Kho QR Profile chưa sẵn sàng để lưu.', 'Kiểm tra schema và thử lại sau.', 'profile_qr_save_failed', 503 );
+			}
+			return $this->error_response( 'invalid_param', 'Không lưu được cấu hình QR.', 'Kiểm tra màu, kích thước và URL rồi thử lại.', 'profile_qr_save_failed', 400 );
+		}
 		return rest_ensure_response( array( 'success' => true, 'item' => $qr ) );
 	}
 
@@ -539,10 +583,61 @@ final class BizCity_Personal_Profile_REST {
 	}
 
 	private function published_url( $project_id ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — cache project-to-public-page resolution to avoid one metadata query per card row.
+		$cache_key = 'blog_' . ( function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0 ) . '_project_' . (int) $project_id;
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			$cached = BizCity_Cache::get( self::PUBLIC_URL_CACHE_GROUP, $cache_key );
+			if ( false !== $cached ) { return (string) $cached; }
+		}
 		global $wpdb;
 		$table = $wpdb->prefix . 'bzpb_projects';
 		if ( ! function_exists( 'bizcity_tbl_exists' ) || ! bizcity_tbl_exists( $table ) ) { return ''; }
 		$page_id = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT published_page_id FROM `' . $table . '` WHERE id = %d LIMIT 1', (int) $project_id ) );
-		return $page_id > 0 ? (string) get_permalink( $page_id ) : '';
+		$url = $page_id > 0 ? (string) get_permalink( $page_id ) : '';
+		if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::set( self::PUBLIC_URL_CACHE_GROUP, $cache_key, $url, BizCity_Cache::TTL_MEDIUM ); }
+		return $url;
 	}
+
+	public function channel_accounts( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 6: list already-connected channels for quick-pick instead of manual entry.
+		$platform = sanitize_key( (string) $request->get_param( 'platform' ) );
+		$accounts = array();
+		$is_admin = current_user_can( 'manage_options' );
+		$user_id  = get_current_user_id();
+		global $wpdb;
+		if ( in_array( $platform, array( 'facebook', 'messenger' ), true ) && class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
+			$table = $wpdb->prefix . 'bizcity_facebook_bots';
+			if ( function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $table ) ) {
+				$sql = 'SELECT page_id, page_name FROM `' . $table . '` WHERE status = %s';
+				$args = array( 'active' );
+				if ( ! $is_admin ) { $sql .= ' AND (user_id = 0 OR user_id = %d)'; $args[] = $user_id; }
+				$sql .= ' ORDER BY id DESC';
+				$rows = $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A );
+				foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+					$page_id = (string) ( $row['page_id'] ?? '' );
+					if ( '' === $page_id ) { continue; }
+					$page_name = (string) ( $row['page_name'] ?? '' );
+					$accounts[] = array( 'value' => $page_id, 'label' => '' !== $page_name ? $page_name : ( 'Page #' . $page_id ), 'url' => 'https://m.me/' . rawurlencode( $page_id ) );
+				}
+			}
+		} elseif ( 'zalo_oa' === $platform && class_exists( 'BizCity_Zalo_Bot_Database' ) ) {
+			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — known gap (R-TWEB-14): Zalo Bot table has no owner_user_id yet, so this list is site-wide for now.
+			$bots = BizCity_Zalo_Bot_Database::instance()->get_active_bots();
+			foreach ( (array) $bots as $bot ) {
+				$oa_id    = (string) ( is_object( $bot ) ? ( $bot->oa_id ?? '' ) : ( $bot['oa_id'] ?? '' ) );
+				$bot_name = (string) ( is_object( $bot ) ? ( $bot->bot_name ?? '' ) : ( $bot['bot_name'] ?? '' ) );
+				if ( '' === $oa_id ) { continue; }
+				$accounts[] = array( 'value' => $oa_id, 'label' => ( '' !== $bot_name ? $bot_name . ' — ' : '' ) . 'OA: ' . $oa_id, 'url' => 'https://zalo.me/' . rawurlencode( $oa_id ) );
+			}
+		}
+		return rest_ensure_response( array( 'success' => true, 'platform' => $platform, 'items' => $accounts ) );
+	}
+}
+
+if ( class_exists( 'BizCity_Cache_Registry' ) && class_exists( 'BizCity_Cache' ) ) {
+	BizCity_Cache_Registry::register(
+		'bzp_profile_public_urls',
+		'modules.personal.profile',
+		array( 'blog_{blog_id}_project_{project_id}' => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'Published public URL by Profile Page Builder project' ) )
+	);
 }

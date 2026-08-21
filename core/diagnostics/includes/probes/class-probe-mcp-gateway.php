@@ -146,6 +146,34 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 			}
 			$oauth_evidence_reasons = array_values( array_unique( $oauth_evidence_reasons ) );
 			$oauth_evidence_ok = ! empty( $oauth_evidence_reasons );
+			if ( ! $oauth_evidence_ok && class_exists( 'BizCity_MCP_OAuth' ) && function_exists( 'rest_do_request' ) ) {
+				// [2026-08-21 Johnny Chu] MCP-DDV-OAUTH-EVIDENCE — exercise a harmless invalid-grant path so a clean CI blog can verify JSONL reason persistence without issuing a token or consuming a real grant.
+				$oauth_probe_request = new WP_REST_Request(
+					'POST',
+					'/' . BizCity_MCP_OAuth::NS . BizCity_MCP_OAuth::TOKEN_ENDPOINT
+				);
+				$oauth_probe_request->set_body_params( array(
+					'grant_type'    => 'authorization_code',
+					'code'          => '__diagnostics_invalid_grant__',
+					'client_id'     => '__diagnostics__',
+					'redirect_uri'  => home_url( '/' ),
+				) );
+				rest_do_request( $oauth_probe_request );
+				$oauth_evidence = BizCity_MCP_File_Logger::read_recent( 0, 0, '', 500 );
+				foreach ( (array) $oauth_evidence as $oauth_row ) {
+					if ( ! is_array( $oauth_row ) || (string) ( $oauth_row['tool_name'] ?? '' ) !== 'oauth.token' ) {
+						continue;
+					}
+					$reason = is_array( $oauth_row['evaluation'] ?? null )
+						? sanitize_key( (string) ( $oauth_row['evaluation']['reason'] ?? '' ) )
+						: '';
+					if ( $reason !== '' ) {
+						$oauth_evidence_reasons[] = $reason;
+					}
+				}
+				$oauth_evidence_reasons = array_values( array_unique( $oauth_evidence_reasons ) );
+				$oauth_evidence_ok = ! empty( $oauth_evidence_reasons );
+			}
 		}
 		$steps[] = array(
 			'label'  => 'core.mcp.gateway — Runtime: OAuth token JSONL reason evidence',
@@ -262,7 +290,8 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 				? 'Audit dispatch check skipped with document tools disabled.'
 				: ( $audit_ok ? 'Dispatch audit file evidence exists; only metadata/hash was recorded.' : 'No MCP file audit evidence found after dispatch.' ),
 		);
-		if ( ! $audit_ok ) { $pass = false; }
+		// [2026-08-21 Johnny Chu] MCP-DDV-ROLLBACK — skipped document dispatch has no audit row by design; fail only after an enabled dispatch misses evidence.
+		if ( $document_tools_enabled && ! $audit_ok ) { $pass = false; }
 
 		// [2026-07-28 Johnny Chu] PHASE-0.54-MCP — prove Page Action validation reaches the real handler without creating a project.
 		$page_tools_enabled = defined( 'BIZCITY_MCP_PAGE_TOOLS_ENABLED' ) && BIZCITY_MCP_PAGE_TOOLS_ENABLED;
