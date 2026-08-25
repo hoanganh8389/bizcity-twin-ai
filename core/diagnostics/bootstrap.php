@@ -92,6 +92,9 @@ if ( ! function_exists( 'bizcity_diagnostics_load_probes_once' ) ) {
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-table-registry.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-table-inspector.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-column-inspector.php';
+// [2026-08-25 Johnny Chu] PHASE-1.24 — load the canonical R-DCL schema owner before installers or probes can request additive repair.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-changelog-loader.php';
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-auto-create.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-installer-resolver.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-notices.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-rest.php';
@@ -662,6 +665,8 @@ bizcity_diagnostics_require_probe( 'class-probe-crm-broadcast-bizcity.php' );
 
 // [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — standalone QR Link schema/loader/REST DDV.
 bizcity_diagnostics_require_probe( 'class-probe-crm-qr-link.php' );
+// [2026-08-25 Johnny Chu] PHASE-0.39F-F5-F6-DDV — verify assignment hook and Kanban REST/board integration without mutation.
+bizcity_diagnostics_require_probe( 'class-probe-crm-team-assignment-kanban.php' );
 
 // [2026-07-10 Johnny Chu] PHASE-0.47 — Broadcast import smoke matrix probe
 // for csv/xls/xlsx/google_sheet_url REST path.

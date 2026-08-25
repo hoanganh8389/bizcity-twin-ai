@@ -166,31 +166,43 @@ class BizCity_Memory_Unified_Installer {
 				$table
 			) );
 		$diagnostics_context = defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI;
+		// [2026-08-25 Johnny Chu] PHASE-1.24 — load the additive schema owner lazily so probe execution does not depend on diagnostics bootstrap order.
+		if ( $diagnostics_context && ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) ) {
+			$diagnostics_dir = defined( 'BIZCITY_DIAGNOSTICS_DIR' )
+				? trailingslashit( BIZCITY_DIAGNOSTICS_DIR )
+				: dirname( __DIR__, 2 ) . '/diagnostics/';
+			if ( ! class_exists( 'BizCity_Diagnostics_Changelog_Loader' ) && is_readable( $diagnostics_dir . 'includes/class-diagnostics-changelog-loader.php' ) ) {
+				require_once $diagnostics_dir . 'includes/class-diagnostics-changelog-loader.php';
+			}
+			if ( is_readable( $diagnostics_dir . 'includes/class-diagnostics-auto-create.php' ) ) {
+				require_once $diagnostics_dir . 'includes/class-diagnostics-auto-create.php';
+			}
+			unset( $diagnostics_dir );
+		}
 		if ( class_exists( 'BizCity_Diagnostics_Auto_Create' ) && ( $existing || $diagnostics_context ) ) {
 			$reconcile = BizCity_Diagnostics_Auto_Create::run( self::TABLE_SUFFIX );
 			if ( empty( $reconcile['ok'] ) ) {
-				error_log( '[BizCity_Memory_Unified_Installer] additive schema reconcile failed for ' . $table );
+				error_log( '[BizCity_Memory_Unified_Installer] additive schema reconcile failed for ' . $table . ' action=' . (string) ( $reconcile['action'] ?? 'unknown' ) );
 				return false;
 			}
 		} elseif ( $diagnostics_context ) {
 			// [2026-08-25 Johnny Chu] PHASE-1.24 — never fall back to dbDelta in the headless Diagnostics context when the additive schema owner is unavailable.
-			error_log( '[BizCity_Memory_Unified_Installer] Diagnostics schema owner unavailable for ' . $table );
+			error_log( '[BizCity_Memory_Unified_Installer] Diagnostics schema owner unavailable for ' . $table . ' path=' . ( defined( 'BIZCITY_DIAGNOSTICS_DIR' ) ? 'configured' : 'derived' ) );
 			return false;
 		} else {
 			dbDelta( $sql );
 		}
-		unset( $diagnostics_context );
-
 		// [2026-08-21 Johnny Chu] R-METADATA-CACHE — discard any pre-DDL false result before verifying the new unified table.
 		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
 			bizcity_tbl_invalidate( $table );
 		}
 		$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( ! $exists ) {
-			error_log( '[BizCity_Memory_Unified_Installer] dbDelta FAILED for ' . $table );
+			error_log( '[BizCity_Memory_Unified_Installer] schema install failed for ' . $table . ( $diagnostics_context ? ' via diagnostics auto-create' : ' via dbDelta' ) );
 			return false;
 		}
 		error_log( '[BizCity_Memory_Unified_Installer] Table ' . $table . ' installed @ v' . self::DB_VERSION );
+		unset( $diagnostics_context );
 		return true;
 	}
 }

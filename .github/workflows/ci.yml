@@ -417,6 +417,16 @@ jobs:
           fi
           echo "Scheduler canonical migration guard present: $scheduler_manager"
 
+          diagnostics_bootstrap='wp-content/plugins/bizcity-twin-ai/core/diagnostics/bootstrap.php'
+          if [ ! -f "$diagnostics_bootstrap" ] \
+            || ! grep -Fq 'class-diagnostics-changelog-loader.php' "$diagnostics_bootstrap" \
+            || ! grep -Fq 'class-diagnostics-auto-create.php' "$diagnostics_bootstrap"; then
+            echo "::error::Diagnostics bootstrap does not load the R-DCL schema owner before probes."
+            echo "Expected changelog loader and Auto-Create before Site Provisioner/probe execution."
+            exit 1
+          fi
+          echo "Diagnostics schema owner load order present: $diagnostics_bootstrap"
+
       - name: Activate plugin
         run: wp plugin activate bizcity-twin-ai
 

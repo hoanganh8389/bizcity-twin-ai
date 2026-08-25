@@ -1001,9 +1001,10 @@ final class BizCity_Personal_Profile_REST {
 		}
 		if ( array_key_exists( 'publicCapabilities', $payload ) ) {
 			$capabilities = $payload['publicCapabilities'];
-			if ( ! is_array( $capabilities ) || count( $capabilities ) > 6 ) { return new WP_Error( 'invalid_param' ); }
+			// [2026-08-25 Johnny Chu] PHASE-PROFILE-QUICK-INTRO — keep the public quick-intro list at five items.
+			if ( ! is_array( $capabilities ) || count( $capabilities ) > 5 ) { return new WP_Error( 'invalid_param' ); }
 			$normalized['publicCapabilities'] = array();
-			foreach ( $capabilities as $capability ) {
+			foreach ( array_slice( $capabilities, 0, 5 ) as $capability ) {
 				if ( ! is_array( $capability ) ) { return new WP_Error( 'invalid_param' ); }
 				$label = sanitize_text_field( substr( trim( (string) ( $capability['label'] ?? '' ) ), 0, 60 ) );
 				if ( '' === $label ) { continue; }
@@ -1152,7 +1153,8 @@ final class BizCity_Personal_Profile_REST {
 			if ( 'profile-card' !== (string) ( $block['type'] ?? '' ) ) { continue; }
 			$props = is_array( $block['props'] ?? null ) ? $block['props'] : array();
 			$capabilities = array();
-			foreach ( is_array( $props['publicCapabilities'] ?? null ) ? $props['publicCapabilities'] : array() as $capability ) {
+			// [2026-08-25 Johnny Chu] PHASE-PROFILE-QUICK-INTRO — publish at most five public quick-intro items.
+			foreach ( array_slice( is_array( $props['publicCapabilities'] ?? null ) ? $props['publicCapabilities'] : array(), 0, 5 ) as $capability ) {
 				if ( ! is_array( $capability ) ) { continue; }
 				$label = sanitize_text_field( (string) ( $capability['label'] ?? '' ) );
 				if ( '' === $label ) { continue; }
