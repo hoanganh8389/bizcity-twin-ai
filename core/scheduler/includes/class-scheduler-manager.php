@@ -150,6 +150,12 @@ class BizCity_Scheduler_Manager {
 	}
 
 	private function migrate( int $from ): void {
+		// [2026-08-25 Johnny Chu] PHASE-1.24 — Site Provisioner may create the canonical table before the historical migration option exists; do not replay legacy CREATE/RENAME steps against an already-canonical table.
+		if ( $this->table_exists( $this->table ) && $this->column_exists( $this->table, 'event_type' ) ) {
+			$this->migrate_to_4();
+			return;
+		}
+
 		if ( $from < 1 ) {
 			$this->migrate_to_1();
 		}

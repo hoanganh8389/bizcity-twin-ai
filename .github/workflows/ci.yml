@@ -409,6 +409,14 @@ jobs:
           fi
           echo "Diagnostics schema orchestration contract present: $diagnostics_runner"
 
+          scheduler_manager='wp-content/plugins/bizcity-twin-ai/core/scheduler/includes/class-scheduler-manager.php'
+          if [ ! -f "$scheduler_manager" ] || ! grep -Fq 'Site Provisioner may create the canonical table' "$scheduler_manager"; then
+            echo "::error::Scheduler migration guard is missing from the shipped runner tree."
+            echo "Canonical bizcity_crm_events must skip historical CREATE/RENAME replay."
+            exit 1
+          fi
+          echo "Scheduler canonical migration guard present: $scheduler_manager"
+
       - name: Activate plugin
         run: wp plugin activate bizcity-twin-ai
 
