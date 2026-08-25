@@ -30,33 +30,48 @@ define( 'BIZCITY_PERSONAL_URL',            plugin_dir_url( __FILE__ ) );
 define( 'BIZCITY_PERSONAL_VERSION',        '1.5.2' ); // [2026-08-25 Johnny Chu] PHASE-PROFILE-PUBLIC-SSE — invalidate bundle: Hero graph now drifts gently after settling ("bay bay").
 define( 'BIZCITY_PERSONAL_REWRITE_VERSION', '1.0.0' );
 
+// [2026-08-25 Johnny Chu] PHASE-1.24 — load the core guarded loader safely for standalone Profile bootstrap paths.
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+	$_profile_safe_loader = defined( 'BIZCITY_TWIN_AI_DIR' )
+		? BIZCITY_TWIN_AI_DIR . 'core/helper/class-bizcity-safe-loader.php'
+		: dirname( dirname( __DIR__ ) ) . '/core/helper/class-bizcity-safe-loader.php';
+	if ( is_file( $_profile_safe_loader ) && is_readable( $_profile_safe_loader ) ) {
+		require_once $_profile_safe_loader;
+	}
+	unset( $_profile_safe_loader );
+}
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+	// [2026-08-25 Johnny Chu] PHASE-1.24 — refuse partial Profile boot without a guarded loader instead of emitting a 500 from a raw require.
+	return;
+}
+
 // ── Includes ──────────────────────────────────────────────────────────────────
 // [2026-06-24 Johnny Chu] PHASE-HOME — lazy-friendly: page+REST only, no heavy deps at file scope
-require_once BIZCITY_PERSONAL_DIR . 'includes/class-personal-installer.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/class-personal-page.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/class-personal-rest.php';
-// [2026-06-24 Johnny Chu] PHASE-HOME-NOTEBOOKS — notebook file store + REST controller
-require_once BIZCITY_PERSONAL_DIR . 'includes/class-personal-notebook-file-store.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/class-personal-notebook-rest.php';
-// [2026-06-24 Johnny Chu] PHASE-HOME-NOTEBOOKS PATH-B — KG service (7-step ingest pipeline)
-require_once BIZCITY_PERSONAL_DIR . 'includes/class-personal-kg-service.php';
-// [2026-06-24 Johnny Chu] PHASE-HOME-ARCH — automation adapter replaces W2 listener + W7 notifier.
-// W2 (class-personal-zalo-listener.php) DEPRECATED — bypassed automation runner. Removed.
-// W7 (class-personal-reminder-notifier.php) DEPRECATED — BizCity_Scheduler_Completion_Notifier (core) handles reply. Removed.
-require_once BIZCITY_PERSONAL_DIR . 'includes/class-personal-automation-adapter.php';
-// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — Profile card registry + canonical REST surface.
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-card-manager.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-bzpb-bridge.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-channel-resolver.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-chat-handler.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-entrypoint-manager.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-contacts-bridge.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-analytics.php';
+$profile_includes = array(
+	'includes/class-personal-installer.php' => 'profile.installer',
+	'includes/class-personal-page.php' => 'profile.page',
+	'includes/class-personal-rest.php' => 'profile.rest',
+	'includes/class-personal-notebook-file-store.php' => 'profile.notebook_file_store',
+	'includes/class-personal-notebook-rest.php' => 'profile.notebook_rest',
+	'includes/class-personal-kg-service.php' => 'profile.kg_service',
+	'includes/class-personal-automation-adapter.php' => 'profile.automation_adapter',
+	'includes/profile/class-personal-profile-card-manager.php' => 'profile.card_manager',
+	'includes/profile/class-personal-profile-bzpb-bridge.php' => 'profile.bzpb_bridge',
+	'includes/profile/class-personal-profile-channel-resolver.php' => 'profile.channel_resolver',
+	'includes/profile/class-personal-profile-chat-handler.php' => 'profile.chat_handler',
+	'includes/profile/class-personal-profile-entrypoint-manager.php' => 'profile.entrypoint_manager',
+	'includes/profile/class-personal-profile-contacts-bridge.php' => 'profile.contacts_bridge',
+	'includes/profile/class-personal-profile-analytics.php' => 'profile.analytics',
+);
+foreach ( $profile_includes as $profile_include => $profile_label ) {
+	BizCity_Safe_Loader::require_file( BIZCITY_PERSONAL_DIR . $profile_include, $profile_label );
+}
+unset( $profile_includes, $profile_include, $profile_label );
 // [2026-08-23 Johnny Chu] R-CH-FILE-LOG — public Profile traffic must have the canonical daily logger without loading the full Channel Gateway.
 if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
 	$_profile_file_logger = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR . 'core/channel-gateway/includes/class-channel-file-logger.php' : '';
 	if ( '' !== $_profile_file_logger && is_readable( $_profile_file_logger ) ) {
-		require_once $_profile_file_logger;
+		BizCity_Safe_Loader::require_file( $_profile_file_logger, 'profile.channel_file_logger' );
 	}
 	unset( $_profile_file_logger );
 }
@@ -64,15 +79,13 @@ if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
 if ( ! class_exists( 'BizCity_WebChat_Database', false ) && defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
 	$_profile_webchat_database = BIZCITY_TWIN_AI_DIR . 'modules/webchat/includes/class-webchat-database.php';
 	if ( is_readable( $_profile_webchat_database ) ) {
-		require_once $_profile_webchat_database;
+		BizCity_Safe_Loader::require_file( $_profile_webchat_database, 'profile.webchat_database' );
 	}
 	unset( $_profile_webchat_database );
 }
 // [2026-08-25 Johnny Chu] PHASE-1.24 — keep the optional wheel provider from making Profile activation fatal when the vendor adapter artifact is absent.
 $_profile_wheel_provider = BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-wheel-provider.php';
-if ( is_readable( $_profile_wheel_provider ) ) {
-	require_once $_profile_wheel_provider;
-}
+BizCity_Safe_Loader::require_file( $_profile_wheel_provider, 'profile.wheel_provider' );
 unset( $_profile_wheel_provider );
 // [2026-08-21 Johnny Chu] PHASE-TWIN-BRAIN-PROFILE — repair provider registration after mixed/legacy loader paths so the registry never exposes an empty Mabel catalog.
 if ( class_exists( 'BizCity_Profile_Wheel_Provider_Registry' )
@@ -82,10 +95,10 @@ if ( class_exists( 'BizCity_Profile_Wheel_Provider_Registry' )
 	&& ! BizCity_Profile_Wheel_Provider_Registry::get( 'mabel' ) ) {
 	BizCity_Profile_Wheel_Provider_Registry::register( new BizCity_Profile_Mabel_Wheel_Provider() );
 }
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-wheel-bridge.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-qr-manager.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-vcard-export.php';
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-rest.php';
+BizCity_Safe_Loader::require_file( BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-wheel-bridge.php', 'profile.wheel_bridge' );
+BizCity_Safe_Loader::require_file( BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-qr-manager.php', 'profile.qr_manager' );
+BizCity_Safe_Loader::require_file( BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-vcard-export.php', 'profile.vcard_export' );
+BizCity_Safe_Loader::require_file( BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-rest.php', 'profile.rest_profile' );
 add_action( 'init', function () {
 	// [2026-08-21 Johnny Chu] PHASE-TWIN-BRAIN-PROFILE — TBP-4: wire optional Mabel play attribution after WordPress/plugin loading is ready.
 		if ( class_exists( 'BizCity_Personal_Profile_Wheel_Bridge' ) ) {
@@ -138,19 +151,13 @@ function bizcity_personal_profile_load_probe() {
 	if ( $loaded ) { return; }
 	$loaded = true;
 	$probe = BIZCITY_PERSONAL_DIR . 'includes/profile/class-probe-personal-profile.php';
-	if ( is_readable( $probe ) ) {
-		require_once $probe;
-	}
+	BizCity_Safe_Loader::require_file( $probe, 'profile.probe.foundation' );
 	// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 demo-fix evidence probe, same lazy-load gate.
 	$probe_wave5 = BIZCITY_PERSONAL_DIR . 'includes/profile/class-probe-personal-profile-wave5.php';
-	if ( is_readable( $probe_wave5 ) ) {
-		require_once $probe_wave5;
-	}
+	BizCity_Safe_Loader::require_file( $probe_wave5, 'profile.probe.wave5' );
 	// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 6.2 quick-edit/Page Builder evidence probe.
 	$probe_wave62 = BIZCITY_PERSONAL_DIR . 'includes/profile/class-probe-personal-profile-wave62.php';
-	if ( is_readable( $probe_wave62 ) ) {
-		require_once $probe_wave62;
-	}
+	BizCity_Safe_Loader::require_file( $probe_wave62, 'profile.probe.wave62' );
 }
 
 add_action( 'current_screen', function ( $screen ) {

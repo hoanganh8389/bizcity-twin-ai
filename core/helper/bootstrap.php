@@ -24,30 +24,37 @@ define( 'BIZCITY_HELPER_LOADED', true );
 
 $_helper_includes = __DIR__ . '/includes/';
 
+// [2026-08-25 Johnny Chu] PHASE-1.24 — expose the shared guarded artifact loader before optional module bootstraps require PHP files.
+$_helper_safe_loader = __DIR__ . '/class-bizcity-safe-loader.php';
+if ( is_file( $_helper_safe_loader ) && is_readable( $_helper_safe_loader ) ) {
+	require_once $_helper_safe_loader;
+}
+unset( $_helper_safe_loader );
+
 // [2026-06-05 Johnny Chu] R-ERROR-UX — canonical error payload builder
-require_once $_helper_includes . 'class-bizcity-error-payload.php';
+BizCity_Safe_Loader::require_file( $_helper_includes . 'class-bizcity-error-payload.php', 'helper.error_payload' );
 
 // [2026-08-20 Johnny Chu] CODEC-CORE — shared base64url, JSON state, authenticated payload, and legacy crypto primitives.
-require_once __DIR__ . '/class-bizcity-codec.php';
+BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-codec.php', 'helper.codec' );
 
 // [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — canonical phone identity normalizer.
-require_once $_helper_includes . 'class-bizcity-phone-normalizer.php';
+BizCity_Safe_Loader::require_file( $_helper_includes . 'class-bizcity-phone-normalizer.php', 'helper.phone_normalizer' );
 
 // [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — per-blog JSONL logs for CRM and memory.
-require_once __DIR__ . '/class-bizcity-jsonl-file-logger.php';
+BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-jsonl-file-logger.php', 'helper.jsonl_logger' );
 // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — register one bounded
 // sweep for shared JSONL evidence folders after all cron owners are loaded.
 add_action( 'init', array( 'BizCity_JSONL_File_Logger', 'register_retention_cron' ), 20 );
 add_action( 'bizcity_jsonl_retention', array( 'BizCity_JSONL_File_Logger', 'gc_standard_logs' ), 10, 0 );
 // [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — one event_uuid/trace_id/
 // parent_event_uuid contract shared by Channel JSONL and Twin Event Stream.
-require_once __DIR__ . '/class-bizcity-chat-correlation.php';
+BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-chat-correlation.php', 'helper.chat_correlation' );
 
 // [2026-06-09 Johnny Chu] R-CACHE — unified two-tier cache helper (object cache + transients)
-require_once __DIR__ . '/class-bizcity-cache.php';
+BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-cache.php', 'helper.cache' );
 
 // [2026-06-21 Johnny Chu] R-CACHE — Central Cache Registry (catalog of all groups)
-require_once __DIR__ . '/class-bizcity-cache-registry.php';
+BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-cache-registry.php', 'helper.cache_registry' );
 
 // [2026-06-21 Johnny Chu] R-SHOW-TABLES — canonical table-existence helper.
 // SELECT 1 FROM information_schema.TABLES + dual cache (static + wp_cache/Redis, 1h TTL).

@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -54,6 +56,19 @@ jobs:
 
       - name: Reject new active contract bypasses
         run: node bin/framework-contract-audit.mjs
+
+      - name: Enforce R-SAFE-LOADER bootstrap rule
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base="$BASE_SHA"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=$(git rev-list --max-count=2 "$HEAD_SHA" | tail -n 1)
+          fi
+          node bin/validate-safe-loader-bootstrap.mjs --base="$base" --head="$HEAD_SHA"
 
   plugin-diagnostics:
     name: Per-plugin Diagnostics Contract
@@ -426,6 +441,28 @@ jobs:
             exit 1
           fi
           echo "Diagnostics schema owner load order present: $diagnostics_bootstrap"
+
+          profile_bootstrap='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/bootstrap.php'
+          profile_entry='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/bizcity-personal.php'
+          if [ ! -f "$profile_bootstrap" ] || [ ! -f "$profile_entry" ]; then
+            echo "::error::Profile bootstrap or entrypoint is missing from the shipped tree."
+            exit 1
+          fi
+          if grep -Eq "require_once[[:space:]]+BIZCITY_PERSONAL_DIR|require_once[[:space:]]+\\\$probe" "$profile_bootstrap"; then
+            echo "::error::Profile bootstrap contains an unguarded module/probe require_once."
+            echo "Use BizCity_Safe_Loader::require_file() for every Profile artifact."
+            exit 1
+          fi
+          if grep -Eq "require_once[[:space:]]+__DIR__[[:space:]]*\\.[[:space:]]*'bootstrap\\.php'" "$profile_entry"; then
+            echo "::error::Profile entrypoint contains an unguarded bootstrap require_once."
+            exit 1
+          fi
+          if ! grep -Fq 'BizCity_Safe_Loader::require_file' "$profile_bootstrap" \
+            || ! grep -Fq 'BizCity_Safe_Loader::require_file' "$profile_entry"; then
+            echo "::error::Profile artifact loading is not routed through BizCity_Safe_Loader."
+            exit 1
+          fi
+          echo "Profile Safe Loader contract present: $profile_bootstrap"
 
       - name: Activate plugin
         run: wp plugin activate bizcity-twin-ai
