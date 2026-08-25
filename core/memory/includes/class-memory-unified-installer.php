@@ -158,22 +158,28 @@ class BizCity_Memory_Unified_Installer {
 			KEY idx_legacy_class (memory_class, legacy_id)
 		) {$charset};";
 
-		// [2026-08-25 Johnny Chu] PHASE-1.24 — Diagnostics must reconcile an existing unified table through the additive schema owner; dbDelta on a partially-created table emitted invalid ALTER ADD statements.
+		// [2026-08-25 Johnny Chu] PHASE-1.24 — Diagnostics must reconcile both fresh and partial unified tables through the additive schema owner; dbDelta on a partially-created table emitted invalid ALTER ADD statements.
 		$existing = function_exists( 'bizcity_tbl_exists' )
 			? (bool) bizcity_tbl_exists( $table )
 			: (bool) $wpdb->get_var( $wpdb->prepare(
 				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
 				$table
 			) );
-		if ( $existing && class_exists( 'BizCity_Diagnostics_Auto_Create' ) ) {
+		$diagnostics_context = defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI;
+		if ( class_exists( 'BizCity_Diagnostics_Auto_Create' ) && ( $existing || $diagnostics_context ) ) {
 			$reconcile = BizCity_Diagnostics_Auto_Create::run( self::TABLE_SUFFIX );
 			if ( empty( $reconcile['ok'] ) ) {
 				error_log( '[BizCity_Memory_Unified_Installer] additive schema reconcile failed for ' . $table );
 				return false;
 			}
+		} elseif ( $diagnostics_context ) {
+			// [2026-08-25 Johnny Chu] PHASE-1.24 — never fall back to dbDelta in the headless Diagnostics context when the additive schema owner is unavailable.
+			error_log( '[BizCity_Memory_Unified_Installer] Diagnostics schema owner unavailable for ' . $table );
+			return false;
 		} else {
 			dbDelta( $sql );
 		}
+		unset( $diagnostics_context );
 
 		// [2026-08-21 Johnny Chu] R-METADATA-CACHE — discard any pre-DDL false result before verifying the new unified table.
 		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {

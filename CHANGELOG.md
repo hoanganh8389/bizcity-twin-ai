@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | CRM loader | Proprietary CRM now skips a partial deployment instead of aborting Diagnostics; Inbox Access accepts both canonical flat and legacy reorganized paths. | Implemented locally; CI rerun pending |
 | Trace gate | Added a CI check that rejects the stale CRM bootstrap which directly required `includes/inbox/class-inbox-access.php` and stopped Diagnostics with exit code 255. | Implemented locally; CI rerun pending |
 | Main loader | Main plugin now skips incomplete proprietary CRM artifacts before the legacy bootstrap can execute; public framework Diagnostics continues without CRM. | Implemented locally; CI rerun pending |
+| Memory schema | Existing unified memory tables now use Diagnostics Auto-Create for additive repair; `dbDelta()` is limited to fresh creation to avoid invalid `ALTER ... ADD` output during CI. | Implemented locally; CI rerun pending |
+| Diagnostics schema guard | Diagnostics CLI now routes fresh and partial Unified Memory tables through the JSON-backed Auto-Create owner and blocks `dbDelta()` fallback when that owner is unavailable. | Implemented locally; CI rerun pending |
 | Roadmap | Made the two PHASE-1.24 audit roadmaps trackable and recorded the remaining WordPress matrix and Diagnostics JUnit gates. | Implemented locally; CI rerun pending |
 
 ### Facebook webhook dùng duy nhất callback Plan B — 2026-08-25
