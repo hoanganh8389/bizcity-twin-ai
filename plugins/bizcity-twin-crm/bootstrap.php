@@ -215,7 +215,15 @@ final class BizCity_CRM_Plugin {
 		require_once $inc . 'woo/migrations/class-contacts-unify-backfill.php';
 		require_once $inc . 'class-capabilities.php';
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — load account-backed CRM inbox policy before REST routes.
-		require_once $inc . 'class-inbox-access.php';
+		// [2026-08-25 Johnny Chu] PHASE-1.24 — accept the canonical flat path and the legacy reorganized path during partial deploys.
+		$inbox_access_file = $inc . 'class-inbox-access.php';
+		if ( ! is_readable( $inbox_access_file ) ) {
+			$inbox_access_file = $inc . 'inbox/class-inbox-access.php';
+		}
+		if ( is_readable( $inbox_access_file ) ) {
+			require_once $inbox_access_file;
+		}
+		unset( $inbox_access_file );
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F5 — load policy-driven fair assignment before CRM REST routes.
 		require_once $inc . 'class-assignment-manager.php';
 		require_once $inc . 'class-event-emitter.php';

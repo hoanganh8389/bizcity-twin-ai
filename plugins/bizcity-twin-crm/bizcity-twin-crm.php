@@ -13,6 +13,24 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-08-25 Johnny Chu] PHASE-1.24 — proprietary CRM must not make the public/framework checkout fatal when its optional artifact set is partial.
+$bizcity_crm_inbox_access_files = array(
+	__DIR__ . '/includes/class-inbox-access.php',
+	__DIR__ . '/includes/inbox/class-inbox-access.php',
+);
+$bizcity_crm_inbox_access_available = false;
+foreach ( $bizcity_crm_inbox_access_files as $bizcity_crm_inbox_access_file ) {
+	if ( is_readable( $bizcity_crm_inbox_access_file ) ) {
+		$bizcity_crm_inbox_access_available = true;
+		break;
+	}
+}
+unset( $bizcity_crm_inbox_access_files, $bizcity_crm_inbox_access_file );
+if ( ! $bizcity_crm_inbox_access_available ) {
+	return;
+}
+unset( $bizcity_crm_inbox_access_available );
+
 // [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE - the default TwinChat admin
 // shell renders its own iframe and does not need the CRM runtime graph. Keep
 // CRM surface requests (plugin=crm), REST, webhooks, cron and public /crm/ alive.
