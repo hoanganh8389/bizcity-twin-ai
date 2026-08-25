@@ -373,6 +373,25 @@ jobs:
           fi
           echo "Profile provider present: $provider"
 
+          crm_bootstrap='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/bootstrap.php'
+          if [ -f "$crm_bootstrap" ]; then
+            crm_access='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/includes/class-inbox-access.php'
+            crm_legacy_access='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/includes/inbox/class-inbox-access.php'
+            if [ ! -f "$crm_access" ] && [ ! -f "$crm_legacy_access" ]; then
+              echo "::error::CRM checkout is partial: Inbox Access artifact is missing."
+              echo "Expected $crm_access or $crm_legacy_access"
+              exit 1
+            fi
+            if grep -Eq "require_once[[:space:]]+\\\$inc[[:space:]]*\\.[[:space:]]*'inbox/class-inbox-access\\.php'" "$crm_bootstrap"; then
+              echo "::error::Stale CRM bootstrap directly requires the removed Inbox Access path."
+              echo "Deploy the CRM loader with its canonical/legacy readable-path fallback before running Diagnostics."
+              exit 1
+            fi
+            echo "CRM loader dependency contract present: $crm_bootstrap"
+          else
+            echo "CRM package absent; proprietary CRM checks are skipped."
+          fi
+
       - name: Activate plugin
         run: wp plugin activate bizcity-twin-ai
 
