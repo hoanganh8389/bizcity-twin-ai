@@ -771,6 +771,26 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         $_bundled_dir  = __DIR__ . '/plugins/bizcity-zalo-bizcity';
         $_bundled_file = $_bundled_dir . '/bizcity-admin-hook-zalo.php';
     }
+    // [2026-08-25 Johnny Chu] PHASE-1.24 — skip an incomplete proprietary CRM checkout before its legacy bootstrap can fatal Diagnostics.
+    if ( 'bizcity-twin-crm' === $_slug ) {
+        $_crm_inbox_access = array(
+            $_bundled_dir . '/includes/class-inbox-access.php',
+            $_bundled_dir . '/includes/inbox/class-inbox-access.php',
+        );
+        $_crm_has_inbox_access = false;
+        foreach ( $_crm_inbox_access as $_crm_inbox_access_file ) {
+            if ( is_readable( $_crm_inbox_access_file ) ) {
+                $_crm_has_inbox_access = true;
+                break;
+            }
+        }
+        unset( $_crm_inbox_access, $_crm_inbox_access_file );
+        if ( ! $_crm_has_inbox_access ) {
+            unset( $_crm_has_inbox_access );
+            continue;
+        }
+        unset( $_crm_has_inbox_access );
+    }
     if ( is_dir( $_bundled_dir ) && file_exists( $_bundled_file ) ) {
         require_once $_bundled_file;
     }

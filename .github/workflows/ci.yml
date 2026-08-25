@@ -378,9 +378,10 @@ jobs:
             crm_access='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/includes/class-inbox-access.php'
             crm_legacy_access='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/includes/inbox/class-inbox-access.php'
             if [ ! -f "$crm_access" ] && [ ! -f "$crm_legacy_access" ]; then
-              echo "::error::CRM checkout is partial: Inbox Access artifact is missing."
-              echo "Expected $crm_access or $crm_legacy_access"
-              exit 1
+              echo "::warning::CRM checkout is partial; proprietary CRM will be skipped by the main loader."
+              echo "Expected $crm_access or $crm_legacy_access for a complete CRM deployment."
+              echo "This does not block the public framework Diagnostics matrix."
+              exit 0
             fi
             if grep -Eq "require_once[[:space:]]+\\\$inc[[:space:]]*\\.[[:space:]]*'inbox/class-inbox-access\\.php'" "$crm_bootstrap"; then
               echo "::error::Stale CRM bootstrap directly requires the removed Inbox Access path."
