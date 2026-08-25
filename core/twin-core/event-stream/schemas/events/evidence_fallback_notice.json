@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "evidence_fallback_notice",
+  "description": "Deterministic notice that Notebook evidence is empty or lacks the named entity required by the answer intent.",
+  "type": "object",
+  "required": ["trace_id", "trigger", "reason", "notice"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "trigger": { "type": "string", "enum": ["full_empty", "no_product_name"] },
+    "reason": { "type": "string" },
+    "notice": { "type": "string" }
+  },
+  "additionalProperties": true
+}

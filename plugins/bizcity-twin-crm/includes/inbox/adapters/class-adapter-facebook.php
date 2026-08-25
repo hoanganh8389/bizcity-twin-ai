@@ -124,6 +124,14 @@ class BizCity_CRM_Adapter_Facebook extends BizCity_CRM_Adapter_Base {
 				);
 			}
 		}
+		// [2026-08-22 Johnny Chu] HOTFIX-FB-MEDIA-NORMALIZE — the legacy image handler emits image_url directly without event.message.attachments.
+		if ( empty( $attachments ) && ! empty( $raw['image_url'] ) ) {
+			$attachments[] = array(
+				'file_type' => 'image',
+				'data_url'  => (string) $raw['image_url'],
+				'meta'      => array( 'fb_type' => 'image', 'source' => 'legacy_image_handler' ),
+			);
+		}
 
 		return array(
 			'inbox_ref'          => $page_id,

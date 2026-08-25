@@ -24,6 +24,7 @@ final class BizCity_TwinBrain_Conversation_Confirmation {
 		}
 		$payload = array(
 			'intent'      => self::INTENT,
+			'offer_type'  => (string) ( $decision['offer_type'] ?? '' ),
 			'workflow_id' => 0,
 			'slots'       => array(
 				'route_decision' => $decision,
@@ -55,8 +56,9 @@ final class BizCity_TwinBrain_Conversation_Confirmation {
 		$decision = (array) ( $pending['slots']['route_decision'] ?? array() );
 		if ( $no ) {
 			$decision = array(
+				'offer_type' => (string) ( $pending['offer_type'] ?? '' ),
 				'route'      => 'casual',
-				'reason'     => 'confirmed_generic',
+				'reason'     => (string) ( $pending['offer_type'] ?? '' ) === 'deep_research' ? 'deep_research_declined' : 'confirmed_generic',
 				'web_mode'   => 'off',
 				'companion_mode' => true,
 				'confidence' => 1.0,
@@ -76,6 +78,13 @@ final class BizCity_TwinBrain_Conversation_Confirmation {
 			'prompt'   => (string) ( $pending['slots']['original_prompt'] ?? '' ),
 			'decision' => $decision,
 		);
+	}
+
+	public static function is_deep_research_offer( string $key ): bool {
+		// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — distinguish post-search Deep Research offers from disabled specialized pre-routing state.
+		$pending = self::get( $key );
+		return ! empty( $pending ) && (string) ( $pending['intent'] ?? '' ) === self::INTENT
+			&& (string) ( $pending['offer_type'] ?? '' ) === 'deep_research';
 	}
 
 	public static function clear( string $key ): void {

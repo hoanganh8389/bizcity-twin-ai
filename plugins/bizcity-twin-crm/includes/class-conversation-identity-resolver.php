@@ -117,6 +117,16 @@ class BizCity_CRM_Conversation_Identity_Resolver {
 					'llm_session_id'        => $chat_id,
 				);
 
+			case 'zalo_personal':
+				// [2026-08-21 Johnny Chu] PHASE-0.39B — preserve Personal account routing in CRM identity/session keys.
+				$chat_id = 'zalop_' . $account_id . '_' . $client_id;
+				return array(
+					'platform_type_hint'    => 'ZALO_PERSONAL',
+					'canonical_chat_id'     => $chat_id,
+					'canonical_session_key' => $chat_id,
+					'llm_session_id'        => $chat_id,
+				);
+
 			case 'webchat':
 				$chat_id = 'webchat_' . $client_id;
 				return array(

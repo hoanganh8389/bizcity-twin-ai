@@ -1,0 +1,25 @@
+{
+  "contract": "bizcity.twin.diagnostics-verdict",
+  "version": "1.0.0",
+  "plugin": "broken.fixture",
+  "path": "tests/fixtures/plugin-diagnostics/broken-plugin",
+  "checks": [
+    {
+      "id": "manifest",
+      "label": "Manifest",
+      "status": "failure",
+      "severity": "critical",
+      "evidence": "manifest.json is invalid",
+      "fix_hint": "Fix manifest.json",
+      "file": "manifest.json"
+    }
+  ],
+  "verdict": "failure",
+  "counts": {
+    "pass": 0,
+    "warn": 0,
+    "fail": 1,
+    "skip": 0
+  },
+  "exit_code": 1
+}

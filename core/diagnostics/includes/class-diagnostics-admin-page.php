@@ -728,6 +728,76 @@ final class BizCity_Diagnostics_Admin_Page {
 	private static function probe_groups(): array {
 		// [2026-07-18 Johnny Chu] SPRINT-27 DIAG-UX — keep high-value runtime groups close to the UI.
 		return array(
+			// [2026-08-22 Johnny Chu] PHASE-0.39B-DDV — phase P0 foundation, loader, codec, error and zone gates.
+			'zalo_p0_foundation' => array(
+				'label'       => '▶ Run Zalo Personal P0 probes',
+				'description' => 'Foundation, schema, codec, error UX, Channel Gateway loader and Zone 1/2 isolation.',
+				'probes'      => array(
+					'schema.inventory',
+					'core.helper.codec_standard',
+					'core.helper.error_ux',
+					'channel-gateway.rest',
+					'channel-binding.gateway',
+					'core.channel.zone_isolation',
+					'core.channel.zone_ui',
+					'modules.zalo-personal',
+				),
+			),
+			// [2026-08-22 Johnny Chu] PHASE-0.39B-DDV — B1 exact-key Master Plan entitlement gates.
+			'zalo_b1_entitlement' => array(
+				'label'       => '▶ Run Zalo Personal B1 entitlement probes',
+				'description' => 'Hub exact key, Master Plan quota, client plan sync and Branch 19 capability contract.',
+				'probes'      => array(
+					'account.quota.entitlement',
+					'client.plan_sync',
+					'modules.zalo-personal',
+				),
+			),
+			// [2026-08-22 Johnny Chu] PHASE-0.39B-DDV — B2 tenant, key and identity isolation gates.
+			'zalo_b2_isolation' => array(
+				'label'       => '▶ Run Zalo Personal B2 isolation probes',
+				'description' => 'Current-blog key, tenant prefix, owner identity, notebook scope and channel isolation.',
+				'probes'      => array(
+					'modules.zalo-personal',
+					'core.channel.identity_memory',
+					'twinbrain.channel_unify',
+					'core.kg.notebook_multitenant_isolation',
+					'core.channel.zone_isolation',
+				),
+			),
+			// [2026-08-22 Johnny Chu] PHASE-0.39B-DDV — C Twin GPT Personal CRM routes and owner continuity.
+			'zalo_c_twin_gpt_crm' => array(
+				'label'       => '▶ Run Zalo Personal C /gpt/ probes',
+				'description' => 'Twin GPT control plane, customer channel ownership, automation guard and CRM parity.',
+				'probes'      => array(
+					'modules.twin_gpt.customer_channels',
+					'modules.twin_gpt.customer_channel_automation',
+					'modules.twinweb.control_plane',
+					'modules.twinweb.owner_continuity',
+					'core.crm.bizcity_parity',
+				),
+			),
+			// [2026-08-22 Johnny Chu] PHASE-0.39B-DDV — W8 archive, retention and channel lifecycle gates.
+			'zalo_w8_archive' => array(
+				'label'       => '▶ Run Zalo Personal W8 archive probes',
+				'description' => 'Archive encryption/partition/lifecycle, retention hook and Channel Gateway runtime contract.',
+				'probes'      => array(
+					'modules.zalo-personal',
+					'core.helper.codec_standard',
+					'core.log.retention',
+					'channel-gateway.rest',
+				),
+			),
+			// [2026-08-22 Johnny Chu] PHASE-PROFILE-ROLE-SPLIT — run the Profile foundation and public-surface probes as one curated group.
+			'profile' => array(
+				'label'       => '▶ Run Profile probes',
+				'description' => 'Profile Care/Public routes, Page Builder/CF7 bridge, public channel surface, provider and CRM follow-up contracts.',
+				'probes'      => array(
+					'modules.personal.profile',
+					'modules.personal.profile.wave5',
+					'modules.personal.profile.wave62',
+				),
+			),
 			'twin_gpt_governance' => array(
 				'label'       => '▶ Run Twin GPT governance probes',
 				'description' => 'Control plane, app catalog, plan catalog, citations, Facebook connect and owner-continuity acceptance lines.',

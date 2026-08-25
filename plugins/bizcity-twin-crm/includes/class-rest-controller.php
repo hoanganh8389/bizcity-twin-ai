@@ -50,13 +50,13 @@ class BizCity_CRM_REST_Controller {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'get_inboxes' ),
-				'permission_callback' => array( __CLASS__, 'can_read' ),
+				'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 			),
 			// M7.W1 — wizard create inbox.
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'post_inbox_create' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 				'args'                => array(
 					'channel_type' => array( 'type' => 'string', 'required' => true ),
 					'config'       => array( 'type' => 'object', 'required' => true ),
@@ -70,18 +70,30 @@ class BizCity_CRM_REST_Controller {
 			// [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — destructive inbox cleanup is admin-only.
 			'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
 		) );
+		// [2026-08-22 Johnny Chu] PHASE-0.39C — explicit legacy Zalo Personal cleanup; never broaden the generic inbox delete route.
+		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/zalo-legacy', array(
+			'methods'             => WP_REST_Server::DELETABLE,
+			'callback'            => array( __CLASS__, 'delete_legacy_zalo_inbox' ),
+			'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
+		) );
 
 		// M7.W4 — runtime health for nav sidebar dot.
 		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/health', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_inbox_health' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+		) );
+		// [2026-08-22 Johnny Chu] PHASE-0.39C — read-only Zalo Personal flow diagnostic for CRM operators.
+		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/zalo-diagnostic', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_zalo_diagnostic' ),
+			'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
 		) );
 
 		register_rest_route( $ns, '/conversations', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_conversations' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 			'args'                => array(
 				'inbox_id'    => array( 'type' => 'integer' ),
 				'status'      => array( 'type' => 'string', 'enum' => array( 'open', 'pending', 'resolved', 'snoozed' ) ),
@@ -97,20 +109,20 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/export', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'export_conversations' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_conversation' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/messages', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'get_messages' ),
-				'permission_callback' => array( __CLASS__, 'can_read' ),
+				'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 				'args'                => array(
 					'after_id' => array( 'type' => 'integer', 'default' => 0 ),
 					'limit'    => array( 'type' => 'integer', 'default' => 100 ),
@@ -119,35 +131,97 @@ class BizCity_CRM_REST_Controller {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'post_message' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/notes', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_note' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/resolve', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_resolve' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 		) );
 
 		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — expose canonical conversation triage mutations.
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/assignee', array(
 			'methods'             => WP_REST_Server::EDITABLE,
 			'callback'            => array( __CLASS__, 'post_assign' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			'args'                => array(
 				'assignee_id' => array( 'type' => 'integer', 'default' => 0 ),
 			),
 		) );
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F4-F5 — BE Teams and inbox membership commands; all IDs are revalidated server-side.
+		register_rest_route( $ns, '/teams', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'get_teams' ),
+				'permission_callback' => array( __CLASS__, 'can_manage_teams' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'post_team' ),
+				'permission_callback' => array( __CLASS__, 'can_manage_teams' ),
+			)
+		) );
+		register_rest_route( $ns, '/teams/(?P<id>\d+)/members', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'get_team_members' ),
+				'permission_callback' => array( __CLASS__, 'can_manage_teams' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'post_team_member' ),
+				'permission_callback' => array( __CLASS__, 'can_manage_teams' ),
+			)
+		) );
+		register_rest_route( $ns, '/assignment-policies', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'get_assignment_policies' ),
+				'permission_callback' => array( __CLASS__, 'can_manage_assignment_policy' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'post_assignment_policy' ),
+				'permission_callback' => array( __CLASS__, 'can_manage_assignment_policy' ),
+			)
+		) );
+		register_rest_route( $ns, '/assignment-policies/(?P<id>\d+)', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'patch_assignment_policy' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_assignment_policy' ),
+		) );
+		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/assignment-policy', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'put_inbox_assignment_policy' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_assignment_policy' ),
+		) );
+		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/members', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_inbox_member' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_teams' ),
+		) );
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/team', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'post_team_assign' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
+		) );
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/auto-assign', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_auto_assign' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
+		) );
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/priority', array(
 			'methods'             => WP_REST_Server::EDITABLE,
 			'callback'            => array( __CLASS__, 'post_priority' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			'args'                => array(
 				'priority' => array( 'type' => 'integer', 'required' => true ),
 			),
@@ -155,14 +229,14 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/reopen', array(
 			'methods'             => WP_REST_Server::EDITABLE,
 			'callback'            => array( __CLASS__, 'post_reopen' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 		) );
 
 		// PHASE 0.35 M1.W4 — snooze a conversation until N seconds OR ISO ts.
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/snooze', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_snooze' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			'args'                => array(
 				'duration_seconds' => array( 'type' => 'integer' ),
 				'until'            => array( 'type' => 'string' ),
@@ -171,13 +245,13 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/unsnooze', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_unsnooze' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/ai-reply', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_ai_reply' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			'args'                => array(
 				'prompt'       => array( 'type' => 'string' ),
 				'dispatch'     => array( 'type' => 'boolean', 'default' => true ),
@@ -263,12 +337,12 @@ class BizCity_CRM_REST_Controller {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'get_conversation_orders' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			),
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'post_conversation_order' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 				'args'                => array(
 					'items'          => array( 'type' => 'array' ),
 					'custom_amount'  => array( 'type' => 'number' ),
@@ -287,7 +361,7 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/send-order', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_send_order_to_customer' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			'args'                => array(
 				'order_id' => array( 'type' => 'integer', 'required' => true ),
 				'mode'     => array( 'type' => 'string',  'default'  => 'recap' ),
@@ -409,12 +483,12 @@ class BizCity_CRM_REST_Controller {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'get_conversation_labels' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 			),
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'post_conversation_labels' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 				'args'                => array(
 					'labels' => array( 'type' => 'array', 'required' => true ),
 				),
@@ -782,7 +856,8 @@ class BizCity_CRM_REST_Controller {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'get_crm_contacts' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				// [2026-08-23 Johnny Chu] PHASE-0.39D — contact list now uses owner/inbox scope.
+				'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
 				'args'                => array(
 					'account_id' => array( 'type' => 'integer' ),
 					'q'          => array( 'type' => 'string'  ),
@@ -799,24 +874,30 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/crm-contacts/export', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'export_crm_contacts' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
 		) );
 		register_rest_route( $ns, '/crm-contacts/(?P<id>\d+)', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'get_crm_contact' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
 			),
 			array(
 				'methods'             => WP_REST_Server::EDITABLE,
 				'callback'            => array( __CLASS__, 'put_crm_contact' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_write_contact_scope' ),
 			),
 			array(
 				'methods'             => WP_REST_Server::DELETABLE,
 				'callback'            => array( __CLASS__, 'delete_crm_contact' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_write_contact_scope' ),
 			),
+		) );
+		// [2026-08-23 Johnny Chu] PHASE-0.39D — contact-to-inbox navigation projection.
+		register_rest_route( $ns, '/crm-contacts/(?P<id>\d+)/channels', array(
+			'methods'              => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_crm_contact_channels' ),
+			'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
 		) );
 
 		// PHASE 0.35 M-CRM.M8.W6.2 — Woo orders for a CRM contact (uses Order Adapter Registry).
@@ -824,7 +905,7 @@ class BizCity_CRM_REST_Controller {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'get_crm_contact_woo_orders' ),
-				'permission_callback' => array( __CLASS__, 'can_write' ),
+				'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
 				'args'                => array(
 					'limit' => array( 'type' => 'integer', 'default' => 10 ),
 				),
@@ -1659,6 +1740,43 @@ class BizCity_CRM_REST_Controller {
 				'to'   => array( 'type' => 'string', 'required' => false ),
 			),
 		) );
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F3 — dashboard reads bounded rollups, never the full CRM message table.
+		register_rest_route( $ns, '/reports/rollups', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_reporting_rollups' ),
+			'permission_callback' => array( __CLASS__, 'can_view_reports' ),
+			'args'                => array(
+				'from'           => array( 'type' => 'string' ),
+				'to'             => array( 'type' => 'string' ),
+				'dimension_type' => array( 'type' => 'string' ),
+				'metric'         => array( 'type' => 'string' ),
+				'limit'          => array( 'type' => 'integer', 'default' => 200 ),
+			),
+		) );
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — Kanban is a projection over scoped CRM sources, never a second storage owner.
+		register_rest_route( $ns, '/boards/conversations', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_conversation_board' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+			'args'                => array( 'limit' => array( 'type' => 'integer', 'default' => 100 ) ),
+		) );
+		register_rest_route( $ns, '/boards/order-care', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_order_care_board' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+			'args'                => array( 'limit' => array( 'type' => 'integer', 'default' => 200 ) ),
+		) );
+		register_rest_route( $ns, '/boards/conversations/move', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_conversation_board_move' ),
+			'permission_callback' => array( __CLASS__, 'can_write_board_move' ),
+			'args'                => array(
+				'conversation_id' => array( 'type' => 'integer', 'required' => true ),
+				'column'          => array( 'type' => 'string', 'required' => true ),
+				'assignee_id'     => array( 'type' => 'integer' ),
+				'team_id'         => array( 'type' => 'integer' ),
+			),
+		) );
 		register_rest_route( $ns, '/activities/recent', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_recent_activities' ),
@@ -2058,6 +2176,55 @@ class BizCity_CRM_REST_Controller {
 		return current_user_can( 'manage_options' );
 	}
 
+	public static function can_read_contact_scope( $request = null ): bool {
+		// [2026-08-23 Johnny Chu] PHASE-0.39D — Contacts reads follow the same owner/inbox scope as Inbox reads.
+		$user_id = (int) get_current_user_id();
+		if ( $user_id <= 0 ) { return false; }
+		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id ) ) {
+			return true;
+		}
+		if ( ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) { return false; }
+		$contact_id = $request instanceof WP_REST_Request ? (int) $request->get_param( 'id' ) : 0;
+		if ( $contact_id > 0 ) { return self::contact_is_in_scope( $contact_id, $user_id ); }
+		return ! empty( BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id ) );
+	}
+
+	public static function can_write_contact_scope( $request = null ): bool {
+		if ( current_user_can( 'manage_options' ) ) { return true; }
+		$cap = (string) apply_filters( 'bizcity_crm_write_cap', 'edit_posts' );
+		if ( ! current_user_can( $cap ) ) { return false; }
+		$contact_id = $request instanceof WP_REST_Request ? (int) $request->get_param( 'id' ) : 0;
+		return $contact_id > 0 && self::contact_is_in_scope( $contact_id, (int) get_current_user_id() );
+	}
+
+	private static function contact_is_in_scope( int $contact_id, int $user_id ): bool {
+		if ( $contact_id <= 0 || $user_id <= 0 ) { return false; }
+		if ( ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) { return false; }
+		$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id );
+		if ( null === $allowed || empty( $allowed ) ) { return null === $allowed; }
+		global $wpdb;
+		$ci_tbl = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$placeholders = implode( ',', array_fill( 0, count( $allowed ), '%d' ) );
+		$params = array_merge( array( $contact_id ), array_map( 'absint', $allowed ) );
+		$sql = $wpdb->prepare( "SELECT ci.contact_id FROM `{$ci_tbl}` ci WHERE ci.contact_id = %d AND ci.inbox_id IN ({$placeholders}) LIMIT 1", $params );
+		return (bool) $wpdb->get_var( $sql );
+	}
+
+	private static function contact_scope_sql( string $contact_alias = 'id' ): string {
+		$user_id = (int) get_current_user_id();
+		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id ) ) {
+			return '1=1';
+		}
+		$allowed = class_exists( 'BizCity_CRM_Inbox_Access' )
+			? BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id )
+			: array();
+		if ( empty( $allowed ) ) { return '0=1'; }
+		global $wpdb;
+		$ci_tbl = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$placeholders = implode( ',', array_fill( 0, count( $allowed ), '%d' ) );
+		return $wpdb->prepare( "{$contact_alias} IN (SELECT contact_id FROM `{$ci_tbl}` WHERE inbox_id IN ({$placeholders}))", array_map( 'absint', $allowed ) );
+	}
+
 	public static function can_write(): bool {
 		/** @param string $cap default cap for CRM composer write actions. */
 		$cap = (string) apply_filters( 'bizcity_crm_write_cap', 'edit_posts' );
@@ -2076,6 +2243,75 @@ class BizCity_CRM_REST_Controller {
 			? BizCity_CRM_Capabilities::CAP_VIEW_REPORTS
 			: 'bizcity_crm_view_reports';
 		return current_user_can( $cap ) || current_user_can( 'manage_options' );
+	}
+
+	public static function can_manage_teams(): bool {
+		return current_user_can( 'manage_options' ) || current_user_can( 'bizcity_crm_manage_teams' );
+	}
+
+	public static function can_manage_assignment_policy(): bool {
+		return current_user_can( 'manage_options' ) || current_user_can( 'bizcity_crm_manage_assignment_policy' );
+	}
+
+	/**
+	 * Read permission for account-scoped customer-care resources.
+	 *
+	 * @param WP_REST_Request|null $request
+	 * @return bool
+	 */
+	public static function can_read_inbox_scope( $request = null ): bool {
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — request-aware customer-care read scope.
+		$user_id = (int) get_current_user_id();
+		if ( ! $user_id ) {
+			return false;
+		}
+		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id ) ) {
+			return true;
+		}
+		if ( ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+			return false;
+		}
+		if ( $request instanceof WP_REST_Request ) {
+			$conversation_id = (int) $request->get_param( 'id' );
+			if ( $conversation_id > 0 ) {
+				return BizCity_CRM_Inbox_Access::can_view_conversation( $conversation_id, $user_id );
+			}
+			$inbox_id = (int) $request->get_param( 'inbox_id' );
+			if ( $inbox_id > 0 ) {
+				return BizCity_CRM_Inbox_Access::can_view_inbox( $inbox_id, $user_id );
+			}
+		}
+		return ! empty( BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id ) );
+	}
+
+	/**
+	 * Write permission for account-scoped customer-care resources.
+	 *
+	 * @param WP_REST_Request|null $request
+	 * @return bool
+	 */
+	public static function can_write_inbox_scope( $request = null ): bool {
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — request-aware customer-care write scope.
+		if ( current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+		$cap = (string) apply_filters( 'bizcity_crm_write_cap', 'edit_posts' );
+		if ( ! current_user_can( $cap ) && ! current_user_can( 'bizcity_crm_handle_inbox' ) ) {
+			return $request instanceof WP_REST_Request
+				&& (int) $request->get_param( 'id' ) > 0
+				&& class_exists( 'BizCity_CRM_Inbox_Access' )
+				&& BizCity_CRM_Inbox_Access::can_view_conversation( (int) $request->get_param( 'id' ) );
+		}
+		return self::can_read_inbox_scope( $request );
+	}
+
+	public static function can_write_board_move( $request = null ): bool {
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — scope board mutations by conversation_id, not by a generic route parameter.
+		if ( current_user_can( 'manage_options' ) ) { return true; }
+		$cap = (string) apply_filters( 'bizcity_crm_write_cap', 'edit_posts' );
+		if ( ! current_user_can( $cap ) && ! current_user_can( 'bizcity_crm_handle_inbox' ) ) { return false; }
+		$conversation_id = $request instanceof WP_REST_Request ? (int) $request->get_param( 'conversation_id' ) : 0;
+		return $conversation_id > 0 && class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::can_view_conversation( $conversation_id );
 	}
 
 	public static function get_identity_conflicts( WP_REST_Request $req ) {
@@ -2180,9 +2416,180 @@ class BizCity_CRM_REST_Controller {
 					'label'         => $a->label(),
 					'capabilities'  => $a->capabilities(),
 					'wizard_ready'  => $has_wizard,
+					'contract'      => class_exists( 'BizCity_CRM_Channel_Contract' ) ? BizCity_CRM_Channel_Contract::describe( $a->code() ) : array(),
 				);
 			}
 			return $out;
+		} );
+	}
+
+	public static function get_teams( WP_REST_Request $req ) {
+		return self::wrap( static function () {
+			if ( ! class_exists( 'BizCity_CRM_Team_Manager' ) ) { throw new \RuntimeException( 'team_manager_not_loaded' ); }
+			return array( 'teams' => BizCity_CRM_Team_Manager::list_teams() );
+		} );
+	}
+
+	public static function get_assignment_policies( WP_REST_Request $req ) {
+		return self::wrap( static function () {
+			if ( ! class_exists( 'BizCity_CRM_Assignment_Manager' ) ) { throw new \RuntimeException( 'assignment_manager_not_loaded' ); }
+			return array( 'policies' => BizCity_CRM_Assignment_Manager::list_policies() );
+		} );
+	}
+
+	public static function post_assignment_policy( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$id = BizCity_CRM_Assignment_Manager::create_policy( (array) $req->get_json_params(), (int) get_current_user_id() );
+			if ( $id <= 0 ) { throw new \RuntimeException( 'assignment_policy_create_failed' ); }
+			return array( 'policy_id' => $id );
+		} );
+	}
+
+	public static function patch_assignment_policy( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$ok = BizCity_CRM_Assignment_Manager::update_policy( (int) $req['id'], (array) $req->get_json_params(), (int) get_current_user_id() );
+			if ( ! $ok ) { throw new \RuntimeException( 'assignment_policy_update_failed' ); }
+			return array( 'updated' => true, 'policy_id' => (int) $req['id'] );
+		} );
+	}
+
+	public static function put_inbox_assignment_policy( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$body = (array) $req->get_json_params();
+			$ok = BizCity_CRM_Assignment_Manager::bind_policy( (int) $req['id'], (int) ( $body['assignment_policy_id'] ?? 0 ), (int) ( $body['team_id'] ?? 0 ) );
+			if ( ! $ok ) { throw new \RuntimeException( 'assignment_policy_bind_failed' ); }
+			return array( 'bound' => true, 'inbox_id' => (int) $req['id'] );
+		} );
+	}
+
+	public static function post_team( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$name = sanitize_text_field( (string) ( $req->get_param( 'name' ) ?? '' ) );
+			$id = BizCity_CRM_Team_Manager::create_team( $name, sanitize_textarea_field( (string) ( $req->get_param( 'description' ) ?? '' ) ), (int) get_current_user_id() );
+			if ( $id <= 0 ) { throw new \RuntimeException( 'team_create_failed' ); }
+			return array( 'team_id' => $id );
+		} );
+	}
+
+	public static function get_team_members( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			return array( 'members' => BizCity_CRM_Team_Manager::list_team_members( (int) $req['id'] ) );
+		} );
+	}
+
+	public static function post_team_member( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$user_id = (int) $req->get_param( 'user_id' );
+			$ok = BizCity_CRM_Team_Manager::add_team_member( (int) $req['id'], $user_id, sanitize_key( (string) ( $req->get_param( 'member_role' ) ?? 'agent' ) ) );
+			if ( ! $ok ) { throw new \RuntimeException( 'team_member_save_failed' ); }
+			return array( 'saved' => true, 'team_id' => (int) $req['id'], 'user_id' => $user_id );
+		} );
+	}
+
+	public static function post_inbox_member( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$user_id = (int) $req->get_param( 'user_id' );
+			$ok = BizCity_CRM_Team_Manager::add_inbox_member( (int) $req['id'], $user_id, sanitize_key( (string) ( $req->get_param( 'member_role' ) ?? 'agent' ) ), ! empty( $req->get_param( 'can_assign' ) ) );
+			if ( ! $ok ) { throw new \RuntimeException( 'inbox_member_save_failed' ); }
+			return array( 'saved' => true, 'inbox_id' => (int) $req['id'], 'user_id' => $user_id );
+		} );
+	}
+
+	public static function post_team_assign( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$conv_id = (int) $req['id'];
+			$team_id = max( 0, (int) $req->get_param( 'team_id' ) );
+			$conv = BizCity_CRM_Repository::get_conversation( $conv_id );
+			if ( ! $conv ) { throw new \RuntimeException( 'conversation_not_found' ); }
+			if ( $team_id > 0 && ! current_user_can( 'manage_options' ) ) {
+				$members = BizCity_CRM_Team_Manager::list_team_members( $team_id );
+				$inbox_id = (int) ( $conv['inbox_id'] ?? 0 );
+				$has_member = false;
+				foreach ( $members as $member ) {
+					if ( (int) ( $member['user_id'] ?? 0 ) > 0 && BizCity_CRM_Team_Manager::is_inbox_member( $inbox_id, (int) $member['user_id'] ) ) { $has_member = true; break; }
+				}
+				if ( ! $has_member ) { throw new \RuntimeException( 'team_has_no_inbox_member' ); }
+			}
+			if ( ! BizCity_CRM_Repository::set_conversation_team( $conv_id, $team_id > 0 ? $team_id : null, (int) get_current_user_id() ) ) { throw new \RuntimeException( 'team_assignment_failed' ); }
+			return array( 'updated' => true, 'team_id' => $team_id ?: null );
+		} );
+	}
+
+	public static function post_auto_assign( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			if ( ! class_exists( 'BizCity_CRM_Assignment_Manager' ) ) { throw new \RuntimeException( 'assignment_manager_not_loaded' ); }
+			$result = BizCity_CRM_Assignment_Manager::assign_conversation( (int) $req['id'] );
+			if ( (string) ( $result['outcome'] ?? '' ) === 'retryable' ) { throw new \RuntimeException( (string) ( $result['code'] ?? 'assignment_retryable' ) ); }
+			return $result;
+		} );
+	}
+
+	/** Read bounded content-free reporting rollups for authorized operators. */
+	public static function get_reporting_rollups( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			if ( ! class_exists( 'BizCity_CRM_Reporting_Rollup' ) ) {
+				throw new \RuntimeException( 'reporting_rollup_not_loaded' );
+			}
+			return array(
+				'contract_version' => BizCity_CRM_Reporting_Rollup::VERSION,
+				'rows'            => BizCity_CRM_Reporting_Rollup::get_rollups( array(
+					'from'           => $req->get_param( 'from' ),
+					'to'             => $req->get_param( 'to' ),
+					'dimension_type' => $req->get_param( 'dimension_type' ),
+					'metric'         => $req->get_param( 'metric' ),
+					'limit'          => $req->get_param( 'limit' ),
+				) ),
+				'source'          => 'bizcity_crm_reporting_event_rollups',
+				'content_free'    => true,
+			);
+		} );
+	}
+
+	public static function get_conversation_board( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			if ( ! class_exists( 'BizCity_CRM_Kanban_Manager' ) ) { throw new \RuntimeException( 'kanban_manager_not_loaded' ); }
+			$user_id = (int) get_current_user_id();
+			$is_admin = class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id );
+			$args = array( 'limit' => min( 200, max( 1, (int) ( $req->get_param( 'limit' ) ?: 100 ) ) ) );
+			if ( ! $is_admin ) {
+				$args['inbox_ids'] = BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id );
+			}
+			return BizCity_CRM_Kanban_Manager::conversation_board( $args );
+		} );
+	}
+
+	public static function get_order_care_board( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			if ( ! class_exists( 'BizCity_CRM_Kanban_Manager' ) ) { throw new \RuntimeException( 'kanban_manager_not_loaded' ); }
+			$user_id = (int) get_current_user_id();
+			$is_admin = class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id );
+			return BizCity_CRM_Kanban_Manager::order_care_board( (int) ( $req->get_param( 'limit' ) ?: 200 ), $is_admin ? 0 : $user_id );
+		} );
+	}
+
+	public static function post_conversation_board_move( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — route board drag actions through the scoped repository write contract.
+			$conversation_id = (int) $req->get_param( 'conversation_id' );
+			$column = sanitize_key( (string) $req->get_param( 'column' ) );
+			$conversation = BizCity_CRM_Repository::get_conversation( $conversation_id );
+			if ( ! $conversation ) { throw new \RuntimeException( 'conversation_not_found' ); }
+			if ( ! in_array( $column, array( 'unassigned', 'open', 'pending', 'resolved', 'snoozed' ), true ) ) { throw new \RuntimeException( 'invalid_board_column' ); }
+			$assignee_id = max( 0, (int) $req->get_param( 'assignee_id' ) );
+			$team_id = max( 0, (int) $req->get_param( 'team_id' ) );
+			if ( $assignee_id > 0 && ! current_user_can( 'manage_options' ) && ! BizCity_CRM_Team_Manager::can_assign( $conversation_id, (int) get_current_user_id(), $assignee_id ) ) { throw new \RuntimeException( 'assignee_membership_denied' ); }
+			if ( $team_id > 0 && ! current_user_can( 'manage_options' ) ) {
+				$has_inbox_member = false;
+				foreach ( BizCity_CRM_Team_Manager::list_team_members( $team_id ) as $member ) {
+					if ( (int) ( $member['user_id'] ?? 0 ) > 0 && BizCity_CRM_Team_Manager::is_inbox_member( (int) $conversation['inbox_id'], (int) $member['user_id'] ) ) { $has_inbox_member = true; break; }
+				}
+				if ( ! $has_inbox_member ) { throw new \RuntimeException( 'team_has_no_inbox_member' ); }
+			}
+			if ( ! BizCity_CRM_Repository::set_conversation_team( $conversation_id, $team_id > 0 ? $team_id : null, (int) get_current_user_id() ) ) { throw new \RuntimeException( 'team_assignment_failed' ); }
+			$target_assignee = 'unassigned' === $column ? 0 : $assignee_id;
+			if ( ! BizCity_CRM_Repository::set_conversation_assignee( $conversation_id, $target_assignee > 0 ? $target_assignee : null, (int) get_current_user_id() ) ) { throw new \RuntimeException( 'assignee_assignment_failed' ); }
+			if ( ! BizCity_CRM_Repository::set_conversation_status( $conversation_id, 'unassigned' === $column ? 'open' : $column, (int) get_current_user_id() ) ) { throw new \RuntimeException( 'conversation_status_update_failed' ); }
+			return array( 'moved' => true, 'conversation_id' => $conversation_id, 'column' => $column, 'assignee_id' => $target_assignee ?: null, 'team_id' => $team_id ?: null );
 		} );
 	}
 
@@ -2199,6 +2606,7 @@ class BizCity_CRM_REST_Controller {
 				'code'         => $a->code(),
 				'label'        => $a->label(),
 				'capabilities' => $a->capabilities(),
+				'contract'     => class_exists( 'BizCity_CRM_Channel_Contract' ) ? BizCity_CRM_Channel_Contract::describe( $a->code() ) : array(),
 				'schema'       => $schema,
 			);
 		} );
@@ -2280,6 +2688,24 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	/** Delete a stale direct Zalo Personal CRM channel without touching a managed mapping. */
+	public static function delete_legacy_zalo_inbox( WP_REST_Request $req ) {
+		// [2026-08-22 Johnny Chu] PHASE-0.39C — expose a bounded cleanup action for old direct zca channels.
+		$id     = (int) $req['id'];
+		$result = BizCity_CRM_Repository::delete_legacy_zalo_personal_inbox( $id );
+		if ( 'deleted' === $result ) {
+			return new WP_REST_Response( array( 'ok' => true, 'data' => array( 'deleted' => true, 'inbox_id' => $id ) ), 200 );
+		}
+		$messages = array(
+			'inbox_not_found'       => array( 'code' => 'not_found', 'message' => 'Không tìm thấy kênh Zalo Personal.', 'hint' => 'Làm mới danh sách kênh rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' ),
+			'zalo_personal_only'    => array( 'code' => 'invalid_param', 'message' => 'Chỉ được xóa kênh Zalo Personal cũ.', 'hint' => 'Chọn đúng kênh Zalo Personal trong CRM.', 'help_code' => 'invalid_param_generic' ),
+			'managed_mapping_exists' => array( 'code' => 'permission_denied', 'message' => 'Kênh đang được account managed sử dụng.', 'hint' => 'Xóa hoặc ngắt account tại Channel Gateway trước.', 'help_code' => 'permission_denied' ),
+			'managed_scope_unavailable' => array( 'code' => 'gateway_degraded', 'message' => 'Chưa xác minh được phạm vi account managed.', 'hint' => 'Kiểm tra Hub/1API rồi thử lại để tránh xóa nhầm kênh.', 'help_code' => 'zalo_bridge_unreachable' ),
+		);
+		$error = $messages[ $result ] ?? array( 'code' => 'crm_exception', 'message' => 'Không xóa được kênh Zalo Personal.', 'hint' => 'Kiểm tra log CRM rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' );
+		return new WP_REST_Response( array( 'ok' => false, 'error' => $error ), 'managed_mapping_exists' === $result ? 409 : 400 );
+	}
+
 	/** M7.W4 — health snapshot for one inbox. */
 	public static function get_inbox_health( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
@@ -2299,6 +2725,107 @@ class BizCity_CRM_REST_Controller {
 			}
 			return $a->health( $inbox );
 		} );
+	}
+
+	/** Read-only diagnostic for the sidecar -> Hub -> client callback -> CRM path. */
+	public static function get_zalo_diagnostic( WP_REST_Request $req ) {
+		// [2026-08-22 Johnny Chu] PHASE-0.39C — expose bounded flow evidence without sending a Zalo message or returning credentials/PII.
+		$id    = (int) $req['id'];
+		$inbox = BizCity_CRM_Repository::get_inbox( $id );
+		if ( ! $inbox ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy CRM Inbox.', 'hint' => 'Làm mới danh sách inbox rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' ), 404 );
+		}
+		if ( 'zalo_personal' !== strtolower( (string) ( $inbox['channel_type'] ?? '' ) ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Inbox này không phải Zalo Personal.', 'hint' => 'Chọn đúng inbox Zalo Personal để kiểm tra flow.', 'help_code' => 'invalid_param_generic' ), 400 );
+		}
+
+		$checks = array();
+		$checks['crm_inbox'] = array(
+			'status' => ! empty( $inbox['is_active'] ) ? 'PASS' : 'FAIL',
+			'reason' => ! empty( $inbox['is_active'] ) ? 'active_inbox' : 'inactive_inbox',
+		);
+		$adapter = class_exists( 'BizCity_CRM_Channel_Registry' ) ? BizCity_CRM_Channel_Registry::get( 'zalo_personal' ) : null;
+		$checks['adapter'] = array(
+			'status' => $adapter && method_exists( $adapter, 'normalize_inbound' ) && method_exists( $adapter, 'send' ) ? 'PASS' : 'FAIL',
+			'reason' => $adapter ? 'adapter_loaded' : 'adapter_missing',
+		);
+
+		$mapping = null;
+		if ( class_exists( 'BizCity_Zalo_Mapping_Repo' ) && method_exists( 'BizCity_Zalo_Mapping_Repo', 'find_account_by_crm_inbox_id' ) ) {
+			$mapping = BizCity_Zalo_Mapping_Repo::find_account_by_crm_inbox_id( $id );
+		}
+		$checks['mapping'] = array(
+			'status' => is_array( $mapping ) && (string) ( $mapping['bridge_account_id'] ?? '' ) === (string) ( $inbox['channel_ref_id'] ?? '' ) ? 'PASS' : 'FAIL',
+			'reason' => is_array( $mapping ) ? 'account_inbox_match' : 'account_inbox_mapping_missing',
+		);
+
+		$bridge = null;
+		if ( class_exists( 'BizCity_Zalo_Bridge_Client' ) && method_exists( 'BizCity_Zalo_Bridge_Client', 'instance' ) ) {
+			$bridge = BizCity_Zalo_Bridge_Client::instance();
+		}
+		$bridge_result = $bridge && method_exists( $bridge, 'health' ) ? $bridge->health() : array( 'success' => false, 'code' => 'bridge_client_missing' );
+		$bridge_ok = ! empty( $bridge_result['success'] ) || ! empty( $bridge_result['ok'] );
+		$checks['bridge'] = array(
+			'status'     => $bridge_ok && empty( $bridge_result['_degraded'] ) ? 'PASS' : 'FAIL',
+			'reason'     => (string) ( $bridge_result['code'] ?? ( $bridge_ok ? 'ok' : 'bridge_unavailable' ) ),
+			'mode'       => $bridge && method_exists( $bridge, 'get_mode' ) ? $bridge->get_mode() : '',
+			'http_code'  => isset( $bridge_result['http_code'] ) ? (int) $bridge_result['http_code'] : 0,
+			'key_id'     => isset( $bridge_result['key_id'] ) ? (int) $bridge_result['key_id'] : 0,
+			'domain_set' => array_key_exists( 'domain_set', $bridge_result ) ? (bool) $bridge_result['domain_set'] : null,
+		);
+		$checks['managed_account'] = array( 'status' => 'SKIP', 'reason' => 'custom_bridge_or_unchecked' );
+		if ( $bridge && method_exists( $bridge, 'get_mode' ) && 'managed_1api' === $bridge->get_mode() && method_exists( $bridge, 'list_accounts' ) ) {
+			$remote_accounts = $bridge->list_accounts();
+			$remote_ok = ! empty( $remote_accounts['success'] ) && empty( $remote_accounts['_degraded'] );
+			$managed_match = false;
+			if ( $remote_ok ) {
+				foreach ( (array) ( $remote_accounts['accounts'] ?? array() ) as $remote_account ) {
+					if ( (string) ( $remote_account['id'] ?? '' ) === (string) ( $inbox['channel_ref_id'] ?? '' ) ) { $managed_match = true; break; }
+				}
+			}
+			$checks['managed_account'] = array(
+				'status' => ! $remote_ok ? 'FAIL' : ( $managed_match ? 'PASS' : 'FAIL' ),
+				'reason' => ! $remote_ok ? 'managed_account_scope_unavailable' : ( $managed_match ? 'exact_key_account_found' : 'account_not_in_exact_key_scope' ),
+			);
+		}
+		$signal = array( 'inbound' => 0, 'outbound' => 0, 'last_inbound_at' => null, 'last_outbound_at' => null, 'last_status' => null );
+		if ( class_exists( 'BizCity_Zalo_Hook_Log' ) ) {
+			foreach ( BizCity_Zalo_Hook_Log::read( 100 ) as $row ) {
+				if ( (string) ( $row['account_id'] ?? '' ) !== (string) ( $inbox['channel_ref_id'] ?? '' ) ) { continue; }
+				$dir = (string) ( $row['dir'] ?? '' );
+				$at  = isset( $row['ts'] ) ? (int) $row['ts'] : 0;
+				if ( 'inbound' === $dir ) {
+					$signal['inbound']++;
+					if ( null === $signal['last_inbound_at'] ) { $signal['last_inbound_at'] = $at > 0 ? gmdate( 'c', $at ) : null; }
+				}
+				if ( 'outbound' === $dir ) {
+					$signal['outbound']++;
+					if ( null === $signal['last_outbound_at'] ) { $signal['last_outbound_at'] = $at > 0 ? gmdate( 'c', $at ) : null; }
+				}
+				if ( null === $signal['last_status'] ) { $signal['last_status'] = (string) ( $row['status'] ?? '' ); }
+			}
+		}
+		$checks['inbound_signal'] = array(
+			'status' => $signal['inbound'] > 0 ? 'PASS' : 'SKIP',
+			'reason' => $signal['inbound'] > 0 ? 'inbound_observed' : 'no_inbound_observed',
+		);
+		$checks['outbound_signal'] = array(
+			'status' => $signal['outbound'] > 0 ? 'PASS' : 'SKIP',
+			'reason' => $signal['outbound'] > 0 ? 'outbound_observed' : 'no_outbound_observed',
+		);
+
+		$has_fail = false;
+		foreach ( $checks as $check ) {
+			if ( 'FAIL' === $check['status'] ) { $has_fail = true; break; }
+		}
+		return new WP_REST_Response( array(
+			'ok'       => ! $has_fail,
+			'overall'  => $has_fail ? 'FAIL' : 'PASS',
+			'inbox_id' => $id,
+			'checks'   => $checks,
+			'signal'   => $signal,
+			'next'     => $has_fail ? 'Sửa check FAIL trước rồi chạy lại.' : 'Gửi một tin test và chạy lại để chuyển signal SKIP thành PASS.',
+		), 200 );
 	}
 
 	/* ============================================================
@@ -5139,6 +5666,14 @@ class BizCity_CRM_REST_Controller {
 	public static function get_inboxes( WP_REST_Request $req ) {
 		return self::wrap( static function () {
 			$rows = BizCity_CRM_Repository::list_inboxes();
+			if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+				$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
+				if ( is_array( $allowed ) ) {
+					$rows = array_values( array_filter( $rows, static function ( $row ) use ( $allowed ) {
+						return in_array( (int) ( $row['id'] ?? 0 ), $allowed, true );
+					} ) );
+				}
+			}
 			return array_map( array( __CLASS__, 'shape_inbox' ), $rows );
 		} );
 	}
@@ -5155,6 +5690,12 @@ class BizCity_CRM_REST_Controller {
 				'limit'       => (int) ( $req->get_param( 'limit' ) ?: 50 ),
 				'before_id'   => (int) $req->get_param( 'before_id' ),
 			);
+			if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+				$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
+				if ( is_array( $allowed ) ) {
+					$args['inbox_ids'] = $allowed;
+				}
+			}
 			$snoozed_raw = $req->get_param( 'snoozed' );
 			if ( $snoozed_raw !== null && $snoozed_raw !== '' ) {
 				$args['snoozed'] = $snoozed_raw;
@@ -5182,6 +5723,12 @@ class BizCity_CRM_REST_Controller {
 			'q'           => (string) $req->get_param( 'q' ),
 			'unassigned'  => $req->get_param( 'unassigned' ),
 		);
+		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+			$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
+			if ( is_array( $allowed ) ) {
+				$args['inbox_ids'] = $allowed;
+			}
+		}
 		$snoozed = $req->get_param( 'snoozed' );
 		if ( $snoozed !== null && $snoozed !== '' ) { $args['snoozed'] = $snoozed; }
 
@@ -5656,6 +6203,11 @@ class BizCity_CRM_REST_Controller {
 							'attachments'  => $attachments,
 						)
 					);
+					// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — normalize every channel outcome before CRM status and ledger updates.
+					if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
+						throw new \RuntimeException( 'channel_contract_not_loaded' );
+					}
+					$adapter_res = BizCity_CRM_Channel_Contract::normalize_send_result( $adapter_code, $adapter_res );
 				} finally {
 					remove_action( 'bizcity_channel_outbound_logged', $gw_tap, 1 );
 					if ( class_exists( 'BizCity_CRM_Facebook_Ingestor' ) ) {
@@ -5663,10 +6215,14 @@ class BizCity_CRM_REST_Controller {
 					}
 				}
 				$result = array(
-					'sent'     => ! empty( $adapter_res['success'] ),
-					'error'    => (string) ( $adapter_res['error'] ?? '' ),
-					'platform' => $resolved['platform'],
-					'mid'      => (string) ( $adapter_res['external_source_id'] ?? '' ),
+					'sent'              => ! empty( $adapter_res['success'] ),
+					'outcome'           => (string) ( $adapter_res['outcome'] ?? ( ! empty( $adapter_res['success'] ) ? 'accepted' : 'failed' ) ),
+					'code'              => (string) ( $adapter_res['code'] ?? '' ),
+					'retryable'         => ! empty( $adapter_res['retryable'] ),
+					'contract_version'  => (string) ( $adapter_res['contract_version'] ?? '' ),
+					'error'             => (string) ( $adapter_res['error'] ?? '' ),
+					'platform'          => $resolved['platform'],
+					'mid'               => (string) ( $adapter_res['external_source_id'] ?? '' ),
 				);
 				// Mirror to Channel Gateway ledger only when the adapter did
 				// not already emit (e.g. Facebook Bridge sends via Graph API
@@ -5698,12 +6254,6 @@ class BizCity_CRM_REST_Controller {
 
 			// Update CRM message status from dispatch result.
 			if ( $msg_id ) {
-				global $wpdb;
-				$wpdb->update(
-					BizCity_CRM_DB_Installer_V2::tbl_messages(),
-					array( 'status' => $result['sent'] ? 'sent' : 'failed' ),
-					array( 'id' => $msg_id )
-				);
 				BizCity_CRM_Repository::update_message_delivery( $msg_id, array_merge( $result, array( 'platform' => $resolved['platform'] ) ) );
 			}
 
@@ -5780,10 +6330,11 @@ class BizCity_CRM_REST_Controller {
 
 			if ( $assignee_id > 0 ) {
 				$user = get_userdata( $assignee_id );
-				$roles = $user ? (array) $user->roles : array();
-				$allowed_roles = array( 'administrator', 'editor', 'author' );
-				if ( ! $user || ( ! current_user_can( 'manage_options' ) && ! array_intersect( $allowed_roles, $roles ) ) ) {
+				if ( ! $user || ! current_user_can( 'bizcity_crm_assign_conversations' ) && ! current_user_can( 'manage_options' ) ) {
 					throw new \RuntimeException( 'assignee_not_allowed' );
+				}
+				if ( ! current_user_can( 'manage_options' ) && class_exists( 'BizCity_CRM_Team_Manager' ) && ! BizCity_CRM_Team_Manager::can_assign( $conv_id, (int) get_current_user_id(), $assignee_id ) ) {
+					throw new \RuntimeException( 'assignee_membership_denied' );
 				}
 			}
 
@@ -6318,6 +6869,16 @@ class BizCity_CRM_REST_Controller {
 				'note'            => (string) ( $req->get_param( 'note' ) ?: '' ),
 			);
 			$res = $a->create_order( $payload );
+			if ( ! empty( $res['order_id'] ) && function_exists( 'wc_get_order' ) && class_exists( 'BizCity_CRM_Conversation_Identity_Resolver' ) ) {
+				$identity = BizCity_CRM_Conversation_Identity_Resolver::resolve_for_conversation( $conv_id );
+				$order    = wc_get_order( (int) $res['order_id'] );
+				if ( is_array( $identity ) && $order ) {
+					// [2026-08-21 Johnny Chu] PHASE-0.39B — stamp Personal chat context so Woo recap returns to the source conversation.
+					$order->update_meta_data( '_bizcity_inbound_platform', (string) ( $identity['platform_type_hint'] ?? '' ) );
+					$order->update_meta_data( '_bizcity_inbound_chat_id', (string) ( $identity['canonical_chat_id'] ?? '' ) );
+					$order->save();
+				}
+			}
 
 			// Audit note in conversation timeline.
 			if ( class_exists( 'BizCity_CRM_Repository' ) && method_exists( 'BizCity_CRM_Repository', 'insert_message' ) ) {
@@ -7884,7 +8445,8 @@ class BizCity_CRM_REST_Controller {
 			$tbl   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 			$view  = sanitize_key( (string) ( $req->get_param( 'view' ) ?: 'active' ) );
 			// [2026-07-03 Johnny Chu] PHASE-0.46 FIX — keep contacts list on single-table scan (no wp_users JOIN) for multishard safety.
-			$where = array( $view === 'archived' ? '(deleted_at IS NOT NULL)' : '(deleted_at IS NULL)' );
+			// [2026-08-23 Johnny Chu] PHASE-0.39D — filter list by permitted contact_inboxes.
+			$where = array( $view === 'archived' ? '(deleted_at IS NOT NULL)' : '(deleted_at IS NULL)', self::contact_scope_sql( 'id' ) );
 			$include_empty = (int) ( $req->get_param( 'include_empty' ) ?: 0 );
 			// [2026-07-03 Johnny Chu] PHASE-0.46 FIX — hide ghost contacts (all identity fields empty) by default.
 			if ( ! $include_empty ) {
@@ -7931,7 +8493,8 @@ class BizCity_CRM_REST_Controller {
 		global $wpdb;
 		$tbl  = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 		$view = sanitize_key( (string) ( $req->get_param( 'view' ) ?: 'active' ) );
-		$where = array( 'archived' === $view ? '(deleted_at IS NOT NULL)' : '(deleted_at IS NULL)' );
+		// [2026-08-23 Johnny Chu] PHASE-0.39D — export uses the same contact scope as list.
+		$where = array( 'archived' === $view ? '(deleted_at IS NOT NULL)' : '(deleted_at IS NULL)', self::contact_scope_sql( 'id' ) );
 		$include_empty = (int) ( $req->get_param( 'include_empty' ) ?: 0 );
 		if ( ! $include_empty ) {
 			$where[] = "(TRIM(COALESCE(name,'')) <> '' OR TRIM(COALESCE(first_name,'')) <> '' OR TRIM(COALESCE(last_name,'')) <> '' OR TRIM(COALESCE(email,'')) <> '' OR TRIM(COALESCE(phone,'')) <> '')";
@@ -8005,9 +8568,68 @@ class BizCity_CRM_REST_Controller {
 			$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 			$id  = self::resolve_canonical_contact_id( (int) $req['id'] );
 			if ( ! $id ) { return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) ); }
+			if ( ! self::contact_is_in_scope( $id, (int) get_current_user_id() ) ) { return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) ); }
 			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$tbl}` WHERE id=%d AND (deleted_at IS NULL)", $id ), ARRAY_A );
 			if ( ! $row ) { return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) ); }
 			return self::shape_crm_contact( $row );
+		} );
+	}
+
+	/**
+	 * GET /crm-contacts/{id}/channels — scoped contact inbox links.
+	 */
+	public static function get_crm_contact_channels( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$contact_id = self::resolve_canonical_contact_id( (int) $req['id'] );
+			if ( ! $contact_id ) {
+				return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) );
+			}
+			if ( ! self::contact_is_in_scope( $contact_id, (int) get_current_user_id() ) ) {
+				return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) );
+			}
+			$ci_tbl   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+			$inbox_tbl = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+			$conv_tbl = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT ci.id AS contact_inbox_id, ci.inbox_id, ci.source_id,
+					i.channel_type, i.name AS inbox_name,
+					cv.id AS conversation_id, cv.status AS conversation_status,
+					cv.last_activity_at
+				 FROM `{$ci_tbl}` ci
+				 JOIN `{$inbox_tbl}` i ON i.id = ci.inbox_id
+				 LEFT JOIN `{$conv_tbl}` cv ON cv.contact_inbox_id = ci.id
+				 WHERE ci.contact_id = %d
+				 ORDER BY ci.id ASC, cv.last_activity_at DESC, cv.id DESC",
+				$contact_id
+			), ARRAY_A );
+			$allowed = class_exists( 'BizCity_CRM_Inbox_Access' )
+				? BizCity_CRM_Inbox_Access::allowed_inbox_ids()
+				: null;
+			$links = array();
+			$seen  = array();
+			foreach ( (array) $rows as $row ) {
+				$inbox_id = (int) ( $row['inbox_id'] ?? 0 );
+				if ( is_array( $allowed ) && ! in_array( $inbox_id, $allowed, true ) ) {
+					continue;
+				}
+				$contact_inbox_id = (int) ( $row['contact_inbox_id'] ?? 0 );
+				if ( isset( $seen[ $contact_inbox_id ] ) ) {
+					continue;
+				}
+				$seen[ $contact_inbox_id ] = true;
+				$links[] = array(
+					'contact_inbox_id'   => $contact_inbox_id,
+					'inbox_id'           => $inbox_id,
+					'source_id'          => (string) ( $row['source_id'] ?? '' ),
+					'channel_type'       => (string) ( $row['channel_type'] ?? '' ),
+					'inbox_name'         => (string) ( $row['inbox_name'] ?? '' ),
+					'conversation_id'    => (int) ( $row['conversation_id'] ?? 0 ),
+					'conversation_status' => (string) ( $row['conversation_status'] ?? '' ),
+					'last_activity_at'   => $row['last_activity_at'] ?? null,
+				);
+			}
+			return array( 'channels' => $links );
 		} );
 	}
 
@@ -8067,6 +8689,7 @@ class BizCity_CRM_REST_Controller {
 			$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 			$id  = self::resolve_canonical_contact_id( (int) $req['id'] );
 			if ( ! $id ) { return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) ); }
+			if ( ! self::contact_is_in_scope( $id, (int) get_current_user_id() ) ) { return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) ); }
 			$body   = self::extract_json_body( $req );
 			$fields = array( 'updated_at' => current_time( 'mysql' ) );
 			foreach ( array( 'first_name', 'last_name', 'email', 'phone', 'title' ) as $f ) {
@@ -8098,6 +8721,7 @@ class BizCity_CRM_REST_Controller {
 			$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 			$id  = self::resolve_canonical_contact_id( (int) $req['id'] );
 			if ( ! $id ) { return array( 'deleted' => false, 'id' => (int) $req['id'] ); }
+			if ( ! self::contact_is_in_scope( $id, (int) get_current_user_id() ) ) { return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) ); }
 			$ok  = $wpdb->update( $tbl, array( 'deleted_at' => current_time( 'mysql' ), 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $id ) );
 			do_action( 'bizcity_crm_contact_deleted', $id );
 			return array( 'deleted' => (bool) $ok, 'id' => $id );
@@ -8135,7 +8759,9 @@ class BizCity_CRM_REST_Controller {
 			'title'      => $r['title'] ?? null,
 			'account_id' => isset( $r['account_id'] ) && $r['account_id'] ? (int) $r['account_id'] : null,
 			'owner_id'   => isset( $r['owner_id']   ) && $r['owner_id']   ? (int) $r['owner_id']   : null,
-			'wp_user_id' => isset( $r['wp_user_id'] ) && $r['wp_user_id'] ? (int) $r['wp_user_id'] : null,
+			'wp_user_id'         => isset( $r['wp_user_id'] ) && $r['wp_user_id'] ? (int) $r['wp_user_id'] : null,
+			'acquisition_source' => (string) ( $r['acquisition_source'] ?? '' ),
+			'acquisition_meta'   => json_decode( (string) ( $r['acquisition_meta_json'] ?? '' ), true ) ?: array(),
 			'tags'       => is_array( $tags ) ? $tags : array(),
 			'additional_attributes' => is_array( $attrs ) ? $attrs : array(),
 			'created_at' => $r['created_at'] ?? null,
@@ -8152,6 +8778,7 @@ class BizCity_CRM_REST_Controller {
 			global $wpdb;
 			$id  = self::resolve_canonical_contact_id( (int) $req['id'] );
 			if ( ! $id ) { return array( 'orders' => array(), 'wc_active' => false ); }
+			if ( ! self::contact_is_in_scope( $id, (int) get_current_user_id() ) ) { return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) ); }
 			$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$tbl}` WHERE id=%d AND deleted_at IS NULL", $id ), ARRAY_A );
 			if ( ! $row ) { return array( 'orders' => array(), 'wc_active' => false ); }

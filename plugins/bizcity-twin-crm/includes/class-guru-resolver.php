@@ -30,15 +30,19 @@ class BizCity_CRM_Guru_Resolver {
 	 *   guru_uuid    : string,
 	 *   notebooks    : int[] (attached notebook ids; empty when none),
 	 *   binding_mode : string ('auto'|'hybrid'|'manual'|''),
+	 *   auto_reply   : int (0|1; opt-in reply flag from the binding row),
 	 *   trace        : array (ready to push into ai_metadata.steps[].detail),
 	 * }
 	 */
 	public static function resolve_for_inbox( array $inbox ): array {
+		// [2026-08-23 Johnny Chu] HOTFIX-CRM-WPDB — resolve the WordPress DB handle before notebook queries.
+		global $wpdb;
 		$out = array(
 			'character_id' => 0,
 			'guru_uuid'    => '',
 			'notebooks'    => array(),
 			'binding_mode' => '',
+			'auto_reply'   => 0,
 			'trace'        => array(
 				'platform'        => (string) ( $inbox['channel_type']   ?? '' ),
 				'account_id'      => (string) ( $inbox['channel_ref_id'] ?? '' ),
@@ -91,10 +95,13 @@ class BizCity_CRM_Guru_Resolver {
 		if ( ! $row ) {
 			return $out;
 		}
+		// [2026-08-22 Johnny Chu] PHASE-0.39B — expose the binding-level AI opt-in to CRM autoreply.
 		$out['character_id'] = (int) $row['character_id'];
 		$out['binding_mode'] = (string) ( $row['mode'] ?? 'auto' );
+		$out['auto_reply']   = (int) ( $row['auto_reply'] ?? 0 );
 		$out['trace']['binding_found'] = true;
 		$out['trace']['binding_mode']  = $out['binding_mode'];
+		$out['trace']['auto_reply']    = $out['auto_reply'];
 
 		// Step 2 — character_id → attached notebooks.
 		// TWO schemas live side-by-side:

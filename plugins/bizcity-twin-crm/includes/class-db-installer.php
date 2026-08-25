@@ -112,6 +112,14 @@ class BizCity_CRM_DB_Installer_V2 {
 	public static function tbl_crm_submissions(): string  { global $wpdb; return $wpdb->prefix . 'bizcity_crm_submissions'; }
 	// [2026-07-05 Johnny Chu] PHASE-0.46 M1 — activities table helper (entity_type + entity_id based)
 	public static function tbl_crm_activities(): string   { global $wpdb; return $wpdb->prefix . 'bizcity_crm_activities'; }
+	public static function tbl_archive_receipts(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_archive_receipts'; }
+	public static function tbl_reporting_events(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_reporting_events'; }
+	public static function tbl_reporting_rollups(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_reporting_event_rollups'; }
+	public static function tbl_teams(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_teams'; }
+	public static function tbl_team_members(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_team_members'; }
+	public static function tbl_inbox_members(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_inbox_members'; }
+	public static function tbl_assignment_policies(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_assignment_policies'; }
+	public static function tbl_inbox_assignment_policies(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_inbox_assignment_policies'; }
 
 	public static function all_tables(): array {
 		return array(
@@ -163,6 +171,14 @@ class BizCity_CRM_DB_Installer_V2 {
 			// [2026-06-07 Johnny Chu] PHASE-0.40.G1 — notes_doc new table
 			'crm_notes_doc'                 => self::tbl_notes_doc(),
 			'crm_admin_chat_audit'          => self::tbl_admin_chat_audit(), // [2026-06-07 Johnny Chu] PHASE-3.5-WC
+			'archive_receipts'              => self::tbl_archive_receipts(),
+			'reporting_events'              => self::tbl_reporting_events(),
+			'reporting_rollups'              => self::tbl_reporting_rollups(),
+			'crm_teams'                     => self::tbl_teams(),
+			'crm_team_members'              => self::tbl_team_members(),
+			'crm_inbox_members'             => self::tbl_inbox_members(),
+			'crm_assignment_policies'       => self::tbl_assignment_policies(),
+			'crm_inbox_assignment_policies' => self::tbl_inbox_assignment_policies(),
 		);
 	}
 
@@ -1207,6 +1223,8 @@ class BizCity_CRM_DB_Installer_V2 {
 		self::migrate_phase_051();
 		// [2026-08-12 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — v1.28.0 append-only conflict audit history.
 		self::migrate_phase_052();
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F2-F5 — storage lifecycle, archive receipts, reporting rollups, teams and assignment schema.
+		self::migrate_phase_053();
 
 		update_option( self::DB_VERSION_OPTION, BIZCITY_CRM_DB_VERSION );
 	}
@@ -1977,6 +1995,192 @@ class BizCity_CRM_DB_Installer_V2 {
 		if ( function_exists( 'bizcity_tbl_invalidate' ) ) { bizcity_tbl_invalidate( $table ); }
 	}
 
+	/**
+	 * [2026-08-24 Johnny Chu] PHASE-0.39F-F2-F5 — add hybrid storage, reporting and assignment tables.
+	 */
+	public static function migrate_phase_053(): void {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		global $wpdb;
+		$charset = $wpdb->get_charset_collate();
+		$messages = self::tbl_messages();
+		$add_column = static function ( string $table, string $column, string $definition ) use ( $wpdb ): void {
+			if ( ! self::column_exists( $table, $column ) ) {
+				$wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN {$column} {$definition}" );
+			}
+		};
+		$add_index = static function ( string $table, string $index, string $definition ) use ( $wpdb ): void {
+			if ( ! self::index_exists( $table, $index ) ) {
+				$wpdb->query( "ALTER TABLE `{$table}` ADD KEY {$index} {$definition}" );
+			}
+		};
+
+		$add_column( $messages, 'content_storage_state', "VARCHAR(20) NOT NULL DEFAULT 'hot' AFTER payload_json" );
+		$add_column( $messages, 'content_preview', 'VARCHAR(255) NULL AFTER content_storage_state' );
+		$add_column( $messages, 'archive_channel', 'VARCHAR(32) NULL AFTER content_preview' );
+		$add_column( $messages, 'archive_account_key', 'VARCHAR(128) NULL AFTER archive_channel' );
+		$add_column( $messages, 'archive_peer_key', 'VARCHAR(128) NULL AFTER archive_account_key' );
+		$add_column( $messages, 'archive_month', 'CHAR(7) NULL AFTER archive_peer_key' );
+		$add_column( $messages, 'archive_receipt_hash', 'CHAR(64) NULL AFTER archive_month' );
+		$add_column( $messages, 'archived_at', 'DATETIME NULL AFTER archive_receipt_hash' );
+		$add_column( $messages, 'offloaded_at', 'DATETIME NULL AFTER archived_at' );
+		$add_column( $messages, 'storage_error_code', 'VARCHAR(64) NULL AFTER offloaded_at' );
+		$add_column( $messages, 'storage_attempts', 'INT UNSIGNED NOT NULL DEFAULT 0 AFTER storage_error_code' );
+		$add_index( $messages, 'idx_storage_state', '(content_storage_state, created_at, id)' );
+		$add_index( $messages, 'idx_storage_conversation', '(conversation_id, content_storage_state, created_at)' );
+		$add_index( $messages, 'idx_archive_receipt', '(archive_receipt_hash)' );
+
+		$receipts = self::tbl_archive_receipts();
+		dbDelta( "CREATE TABLE `{$receipts}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			crm_message_id BIGINT UNSIGNED NOT NULL,
+			conversation_id BIGINT UNSIGNED NOT NULL,
+			inbox_id BIGINT UNSIGNED NOT NULL,
+			channel_type VARCHAR(32) NOT NULL,
+			account_key VARCHAR(128) NOT NULL,
+			peer_key VARCHAR(128) NOT NULL,
+			archive_month CHAR(7) NOT NULL,
+			archive_schema_version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+			archive_key_version VARCHAR(32) NOT NULL DEFAULT 'v1',
+			line_hash CHAR(64) NOT NULL,
+			archive_status VARCHAR(16) NOT NULL DEFAULT 'written',
+			written_at DATETIME NULL,
+			verified_at DATETIME NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_message_schema (crm_message_id, archive_schema_version),
+			KEY idx_partition (channel_type, account_key, peer_key, archive_month),
+			KEY idx_status_created (archive_status, created_at)
+		) {$charset};" );
+
+		$reporting_events = self::tbl_reporting_events();
+		dbDelta( "CREATE TABLE `{$reporting_events}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			event_uuid CHAR(36) NOT NULL,
+			metric VARCHAR(64) NOT NULL,
+			occurred_at DATETIME NOT NULL,
+			event_date DATE NOT NULL,
+			inbox_id BIGINT UNSIGNED NULL,
+			team_id BIGINT UNSIGNED NULL,
+			user_id BIGINT UNSIGNED NULL,
+			conversation_id BIGINT UNSIGNED NULL,
+			channel_type VARCHAR(32) NULL,
+			value DECIMAL(18,4) NOT NULL DEFAULT 1,
+			business_hours_value DECIMAL(18,4) NULL,
+			dedupe_key VARCHAR(190) NOT NULL,
+			created_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_dedupe (dedupe_key),
+			KEY idx_date_metric (event_date, metric),
+			KEY idx_dimension_date (inbox_id, team_id, user_id, event_date)
+		) {$charset};" );
+
+		$rollups = self::tbl_reporting_rollups();
+		dbDelta( "CREATE TABLE `{$rollups}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			bucket_date DATE NOT NULL,
+			dimension_type VARCHAR(16) NOT NULL,
+			dimension_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			channel_type VARCHAR(32) NOT NULL DEFAULT '',
+			metric VARCHAR(64) NOT NULL,
+			count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			sum_value DECIMAL(18,4) NOT NULL DEFAULT 0,
+			sum_business_hours DECIMAL(18,4) NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_bucket_dimension (bucket_date, dimension_type, dimension_id, channel_type, metric),
+			KEY idx_metric_date (metric, bucket_date),
+			KEY idx_dimension_date (dimension_type, dimension_id, bucket_date)
+		) {$charset};" );
+
+		$teams = self::tbl_teams();
+		dbDelta( "CREATE TABLE `{$teams}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			name VARCHAR(190) NOT NULL,
+			description TEXT NULL,
+			allow_auto_assign TINYINT(1) NOT NULL DEFAULT 1,
+			is_active TINYINT(1) NOT NULL DEFAULT 1,
+			created_by BIGINT UNSIGNED NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_name (name),
+			KEY idx_active (is_active, allow_auto_assign)
+		) {$charset};" );
+
+		$team_members = self::tbl_team_members();
+		dbDelta( "CREATE TABLE `{$team_members}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			team_id BIGINT UNSIGNED NOT NULL,
+			user_id BIGINT UNSIGNED NOT NULL,
+			member_role VARCHAR(20) NOT NULL DEFAULT 'agent',
+			is_active TINYINT(1) NOT NULL DEFAULT 1,
+			last_assigned_at DATETIME NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_team_user (team_id, user_id),
+			KEY idx_user_active (user_id, is_active)
+		) {$charset};" );
+
+		$inbox_members = self::tbl_inbox_members();
+		dbDelta( "CREATE TABLE `{$inbox_members}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			inbox_id BIGINT UNSIGNED NOT NULL,
+			user_id BIGINT UNSIGNED NOT NULL,
+			member_role VARCHAR(20) NOT NULL DEFAULT 'agent',
+			can_assign TINYINT(1) NOT NULL DEFAULT 0,
+			is_active TINYINT(1) NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_inbox_user (inbox_id, user_id),
+			KEY idx_user_inbox (user_id, inbox_id, is_active)
+		) {$charset};" );
+
+		$policies = self::tbl_assignment_policies();
+		dbDelta( "CREATE TABLE `{$policies}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			name VARCHAR(190) NOT NULL,
+			description TEXT NULL,
+			enabled TINYINT(1) NOT NULL DEFAULT 1,
+			assignment_order VARCHAR(32) NOT NULL DEFAULT 'round_robin',
+			conversation_priority VARCHAR(32) NOT NULL DEFAULT 'earliest_created',
+			fair_distribution_limit INT UNSIGNED NOT NULL DEFAULT 100,
+			fair_distribution_window_seconds INT UNSIGNED NOT NULL DEFAULT 3600,
+			max_open_conversations_per_user INT UNSIGNED NULL,
+			overflow_action VARCHAR(32) NOT NULL DEFAULT 'leave_unassigned',
+			created_by BIGINT UNSIGNED NULL,
+			updated_by BIGINT UNSIGNED NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_name (name),
+			KEY idx_enabled_order (enabled, assignment_order)
+		) {$charset};" );
+
+		$inbox_policies = self::tbl_inbox_assignment_policies();
+		dbDelta( "CREATE TABLE `{$inbox_policies}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			inbox_id BIGINT UNSIGNED NOT NULL,
+			assignment_policy_id BIGINT UNSIGNED NOT NULL,
+			team_id BIGINT UNSIGNED NULL,
+			enabled TINYINT(1) NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_inbox (inbox_id),
+			KEY idx_policy_team (assignment_policy_id, team_id)
+		) {$charset};" );
+
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			foreach ( array( $messages, $receipts, $reporting_events, $rollups, $teams, $team_members, $inbox_members, $policies, $inbox_policies ) as $table ) {
+				bizcity_tbl_invalidate( $table );
+			}
+		}
+	}
+
 }
 
 endif; // class_exists BizCity_CRM_DB_Installer_V2
@@ -1997,6 +2201,15 @@ if ( class_exists( 'BizCity_Schema_Registry' ) ) {
 		BizCity_CRM_DB_Installer_V2::DB_VERSION_OPTION,
 		array( 'BizCity_CRM_DB_Installer_V2', 'install' )
 		);
+	foreach ( array( 'bizcity_crm_archive_receipts', 'bizcity_crm_reporting_events', 'bizcity_crm_reporting_event_rollups', 'bizcity_crm_teams', 'bizcity_crm_team_members', 'bizcity_crm_inbox_members', 'bizcity_crm_assignment_policies', 'bizcity_crm_inbox_assignment_policies' ) as $table_name ) {
+		BizCity_Schema_Registry::register(
+			$table_name,
+			'modules.twin-crm',
+			BIZCITY_CRM_DB_VERSION,
+			BizCity_CRM_DB_Installer_V2::DB_VERSION_OPTION,
+			array( 'BizCity_CRM_DB_Installer_V2', 'install' )
+			);
+	}
 }
 
 // Backward-compat alias — code cũ vẫn gọi BizCity_CRM_DB_Installer.

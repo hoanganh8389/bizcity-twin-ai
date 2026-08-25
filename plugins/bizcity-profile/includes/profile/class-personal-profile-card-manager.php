@@ -118,6 +118,10 @@ final class BizCity_Personal_Profile_Card_Manager {
 			$update['label'] = sanitize_text_field( $data['label'] );
 			$formats[] = '%s';
 		}
+		if ( array_key_exists( 'template_key', $data ) ) {
+			$update['template_key'] = sanitize_key( (string) $data['template_key'] );
+			$formats[] = '%s';
+		}
 		if ( array_key_exists( 'status', $data ) && in_array( $data['status'], array( 'draft', 'published', 'archived' ), true ) ) {
 			$update['status'] = $data['status'];
 			$formats[] = '%s';

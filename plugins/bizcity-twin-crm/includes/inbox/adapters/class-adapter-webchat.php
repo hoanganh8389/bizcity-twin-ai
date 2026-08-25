@@ -104,6 +104,8 @@ class BizCity_CRM_Adapter_WebChat extends BizCity_CRM_Adapter_Base {
 			'content_type'       => $content_type,
 			'attachments'        => $attachments,
 			'external_source_id' => $ext_id,
+			'profile_card_id'    => absint( $raw['profile_card_id'] ?? 0 ),
+			'profile_source'     => sanitize_key( (string) ( $raw['profile_source'] ?? '' ) ),
 			'received_at'        => current_time( 'mysql' ),
 		);
 	}

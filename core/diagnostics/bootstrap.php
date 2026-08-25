@@ -645,6 +645,8 @@ bizcity_diagnostics_require_probe( 'class-probe-crm-shipping-tracker.php' );
 // [2026-06-07 Johnny Chu] PHASE-0.40 G0.4 — Zone Isolation DDV (order=43).
 // Verifies R-ZONE-2: ZALO_BOT stays in Zone 2 (admin/automation); zalo_oa routes to Zone 1 (CRM).
 bizcity_diagnostics_require_probe( 'class-probe-channel-zone-isolation.php' );
+// [2026-08-22 Johnny Chu] PHASE-0.39B-DDV — load the existing Zone UI probe referenced by curated P0 groups.
+bizcity_diagnostics_require_probe( 'class-probe-zone-ui.php' );
 // [2026-07-27 Johnny Chu] PHASE-0.52 W6 — load channel identity/memory ownership DDV probe.
 bizcity_diagnostics_require_probe( 'class-probe-channel-identity-memory.php' );
 

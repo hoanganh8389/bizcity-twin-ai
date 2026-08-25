@@ -109,6 +109,10 @@ class BizCity_TwinWeb_REST {
 					'sanitize_callback' => 'sanitize_key' ),
 				'focus_notebook_id' => array( 'type' => 'integer', 'required' => false, 'default' => 0,
 					'sanitize_callback' => 'absint' ),
+				// [2026-08-25 Johnny Chu] PHASE-PROFILE-PUBLIC-SSE — reuse the canonical TwinWeb SSE transport with a signed Profile guest context.
+				'profile_card_id' => array( 'type' => 'integer', 'required' => false, 'default' => 0, 'sanitize_callback' => 'absint' ),
+				'profile_context_token' => array( 'type' => 'string', 'required' => false, 'default' => '' ),
+				'profile_presentation' => array( 'type' => 'string', 'required' => false, 'default' => 'profile_float', 'sanitize_callback' => 'sanitize_key' ),
 				// [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — accept FE model selection; runtime still clamps via server policy/gateway.
 				'model'     => array( 'type' => 'string',  'required' => false, 'default' => 'auto',
 					'sanitize_callback' => 'sanitize_text_field' ),
@@ -222,6 +226,57 @@ class BizCity_TwinWeb_REST {
 			'methods'             => 'GET',
 			'callback'            => array( $this, 'get_mychannels' ),
 			'permission_callback' => '__return_true',
+		) );
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — owner-scoped Personal account control plane for /gpt/.
+		register_rest_route( $ns, '/mychannels/zalo-personal/accounts', array(
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_mychannels_zalo_personal_accounts' ),
+				'permission_callback' => '__return_true',
+			),
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'create_mychannels_zalo_personal_account' ),
+				'permission_callback' => '__return_true',
+				'args'                => array( 'label' => array( 'type' => 'string', 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ) ),
+			),
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-personal/accounts/(?P<id>[A-Za-z0-9_-]+)/qr', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'start_mychannels_zalo_personal_qr' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-personal/accounts/(?P<id>[A-Za-z0-9_-]+)/status', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_mychannels_zalo_personal_status' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-personal/accounts/(?P<id>[A-Za-z0-9_-]+)', array(
+			'methods'             => 'DELETE',
+			'callback'            => array( $this, 'delete_mychannels_zalo_personal_account' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-personal/conversations', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_mychannels_zalo_personal_conversations' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-personal/conversations/(?P<id>\d+)', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_mychannels_zalo_personal_conversation' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-personal/conversations/(?P<id>\d+)/messages', array(
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_mychannels_zalo_personal_messages' ),
+				'permission_callback' => '__return_true',
+			),
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'send_mychannels_zalo_personal_message' ),
+				'permission_callback' => '__return_true',
+			),
 		) );
 		register_rest_route( $ns, '/mychannels/zalo/bots', array(
 			'methods'             => 'GET',
@@ -837,6 +892,18 @@ class BizCity_TwinWeb_REST {
 		// [2026-06-17 Johnny Chu] PHASE-TWINWEB — identity-first (R-TWEB-1)
 		$identity = BizCity_TwinWeb_Identity::current();
 		$message  = (string) $request->get_param( 'message' );
+		$profile_card_id = absint( $request->get_param( 'profile_card_id' ) );
+		$profile_context_token = (string) $request->get_param( 'profile_context_token' );
+		$profile_presentation = sanitize_key( (string) $request->get_param( 'profile_presentation' ) );
+		$is_profile_public = $profile_card_id > 0 || '' !== $profile_context_token;
+		if ( $is_profile_public ) {
+			// [2026-08-25 Johnny Chu] PHASE-PROFILE-PUBLIC-SSE — Profile stream must retain WEBCHAT guest policy and binding verification.
+			if ( ! class_exists( 'BizCity_Personal_Profile_Channel_Resolver' ) || '' === $profile_context_token || ! in_array( $profile_presentation, array( 'profile_float', 'profile_embed' ), true ) ) {
+				return new WP_Error( 'invalid_context', 'Phiên chat Profile không hợp lệ.', array( 'status' => 403 ) );
+			}
+			$profile_claims = BizCity_Personal_Profile_Channel_Resolver::verify_context( $profile_context_token, $profile_card_id, 'webchat', $profile_presentation );
+			if ( is_wp_error( $profile_claims ) ) { return $profile_claims; }
+		}
 
 		if ( $message === '' ) {
 			return new WP_Error(
@@ -845,7 +912,7 @@ class BizCity_TwinWeb_REST {
 				array( 'status' => 400 )
 			);
 		}
-		$focus_notebook_id = absint( $request->get_param( 'focus_notebook_id' ) );
+		$focus_notebook_id = $is_profile_public ? 0 : absint( $request->get_param( 'focus_notebook_id' ) );
 		if ( $focus_notebook_id > 0 && class_exists( 'BizCity_TwinBrain_Guru_Focus_Validator' ) ) {
 			// [2026-08-16 Johnny Chu] CCG-6 — TwinWeb must share TwinChat's focus scope validation.
 			$focus_check = BizCity_TwinBrain_Guru_Focus_Validator::validate( $message, (int) $identity['user_id'], $focus_notebook_id );
@@ -948,8 +1015,8 @@ class BizCity_TwinWeb_REST {
 		$use_kg    = (bool)   $request->get_param( 'use_kg' );
 		$user_id   = $identity['user_id'];
 		// [2026-06-18 Johnny Chu] PHASE-TWINWEB — pass mode/skill to TwinBrain opts
-		$mode      = (string) $request->get_param( 'mode' );
-		$skill     = (string) $request->get_param( 'skill' );
+		$mode      = $is_profile_public ? 'chat' : (string) $request->get_param( 'mode' );
+		$skill     = $is_profile_public ? '' : (string) $request->get_param( 'skill' );
 		// [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — selected model flows to TwinBrain; invalid IDs fall back to auto.
 		$model     = sanitize_text_field( (string) $request->get_param( 'model' ) );
 		if ( '' === $model || ! preg_match( '/^[A-Za-z0-9._:\/-]+$/', $model ) ) {
@@ -970,6 +1037,11 @@ class BizCity_TwinWeb_REST {
 		}
 		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — runtime prompt must carry media/file URLs while FE keeps visible user text clean.
 		$runtime_message = $this->with_attachment_prompt_context( $message, $attachment_payload );
+		if ( $is_profile_public && class_exists( 'BizCity_Personal_Profile_Chat_Handler' ) ) {
+			// [2026-08-25 Johnny Chu] PHASE-PROFILE-PUBLIC-SSE — ground Profile answers in canonical public card content while keeping the visitor prompt unchanged in the UI.
+			$profile_context_prompt = BizCity_Personal_Profile_Chat_Handler::public_context_prompt( $profile_card_id );
+			if ( '' !== $profile_context_prompt ) { $runtime_message = $profile_context_prompt . "\nCâu hỏi của khách:\n" . $runtime_message; }
+		}
 		// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — accept answer mode from FE, then clamp below by plan preset.
 		$answer_mode = sanitize_key( (string) $request->get_param( 'answer_mode' ) );
 		if ( '' === $answer_mode ) {
@@ -981,9 +1053,12 @@ class BizCity_TwinWeb_REST {
 			$answer_depth = 'high';
 		}
 		// [2026-07-14 Johnny Chu] PHASE-TWINWEB-SEARCH W1 — resolve bound Guru from TWINWEB channel binding.
-		$bound_character_id = class_exists( 'BizCity_TwinWeb_Binding_Bootstrap' )
-			? (int) BizCity_TwinWeb_Binding_Bootstrap::resolve_character_id()
-			: 0;
+		$bound_character_id = $is_profile_public && class_exists( 'BizCity_Channel_Binding' )
+			? (int) ( (array) BizCity_Channel_Binding::resolve( 'WEBCHAT', (string) get_current_blog_id() ) )['character_id']
+			: ( class_exists( 'BizCity_TwinWeb_Binding_Bootstrap' ) ? (int) BizCity_TwinWeb_Binding_Bootstrap::resolve_character_id() : 0 );
+		$stream_surface = $is_profile_public ? 'profile' : 'twinweb';
+		$stream_platform = $is_profile_public ? 'WEBCHAT' : ( $identity['is_guest'] ? 'WEBCHAT' : 'TWIN_GPT' );
+		$profile_stream_turn = array();
 		if ( class_exists( 'BizCity_CG_Debug_Logger' ) ) {
 			BizCity_CG_Debug_Logger::log( 'twinweb', 'chat_stream_start', array(
 				'has_user'     => $user_id > 0,
@@ -1001,6 +1076,15 @@ class BizCity_TwinWeb_REST {
 		// Auto-create thread row if none provided (Wave 2 — thread_id will be used)
 		if ( $thread_id === '' ) {
 			$thread_id = wp_generate_uuid4();
+		}
+		if ( $is_profile_public ) {
+			// [2026-08-25 Johnny Chu] PHASE-PROFILE-PUBLIC-SSE — keep Profile stream history inside the canonical card session boundary.
+			$profile_session_prefix = 'profile_webchat_' . $profile_card_id . '_';
+			if ( 0 !== strpos( $thread_id, $profile_session_prefix ) ) { $thread_id = $profile_session_prefix . substr( md5( wp_generate_uuid4() ), 0, 24 ); }
+			if ( class_exists( 'BizCity_Personal_Profile_Chat_Handler' ) ) {
+				// [2026-08-25 Johnny Chu] PHASE-PROFILE-PUBLIC-SSE — persist the Profile CRM inbound once before the shared Brain stream starts.
+				$profile_stream_turn = BizCity_Personal_Profile_Chat_Handler::begin_stream_turn( $profile_card_id, $thread_id, $message );
+			}
 		}
 
 		// [2026-08-16 Johnny Chu] CCG-1 — TwinWeb uses the canonical exact workflow resolver before normal brain fallback.
@@ -1117,9 +1201,12 @@ class BizCity_TwinWeb_REST {
 		// [2026-08-01 Johnny Chu] R-CH-IDMEM — scope pending confirmation by blog, member, guest session, and thread.
 		$confirm_key = 'twinweb:' . (int) get_current_blog_id() . ':' . (int) $user_id . ':' . (string) ( $identity['guest_sid'] ?? '' ) . ':' . $thread_id;
 		$confirmation_result = array( 'status' => 'none' );
+		$deep_research_confirmation = false;
 		if ( class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' )
 			&& class_exists( 'BizCity_TwinBrain_Conversation_Router' )
-			&& BizCity_TwinBrain_Conversation_Router::SPECIALIZED_ROUTING_ENABLED ) {
+			&& ( BizCity_TwinBrain_Conversation_Router::SPECIALIZED_ROUTING_ENABLED
+				|| BizCity_TwinBrain_Conversation_Confirmation::is_deep_research_offer( $confirm_key ) ) ) {
+			$deep_research_confirmation = BizCity_TwinBrain_Conversation_Confirmation::is_deep_research_offer( $confirm_key );
 			// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — pending confirmation takes precedence over stale sticky Skill UI state.
 			$confirmation_result = BizCity_TwinBrain_Conversation_Confirmation::consume( $confirm_key, $runtime_message );
 			if ( in_array( (string) ( $confirmation_result['status'] ?? '' ), array( 'confirmed', 'invalid' ), true ) ) {
@@ -1130,6 +1217,17 @@ class BizCity_TwinWeb_REST {
 				$runtime_message = (string) ( $confirmation_result['prompt'] ?? $runtime_message );
 				$conversation_route = (array) ( $confirmation_result['decision'] ?? array() );
 			}
+		}
+		if ( $deep_research_confirmation && ( $confirmation_result['status'] ?? '' ) === 'confirmed'
+			&& ( $confirmation_result['decision']['reason'] ?? '' ) === 'deep_research_declined' ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — a decline is terminal acknowledgment, never a duplicate rerun of the original question.
+			$decline_trace_id = 'tw_' . wp_generate_uuid4();
+			$decline_text = 'Được, mình giữ câu trả lời tham khảo hiện tại và chưa chuyển sang Deep Research.';
+			$sse->emit( 'started', array( 'trace_id' => $decline_trace_id, 'session_id' => $thread_id ) );
+			$sse->emit( 'final_token', array( 'trace_id' => $decline_trace_id, 'delta' => $decline_text ) );
+			$sse->emit( 'final_done', array( 'trace_id' => $decline_trace_id, 'answer_md' => $decline_text, 'tokens' => 0, 'model' => '', 'success' => true, 'fallback' => 'deep_research_declined' ) );
+			self::close_sse();
+			exit;
 		}
 		// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — route TwinWeb's default conversational surface through the shared Layer 0.9 classifier.
 		if ( class_exists( 'BizCity_TwinBrain_Conversation_Router' )
@@ -1161,12 +1259,12 @@ class BizCity_TwinWeb_REST {
 				$sse->emit( 'started', array( 'trace_id' => $trace_id, 'session_id' => $thread_id ) );
 				$sse->emit( 'conversation_confirm_prompt', array(
 					'trace_id' => $trace_id,
-					'message' => 'Hãy chọn Có để dùng nguồn chuyên gia, hoặc Không để trả lời chung nhé.',
-					'route' => 'notebook',
+					'message' => $deep_research_confirmation ? 'Hãy chọn Có để chuyển sang Deep Research, hoặc Không để giữ câu trả lời hiện tại nhé.' : 'Hãy chọn Có để dùng nguồn chuyên gia, hoặc Không để trả lời chung nhé.',
+					'route' => $deep_research_confirmation ? 'vertical' : 'notebook',
 					'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL,
 				) );
 				BizCity_TwinBrain_Conversation_Confirmation::dispatch_prompt(
-					array( 'trace_id' => $trace_id, 'message' => 'Hãy chọn Có để dùng nguồn chuyên gia, hoặc Không để trả lời chung nhé.', 'route' => 'notebook', 'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL ),
+					array( 'trace_id' => $trace_id, 'message' => $deep_research_confirmation ? 'Hãy chọn Có để chuyển sang Deep Research, hoặc Không để giữ câu trả lời hiện tại nhé.' : 'Hãy chọn Có để dùng nguồn chuyên gia, hoặc Không để trả lời chung nhé.', 'route' => $deep_research_confirmation ? 'vertical' : 'notebook', 'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL ),
 					array( 'event_source' => 'webchat', 'session_id' => $thread_id, 'user_id' => (int) $user_id )
 				);
 				self::close_sse();
@@ -1223,18 +1321,24 @@ class BizCity_TwinWeb_REST {
 			// [2026-07-18 Johnny Chu] PHASE-TWINWEB — resolve TwinWeb grounding policy before runtime; this surface-level config overrides Guru defaults when present.
 			$twinweb_grounding_policy = $this->get_twinweb_grounding_policy( (int) get_current_blog_id() );
 
+			$notebook_upload_url = home_url( '/gpt/' );
+			if ( $focus_notebook_id > 0 ) {
+				$notebook_upload_url = add_query_arg( 'notebook_id', $focus_notebook_id, $notebook_upload_url );
+			}
 			$start    = $brain->start_turn( $runtime_message, array(
 				'user_id'    => $user_id,
 				'session_id' => $thread_id,
 				// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-P0 — resolve signed WebChat guest sessions through Identity Hub; never use guest_sid as the canonical UUID.
 				// [2026-08-02 Johnny Chu] R-ZONE/P0 — guest Twin GPT uses WEBCHAT guest_channel; logged-in Twin GPT remains user_bound.
-				'platform'   => $identity['is_guest'] ? 'WEBCHAT' : 'TWIN_GPT',
+				'platform'   => $stream_platform,
 				'account_id' => (string) get_current_blog_id(),
-				'external_user_id' => $identity['is_guest'] ? (string) ( $identity['guest_sid'] ?? '' ) : '',
-				'identity_guest_bind' => ! empty( $identity['is_guest'] ),
-				'identity_is_stable'  => ! empty( $identity['is_guest'] ),
+				'external_user_id' => $is_profile_public ? $thread_id : ( $identity['is_guest'] ? (string) ( $identity['guest_sid'] ?? '' ) : '' ),
+				'identity_guest_bind' => $is_profile_public || ! empty( $identity['is_guest'] ),
+				'identity_is_stable'  => $is_profile_public || ! empty( $identity['is_guest'] ),
 				// [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — mark TwinWeb C-surface so downstream LLM usage log can separate B2B (TwinChat) vs B2C (TwinWeb).
-				'surface'    => 'twinweb',
+				'surface'    => $stream_surface,
+				'profile_card_id' => $is_profile_public ? $profile_card_id : 0,
+				'profile_source' => $is_profile_public ? 'profile_public' : '',
 				'guru_id'    => $bound_character_id,
 				'web_mode'   => $web_mode,
 				'answer_depth' => $answer_depth,
@@ -1246,10 +1350,11 @@ class BizCity_TwinWeb_REST {
 				'attachment_ids' => $attachment_ids,
 				'attachments' => $attachment_payload,
 				'conversation_route' => $conversation_route,
-				'force_notebooks'    => $focus_notebook_id > 0
+				'force_notebooks'    => $is_profile_public ? array() : ( $focus_notebook_id > 0
 					? array( $focus_notebook_id )
-					: ( empty( $conversation_route['needs_confirm'] ) ? (array) ( $conversation_route['force_notebooks'] ?? array() ) : array() ),
+					: ( empty( $conversation_route['needs_confirm'] ) ? (array) ( $conversation_route['force_notebooks'] ?? array() ) : array() ) ),
 				'focus_notebook_id'  => $focus_notebook_id,
+				'notebook_upload_url' => esc_url_raw( $notebook_upload_url ),
 			) );
 			$trace_id = (string) ( $start['trace_id'] ?? '' );
 			if ( $focus_notebook_id > 0 ) {
@@ -1334,7 +1439,7 @@ class BizCity_TwinWeb_REST {
 				$sse,
 				array(
 					// [2026-07-17 Johnny Chu] PHASE-TWINWEB — surface marker for TwinWeb-specific web fallback policy.
-					'surface'        => 'twinweb',
+					'surface'        => $stream_surface,
 					// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-MPR — Notebook mode must expose missing-source state through MPR, never silently degrade to memory-only chat.
 					'disable_auto_degrade' => 'notebooks' === $mode && 'off' === $web_mode,
 					// [2026-07-18 Johnny Chu] PHASE-TWINWEB — prompt grounding policy for Synthesizer/Final Composer.
@@ -1353,6 +1458,8 @@ class BizCity_TwinWeb_REST {
 					'memory_block'   => (string) ( $start['memory_block']  ?? '' ),
 					'user_id'        => $user_id,
 					'session_id'     => $thread_id,
+					'profile_card_id' => $is_profile_public ? $profile_card_id : 0,
+					'profile_source' => $is_profile_public ? 'profile_public' : '',
 					// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G4 — preserve subject and active Goal Loop context through TwinWeb SSE completion.
 					'identity_uuid'  => (string) ( $start['identity_uuid'] ?? '' ),
 					'identity_state' => (string) ( $start['identity_state'] ?? 'unknown' ),
@@ -1370,8 +1477,40 @@ class BizCity_TwinWeb_REST {
 					'history'        => $history,
 					'attachment_ids' => $attachment_ids,
 					'attachments'    => $attachment_payload,
+					'notebook_upload_url' => esc_url_raw( $notebook_upload_url ),
 				)
 			);
+			if ( $is_profile_public && class_exists( 'BizCity_Personal_Profile_Chat_Handler' ) ) {
+				$profile_answer = (string) ( $done['answer_md'] ?? $done['answer'] ?? ( is_array( $done['synthesis'] ?? null ) ? ( $done['synthesis']['answer_md'] ?? '' ) : '' ) );
+				BizCity_Personal_Profile_Chat_Handler::finish_stream_turn( $profile_stream_turn, $profile_card_id, $thread_id, $profile_answer, $trace_id );
+			}
+			if ( ! empty( $done['deep_research_offer'] ) && class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' ) ) {
+				// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — offer Deep Research only after the current Twin GPT Notebook/MPR answer has completed.
+				$deep_decision = array(
+					'offer_type'         => 'deep_research',
+					'route'              => 'vertical',
+					'web_mode'           => 'deep',
+					'candidate_vertical' => 'deep',
+					'reason'             => 'evidence_fallback_offer',
+					'needs_confirm'      => true,
+				);
+				if ( BizCity_TwinBrain_Conversation_Confirmation::begin( $confirm_key, $runtime_message, $deep_decision ) ) {
+					$offer_message = 'Bạn có muốn mình chuyển sang chế độ Deep Research để tìm thêm thông tin mới nhất không?';
+					$sse->emit( 'conversation_confirm_prompt', array(
+						'trace_id' => $trace_id,
+						'message' => $offer_message,
+						'route' => 'vertical',
+						'candidate_vertical' => 'deep',
+						'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL,
+					) );
+					BizCity_TwinBrain_Conversation_Confirmation::dispatch_prompt( array(
+						'trace_id' => $trace_id,
+						'message' => $offer_message,
+						'route' => 'vertical',
+						'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL,
+					), array( 'event_source' => 'webchat', 'session_id' => $thread_id, 'user_id' => $user_id ) );
+				}
+			}
 
 			// Increment quota after successful LLM generation
 			if ( $identity['is_guest'] ) {
@@ -2418,6 +2557,219 @@ class BizCity_TwinWeb_REST {
 			'facebook' => array( 'pages' => $facebook['items'], '_degraded' => ! empty( $facebook['_degraded'] ) ),
 			'dashboard' => $this->build_mychannels_dashboard_payload( $identity ),
 		) );
+	}
+
+	private function mychannels_zalo_personal_account( WP_REST_Request $request, array $identity ) {
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — resolve only the current user's Personal account.
+		$account_id = sanitize_text_field( (string) $request->get_param( 'id' ) );
+		$account = class_exists( 'BizCity_Zalo_Mapping_Repo' )
+			? BizCity_Zalo_Mapping_Repo::find_personal_account_for_owner( (int) $identity['user_id'], $account_id )
+			: null;
+		if ( ! is_array( $account ) ) {
+			return $this->mychannels_error( 'permission_denied', 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'permission_denied' );
+		}
+		return $account;
+	}
+
+	/** Require managed Branch 19 entitlement before any /gpt/ Personal account operation. */
+	private function mychannels_zalo_personal_gate() {
+		// [2026-08-22 Johnny Chu] R-B2B2C/R-TWEB-14 — /gpt/ may connect only through the managed exact-key capability projection.
+		if ( ! class_exists( 'BizCity_Zalo_Bridge_Client' ) || ! class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Zalo Personal managed chưa sẵn sàng.', 'Bật module Zalo Personal rồi thử lại.', 'module_not_loaded' );
+		}
+		if ( BizCity_Zalo_Bridge_Client::instance()->get_mode() !== 'managed_1api' ) {
+			return $this->mychannels_error( 'permission_denied', 'Kênh Zalo Personal này chưa dùng chế độ managed.', 'Yêu cầu quản trị viên bật managed 1API cho site trước khi kết nối.', 'permission_denied' );
+		}
+		$projection = BizCity_Zalo_Personal_Hub_Client::instance()->capability();
+		if ( empty( $projection['success'] ) ) {
+			return $this->mychannels_error( 'gateway_degraded', 'Chưa đọc được quyền Zalo Personal từ BizCity Hub.', 'Kiểm tra API key riêng trên blog hiện tại rồi thử lại.', 'api_key_missing' );
+		}
+		$capability = isset( $projection['capability'] ) && is_array( $projection['capability'] ) ? $projection['capability'] : array();
+		if ( empty( $capability['allowed'] ) ) {
+			return $this->mychannels_error( 'feature_not_enabled', 'Gói hiện tại chưa cho phép kết nối Zalo Personal.', 'Nâng cấp hoặc bật tính năng bizcity-zalo-personal cho API key của blog hiện tại.', 'feature_not_enabled', array( 'capability' => $capability ) );
+		}
+		return true;
+	}
+
+	public function get_mychannels_zalo_personal_accounts( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — list owner-scoped Personal accounts for /gpt/.
+		unset( $request );
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem Zalo Cá nhân.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$rows = class_exists( 'BizCity_Zalo_Mapping_Repo' )
+			? BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner( (int) $identity['user_id'] )
+			: array();
+		$items = array_map( static function ( $row ) {
+			return array(
+				'id'            => (string) ( $row['bridge_account_id'] ?? '' ),
+				'label'         => (string) ( $row['label'] ?? '' ),
+				'zalo_uid'      => (string) ( $row['zalo_uid'] ?? '' ),
+				'status'        => (string) ( $row['status'] ?? 'pending_qr' ),
+				'crm_inbox_id'  => (int) ( $row['crm_inbox_id'] ?? 0 ),
+				'owner_user_id' => (int) ( $row['owner_user_id'] ?? 0 ),
+			);
+		}, $rows );
+		return rest_ensure_response( array( 'success' => true, 'items' => $items ) );
+	}
+
+	public function create_mychannels_zalo_personal_account( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — create Personal account through the canonical bridge bind flow.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để tạo Zalo Cá nhân.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		if ( ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Zalo Personal chưa sẵn sàng.', 'Bật plugin Zalo Personal rồi thử lại.', 'module_not_loaded' ); }
+		return BizCity_Zalo_Bridge_REST::create_account_for_owner( $request, (int) $identity['user_id'], true );
+	}
+
+	public function start_mychannels_zalo_personal_qr( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — owner-scoped QR start.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để tạo mã QR.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
+		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
+		return BizCity_Zalo_Bridge_REST::start_qr_for_owner( $account, (int) $identity['user_id'] );
+	}
+
+	public function get_mychannels_zalo_personal_status( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — owner-scoped QR status polling.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem trạng thái QR.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
+		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
+		return BizCity_Zalo_Bridge_REST::qr_status_for_owner( $account, (int) $identity['user_id'] );
+	}
+
+	public function delete_mychannels_zalo_personal_account( WP_REST_Request $request ) {
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — owner-scoped Personal disconnect.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để ngắt Zalo Cá nhân.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
+		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
+		return BizCity_Zalo_Bridge_REST::delete_account_for_owner( $account, (int) $identity['user_id'] );
+	}
+
+	/** Resolve Personal CRM inboxes inside the current tenant and user policy. */
+	private function mychannels_zalo_personal_inbox_ids( int $user_id, bool $connected_only = false ): array {
+		// [2026-08-22 Johnny Chu] R-TWEB-4 — derive scope from current tenant CRM rows, never from Hub or browser input.
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+			return array();
+		}
+		$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id );
+		$ids = array();
+		foreach ( BizCity_CRM_Repository::list_inboxes() as $inbox ) {
+			$inbox_id = (int) ( $inbox['id'] ?? 0 );
+			if ( $inbox_id > 0 && (string) ( $inbox['channel_type'] ?? '' ) === 'zalo_personal' && ( null === $allowed || in_array( $inbox_id, $allowed, true ) ) ) {
+				if ( $connected_only && ! $this->mychannels_zalo_personal_inbox_connected( $inbox_id, $user_id ) ) { continue; }
+				$ids[] = $inbox_id;
+			}
+		}
+		return array_values( array_unique( $ids ) );
+	}
+
+	private function mychannels_zalo_personal_inbox_connected( int $inbox_id, int $user_id ): bool {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W11 — outbound may use only a connected Personal account owned by this user or tenant admin.
+		if ( $inbox_id <= 0 || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) { return false; }
+		$rows = BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner( $user_id );
+		foreach ( $rows as $row ) {
+			if ( (int) ( $row['crm_inbox_id'] ?? 0 ) === $inbox_id && (string) ( $row['status'] ?? '' ) === 'connected' ) { return true; }
+		}
+		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id ) ) {
+			$all_rows = BizCity_CRM_Repository::list_inboxes();
+			foreach ( $all_rows as $inbox ) {
+				if ( (int) ( $inbox['id'] ?? 0 ) === $inbox_id && (string) ( $inbox['channel_type'] ?? '' ) === 'zalo_personal' ) {
+					$account = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', (string) ( $inbox['channel_ref_id'] ?? '' ) );
+					return is_array( $account ) && (string) ( $account['status'] ?? '' ) === 'connected';
+				}
+			}
+		}
+		return false;
+	}
+
+	public function get_mychannels_zalo_personal_conversations( WP_REST_Request $request ) {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W11 — expose Personal CRM list through same-origin tenant SQL with owner/inbox scope.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem Inbox Zalo Personal.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		if ( ! class_exists( 'BizCity_CRM_Repository' ) ) { return $this->mychannels_error( 'module_not_loaded', 'CRM Inbox chưa sẵn sàng.', 'Bật module BizCity Twin CRM rồi thử lại.', 'module_not_loaded' ); }
+		$inbox_ids = $this->mychannels_zalo_personal_inbox_ids( (int) $identity['user_id'] );
+		if ( empty( $inbox_ids ) ) { return rest_ensure_response( array( 'success' => true, 'items' => array(), 'inbox_ids' => array() ) ); }
+		$status = sanitize_key( (string) $request->get_param( 'status' ) );
+		$args = array(
+			'inbox_ids' => $inbox_ids,
+			'limit'     => max( 1, min( 100, (int) ( $request->get_param( 'limit' ) ?: 50 ) ) ),
+			'before_id' => (int) $request->get_param( 'before_id' ),
+		);
+		if ( in_array( $status, array( 'open', 'pending', 'resolved', 'snoozed' ), true ) ) { $args['status'] = $status; }
+		$rows = BizCity_CRM_Repository::list_conversations( $args );
+		$items = class_exists( 'BizCity_CRM_REST_Controller' ) ? array_map( array( 'BizCity_CRM_REST_Controller', 'shape_conversation' ), $rows ) : $rows;
+		return rest_ensure_response( array( 'success' => true, 'items' => $items, 'inbox_ids' => $inbox_ids ) );
+	}
+
+	public function get_mychannels_zalo_personal_conversation( WP_REST_Request $request ) {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W11 — detail lookup repeats the Personal inbox scope to prevent conversation ID guessing.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem hội thoại.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$id = (int) $request->get_param( 'id' );
+		$inbox_ids = $this->mychannels_zalo_personal_inbox_ids( (int) $identity['user_id'] );
+		$rows = class_exists( 'BizCity_CRM_Repository' ) && $id > 0 && ! empty( $inbox_ids ) ? BizCity_CRM_Repository::list_conversations( array( 'id' => $id, 'inbox_ids' => $inbox_ids, 'limit' => 1 ) ) : array();
+		if ( empty( $rows ) ) { return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại Zalo Personal.', 'Chọn hội thoại trong Inbox của bạn rồi thử lại.', 'not_found' ); }
+		$item = class_exists( 'BizCity_CRM_REST_Controller' ) ? BizCity_CRM_REST_Controller::shape_conversation( $rows[0] ) : $rows[0];
+		return rest_ensure_response( array( 'success' => true, 'conversation' => $item ) );
+	}
+
+	public function get_mychannels_zalo_personal_messages( WP_REST_Request $request ) {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W11 — message lookup repeats conversation ownership before reading tenant messages.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem tin nhắn.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$id = (int) $request->get_param( 'id' );
+		$inbox_ids = $this->mychannels_zalo_personal_inbox_ids( (int) $identity['user_id'] );
+		$conversation = class_exists( 'BizCity_CRM_Repository' ) && $id > 0 ? BizCity_CRM_Repository::list_conversations( array( 'id' => $id, 'inbox_ids' => $inbox_ids, 'limit' => 1 ) ) : array();
+		if ( empty( $conversation ) ) { return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại Zalo Personal.', 'Chọn hội thoại trong Inbox của bạn rồi thử lại.', 'not_found' ); }
+		$limit = max( 1, min( 100, (int) ( $request->get_param( 'limit' ) ?: 100 ) ) );
+		$after_id = max( 0, (int) $request->get_param( 'after_id' ) );
+		$rows = BizCity_CRM_Repository::list_messages( $id, $limit, $after_id );
+		$items = class_exists( 'BizCity_CRM_REST_Controller' ) ? array_map( array( 'BizCity_CRM_REST_Controller', 'shape_message' ), $rows ) : $rows;
+		return rest_ensure_response( array( 'success' => true, 'items' => $items, 'conversation_id' => $id ) );
+	}
+
+	public function send_mychannels_zalo_personal_message( WP_REST_Request $request ) {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W11 — delegate Personal outbound to canonical CRM adapter after owner/inbox scope validation.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để gửi tin nhắn.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$id = (int) $request->get_param( 'id' );
+		$inbox_ids = $this->mychannels_zalo_personal_inbox_ids( (int) $identity['user_id'], true );
+		$conversation = class_exists( 'BizCity_CRM_Repository' ) && $id > 0 ? BizCity_CRM_Repository::list_conversations( array( 'id' => $id, 'inbox_ids' => $inbox_ids, 'limit' => 1 ) ) : array();
+		if ( empty( $conversation ) ) { return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại Zalo Personal.', 'Chọn hội thoại trong Inbox của bạn rồi thử lại.', 'not_found' ); }
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$content = trim( (string) ( $body['content'] ?? '' ) );
+		if ( $content === '' ) { return $this->mychannels_error( 'invalid_param', 'Nội dung tin nhắn không được để trống.', 'Nhập nội dung rồi thử lại.', 'invalid_param_generic' ); }
+		if ( strlen( $content ) > 10000 ) { return $this->mychannels_error( 'invalid_param', 'Tin nhắn vượt quá độ dài cho phép.', 'Rút ngắn nội dung rồi gửi lại.', 'invalid_param_generic' ); }
+		if ( ! class_exists( 'BizCity_CRM_REST_Controller' ) ) { return $this->mychannels_error( 'module_not_loaded', 'CRM Inbox chưa sẵn sàng để gửi tin.', 'Bật module BizCity Twin CRM rồi thử lại.', 'module_not_loaded' ); }
+		$crm_request = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . $id . '/messages' );
+		$crm_request->set_url_params( array( 'id' => $id ) );
+		$crm_request->set_header( 'Content-Type', 'application/json' );
+		$crm_request->set_body( wp_json_encode( array( 'content' => $content, 'content_type' => 'text', 'responder_kind' => 'manual' ) ) );
+		return BizCity_CRM_REST_Controller::post_message( $crm_request );
 	}
 
 	public function get_mychannels_zalo_bots( WP_REST_Request $request ) {
@@ -3697,8 +4049,9 @@ class BizCity_TwinWeb_REST {
 			array( 'id' => 'chat',    'label' => 'Chat',        'icon' => 'chat',    'enabled' => true ),
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — expose My Workflows shortcut in legacy /me fallback app list.
 			array( 'id' => 'myworkflows', 'label' => 'My Workflows', 'icon' => 'workflow', 'enabled' => true ),
-			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 10: prioritize My Profiles ahead of My Plan in the legacy fallback catalog too.
-			array( 'id' => 'profile', 'label' => 'My Profiles', 'icon' => 'profile', 'enabled' => true ),
+			// [2026-08-23 Johnny Chu] PHASE-TBP-6.1 — split the two Profile roles in the legacy fallback catalog.
+			array( 'id' => 'profile', 'label' => 'My profile', 'icon' => 'profile', 'enabled' => true ),
+			array( 'id' => 'profile_card_qr', 'label' => 'My card QR', 'icon' => 'profile', 'enabled' => true ),
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — expose My Plan artifact workspace in legacy /me fallback app list.
 			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 11: display label renamed to My Artifacts; id/route unchanged (R-TWEB-6).
 			array( 'id' => 'mycontent', 'label' => 'My Artifacts', 'icon' => 'doc', 'enabled' => true ),
@@ -3854,13 +4207,25 @@ class BizCity_TwinWeb_REST {
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),
-			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 10: My Profiles moved up to replace My Plan's former position.
+			// [2026-08-23 Johnny Chu] PHASE-TBP-6.1 — keep Profile Care and Profile Public as two server-authorized Twin GPT apps.
 			array(
 				'id'            => 'profile',
-				'label'         => 'My Profiles',
+				'label'         => 'My profile',
 				'icon'          => 'profile',
-				'href'          => home_url( '/gpt/profile/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile/' ) ),
+				'href'          => home_url( '/gpt/profile-care/' ),
+				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile-care/' ) ),
+				'required_plan' => 'free',
+				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
+				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
+				'auth_required' => true,
+				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
+			),
+			array(
+				'id'            => 'profile_card_qr',
+				'label'         => 'My card QR',
+				'icon'          => 'profile',
+				'href'          => home_url( '/gpt/profile-public/' ),
+				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile-public/' ) ),
 				'required_plan' => 'free',
 				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
 				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
@@ -7314,7 +7679,7 @@ class BizCity_TwinWeb_REST {
 	 * Order defines the default display order.
 	 */
 	private static function all_known_app_ids() {
-		return array( 'mychannels', 'twinchat', 'astro', 'creator', 'doc', 'image', 'profile', 'video', 'workflow' );
+		return array( 'mychannels', 'twinchat', 'astro', 'creator', 'doc', 'image', 'profile', 'profile_card_qr', 'video', 'workflow' );
 	}
 
 	/**

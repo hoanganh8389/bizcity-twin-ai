@@ -69,6 +69,8 @@ class BizCity_Channel_File_Logger {
 	const CH_MESSENGER       = 'messenger';
 	const CH_ZALO_OA         = 'zalo_oa';
 	const CH_ZALO_BOT        = 'zalo_bot';
+	// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — dedicated operational bucket for Zalo Personal archive failures.
+	const CH_ZALO_PERSONAL   = 'zalo_personal';
 	// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — ZNS (Zalo Notification Service) dedicated channel folder
 	const CH_ZALO_ZNS        = 'zalo_zns';
 	const CH_TELEGRAM        = 'telegram';

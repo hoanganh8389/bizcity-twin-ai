@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "catalog_id": "bizcity-twin-public-contracts",
-  "catalog_version": "1.1.0",
+  "catalog_version": "1.3.0",
   "namespace": "bizcity.twin.contracts.public.v1",
   "semver_policy": "semver",
   "stability": "stable",
@@ -214,6 +214,46 @@
       "fixtures": {
         "valid": "fixtures/admin-navigation.valid.json",
         "invalid": "fixtures/admin-navigation.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "diagnostics-verdict",
+      "version": "1.0.0",
+      "schema": "diagnostics-verdict.schema.json",
+      "fixtures": {
+        "valid": "fixtures/diagnostics-verdict.valid.json",
+        "invalid": "fixtures/diagnostics-verdict.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "zalo-personal-bridge",
+      "version": "1.0.0",
+      "schema": "zalo-personal-bridge.schema.json",
+      "fixtures": {
+        "valid": "fixtures/zalo-personal-bridge.allowed.json",
+        "invalid": "fixtures/zalo-personal-bridge.invalid.json",
+        "additional_valid": [
+          "fixtures/zalo-personal-bridge.denied-no-domain.json",
+          "fixtures/zalo-personal-bridge.denied-domain-mismatch.json",
+          "fixtures/zalo-personal-bridge.denied-capacity-zero.json",
+          "fixtures/zalo-personal-bridge.mapping-fail.json"
+        ]
       },
       "compatibility": {
         "producer": "1.x",

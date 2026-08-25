@@ -37,6 +37,8 @@
         ],
         "socialLinks": [],
         "messagingLinks": [],
+        "giftWheelProvider": "mabel",
+        "giftWheelId": 0,
         "chatEntrypoints": [
           { "channelCode": "webchat", "enabled": true, "presentation": "profile_float", "trackingTag": "", "fallbackUrl": "" }
         ],

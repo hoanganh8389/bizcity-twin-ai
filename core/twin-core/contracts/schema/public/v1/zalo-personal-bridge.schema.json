@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/zalo-personal-bridge.schema.json",
+  "title": "BizCity Managed Zalo Personal Bridge Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "scenario", "request", "entitlement", "outcome"],
+  "properties": {
+    "contract": { "const": "zalo-personal-bridge" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "scenario": { "enum": ["allowed", "denied_no_domain", "denied_domain_mismatch", "denied_capacity_zero", "mapping_failure"] },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "domain", "blog_id", "shard", "key_id", "allowed_domain", "callback_host"],
+      "properties": {
+        "surface": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "domain": { "type": "string", "minLength": 1, "maxLength": 253 },
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "shard": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "key_id": { "type": "integer", "minimum": 1 },
+        "allowed_domain": { "type": "string", "maxLength": 253 },
+        "callback_host": { "type": "string", "minLength": 1, "maxLength": 253 }
+      }
+    },
+    "entitlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "account_limit", "accounts_used", "accounts_remaining", "source"],
+      "properties": {
+        "allowed": { "type": "boolean" },
+        "account_limit": { "type": "integer", "minimum": -1 },
+        "accounts_used": { "type": "integer", "minimum": 0 },
+        "accounts_remaining": { "type": "integer", "minimum": -1 },
+        "source": { "const": "exact_api_key" }
+      }
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "mode", "callback_verified"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "connected_at": { "type": "string", "maxLength": 80 },
+        "mode": { "const": "managed_1api" },
+        "callback_verified": { "type": "boolean" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "hint", "help_code", "reason_bucket"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,80}$" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "hint": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "help_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,80}$" },
+        "reason_bucket": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sidecar_called", "mapping_persisted", "crm_inbox_persisted", "result"],
+      "properties": {
+        "sidecar_called": { "type": "boolean" },
+        "mapping_persisted": { "type": "boolean" },
+        "crm_inbox_persisted": { "type": "boolean" },
+        "result": { "enum": ["success", "denied", "mapping_failed"] }
+      }
+    }
+  }
+}

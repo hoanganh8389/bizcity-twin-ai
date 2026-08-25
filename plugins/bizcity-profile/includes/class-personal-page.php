@@ -50,13 +50,14 @@ class BizCity_Personal_Page {
 	 * Outputs a standalone HTML shell (no WP theme).
 	 */
 	public function maybe_render() {
-		// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — /profile/ is the canonical Profile SPA path; /personal/ remains a compatibility page.
-		if ( self::is_canonical_profile_route() ) {
+		// [2026-08-22 Johnny Chu] PHASE-PROFILE-ROLE-SPLIT — mount Profile Care and Profile Public through one shared SPA shell.
+		$surface = self::surface_for_request();
+		if ( false !== $surface ) {
 			add_filter( 'show_admin_bar', '__return_false' );
 			status_header( 200 );
 			header( 'Content-Type: text/html; charset=UTF-8' );
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			echo self::get_page_html( home_url( '/profile/' ) );
+			echo self::get_page_html( home_url( '/' . ( 'profile-public' === $surface ? 'profile-public' : 'profile-care' ) . '/' ), $surface );
 			exit;
 		}
 		if ( ! is_singular() ) {
@@ -102,9 +103,29 @@ class BizCity_Personal_Page {
 	 * @return bool
 	 */
 	private static function is_canonical_profile_route() {
+		return false !== self::surface_for_request();
+	}
+
+	/**
+	 * Resolve the shared SPA surface from the request path.
+	 *
+	 * @return string|false
+	 */
+	private static function surface_for_request() {
 		$request_path = (string) parse_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '', PHP_URL_PATH );
-		$profile_path = (string) parse_url( home_url( '/profile/' ), PHP_URL_PATH );
-		return '' !== $request_path && trim( $request_path, '/' ) === trim( $profile_path, '/' );
+		$routes = array(
+			'profile'        => 'profile-care',
+			'profile-care'   => 'profile-care',
+			'profile-public' => 'profile-public',
+		);
+		$request_key = trim( $request_path, '/' );
+		foreach ( $routes as $slug => $surface ) {
+			$route_path = trim( (string) parse_url( home_url( '/' . $slug . '/' ), PHP_URL_PATH ), '/' );
+			if ( '' !== $request_key && $request_key === $route_path ) {
+				return $surface;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -113,10 +134,13 @@ class BizCity_Personal_Page {
 	 * @param string $page_url Redirect-back URL for login/logout.
 	 * @return string
 	 */
-	private static function get_page_html( $page_url = '' ) {
+	private static function get_page_html( $page_url = '', $surface = 'profile-care' ) {
+		// [2026-08-22 Johnny Chu] PHASE-PROFILE-ROLE-SPLIT — inject only a presentation role; REST/data ownership remains shared.
 		if ( '' === $page_url ) {
 			$page_url = home_url( '/' );
 		}
+		$surface = 'profile-public' === $surface ? 'profile-public' : 'profile-care';
+		$app_title = 'profile-public' === $surface ? 'Profile Public' : 'Trợ lý cá nhân';
 		$nonce      = wp_create_nonce( 'wp_rest' );
 		$rest_url   = esc_js( rest_url() );
 		$site_name  = esc_js( get_bloginfo( 'name' ) );
@@ -161,7 +185,7 @@ class BizCity_Personal_Page {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{$site_name} — Trợ lý cá nhân</title>
+<title>{$site_name} — {$app_title}</title>
 {$css_tags}
 <script>
 window.personalConfig = {
@@ -176,7 +200,8 @@ window.personalConfig = {
   userId:        {$user_id},
   isAdmin:       {$is_admin},
   displayName:   "{$display}",
-  avatarUrl:     "{$avatar}"
+	avatarUrl:     "{$avatar}",
+	surface:       "{$surface}"
 };
 </script>
 </head>
@@ -204,7 +229,7 @@ HTML;
 		}
 		wp_add_inline_script(
 			self::HANDLE,
-			'window.personalConfig={restRoot:"' . esc_js( rest_url() ) . '",nonce:"' . esc_js( $nonce ) . '",siteName:"' . esc_js( get_bloginfo( 'name' ) ) . '",logoUrl:"",adminUrl:"' . esc_js( admin_url() ) . '",loginUrl:"' . esc_js( wp_login_url() ) . '",logoutUrl:"' . esc_js( wp_logout_url() ) . '",ssoGoogleUrl:"",userId:' . $user_id . ',isAdmin:' . $is_admin . ',displayName:"' . $display . '",avatarUrl:"' . $avatar . '"};',
+			'window.personalConfig={restRoot:"' . esc_js( rest_url() ) . '",nonce:"' . esc_js( $nonce ) . '",siteName:"' . esc_js( get_bloginfo( 'name' ) ) . '",logoUrl:"",adminUrl:"' . esc_js( admin_url() ) . '",loginUrl:"' . esc_js( wp_login_url() ) . '",logoutUrl:"' . esc_js( wp_logout_url() ) . '",ssoGoogleUrl:"",userId:' . $user_id . ',isAdmin:' . $is_admin . ',displayName:"' . $display . '",avatarUrl:"' . $avatar . '",surface:"profile-care"};',
 			'before'
 		);
 	}

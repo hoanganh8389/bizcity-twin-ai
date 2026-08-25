@@ -187,15 +187,21 @@ class BizCity_CRM_Facebook_Ingestor {
 
 		// 2. Contact + contact_inbox.
 		$ids = BizCity_CRM_Repository::upsert_contact( $inbox_id, (string) $norm['source_id'], array(
-			'name'       => (string) ( $norm['contact_name'] ?? '' ),
-			'avatar_url' => $norm['contact_avatar'] ?? null,
+			'name'              => (string) ( $norm['contact_name'] ?? '' ),
+			'avatar_url'        => $norm['contact_avatar'] ?? null,
+			'acquisition_source' => $adapter->code(),
+			'name_source'       => 'customer_provided',
 		) );
 		error_log( '[bizcity-crm-trace] P8 upsert_contact contact_id=' . ( $ids['contact_id'] ?? 0 ) . ' ci=' . ( $ids['contact_inbox_id'] ?? 0 ) );
 		if ( empty( $ids['contact_inbox_id'] ) ) { return 0; }
 
 		// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — auto-create pipeline lead for Facebook / Zalo channel
 		if ( ! empty( $ids['contact_id'] ) ) {
-			$channel_src = ( $adapter->code() === 'facebook' ) ? 'facebook_page' : 'zalo_oa';
+			// [2026-08-23 Johnny Chu] PHASE-0.39D — preserve Personal Zalo source; do not mislabel it as Zalo OA.
+			// [2026-08-23 Johnny Chu] PHASE-TBP-6.2 — preserve WebChat provenance; it must not be classified as Zalo OA.
+			$channel_src = ( $adapter->code() === 'facebook' )
+				? 'facebook_page'
+				: ( $adapter->code() === 'zalo_personal' ? 'zalo_personal' : $adapter->code() );
 			self::maybe_create_pipeline_lead(
 				(int) $ids['contact_id'],
 				$channel_src,
@@ -223,6 +229,11 @@ class BizCity_CRM_Facebook_Ingestor {
 			'sender_type'        => 'contact',
 			'sender_id'          => (int) $ids['contact_id'],
 			'attachments'        => $norm['attachments'] ?? array(),
+			'ai_metadata'        => ! empty( $norm['profile_card_id'] ) ? array(
+				'source'          => (string) ( $norm['profile_source'] ?? 'profile_public' ),
+				'profile_card_id' => (int) $norm['profile_card_id'],
+				'profile_webchat' => true,
+			) : array(),
 			'created_at'         => isset( $norm['received_at'] ) ? (string) $norm['received_at'] : current_time( 'mysql' ),
 		) );
 		// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P10: trace msg insert result.
@@ -437,6 +448,11 @@ class BizCity_CRM_Facebook_Ingestor {
 		$contact_attrs = array();
 		if ( ! empty( $norm['contact_name'] ) ) {
 			$contact_attrs['name'] = (string) $norm['contact_name'];
+		}
+		if ( ! empty( $norm['contact_name_source'] ) ) {
+			$contact_attrs['name_source'] = sanitize_key( (string) $norm['contact_name_source'] );
+		} elseif ( ! empty( $norm['ai_metadata']['contact_name_source'] ) ) {
+			$contact_attrs['name_source'] = sanitize_key( (string) $norm['ai_metadata']['contact_name_source'] );
 		}
 		$ids = BizCity_CRM_Repository::upsert_contact( $inbox_id, (string) $norm['source_id'], $contact_attrs );
 		if ( empty( $ids['contact_inbox_id'] ) ) { return 0; }

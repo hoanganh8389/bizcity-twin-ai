@@ -127,6 +127,22 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			$guru_ctx = ( $inbox && class_exists( 'BizCity_CRM_Guru_Resolver' ) )
 				? BizCity_CRM_Guru_Resolver::resolve_for_inbox( $inbox )
 				: array( 'character_id' => 0, 'guru_uuid' => '', 'notebooks' => array() );
+			// [2026-08-22 Johnny Chu] PHASE-0.39B — Zalo Personal auto-reply is opt-in; block before any default Chat Gateway/LLM fallback.
+			if ( strtolower( (string) ( $inbox['channel_type'] ?? '' ) ) === 'zalo_personal' ) {
+				$personal_binding_found = ! empty( $guru_ctx['trace']['binding_found'] );
+				$personal_auto_reply   = (int) ( $guru_ctx['auto_reply'] ?? 0 ) === 1;
+				if ( ! $personal_binding_found || ! $personal_auto_reply ) {
+					self::log( sprintf(
+						'skip conv#%d msg#%d: personal_auto_reply_off binding_found=%s auto_reply=%d mode=%s',
+						$conv_id,
+						$msg_id,
+						$personal_binding_found ? 'yes' : 'no',
+						(int) ( $guru_ctx['auto_reply'] ?? 0 ),
+						(string) ( $guru_ctx['binding_mode'] ?? '' )
+					) );
+					return;
+				}
+			}
 			// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — keep CRM on the
 			// Chat Gateway path when binding is absent; never fall into legacy flow tables.
 			$resolved_character_id = (int) ( $guru_ctx['character_id'] ?? 0 );

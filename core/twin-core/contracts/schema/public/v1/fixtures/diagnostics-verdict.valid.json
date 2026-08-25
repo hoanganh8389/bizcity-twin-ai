@@ -1,0 +1,35 @@
+{
+  "contract": "bizcity.twin.diagnostics-verdict",
+  "version": "1.0.0",
+  "plugin": "bizcity.reference",
+  "path": "examples/bizcity-reference-plugin",
+  "checks": [
+    {
+      "id": "manifest",
+      "label": "Manifest",
+      "status": "pass",
+      "severity": "info",
+      "evidence": "manifest.json exists and parses as an object",
+      "fix_hint": "",
+      "file": "examples/bizcity-reference-plugin/manifest.json"
+    },
+    {
+      "id": "smoke_test",
+      "label": "Smoke test",
+      "status": "skip",
+      "severity": "info",
+      "evidence": "WordPress runtime is unavailable; static checks remain authoritative.",
+      "fix_hint": "Run with BIZCITY_WP_ROOT pointing to a bootable WordPress installation.",
+      "file": ""
+    }
+  ],
+  "verdict": "pass",
+  "counts": {
+    "pass": 1,
+    "warn": 0,
+    "fail": 0,
+    "skip": 1
+  },
+  "exit_code": 0,
+  "strict": false
+}

@@ -75,9 +75,14 @@ final class BizCity_Automation_Default_Reply {
 
 		$router_decision = array();
 		$confirmed_route = false;
+		$deep_research_confirmation = false;
+		if ( class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' ) ) {
+			$deep_research_confirmation = BizCity_TwinBrain_Conversation_Confirmation::is_deep_research_offer( $chat_id );
+		}
 		$confirmation_result = class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' )
 			&& class_exists( 'BizCity_TwinBrain_Conversation_Router' )
-			&& BizCity_TwinBrain_Conversation_Router::SPECIALIZED_ROUTING_ENABLED
+			&& ( BizCity_TwinBrain_Conversation_Router::SPECIALIZED_ROUTING_ENABLED
+				|| BizCity_TwinBrain_Conversation_Confirmation::is_deep_research_offer( $chat_id ) )
 			? BizCity_TwinBrain_Conversation_Confirmation::consume( $chat_id, $text )
 			: array( 'status' => 'none' );
 		if ( ! class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' ) && class_exists( 'BizCity_Automation_Pending_State' ) ) {
@@ -111,7 +116,7 @@ final class BizCity_Automation_Default_Reply {
 		}
 		if ( ( $confirmation_result['status'] ?? '' ) === 'invalid' ) {
 			if ( function_exists( 'bizcity_channel_send' ) ) {
-				bizcity_channel_send( $chat_id, 'Sếp trả lời "có" để dùng nguồn chuyên gia, hoặc "không" để em trả lời chung nhé.' );
+				bizcity_channel_send( $chat_id, $deep_research_confirmation ? 'Sếp trả lời "có" để chuyển sang Deep Research, hoặc "không" để em giữ câu trả lời hiện tại nhé.' : 'Sếp trả lời "có" để dùng nguồn chuyên gia, hoặc "không" để em trả lời chung nhé.' );
 			}
 			return;
 		}
@@ -120,6 +125,13 @@ final class BizCity_Automation_Default_Reply {
 			$router_decision = (array) ( $confirmation_result['decision'] ?? array() );
 			$prompt = (string) ( $confirmation_result['prompt'] ?? $prompt );
 			$confirmed_route = true;
+		}
+		if ( $deep_research_confirmation && $confirmed_route && ( $router_decision['reason'] ?? '' ) === 'deep_research_declined' ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — a text-channel decline must not rerun the original Brain request.
+			if ( function_exists( 'bizcity_channel_send' ) ) {
+				bizcity_channel_send( $chat_id, 'Được, mình giữ câu trả lời tham khảo hiện tại và chưa chuyển sang Deep Research.', 'text', array( 'detail' => 'deep_research_declined' ) );
+			}
+			return;
 		}
 		// [2026-08-01 Johnny Chu] HOTFIX — keep the Router guard as one balanced block; production previously received an intermediate brace-broken version.
 		if ( ! $confirmed_route && class_exists( 'BizCity_TwinBrain_Conversation_Router' ) ) {
@@ -210,6 +222,7 @@ final class BizCity_Automation_Default_Reply {
 			// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — keep visible and enriched prompts distinct like /gpt/.
 			'visible_prompt'    => $text,
 			'user_prompt'       => $text,
+			'notebook_upload_url' => esc_url_raw( (string) ( $run_payload['upload_link_url'] ?? $run_payload['upload_url'] ?? $run_payload['notebook_upload_url'] ?? '' ) ),
 		);
 		// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — use the lightweight chat path for greetings and the verified Luna chat purpose.
 		if ( ( $router_decision['route'] ?? '' ) === 'casual' && ( (float) ( $router_decision['confidence'] ?? 0 ) >= 0.9 || in_array( ( $router_decision['reason'] ?? '' ), array( 'casual_fast_path', 'confirmed_generic' ), true ) ) ) {
@@ -248,7 +261,6 @@ final class BizCity_Automation_Default_Reply {
 		if ( is_wp_error( $result ) || ! is_array( $result ) ) {
 			return;
 		}
-
 		$answer = (string) (
 			$result['final_text']  ?? $result['answer']
 			?? $result['answer_md'] ?? $result['message']
@@ -290,6 +302,21 @@ final class BizCity_Automation_Default_Reply {
 			'_trace_id'     => $trace_id,
 			'detail'        => 'no_keyword_no_fallback',
 		) );
+		if ( ! empty( $result['deep_research_offer'] ) && class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' ) ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — offer Deep Research after the completed two-part channel answer.
+			$deep_decision = array(
+				'offer_type'         => 'deep_research',
+				'route'              => 'vertical',
+				'web_mode'           => 'deep',
+				'candidate_vertical' => 'deep',
+				'reason'             => 'evidence_fallback_offer',
+				'needs_confirm'      => true,
+			);
+			if ( BizCity_TwinBrain_Conversation_Confirmation::begin( $chat_id, $prompt, $deep_decision ) ) {
+				$offer = 'Bạn có muốn mình chuyển sang chế độ Deep Research để tìm thêm thông tin mới nhất không? Nhắn "có" hoặc "không" nhé.';
+				bizcity_channel_send( $chat_id, $offer, 'text', array( 'detail' => 'evidence_fallback_deep_research_offer' ) );
+			}
+		}
 	}
 
 	private static function strip_notebook_source_block( string $answer ): string {

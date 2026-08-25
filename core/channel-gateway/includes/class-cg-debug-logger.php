@@ -35,7 +35,7 @@ class BizCity_CG_Debug_Logger {
 	const OPTION_FLAG  = 'bizcity_cg_debug_logger_enabled';
 	const RETENTION_HOOK = 'bizcity_channel_jsonl_retention';
 	const RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep channel evidence for one week.
-	const RETENTION_CHANNELS = array( 'email', 'facebook', 'messenger', 'zalo_oa', 'zalo_bot', 'zalo_zns', 'telegram', 'webchat', 'cf7', 'channel_gateway', 'astro', 'broadcast' );
+	const RETENTION_CHANNELS = array( 'email', 'facebook', 'messenger', 'zalo_oa', 'zalo_bot', 'zalo_zns', 'telegram', 'webchat', 'cf7', 'profile', 'channel_gateway', 'astro', 'broadcast' );
 
 	/** @var string Cached log dir for current request. */
 	private static $cached_dir = '';

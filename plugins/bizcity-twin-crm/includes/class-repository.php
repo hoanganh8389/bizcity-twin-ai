@@ -120,6 +120,36 @@ class BizCity_CRM_Repository {
 		if ( $inbox_id <= 0 ) { return false; }
 		$inbox = self::get_inbox( $inbox_id );
 		if ( ! $inbox || ! self::is_test_inbox( $inbox ) ) { return false; }
+		return self::purge_inbox( $inbox_id );
+	}
+
+	/** Delete a legacy Zalo Personal inbox only after its managed mapping is gone. */
+	public static function delete_legacy_zalo_personal_inbox( int $inbox_id ): string {
+		// [2026-08-22 Johnny Chu] PHASE-0.39C — legacy direct Zalo channels may be purged from CRM, but active managed mappings are protected.
+		if ( $inbox_id <= 0 ) { return 'inbox_not_found'; }
+		$inbox = self::get_inbox( $inbox_id );
+		if ( ! $inbox ) { return 'inbox_not_found'; }
+		if ( 'zalo_personal' !== strtolower( (string) ( $inbox['channel_type'] ?? '' ) ) ) { return 'zalo_personal_only'; }
+		if ( class_exists( 'BizCity_Zalo_Mapping_Repo' ) && method_exists( 'BizCity_Zalo_Mapping_Repo', 'find_account_by_crm_inbox_id' ) ) {
+			$mapped = BizCity_Zalo_Mapping_Repo::find_account_by_crm_inbox_id( $inbox_id );
+			if ( $mapped && class_exists( 'BizCity_Zalo_Bridge_Client' ) ) {
+				// [2026-08-22 Johnny Chu] PHASE-0.39C — distinguish an active exact-key managed account from a stale legacy mapping before allowing cleanup.
+				$bridge = BizCity_Zalo_Bridge_Client::instance();
+				$remote = method_exists( $bridge, 'list_accounts' ) ? $bridge->list_accounts() : array( 'success' => false );
+				if ( ! empty( $remote['_degraded'] ) || empty( $remote['success'] ) ) { return 'managed_scope_unavailable'; }
+				foreach ( (array) ( $remote['accounts'] ?? array() ) as $remote_account ) {
+					if ( (string) ( $remote_account['id'] ?? '' ) === (string) ( $mapped['bridge_account_id'] ?? '' ) ) {
+						return 'managed_mapping_exists';
+					}
+				}
+			}
+		}
+		return self::purge_inbox( $inbox_id ) ? 'deleted' : 'inbox_delete_failed';
+	}
+
+	/** Purge data owned by one inbox inside a transaction. */
+	private static function purge_inbox( int $inbox_id ): bool {
+		// [2026-08-22 Johnny Chu] PHASE-0.39C — share the existing transactional purge with the explicitly gated legacy-channel action.
 
 		global $wpdb;
 		$tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
@@ -191,21 +221,35 @@ class BizCity_CRM_Repository {
 		if ( $ci ) {
 			$wpdb->update( $ci_tbl, array( 'last_seen_at' => $now ), array( 'id' => $ci['id'] ) );
 			// Refresh contact name / avatar if we have new data and old is empty.
-			if ( ! empty( $contact_data['name'] ) || ! empty( $contact_data['avatar_url'] ) ) {
+			if ( ! empty( $contact_data['name'] ) || ! empty( $contact_data['avatar_url'] ) || ! empty( $contact_data['acquisition_source'] ) || ! empty( $contact_data['name_source'] ) ) {
 				$existing_contact = $wpdb->get_row( $wpdb->prepare(
 					"SELECT * FROM {$ct_tbl} WHERE id = %d", (int) $ci['contact_id']
 				), ARRAY_A );
 				$update = array( 'updated_at' => $now );
+				$existing_attrs = json_decode( (string) ( $existing_contact['additional_attributes'] ?? '' ), true );
+				$existing_attrs = is_array( $existing_attrs ) ? $existing_attrs : array();
+				$incoming_name_source = sanitize_key( (string) ( $contact_data['name_source'] ?? '' ) );
+				$existing_name_source = sanitize_key( (string) ( $existing_attrs['contact_name_source'] ?? '' ) );
 				$old_name        = (string) ( $existing_contact['name'] ?? '' );
 				$old_is_stub     = ( $old_name === '' )
 					|| (bool) preg_match( '/^(FB|Zalo|Web|TG|Hotline)\s+[A-Za-z0-9_]{1,8}$/u', $old_name );
-				if ( ! empty( $contact_data['name'] ) && $old_is_stub && $contact_data['name'] !== $old_name ) {
+				$old_is_unreliable = 'self_echo_unreliable' === $existing_name_source;
+				if ( ! empty( $contact_data['name'] ) && ( $old_is_stub || ( $old_is_unreliable && 'customer_provided' === $incoming_name_source ) ) && $contact_data['name'] !== $old_name ) {
 					$update['name'] = $contact_data['name'];
+				}
+				// [2026-08-23 Johnny Chu] PHASE-0.39D — never downgrade a verified contact name to self-echo provenance.
+				if ( $incoming_name_source !== '' && ( 'customer_provided' === $incoming_name_source || $old_is_stub ) && ( $existing_name_source === '' || ( 'customer_provided' === $incoming_name_source && 'self_echo_unreliable' === $existing_name_source ) ) ) {
+					$existing_attrs['contact_name_source'] = $incoming_name_source;
+					$update['additional_attributes'] = wp_json_encode( $existing_attrs );
 				}
 				// [2026-08-04 Johnny Chu] HOTFIX — persist a refreshed Facebook CDN avatar when the signed URL rotates.
 				if ( ! empty( $contact_data['avatar_url'] )
 					&& ( empty( $existing_contact['avatar_url'] ) || (string) $existing_contact['avatar_url'] !== (string) $contact_data['avatar_url'] ) ) {
 					$update['avatar_url'] = $contact_data['avatar_url'];
+				}
+				// [2026-08-23 Johnny Chu] PHASE-0.39D — fill missing acquisition provenance without overwriting multi-channel history.
+				if ( empty( $existing_contact['acquisition_source'] ) && ! empty( $contact_data['acquisition_source'] ) ) {
+					$update['acquisition_source'] = sanitize_key( (string) $contact_data['acquisition_source'] );
 				}
 				// PHASE 0.35 M-CRM.M8.W3 — opportunistic Woo user link.
 				if ( empty( $existing_contact['wp_user_id'] ) ) {
@@ -249,8 +293,10 @@ class BizCity_CRM_Repository {
 			'email'                 => $contact_data['email']      ?? null,
 			'phone'                 => $contact_data['phone']      ?? null,
 			'avatar_url'            => $contact_data['avatar_url'] ?? null,
-			'additional_attributes' => isset( $contact_data['additional_attributes'] ) ? wp_json_encode( $contact_data['additional_attributes'] ) : null,
+			'additional_attributes' => self::contact_attributes_with_name_source( $contact_data ),
 			'wp_user_id'            => $initial_wp_user_id,
+			'acquisition_source'    => ! empty( $contact_data['acquisition_source'] ) ? sanitize_key( (string) $contact_data['acquisition_source'] ) : null,
+			'acquisition_meta_json' => ! empty( $contact_data['acquisition_meta'] ) ? wp_json_encode( $contact_data['acquisition_meta'] ) : null,
 			'created_at'            => $now,
 			'updated_at'            => $now,
 		) );
@@ -283,6 +329,16 @@ class BizCity_CRM_Repository {
 			'contact_id'       => $contact_id,
 			'contact_inbox_id' => $ci_id,
 		);
+	}
+
+	private static function contact_attributes_with_name_source( array $contact_data ) {
+		$attrs = isset( $contact_data['additional_attributes'] ) && is_array( $contact_data['additional_attributes'] )
+			? $contact_data['additional_attributes']
+			: array();
+		if ( ! empty( $contact_data['name_source'] ) ) {
+			$attrs['contact_name_source'] = sanitize_key( (string) $contact_data['name_source'] );
+		}
+		return $attrs ? wp_json_encode( $attrs ) : null;
 	}
 
 	/**
@@ -407,6 +463,14 @@ class BizCity_CRM_Repository {
 		if ( ! empty( $args['inbox_id'] ) ) {
 			$where[]  = 'c.inbox_id = %d';
 			$params[] = (int) $args['inbox_id'];
+		}
+		if ( isset( $args['inbox_ids'] ) && is_array( $args['inbox_ids'] ) ) {
+			$inbox_ids = array_values( array_filter( array_map( 'absint', $args['inbox_ids'] ) ) );
+			if ( empty( $inbox_ids ) ) {
+				return array();
+			}
+			$where[] = 'c.inbox_id IN (' . implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) ) . ')';
+			$params = array_merge( $params, $inbox_ids );
 		}
 		if ( ! empty( $args['status'] ) ) {
 			$where[]  = 'c.status = %s';
@@ -580,6 +644,22 @@ class BizCity_CRM_Repository {
 		return $ok;
 	}
 
+	public static function set_conversation_team( int $conv_id, ?int $team_id, int $by_user_id = 0 ): bool {
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F4 — persist team ownership through the CRM repository and event contract.
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$prev = self::get_conversation( $conv_id );
+		if ( ! $prev ) { return false; }
+		$previous_id = ! empty( $prev['team_id'] ) ? (int) $prev['team_id'] : null;
+		$next_id = $team_id && $team_id > 0 ? (int) $team_id : null;
+		if ( $previous_id === $next_id ) { return true; }
+		$ok = false !== $wpdb->update( $tbl, array( 'team_id' => $next_id, 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $conv_id ), array( $next_id === null ? '%s' : '%d', '%s' ), array( '%d' ) );
+		if ( $ok && class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_team_changed', array( 'conversation_id' => $conv_id, 'previous_team_id' => $previous_id, 'team_id' => $next_id, 'by_user_id' => $by_user_id ?: get_current_user_id() ) );
+		}
+		return $ok;
+	}
+
 	// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — persist priority through the CRM write gate.
 	public static function set_conversation_priority( int $conv_id, int $priority, int $by_user_id = 0 ): bool {
 		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — emit priority only after a real state change.
@@ -697,6 +777,7 @@ class BizCity_CRM_Repository {
 
 		// Emit appropriate event.
 		$event_type = $msg_type === 'outgoing' ? 'crm_message_sent' : 'crm_message_received';
+		// [2026-08-24 Johnny Chu] PHASE-0.39E-D1 — expose the bounded upstream trace on the canonical CRM event.
 		$event_uuid = BizCity_CRM_Event_Emitter::emit( $event_type, array(
 			'message_id'         => $msg_id,
 			'conversation_id'    => $conv_id,
@@ -705,6 +786,7 @@ class BizCity_CRM_Repository {
 			'content_type'       => $row['content_type'],
 			'external_source_id' => $row['external_source_id'],
 			'has_ai_metadata'    => $ai_meta ? true : false,
+			'trace_id'           => substr( sanitize_text_field( (string) ( $data['trace_id'] ?? '' ) ), 0, 128 ),
 		), $data['parent_event_uuid'] ?? null );
 
 		// Backfill event_uuid on the message row (we don't know it until emit).
@@ -720,6 +802,31 @@ class BizCity_CRM_Repository {
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tbl} WHERE id = %d", $id ), ARRAY_A );
 		return $row ?: null;
+	}
+
+	public static function mark_message_archived( int $message_id, string $channel, array $entry, string $key ): bool {
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F2 — mark SQL content archive-ready only after the encrypted file and receipt exist.
+		if ( $message_id <= 0 ) { return false; }
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$account_key = (string) ( $entry['account_key'] ?? '' );
+		$peer_key = (string) ( $entry['peer_key'] ?? '' );
+		$month = gmdate( 'Y-m' );
+		$receipt_table = BizCity_CRM_DB_Installer_V2::tbl_archive_receipts();
+		$receipt_hash = (string) $wpdb->get_var( $wpdb->prepare( "SELECT line_hash FROM `{$receipt_table}` WHERE crm_message_id = %d AND archive_status = %s LIMIT 1", $message_id, 'written' ) );
+		if ( $receipt_hash === '' ) {
+			return false;
+		}
+		return false !== $wpdb->update( $table, array(
+			'content_storage_state' => 'archived',
+			'archive_channel'       => sanitize_key( $channel ),
+			'archive_account_key'   => $account_key,
+			'archive_peer_key'      => $peer_key,
+			'archive_month'         => $month,
+			'archive_receipt_hash'  => $receipt_hash,
+			'archived_at'           => current_time( 'mysql' ),
+			'storage_error_code'    => null,
+		), array( 'id' => $message_id ), array( '%s', '%s', '%s', '%s', '%s', '%s', '%s' ), array( '%d' ) );
 	}
 
 	/** Save a bounded, classified outbound delivery result in payload_json. */
@@ -759,13 +866,34 @@ class BizCity_CRM_Repository {
 			'reason_code' => $reason_code,
 			'updated_at'  => current_time( 'mysql' ),
 		);
-		return false !== $wpdb->update(
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — keep delivery status mutation behind the CRM repository write gate.
+		$updated = false !== $wpdb->update(
 			$tbl,
-			array( 'payload_json' => wp_json_encode( $payload ) ),
+			array(
+				'payload_json' => wp_json_encode( $payload ),
+				'status'       => ! empty( $result['sent'] ) ? 'sent' : 'failed',
+			),
 			array( 'id' => $message_id ),
-			array( '%s' ),
+			array( '%s', '%s' ),
 			array( '%d' )
 		);
+		if ( $updated ) {
+			// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — emit delivery lifecycle after SQL persistence for archive and analytics.
+			$event_uuid = class_exists( 'BizCity_CRM_Event_Emitter' )
+				? BizCity_CRM_Event_Emitter::emit( 'crm_message_delivery_updated', array(
+					'message_id'  => $message_id,
+					'sent'        => ! empty( $result['sent'] ),
+					'platform'    => (string) ( $result['platform'] ?? '' ),
+					'reason_code' => $reason_code,
+				) )
+				: wp_generate_uuid4();
+			do_action( 'bizcity_crm_message_delivery_updated', array(
+				'message_id' => $message_id,
+				'event_uuid' => $event_uuid,
+				'delivery'   => $payload['delivery'],
+			) );
+		}
+		return $updated;
 	}
 
 	/**
@@ -872,8 +1000,56 @@ class BizCity_CRM_Repository {
 			$r['attachments'] = $by_msg[ (int) $r['id'] ] ?? array();
 		}
 		unset( $r );
+		if ( class_exists( 'BizCity_Channel_Conversation_Archive' ) ) {
+			$context = $wpdb->get_row( $wpdb->prepare( "SELECT i.channel_type, i.channel_ref_id, ci.source_id FROM " . BizCity_CRM_DB_Installer_V2::tbl_conversations() . " c JOIN " . BizCity_CRM_DB_Installer_V2::tbl_inboxes() . " i ON i.id = c.inbox_id JOIN " . BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes() . " ci ON ci.id = c.contact_inbox_id WHERE c.id = %d LIMIT 1", $conversation_id ), ARRAY_A );
+			if ( is_array( $context ) ) {
+				foreach ( $rows as &$row ) {
+					if ( (string) ( $row['content_storage_state'] ?? '' ) !== 'offloaded' ) { continue; }
+					$cold = BizCity_Channel_Conversation_Archive::rehydrate_message( (int) $row['id'], (string) $context['channel_type'], (string) $context['channel_ref_id'], (string) $context['source_id'], (string) ( $row['archive_month'] ?? '' ) );
+					if ( is_array( $cold ) ) {
+						$row['content'] = (string) ( $cold['content'] ?? '' );
+						$row['body'] = (string) ( $cold['body'] ?? '' );
+						$row['content_type'] = (string) ( $cold['content_type'] ?? $row['content_type'] );
+						$row['_rehydrated'] = true;
+					}
+				}
+				unset( $row );
+			}
+		}
 
 		return $rows;
+	}
+
+	/** Offload verified archived message content in a bounded maintenance batch. */
+	public static function offload_archived_messages( string $before, int $limit = 100, int $keep_recent = 20 ): int {
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F2 — clear hot content only after receipt verification and never within the recent conversation window.
+		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $before ) ) { return 0; }
+		global $wpdb;
+		$messages = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$receipts = BizCity_CRM_DB_Installer_V2::tbl_archive_receipts();
+		$limit = max( 1, min( 500, $limit ) );
+		$keep_recent = max( 1, min( 100, $keep_recent ) );
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT m.id, m.conversation_id FROM `{$messages}` m JOIN `{$receipts}` r ON r.crm_message_id = m.id AND r.archive_status = 'written' WHERE m.content_storage_state = 'archived' AND m.created_at < %s AND (SELECT COUNT(*) FROM `{$messages}` newer WHERE newer.conversation_id = m.conversation_id AND (newer.created_at > m.created_at OR (newer.created_at = m.created_at AND newer.id > m.id))) >= %d ORDER BY m.id ASC LIMIT %d",
+			$before, $keep_recent, $limit
+		), ARRAY_A );
+		$offloaded = 0;
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$updated = $wpdb->update( $messages, array(
+				'content'              => null,
+				'body'                 => null,
+				'payload_json'         => null,
+				'content_storage_state' => 'offloaded',
+				'offloaded_at'         => current_time( 'mysql' ),
+			), array( 'id' => (int) $row['id'], 'content_storage_state' => 'archived' ), array( '%s', '%s', '%s', '%s', '%s' ), array( '%d', '%s' ) );
+			if ( false !== $updated && $updated > 0 ) {
+				$offloaded++;
+				if ( class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
+					BizCity_CRM_Event_Emitter::emit( 'crm_message_offloaded', array( 'message_id' => (int) $row['id'], 'conversation_id' => (int) $row['conversation_id'] ) );
+				}
+			}
+		}
+		return $offloaded;
 	}
 
 	/* ============================================================

@@ -16,9 +16,12 @@ class BizCity_CRM_Capabilities {
 	const CAP_HANDLE_INBOX  = 'bizcity_crm_handle_inbox';
 	const CAP_MANAGE_RULES  = 'bizcity_crm_manage_rules';
 	const CAP_VIEW_REPORTS  = 'bizcity_crm_view_reports';
+	const CAP_MANAGE_TEAMS  = 'bizcity_crm_manage_teams';
+	const CAP_ASSIGN_CONVERSATIONS = 'bizcity_crm_assign_conversations';
+	const CAP_MANAGE_ASSIGNMENT_POLICY = 'bizcity_crm_manage_assignment_policy';
 
 	const SIGNATURE_OPTION  = 'bizcity_crm_caps_signature';
-	const SIGNATURE_VERSION = '0.35.1';
+	const SIGNATURE_VERSION = '0.39F.1';
 
 	/**
 	 * Mapping role => caps. administrator gets all; editor handles inbox + reports.
@@ -27,8 +30,8 @@ class BizCity_CRM_Capabilities {
 	 */
 	public static function map(): array {
 		return array(
-			'administrator' => array( self::CAP_HANDLE_INBOX, self::CAP_MANAGE_RULES, self::CAP_VIEW_REPORTS ),
-			'editor'        => array( self::CAP_HANDLE_INBOX, self::CAP_VIEW_REPORTS ),
+			'administrator' => array( self::CAP_HANDLE_INBOX, self::CAP_MANAGE_RULES, self::CAP_VIEW_REPORTS, self::CAP_MANAGE_TEAMS, self::CAP_ASSIGN_CONVERSATIONS, self::CAP_MANAGE_ASSIGNMENT_POLICY ),
+			'editor'        => array( self::CAP_HANDLE_INBOX, self::CAP_VIEW_REPORTS, self::CAP_MANAGE_TEAMS, self::CAP_ASSIGN_CONVERSATIONS, self::CAP_MANAGE_ASSIGNMENT_POLICY ),
 		);
 	}
 
@@ -62,7 +65,7 @@ class BizCity_CRM_Capabilities {
 	 * Remove caps (called on plugin deactivation if desired — currently unused).
 	 */
 	public static function revoke_all(): void {
-		$all_caps = array( self::CAP_HANDLE_INBOX, self::CAP_MANAGE_RULES, self::CAP_VIEW_REPORTS );
+		$all_caps = array( self::CAP_HANDLE_INBOX, self::CAP_MANAGE_RULES, self::CAP_VIEW_REPORTS, self::CAP_MANAGE_TEAMS, self::CAP_ASSIGN_CONVERSATIONS, self::CAP_MANAGE_ASSIGNMENT_POLICY );
 		foreach ( wp_roles()->roles as $role_slug => $_ ) {
 			$role = get_role( $role_slug );
 			if ( ! $role ) { continue; }
@@ -82,7 +85,7 @@ class BizCity_CRM_Capabilities {
 	 */
 	public static function snapshot(): array {
 		$out  = array();
-		$caps = array( self::CAP_HANDLE_INBOX, self::CAP_MANAGE_RULES, self::CAP_VIEW_REPORTS );
+		$caps = array( self::CAP_HANDLE_INBOX, self::CAP_MANAGE_RULES, self::CAP_VIEW_REPORTS, self::CAP_MANAGE_TEAMS, self::CAP_ASSIGN_CONVERSATIONS, self::CAP_MANAGE_ASSIGNMENT_POLICY );
 		foreach ( array( 'administrator', 'editor', 'author', 'subscriber' ) as $role_slug ) {
 			$role = get_role( $role_slug );
 			if ( ! $role ) { continue; }

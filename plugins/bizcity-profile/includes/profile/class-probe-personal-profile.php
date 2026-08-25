@@ -42,19 +42,20 @@ final class BizCity_Probe_Personal_Profile implements BizCity_Diagnostics_Probe 
 		);
 		if ( ! $disk_ok ) { $pass = false; }
 
-		$loader_ok = class_exists( 'BizCity_Personal_Installer' )
+		$schema_version_ok = class_exists( 'BizCity_Personal_Installer' )
 			&& defined( 'BizCity_Personal_Installer::SCHEMA_VERSION' )
-			&& BizCity_Personal_Installer::SCHEMA_VERSION === '1.5.0'
-			&& class_exists( 'BizCity_Personal_Profile_REST' )
-			&& method_exists( 'BizCity_Personal_Profile_REST', 'register_routes' )
-			&& class_exists( 'BizCity_Personal_Profile_Analytics' )
-			&& class_exists( 'BizCity_Personal_Profile_Channel_Resolver' )
-			&& class_exists( 'BizCity_Personal_Profile_Chat_Handler' )
-			&& class_exists( 'BizCity_TwinBrain_Adapter_WebChat' );
+			&& version_compare( BizCity_Personal_Installer::SCHEMA_VERSION, '1.5.1', '>=' );
+		$loader_missing = array();
+		if ( ! $schema_version_ok ) { $loader_missing[] = 'schema>=' . '1.5.1'; }
+		foreach ( array( 'BizCity_Personal_Profile_REST', 'BizCity_Personal_Profile_Analytics', 'BizCity_Personal_Profile_Channel_Resolver', 'BizCity_Personal_Profile_Chat_Handler', 'BizCity_TwinBrain_Adapter_WebChat' ) as $required_class ) {
+			if ( ! class_exists( $required_class ) ) { $loader_missing[] = $required_class; }
+		}
+		if ( class_exists( 'BizCity_Personal_Profile_REST' ) && ! method_exists( 'BizCity_Personal_Profile_REST', 'register_routes' ) ) { $loader_missing[] = 'BizCity_Personal_Profile_REST::register_routes'; }
+		$loader_ok = empty( $loader_missing );
 		$steps[] = array(
 			'label' => 'Loader · Profile classes and schema version',
 			'status' => $loader_ok ? 'pass' : 'fail',
-			'detail' => $loader_ok ? 'Shared installer 1.5.0, Profile REST, and WebChat TwinBrain adapter are loaded.' : 'Profile foundation or WebChat adapter classes are incomplete.',
+			'detail' => $loader_ok ? 'Shared installer ' . BizCity_Personal_Installer::SCHEMA_VERSION . ', Profile REST, and WebChat TwinBrain adapter are loaded.' : 'Missing loader contracts: ' . implode( ', ', $loader_missing ),
 		);
 		if ( ! $loader_ok ) { $pass = false; }
 

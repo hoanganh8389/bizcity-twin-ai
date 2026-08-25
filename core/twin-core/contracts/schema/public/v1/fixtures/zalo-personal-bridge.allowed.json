@@ -1,0 +1,33 @@
+{
+  "contract": "zalo-personal-bridge",
+  "version": "1.0.0",
+  "scenario": "allowed",
+  "request": {
+    "surface": "channel-gateway",
+    "domain": "mrodemo.btnet.vn",
+    "blog_id": 742,
+    "shard": "slave_1",
+    "key_id": 59,
+    "allowed_domain": "mrodemo.btnet.vn",
+    "callback_host": "mrodemo.btnet.vn"
+  },
+  "entitlement": {
+    "allowed": true,
+    "account_limit": -1,
+    "accounts_used": 0,
+    "accounts_remaining": -1,
+    "source": "exact_api_key"
+  },
+  "account": {
+    "id": "managed-account-fixture",
+    "connected_at": "2026-08-22T12:00:00Z",
+    "mode": "managed_1api",
+    "callback_verified": true
+  },
+  "outcome": {
+    "sidecar_called": true,
+    "mapping_persisted": true,
+    "crm_inbox_persisted": true,
+    "result": "success"
+  }
+}

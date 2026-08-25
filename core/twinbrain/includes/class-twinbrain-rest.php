@@ -274,6 +274,10 @@ class BizCity_TwinBrain_REST {
 		}
 		// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — resolve / mint session.
 		$session_id = $this->resolve_session_id( $req, get_current_user_id() );
+		$notebook_upload_url = admin_url( 'admin.php?page=bizcity-twinchat' );
+		if ( $focus_notebook_id > 0 ) {
+			$notebook_upload_url = add_query_arg( 'notebook_id', $focus_notebook_id, $notebook_upload_url );
+		}
 		$opts = [
 			'user_id'          => get_current_user_id(),
 			'k'                => $req->get_param( 'k' ) ?: BIZCITY_TWINBRAIN_K_DEFAULT,
@@ -285,6 +289,7 @@ class BizCity_TwinBrain_REST {
 			// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — propagate synchronous vertical mode to runtime.
 			'web_mode'         => $this->sanitize_web_mode( $req->get_param( 'web_mode' ) ),
 			'session_id'       => $session_id,
+			'notebook_upload_url' => esc_url_raw( $notebook_upload_url ),
 		];
 		if ( $focus_notebook_id > 0 ) {
 			$opts['force_notebooks'] = array( $focus_notebook_id );
@@ -330,6 +335,7 @@ class BizCity_TwinBrain_REST {
 					'ambiguous_no_goal'          => ! empty( $start['ambiguous_no_goal'] ),
 					// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — preserve vertical mode during synchronous completion.
 					'web_mode'                   => (string) ( $opts['web_mode'] ?? 'off' ),
+					'notebook_upload_url'        => (string) ( $opts['notebook_upload_url'] ?? '' ),
 				)
 			);
 			return rest_ensure_response( array_merge( $start, $done, [ 'session_id' => $session_id ] ) );
@@ -363,6 +369,10 @@ class BizCity_TwinBrain_REST {
 			$focus_policy = (string) ( $focus_check['policy'] ?? '' );
 		}
 
+		$notebook_upload_url = admin_url( 'admin.php?page=bizcity-twinchat' );
+		if ( $focus_notebook_id > 0 ) {
+			$notebook_upload_url = add_query_arg( 'notebook_id', $focus_notebook_id, $notebook_upload_url );
+		}
 		$opts = [
 			'user_id'          => get_current_user_id(),
 			'k'                => $req->get_param( 'k' ) ?: BIZCITY_TWINBRAIN_K_DEFAULT,
@@ -378,6 +388,7 @@ class BizCity_TwinBrain_REST {
 			'mode'             => $this->sanitize_mode( $req->get_param( 'mode' ) ),
 			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — resolve / mint session.
 			'session_id'       => $this->resolve_session_id( $req, get_current_user_id() ),
+			'notebook_upload_url' => esc_url_raw( $notebook_upload_url ),
 		];
 		if ( $focus_notebook_id > 0 ) {
 			$opts['force_notebooks'] = array( $focus_notebook_id );
@@ -394,9 +405,12 @@ class BizCity_TwinBrain_REST {
 		$confirm_key = 'twinchat:' . (int) get_current_blog_id() . ':' . (int) ( $opts['user_id'] ?? 0 ) . ':' . (string) ( $opts['session_id'] ?? '' );
 		$skill = trim( (string) $req->get_param( 'skill' ) );
 		$confirmation_result = array( 'status' => 'none' );
+		$deep_research_confirmation = false;
 		if ( class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' )
 			&& class_exists( 'BizCity_TwinBrain_Conversation_Router' )
-			&& BizCity_TwinBrain_Conversation_Router::SPECIALIZED_ROUTING_ENABLED ) {
+			&& ( BizCity_TwinBrain_Conversation_Router::SPECIALIZED_ROUTING_ENABLED
+				|| BizCity_TwinBrain_Conversation_Confirmation::is_deep_research_offer( $confirm_key ) ) ) {
+			$deep_research_confirmation = BizCity_TwinBrain_Conversation_Confirmation::is_deep_research_offer( $confirm_key );
 			// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — pending confirmation takes precedence over stale sticky Skill UI state.
 			$confirmation_result = BizCity_TwinBrain_Conversation_Confirmation::consume( $confirm_key, $prompt );
 			if ( in_array( (string) ( $confirmation_result['status'] ?? '' ), array( 'confirmed', 'invalid' ), true ) ) {
@@ -444,6 +458,17 @@ class BizCity_TwinBrain_REST {
 		}
 
 		$sse = new BizCity_Twin_SSE_Writer( true );
+		if ( $deep_research_confirmation && ( $confirmation_result['status'] ?? '' ) === 'confirmed'
+			&& ( $confirmation_result['decision']['reason'] ?? '' ) === 'deep_research_declined' ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — a decline is terminal acknowledgment, never a duplicate rerun of the original question.
+			$decline_trace_id = 'tb_' . wp_generate_uuid4();
+			$decline_text = 'Được, mình giữ câu trả lời tham khảo hiện tại và chưa chuyển sang Deep Research.';
+			$sse->emit( 'started', array( 'trace_id' => $decline_trace_id, 'session_id' => (string) $opts['session_id'] ) );
+			$sse->emit( 'final_token', array( 'trace_id' => $decline_trace_id, 'delta' => $decline_text ) );
+			$sse->emit( 'final_done', array( 'trace_id' => $decline_trace_id, 'answer_md' => $decline_text, 'tokens' => 0, 'model' => '', 'success' => true, 'fallback' => 'deep_research_declined' ) );
+			$sse->close( array( 'trace_id' => $decline_trace_id, 'deep_research_declined' => true ) );
+			exit;
+		}
 
 		// [2026-08-16 Johnny Chu] CCG-5 — exact #workflow_slug bypasses MPR/skill routing and reuses Automation Runner.
 		if ( class_exists( 'BizCity_Automation_Command_Resolver' )
@@ -475,12 +500,12 @@ class BizCity_TwinBrain_REST {
 				$sse->emit( 'started', array( 'trace_id' => $trace_id, 'session_id' => (string) $opts['session_id'] ) );
 				$sse->emit( 'conversation_confirm_prompt', array(
 					'trace_id' => $trace_id,
-					'message'  => 'Sếp trả lời "Có" để dùng nguồn chuyên gia, hoặc "Không" để em trả lời chung nhé.',
+					'message'  => $deep_research_confirmation ? 'Sếp trả lời "Có" để chuyển sang Deep Research, hoặc "Không" để em giữ câu trả lời hiện tại nhé.' : 'Sếp trả lời "Có" để dùng nguồn chuyên gia, hoặc "Không" để em trả lời chung nhé.',
 					'route'    => 'notebook',
 					'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL,
 				) );
 				BizCity_TwinBrain_Conversation_Confirmation::dispatch_prompt(
-					array( 'trace_id' => $trace_id, 'message' => 'Sếp trả lời "Có" để dùng nguồn chuyên gia, hoặc "Không" để em trả lời chung nhé.', 'route' => 'notebook', 'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL ),
+					array( 'trace_id' => $trace_id, 'message' => $deep_research_confirmation ? 'Sếp trả lời "Có" để chuyển sang Deep Research, hoặc "Không" để em giữ câu trả lời hiện tại nhé.' : 'Sếp trả lời "Có" để dùng nguồn chuyên gia, hoặc "Không" để em trả lời chung nhé.', 'route' => $deep_research_confirmation ? 'vertical' : 'notebook', 'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL ),
 					array( 'event_source' => 'twinbrain', 'session_id' => (string) $opts['session_id'], 'user_id' => (int) $opts['user_id'] )
 				);
 				$sse->close( array() );
@@ -654,8 +679,36 @@ class BizCity_TwinBrain_REST {
 					'memory_block'   => (string) ( $start['memory_block']   ?? '' ),
 					'user_id'        => (int)    ( $opts['user_id']        ?? 0 ),
 					'session_id'     => (string) ( $opts['session_id']     ?? '' ),
+					'notebook_upload_url' => (string) ( $opts['notebook_upload_url'] ?? '' ),
 				)
 			);
+			if ( ! empty( $done['deep_research_offer'] ) && class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' ) ) {
+				// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — offer Deep Research only after the current Notebook/MPR answer has completed.
+				$deep_decision = array(
+					'offer_type'        => 'deep_research',
+					'route'             => 'vertical',
+					'web_mode'          => 'deep',
+					'candidate_vertical'=> 'deep',
+					'reason'            => 'evidence_fallback_offer',
+					'needs_confirm'     => true,
+				);
+				if ( BizCity_TwinBrain_Conversation_Confirmation::begin( $confirm_key, $prompt, $deep_decision ) ) {
+					$offer_message = 'Bạn có muốn mình chuyển sang chế độ Deep Research để tìm thêm thông tin mới nhất không?';
+					$sse->emit( 'conversation_confirm_prompt', array(
+						'trace_id' => $trace_id,
+						'message' => $offer_message,
+						'route' => 'vertical',
+						'candidate_vertical' => 'deep',
+						'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL,
+					) );
+					BizCity_TwinBrain_Conversation_Confirmation::dispatch_prompt( array(
+						'trace_id' => $trace_id,
+						'message' => $offer_message,
+						'route' => 'vertical',
+						'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL,
+					), array( 'event_source' => 'twinbrain', 'session_id' => (string) $opts['session_id'], 'user_id' => (int) $opts['user_id'] ) );
+				}
+			}
 
 			$sse->close( array_merge(
 				[ 'trace_id' => $trace_id ],

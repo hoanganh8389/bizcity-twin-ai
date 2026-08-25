@@ -81,11 +81,12 @@ class BizCity_LLM_Client {
     /**
      * API key — gateway key in gateway mode, OpenRouter key in direct mode.
      */
-    public function get_api_key(): string {
+    public function get_api_key( bool $allow_main_site_fallback = true ): string {
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option, not network-wide
         // [2026-06-24 Johnny Chu] HOTFIX-MULTISITE — fallback to main site option when sub-site key is empty
         $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
-        if ( $key === '' && is_multisite() && get_current_blog_id() !== get_main_site_id() ) {
+        // [2026-08-22 Johnny Chu] R-B2B2C — managed tenant capabilities must use an explicit key from the current blog.
+        if ( $allow_main_site_fallback && $key === '' && is_multisite() && get_current_blog_id() !== get_main_site_id() ) {
             switch_to_blog( get_main_site_id() );
             $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
             restore_current_blog();
@@ -605,11 +606,13 @@ class BizCity_LLM_Client {
      * Caches full plan data as site_options so settings page can render
      * plan card without a live round-trip every page load.
      *
-     * @param array $options { timeout?: int, force_refresh?: bool }
+    * @param array $options { timeout?: int, force_refresh?: bool, allow_main_site_fallback?: bool }
      * @return array|WP_Error
      */
     public function get_plan_config( array $options = [] ) {
-        $api_key = $this->get_api_key();
+        // [2026-08-22 Johnny Chu] R-B2B2C — managed client capability checks require the explicit current-blog key.
+        $allow_main_site_fallback = ! array_key_exists( 'allow_main_site_fallback', $options ) || ! empty( $options['allow_main_site_fallback'] );
+        $api_key = $this->get_api_key( $allow_main_site_fallback );
         if ( $api_key === '' ) {
             return new WP_Error( 'no_api_key', 'BizCity API key not configured.', [ 'status' => 503 ] );
         }
@@ -777,6 +780,46 @@ class BizCity_LLM_Client {
         }
 
         return $decoded;
+    }
+
+    /**
+     * Fetch the public Hub Master Plan catalog through the canonical client boundary.
+     * This catalog describes available plans; it does not authorize the current key.
+     *
+     * @param array $options { timeout?: int }
+     * @return array|WP_Error
+     */
+    public function get_master_plans( array $options = [] ) {
+        // [2026-08-22 Johnny Chu] R-GW-API-CATALOG/R-B2B2C — centralize Master Plan catalog access; entitlement remains get_plan_config().
+        $timeout = isset( $options['timeout'] ) ? max( 5, (int) $options['timeout'] ) : 10;
+        $url     = rtrim( $this->get_gateway_url(), '/' ) . '/wp-json/bizcity/v1/master/plans';
+        $headers = array( 'Accept' => 'application/json' );
+        $api_key = $this->get_api_key( false );
+        if ( $api_key !== '' ) {
+            $headers['Authorization'] = 'Bearer ' . $api_key;
+        }
+
+        $response = wp_remote_get( $url, array(
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => $headers,
+        ) );
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $status  = (int) wp_remote_retrieve_response_code( $response );
+        $decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+        if ( $status < 200 || $status >= 300 ) {
+            return new WP_Error( 'master_plans_upstream_error', 'Master Plan catalog unavailable.', array( 'status' => $status ) );
+        }
+        if ( is_array( $decoded ) && isset( $decoded['plans'] ) && is_array( $decoded['plans'] ) ) {
+            return array_values( $decoded['plans'] );
+        }
+        if ( is_array( $decoded ) && isset( $decoded[0] ) ) {
+            return array_values( $decoded );
+        }
+        return new WP_Error( 'master_plans_decode_failed', 'Invalid Master Plan catalog response.', array( 'status' => 502 ) );
     }
 
     /* ================================================================
@@ -3150,8 +3193,8 @@ class BizCity_LLM_Client {
      * @param string $method   'GET' or 'DELETE'.
      * @param int    $timeout  Seconds.
      */
-    public function gateway_get( string $path, array $query = [], string $method = 'GET', int $timeout = 10 ) {
-        $api_key = $this->get_api_key();
+    public function gateway_get( string $path, array $query = [], string $method = 'GET', int $timeout = 10, bool $allow_main_site_fallback = true ) {
+        $api_key = $this->get_api_key( $allow_main_site_fallback );
         if ( $api_key === '' ) {
             return [ 'ok' => false, 'error' => 'no_api_key', '_degraded' => true ];
         }
@@ -3194,8 +3237,8 @@ class BizCity_LLM_Client {
      * @param array  $body    JSON body.
      * @param int    $timeout Seconds.
      */
-    public function gateway_post( string $path, array $body = [], int $timeout = 10 ) {
-        $api_key = $this->get_api_key();
+    public function gateway_post( string $path, array $body = [], int $timeout = 10, bool $allow_main_site_fallback = true ) {
+        $api_key = $this->get_api_key( $allow_main_site_fallback );
         if ( $api_key === '' ) {
             return [ 'ok' => false, 'error' => 'no_api_key', '_degraded' => true ];
         }

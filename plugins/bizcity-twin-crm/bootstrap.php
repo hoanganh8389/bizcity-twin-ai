@@ -180,6 +180,15 @@ final class BizCity_CRM_Plugin {
 		if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
 			require_once $inc . 'class-bizcity-channel-logger.php';
 		}
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — CRM events must reach the encrypted Personal conversation archive even when Gateway loads later.
+		$conversation_archive = dirname( dirname( BIZCITY_CRM_DIR ) ) . '/core/channel-gateway/includes/class-channel-conversation-archive.php';
+		if ( ! class_exists( 'BizCity_Channel_Conversation_Archive', false ) && is_readable( $conversation_archive ) ) {
+			require_once $conversation_archive;
+		}
+		// [2026-08-22 Johnny Chu] R-DDV-LOADER — explicitly register archive hooks after require_once in standalone CRM load order.
+		if ( class_exists( 'BizCity_Channel_Conversation_Archive' ) && method_exists( 'BizCity_Channel_Conversation_Archive', 'register' ) ) {
+			BizCity_Channel_Conversation_Archive::register();
+		}
 
 		// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — the compatibility
 		// mu-plugin can load BizCity_Knowledge_Database first, causing the full
@@ -205,8 +214,16 @@ final class BizCity_CRM_Plugin {
 		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — load maintenance backfill service without running it.
 		require_once $inc . 'woo/migrations/class-contacts-unify-backfill.php';
 		require_once $inc . 'class-capabilities.php';
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — load account-backed CRM inbox policy before REST routes.
+		require_once $inc . 'class-inbox-access.php';
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F5 — load policy-driven fair assignment before CRM REST routes.
+		require_once $inc . 'class-assignment-manager.php';
 		require_once $inc . 'class-event-emitter.php';
 		require_once $inc . 'class-repository.php';
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F4-F5 — load tenant-local Teams, Inbox Members and assignment eligibility before REST consumers.
+		require_once $inc . 'class-team-manager.php';
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — load read-only Kanban projections after repository ownership is available.
+		require_once $inc . 'class-kanban-manager.php';
 		// [2026-08-04 Johnny Chu] PHASE-0.48-H6 — load the whitelist CSV export helper before REST routes.
 		require_once $inc . 'class-crm-export.php';
 		// M-CRM.M1.W3 — Audit log (v1.17.0)
@@ -221,6 +238,8 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		// (Google tool bridge KHÔNG phải inbox-channel → vẫn ở bridges/.)
 		require_once $inc . 'inbox/interface-channel-adapter.php';
 		require_once $inc . 'inbox/class-adapter-base.php';
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — load the canonical cross-channel contract before adapters.
+		require_once $inc . 'inbox/class-channel-contract.php';
 		require_once $inc . 'inbox/class-channel-registry.php';
 
 		// Bot-plugin bridges (M7.W5.task-1) — adapters call these instead of
@@ -233,6 +252,8 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'inbox/adapters/class-adapter-zalo.php';
 		// [2026-07-06 Johnny Chu] PHASE-0.39 GURU-BIND HOTFIX — load Zalo OA adapter so waic_twf_process_flow('bizcity_zalo_oa_message_received') can ingest into CRM.
 		require_once $inc . 'inbox/adapters/class-adapter-zalo-oa.php';
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — load the separate Personal customer-care adapter.
+		require_once $inc . 'inbox/adapters/class-adapter-zalo-personal.php';
 		require_once $inc . 'inbox/adapters/class-adapter-instagram.php';
 		require_once $inc . 'inbox/adapters/class-adapter-whatsapp-cloud.php';
 		require_once $inc . 'inbox/adapters/class-adapter-telegram.php';
@@ -326,6 +347,9 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'reports/class-report-builder.php';
 		require_once $inc . 'reports/class-daily-rollup.php';
 		require_once $inc . 'reports/class-csat-survey.php';
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-F3 — content-free reporting facts and daily rollups for message-growth-safe dashboards.
+		require_once $inc . 'reports/class-reporting-rollup.php';
+		BizCity_CRM_Reporting_Rollup::register();
 
 		// PHASE 0.35 M-Bridge.W1 — Inbox → CRM activity logger (chat session → task).
 		require_once $inc . 'bridge/class-inbox-to-crm-bridge.php';
@@ -491,6 +515,9 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 			// [2026-07-06 Johnny Chu] PHASE-0.39 GURU-BIND HOTFIX — register dedicated Zone-1 Zalo OA adapter (code=zalo_oa).
 			if ( ! isset( $adapters['zalo_oa'] ) && class_exists( 'BizCity_CRM_Adapter_ZaloOA' ) ) {
 				$adapters['zalo_oa'] = new BizCity_CRM_Adapter_ZaloOA();
+			}
+			if ( ! isset( $adapters['zalo_personal'] ) && class_exists( 'BizCity_CRM_Adapter_ZaloPersonal' ) ) {
+				$adapters['zalo_personal'] = new BizCity_CRM_Adapter_ZaloPersonal();
 			}
 			if ( ! isset( $adapters['instagram'] ) && class_exists( 'BizCity_CRM_Adapter_Instagram' ) ) {
 				$adapters['instagram'] = new BizCity_CRM_Adapter_Instagram();

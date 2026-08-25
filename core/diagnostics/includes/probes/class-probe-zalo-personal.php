@@ -1,15 +1,14 @@
 <?php
 /**
- * Probe: Zalo Personal & OA Channel Gateway (Phase 0.39).
+ * Probe: Zalo Personal Channel Gateway (Phase 0.39).
  *
- * 8 DDV rows (R-DDV bắt buộc) với 3 layer mỗi row:
+ * Personal-only DDV rows (R-DDV bắt buộc) với 3 layer mỗi row:
  *
  *   zp.bridge.health         — Disk: class exists | Loader: bootstrap loaded | Runtime: /health reachable
- *   zp.filter.catalog        — Disk: filter code | Loader: filter attached | Runtime: catalog có 2 tiles
- *   zp.integration.registered— Disk: 2 class exists | Loader: registry loaded | Runtime: registry->get
+ *   zp.filter.catalog        — Disk: filter code | Loader: filter attached | Runtime: catalog có Personal tile
+ *   zp.integration.registered— Disk: Personal class exists | Loader: registry loaded | Runtime: registry->get
  *   zp.inbound.bridge        — Disk: emitter exists | Loader: hook attached | Runtime: synthetic event shape
- *   zp.schema.tables         — Disk: changelog JSON | Loader: installer class | Runtime: 3 bảng tồn tại
- *   zp.oa.window             — Disk: window repo | Loader: — | Runtime: is_oa_window_open() logic
+ *   zp.schema.tables         — Disk: changelog JSON | Loader: installer class | Runtime: Personal tables tồn tại
  *   zp.zone.isolation        — Disk: emitter code | Loader: guard attached | Runtime: platform discriminator
  *   zp.test.connection       — Disk: rest+hook-log files | Loader: REST class + route | Runtime: test_connection() real-call
  *
@@ -18,7 +17,7 @@
  * @since      PHASE-0.39 (2026-06-07)
  */
 
-// [2026-06-07 Johnny Chu] PHASE-0.39 — DDV 7-row probe (R-DDV bắt buộc)
+// [2026-06-07 Johnny Chu] PHASE-0.39 — DDV Personal probe (R-DDV bắt buộc)
 defined( 'ABSPATH' ) || exit;
 
 if ( class_exists( 'BizCity_Probe_Zalo_Personal' ) ) { return; }
@@ -26,8 +25,8 @@ if ( class_exists( 'BizCity_Probe_Zalo_Personal' ) ) { return; }
 final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 
 	public function id(): string          { return 'modules.zalo-personal'; }
-	public function label(): string       { return 'Zalo Personal & OA Channel Gateway (Phase 0.39)'; }
-	public function description(): string { return '8 DDV rows: bridge health, catalog filter, integration registry, inbound emitter, schema tables, OA window, zone isolation, test-connection + hook-log.'; }
+	public function label(): string       { return 'Zalo Personal Channel Gateway (Phase 0.39)'; }
+	public function description(): string { return 'Personal-only DDV rows: bridge health, managed/custom mode, Personal catalog filter, Personal integration registry, inbound emitter, Personal schema tables, zone isolation, test-connection + hook-log, encrypted conversation archive, bounded archive rows, Twin GPT owner boundary, archive lifecycle APIs, Personal CRM projection routes, Personal CRM send boundary, archive retention hook, archive maintenance REST.'; }
 	public function severity(): string    { return 'warning'; }
 	public function order(): int          { return 45; }
 	public function icon(): string        { return 'message-square'; }
@@ -42,16 +41,112 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 		return true;
 	}
 
+	// [2026-08-22 Johnny Chu] R-DDV-TRACE — emit safe stage/row evidence for modules.zalo-personal failures.
+	private function trace( string $event, array $fields = array() ): void {
+		$safe = array(
+			'blog_id' => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
+		);
+		foreach ( $fields as $key => $value ) {
+			if ( is_scalar( $value ) || null === $value ) {
+				$safe[ sanitize_key( (string) $key ) ] = $value;
+			} elseif ( is_array( $value ) ) {
+				$safe[ sanitize_key( (string) $key ) . '_count' ] = count( $value );
+			}
+		}
+		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $safe ) : json_encode( $safe );
+		error_log( '[BIZCITY_DIAG][modules.zalo-personal] ' . $event . ' ' . (string) $json );
+	}
+
 	public function run( $ctx ): array {
 		$rows = array();
 		$pass = true;
 
 		$plugin_dir  = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcity-zalo-personal/';
-		// [2026-07-11 Johnny Chu] PHASE-0.39 HOTFIX — plugin includes moved to {shared,personal,oa} subfolders.
+		// [2026-07-11 Johnny Chu] PHASE-0.39 HOTFIX — Personal includes moved to shared/personal subfolders.
 		$inc_shared  = $plugin_dir . 'includes/shared/';
 		$inc_personal = $plugin_dir . 'includes/personal/';
-		$inc_oa      = $plugin_dir . 'includes/oa/';
 		$changelog   = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/diagnostics/changelog/modules.zalo-personal.json';
+		$this->trace( 'run_start', array(
+			'plugin_dir_present' => is_dir( $plugin_dir ),
+			'bridge_dir_present' => is_dir( $inc_shared ),
+		) );
+
+		try {
+
+		// [2026-08-22 Johnny Chu] PHASE-0.39C-C0 — validate the registered B2B2C route fixture matrix before runtime waves.
+		$contract_dir = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/twin-core/contracts/schema/public/v1/';
+		$fixture_files = array(
+			'zalo-personal-bridge.allowed.json',
+			'zalo-personal-bridge.denied-no-domain.json',
+			'zalo-personal-bridge.denied-domain-mismatch.json',
+			'zalo-personal-bridge.denied-capacity-zero.json',
+			'zalo-personal-bridge.mapping-fail.json',
+			'zalo-personal-bridge.invalid.json',
+		);
+		$schema_file = $contract_dir . 'zalo-personal-bridge.schema.json';
+		$all_fixture_files_present = file_exists( $schema_file );
+		foreach ( $fixture_files as $fixture_file ) {
+			if ( ! file_exists( $contract_dir . 'fixtures/' . $fixture_file ) ) {
+				$all_fixture_files_present = false;
+			}
+		}
+		if ( ! $all_fixture_files_present ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.c0.contract — Disk: schema + fixture matrix',
+			'status' => $all_fixture_files_present ? 'pass' : 'fail',
+			'detail' => $all_fixture_files_present ? 'Managed Zalo bridge schema and six registered fixtures exist.' : 'Missing C0 schema or fixture file.',
+		);
+
+		$catalog_file = $contract_dir . 'contract-catalog.json';
+		$catalog = file_exists( $catalog_file ) ? json_decode( (string) file_get_contents( $catalog_file ), true ) : array();
+		$catalog_entry = null;
+		foreach ( (array) ( $catalog['contracts'] ?? array() ) as $contract ) {
+			if ( is_array( $contract ) && (string) ( $contract['id'] ?? '' ) === 'zalo-personal-bridge' ) {
+				$catalog_entry = $contract;
+				break;
+			}
+		}
+		$catalog_ok = is_array( $catalog_entry )
+			&& (string) ( $catalog_entry['schema'] ?? '' ) === 'zalo-personal-bridge.schema.json'
+			&& count( (array) ( $catalog_entry['fixtures']['additional_valid'] ?? array() ) ) === 4;
+		if ( ! $catalog_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.c0.contract — Loader: contract catalog registration',
+			'status' => $catalog_ok ? 'pass' : 'fail',
+			'detail' => $catalog_ok ? 'zalo-personal-bridge is registered with four additional scenario fixtures.' : 'Contract catalog entry or additional fixture registration is incomplete.',
+		);
+
+		$c0_runtime_ok = $all_fixture_files_present;
+		$c0_scenarios = array( 'allowed', 'denied_no_domain', 'denied_domain_mismatch', 'denied_capacity_zero', 'mapping_failure' );
+		foreach ( $c0_scenarios as $scenario ) {
+			$fixture_path = $contract_dir . 'fixtures/zalo-personal-bridge.' . str_replace( array( 'denied_no_domain', 'denied_domain_mismatch', 'denied_capacity_zero', 'mapping_failure' ), array( 'denied-no-domain', 'denied-domain-mismatch', 'denied-capacity-zero', 'mapping-fail' ), $scenario ) . '.json';
+			$fixture = file_exists( $fixture_path ) ? json_decode( (string) file_get_contents( $fixture_path ), true ) : null;
+			if ( ! is_array( $fixture ) || (string) ( $fixture['scenario'] ?? '' ) !== $scenario ) {
+				$c0_runtime_ok = false;
+				continue;
+			}
+			$request = is_array( $fixture['request'] ?? null ) ? $fixture['request'] : array();
+			$entitlement = is_array( $fixture['entitlement'] ?? null ) ? $fixture['entitlement'] : array();
+			$outcome = is_array( $fixture['outcome'] ?? null ) ? $fixture['outcome'] : array();
+			$allowed = ! empty( $entitlement['allowed'] );
+			$sidecar_called = ! empty( $outcome['sidecar_called'] );
+			// [2026-08-23 Johnny Chu] PHASE-0.39D — entitlement may be allowed while domain policy denies the request.
+			if ( $scenario === 'allowed' ) {
+				$c0_runtime_ok = $c0_runtime_ok && $allowed && (int) ( $entitlement['account_limit'] ?? 0 ) === -1 && (string) ( $request['domain'] ?? '' ) === (string) ( $request['allowed_domain'] ?? '' ) && $sidecar_called;
+			} elseif ( $scenario === 'mapping_failure' ) {
+				$c0_runtime_ok = $c0_runtime_ok && $allowed && $sidecar_called && empty( $outcome['mapping_persisted'] ) && (string) ( $fixture['error']['reason_bucket'] ?? '' ) === 'tenant_mapping_failed';
+			} elseif ( in_array( $scenario, array( 'denied_no_domain', 'denied_domain_mismatch' ), true ) ) {
+				$c0_runtime_ok = $c0_runtime_ok && $allowed && ! $sidecar_called && ! empty( $fixture['error']['code'] ) && ! empty( $fixture['error']['reason_bucket'] );
+			} else {
+				$c0_runtime_ok = $c0_runtime_ok && ! $allowed && ! $sidecar_called && ! empty( $fixture['error']['code'] ) && ! empty( $fixture['error']['reason_bucket'] );
+			}
+		}
+		if ( ! $c0_runtime_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.c0.contract — Runtime: allowed/denied/mapping matrix',
+			'status' => $c0_runtime_ok ? 'pass' : 'fail',
+			'detail' => $c0_runtime_ok ? 'Five scenarios preserve exact key, domain, capability, side-effect and reason semantics.' : 'C0 fixture semantics do not match the route contract.',
+		);
 
 		// ── ROW 1: zp.bridge.health ───────────────────────────────────────────
 
@@ -73,15 +168,39 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 
 		if ( $loader_bridge ) {
 			$client         = BizCity_Zalo_Bridge_Client::instance();
-			$bridge_fast_ok = $client->is_ready_fast();
+			$managed_client_ok = class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) && method_exists( 'BizCity_Zalo_Personal_Hub_Client', 'instance' );
+			$managed_mode = method_exists( 'BizCity_Zalo_Bridge_Client', 'get_mode' ) && $client->get_mode() === 'managed_1api';
+			$bridge_fast_ok = $managed_mode && ! $managed_client_ok ? false : $client->is_ready_fast();
+			$bridge_status = $managed_mode && ! $managed_client_ok ? 'fail' : ( $bridge_fast_ok ? 'pass' : 'skip' );
+			if ( $bridge_status === 'fail' ) { $pass = false; }
 			$rows[] = array(
 				'label'  => 'zp.bridge.health — Runtime: bridge URL+token configured',
-				'status' => $bridge_fast_ok ? 'pass' : 'skip',
-				'detail' => $bridge_fast_ok
+				'status' => $bridge_status,
+				'detail' => $managed_mode && ! $managed_client_ok
+					? 'Managed Hub client singleton missing — deploy class-zalo-personal-hub-client.php with instance().'
+					: ( $bridge_fast_ok
 					? 'bizcity_zalo_bridge_url + bizcity_zalo_bridge_token set'
-					: 'Bridge URL/token not configured — SKIP real-call (vào Cài đặt → Zalo Bridge để nhập).',
+					: 'Bridge URL/token not configured — SKIP real-call (vào Cài đặt → Zalo Bridge để nhập).' ),
 			);
 		}
+
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — Disk/Loader/Runtime mode contract; no network call in Diagnostics.
+		$mode_disk = file_exists( $inc_shared . 'class-zalo-personal-hub-client.php' );
+		$mode_loaded = class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) && method_exists( 'BizCity_Zalo_Personal_Hub_Client', 'instance' ) && method_exists( 'BizCity_Zalo_Bridge_Client', 'get_mode' );
+		$resolved_mode = $mode_loaded ? BizCity_Zalo_Bridge_Client::instance()->get_mode() : '';
+		$mode_ok = $mode_disk && $mode_loaded && in_array( $resolved_mode, array( 'managed_1api', 'custom_bridge' ), true );
+		$this->trace( 'mode_check', array(
+			'disk'   => $mode_disk,
+			'loaded' => $mode_loaded,
+			'mode'   => $resolved_mode,
+			'ok'     => $mode_ok,
+		) );
+		if ( ! $mode_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.managed.mode — Disk/Loader/Runtime: managed_1api default and custom_bridge override',
+			'status' => $mode_ok ? 'pass' : 'fail',
+			'detail' => $mode_ok ? 'Mode resolver loaded; current mode=' . $resolved_mode : 'Managed/custom mode contract missing or invalid; deploy class-zalo-personal-hub-client.php with instance().',
+		);
 
 		// ── ROW 2: zp.filter.catalog ──────────────────────────────────────────
 
@@ -106,58 +225,57 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 			$catalog    = $catalog_fn ? apply_filters( 'bizcity_channel_platform_catalog', array() ) : array();
 			$codes      = array_column( $catalog, 'code' );
 			$has_zp     = in_array( 'zalo_personal', $codes, true );
-			$has_oa     = in_array( 'zalo_oa', $codes, true );
-			$catalog_ok = $has_zp && $has_oa;
+			$catalog_ok = $has_zp;
 			if ( ! $catalog_ok ) { $pass = false; }
 			$rows[] = array(
-				'label'  => 'zp.filter.catalog — Runtime: catalog có zalo_personal + zalo_oa',
+				'label'  => 'zp.filter.catalog — Runtime: catalog có zalo_personal',
 				'status' => $catalog_ok ? 'pass' : 'fail',
 				'detail' => $catalog_ok
-					? 'zalo_personal + zalo_oa tiles injected'
-					: 'Missing: ' . implode( ', ', array_filter( array( $has_zp ? '' : 'zalo_personal', $has_oa ? '' : 'zalo_oa' ) ) ),
+					? 'zalo_personal tile injected'
+					: 'Missing: zalo_personal',
 			);
 		}
 
 		// ── ROW 3: zp.integration.registered ─────────────────────────────────
 
 		$class_pi_ok = file_exists( $inc_personal . 'class-zalo-personal-integration.php' );
-		$class_oa_ok = file_exists( $inc_oa . 'class-zalo-oa-integration.php' );
-		$disk_int    = $class_pi_ok && $class_oa_ok;
+		$disk_int    = $class_pi_ok;
 		if ( ! $disk_int ) { $pass = false; }
 		$rows[] = array(
 			'label'  => 'zp.integration.registered — Disk: 2 integration class files',
 			'status' => $disk_int ? 'pass' : 'fail',
-			'detail' => $disk_int ? 'Both integration files exist' : implode( ', ', array_filter( array(
+			'detail' => $disk_int ? 'Personal integration file exists' : implode( ', ', array_filter( array(
 				$class_pi_ok ? '' : 'class-zalo-personal-integration.php missing',
-				$class_oa_ok ? '' : 'class-zalo-oa-integration.php missing',
 			) ) ),
 		);
 
 		$class_pi_loaded = class_exists( 'BizCity_Zalo_Personal_Integration' );
-		$class_oa_loaded = class_exists( 'BizCity_Zalo_OA_Integration' );
-		$loader_int      = $class_pi_loaded && $class_oa_loaded;
+		$loader_int      = $class_pi_loaded;
 		if ( ! $loader_int ) { $pass = false; }
 		$rows[] = array(
-			'label'  => 'zp.integration.registered — Loader: 2 integration classes loaded',
+			'label'  => 'zp.integration.registered — Loader: Personal integration class loaded',
 			'status' => $loader_int ? 'pass' : 'fail',
-			'detail' => $loader_int ? 'Both classes in memory' : implode( ', ', array_filter( array(
+			'detail' => $loader_int ? 'Personal class in memory' : implode( ', ', array_filter( array(
 				$class_pi_loaded ? '' : 'BizCity_Zalo_Personal_Integration not loaded',
-				$class_oa_loaded ? '' : 'BizCity_Zalo_OA_Integration not loaded',
 			) ) ),
 		);
 
 		if ( $loader_int && class_exists( 'BizCity_Integration_Registry' ) ) {
 			$reg    = BizCity_Integration_Registry::instance();
-			$pi_obj = $reg->get_integration( 'zalo_personal' );
-			$oa_obj = $reg->get_integration( 'zalo_oa' );
-			$rt_int = ( $pi_obj instanceof BizCity_Channel_Integration ) && ( $oa_obj instanceof BizCity_Channel_Integration );
+			// [2026-08-22 Johnny Chu] HOTFIX — use the current Integration Registry getter.
+			$pi_obj = $reg->get( 'zalo_personal' );
+			$rt_int = ( $pi_obj instanceof BizCity_Channel_Integration );
+			$this->trace( 'integration_check', array(
+				'registry_loaded' => true,
+				'personal_registered' => $pi_obj instanceof BizCity_Channel_Integration,
+				'ok'                  => $rt_int,
+			) );
 			if ( ! $rt_int ) { $pass = false; }
 			$rows[] = array(
 				'label'  => 'zp.integration.registered — Runtime: registry->get() returns objects',
 				'status' => $rt_int ? 'pass' : 'fail',
-				'detail' => $rt_int ? 'zalo_personal + zalo_oa registered in Integration_Registry' : implode( ', ', array_filter( array(
+				'detail' => $rt_int ? 'zalo_personal registered in Integration_Registry' : implode( ', ', array_filter( array(
 					( $pi_obj instanceof BizCity_Channel_Integration ) ? '' : 'zalo_personal not in registry',
-					( $oa_obj instanceof BizCity_Channel_Integration ) ? '' : 'zalo_oa not in registry',
 				) ) ),
 			);
 		}
@@ -188,7 +306,7 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 			add_action( 'bizcity_zalo_message_received', $catcher, 1, 1 );
 
 			$emitter = BizCity_Zalo_Inbound_Emitter::instance();
-			// Synthetic personal payload — will NOT persist (account_id unknown → save_map skipped).
+			// [2026-08-21 Johnny Chu] PHASE-0.39B — unbound Personal payload must not reach CRM hooks.
 			$emitter->emit( array(
 				'kind'         => 'personal',
 				'account_id'   => '__probe_synthetic__',
@@ -200,14 +318,14 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 
 			remove_action( 'bizcity_zalo_message_received', $catcher, 1 );
 
-			$rt_emit = ( $triggered_platform === 'ZALO_PERSONAL' );
+			$rt_emit = ( $triggered_platform === '' );
 			if ( ! $rt_emit ) { $pass = false; }
 			$rows[] = array(
-				'label'  => 'zp.inbound.bridge — Runtime: emit() sets platform=ZALO_PERSONAL',
+				'label'  => 'zp.inbound.bridge — Runtime: unbound Personal account is blocked',
 				'status' => $rt_emit ? 'pass' : 'fail',
 				'detail' => $rt_emit
-					? "emit() → platform='ZALO_PERSONAL' ✓ (zone discriminator R-ZP-4.1)"
-					: "emit() fired but platform='" . esc_html( $triggered_platform ) . "' (expected ZALO_PERSONAL)",
+					? 'Synthetic account without owner/inbox mapping did not emit a CRM hook ✓'
+					: "Unbound account emitted platform='" . esc_html( $triggered_platform ) . "' — fail-closed mapping BROKEN!",
 			);
 		}
 
@@ -218,7 +336,7 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 		$rows[] = array(
 			'label'  => 'zp.schema.tables — Disk: modules.zalo-personal.json changelog',
 			'status' => $changelog_ok ? 'pass' : 'fail',
-			'detail' => $changelog_ok ? 'R-DCL changelog v1.0.0 exists' : 'Missing core/diagnostics/changelog/modules.zalo-personal.json',
+			'detail' => $changelog_ok ? 'R-DCL changelog v1.1.4 exists' : 'Missing core/diagnostics/changelog/modules.zalo-personal.json',
 		);
 
 		$installer_ok = class_exists( 'BizCity_Zalo_Mapping_Repo' );
@@ -233,7 +351,6 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 			$expected = array(
 				$wpdb->prefix . 'bizcity_zalo_accounts',
 				$wpdb->prefix . 'bizcity_zalo_message_map',
-				$wpdb->prefix . 'bizcity_zalo_oa_window',
 			);
 			$tables_in_db = array();
 			foreach ( $expected as $tbl ) {
@@ -252,39 +369,19 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 					$tables_in_db[] = $tbl;
 				}
 			}
-			$all_tables_ok = count( $tables_in_db ) === 3;
+			$all_tables_ok = count( $tables_in_db ) === count( $expected );
+			$this->trace( 'schema_check', array(
+				'expected_count' => count( $expected ),
+				'present_count'  => count( $tables_in_db ),
+				'ok'             => $all_tables_ok,
+			) );
 			if ( ! $all_tables_ok ) { $pass = false; }
 			$rows[] = array(
-				'label'  => 'zp.schema.tables — Runtime: 3 tables exist in DB',
+				'label'  => 'zp.schema.tables — Runtime: Personal tables exist in DB',
 				'status' => $all_tables_ok ? 'pass' : 'fail',
 				'detail' => $all_tables_ok
-					? 'bizcity_zalo_accounts + bizcity_zalo_message_map + bizcity_zalo_oa_window ✓'
-					: count( $tables_in_db ) . '/3 tables exist. Chạy maybe_install() để tạo bảng.',
-			);
-		}
-
-		// ── ROW 6: zp.oa.window ───────────────────────────────────────────────
-
-		$disk_window = file_exists( $inc_shared . 'class-zalo-mapping-repo.php' );
-		$rows[] = array(
-			'label'  => 'zp.oa.window — Disk: BizCity_Zalo_Mapping_Repo (OA window methods)',
-			'status' => $disk_window ? 'pass' : 'fail',
-			'detail' => $disk_window ? 'R-ZP-5 OA window repo exists' : 'Missing class-zalo-mapping-repo.php',
-		);
-
-		if ( $installer_ok ) {
-			// Unit test: window open if last_inbound_at = now, closed if > 7 days.
-			$window_open_result  = BizCity_Zalo_Mapping_Repo::is_oa_window_open( 0, '' ); // always false
-			$delta_new           = time();
-			$delta_expired       = time() - 604801; // 7 days + 1 second
-			// Simulate via reflection on internal logic — use direct time delta check.
-			$simulated_open   = ( $delta_new - $delta_new ) <= 604800;     // 0 ≤ 604800 = true
-			$simulated_closed = ( $delta_new - $delta_expired ) <= 604800; // 604801 > 604800 = false
-			$window_logic_ok  = $simulated_open && ! $simulated_closed;
-			$rows[] = array(
-				'label'  => 'zp.oa.window — Runtime: 7-day window logic correct',
-				'status' => $window_logic_ok ? 'pass' : 'fail',
-				'detail' => $window_logic_ok ? '7d boundary: open(0s) ✓  expired(604801s) ✓' : '7-day window logic wrong.',
+					? 'bizcity_zalo_accounts + bizcity_zalo_message_map ✓'
+					: count( $tables_in_db ) . '/' . count( $expected ) . ' Personal tables exist. Chạy maybe_install() để tạo bảng.',
 			);
 		}
 
@@ -307,13 +404,14 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 		if ( $listener_exists ) {
 			$src          = file_get_contents( $listener_file );
 			$has_guard    = $src !== false && strpos( $src, "platform === 'ZALO_BOT'" ) !== false;
-			if ( ! $has_guard ) { $pass = false; }
+			$has_personal_trigger = $src !== false && strpos( $src, 'bizcity_zalo_personal_message_received' ) !== false;
+			if ( ! $has_guard || ! $has_personal_trigger ) { $pass = false; }
 			$rows[] = array(
-				'label'  => "zp.zone.isolation — Loader: bridge_zalo() ZALO_BOT bail-guard present",
-				'status' => $has_guard ? 'pass' : 'fail',
-				'detail' => $has_guard
-					? "guard `if ( \$platform === 'ZALO_BOT' ) { return; }` found ✓"
-					: "guard missing — ZALO_BOT messages may leak into CRM Inbox!",
+				'label'  => "zp.zone.isolation — Loader: Bot bail + Personal trigger present",
+				'status' => ( $has_guard && $has_personal_trigger ) ? 'pass' : 'fail',
+				'detail' => ( $has_guard && $has_personal_trigger )
+					? "ZALO_BOT bail-guard + `bizcity_zalo_personal_message_received` found ✓"
+					: 'Missing ZALO_BOT bail-guard or Personal trigger — zone routing may be broken!',
 			);
 		}
 
@@ -388,7 +486,16 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 		// Runtime: real-call test_connection() — SKIP gracefully khi bridge chưa cấu hình.
 		if ( $loader_bridge && method_exists( 'BizCity_Zalo_Bridge_Client', 'test_connection' ) ) {
 			$client_t = BizCity_Zalo_Bridge_Client::instance();
-			if ( ! $client_t->is_ready_fast() ) {
+			$managed_client_ok = class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) && method_exists( 'BizCity_Zalo_Personal_Hub_Client', 'instance' );
+			$managed_mode = method_exists( 'BizCity_Zalo_Bridge_Client', 'get_mode' ) && $client_t->get_mode() === 'managed_1api';
+			if ( $managed_mode && ! $managed_client_ok ) {
+				$pass = false;
+				$rows[] = array(
+					'label'  => 'zp.test.connection — Runtime: test_connection() real-call',
+					'status' => 'fail',
+					'detail' => 'Managed Hub client singleton missing — deploy class-zalo-personal-hub-client.php with instance().',
+				);
+			} elseif ( ! $client_t->is_ready_fast() ) {
 				$rows[] = array(
 					'label'  => 'zp.test.connection — Runtime: test_connection() real-call',
 					'status' => 'skip',
@@ -401,6 +508,13 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 				$authed_ok  = ! empty( $diag['checks']['authed']['ok'] );
 				$latency    = (int) ( $diag['checks']['reachable']['latency_ms'] ?? 0 );
 				$test_ok    = $cfg_ok && $reach_ok && $authed_ok;
+				$this->trace( 'connection_check', array(
+					'config_ok'    => $cfg_ok,
+					'reachable_ok' => $reach_ok,
+					'authed_ok'    => $authed_ok,
+					'http'         => (int) ( $diag['checks']['reachable']['http'] ?? 0 ),
+					'ok'           => $test_ok,
+				) );
 				// Fail-OPEN: bridge offline = SKIP (degraded), không fail toàn probe.
 				$status     = $test_ok ? 'pass' : ( $reach_ok ? 'fail' : 'skip' );
 				if ( 'fail' === $status ) { $pass = false; }
@@ -416,10 +530,138 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 			}
 		}
 
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — Disk/Loader/Runtime contract for encrypted CRM conversation archive.
+		$archive_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/channel-gateway/includes/class-channel-conversation-archive.php';
+		$archive_disk = file_exists( $archive_file );
+		$archive_loaded = class_exists( 'BizCity_Channel_Conversation_Archive' );
+		$archive_hooks = $archive_loaded
+			&& false !== has_action( 'bizcity_crm_event_crm_message_received' )
+			&& false !== has_action( 'bizcity_crm_event_crm_message_sent' )
+			&& false !== has_action( 'bizcity_crm_event_crm_message_delivery_updated' );
+		$archive_ok = $archive_disk && $archive_loaded && $archive_hooks;
+		if ( ! $archive_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.archive.integrity — Disk/Loader/Runtime: encrypted archive contract',
+			'status' => $archive_ok ? 'pass' : 'fail',
+			'detail' => $archive_ok
+				? 'Archive file exists, class loaded, and both CRM message event hooks are registered.'
+				: implode( ', ', array_filter( array(
+					$archive_disk ? '' : 'archive helper file missing',
+					$archive_loaded ? '' : 'BizCity_Channel_Conversation_Archive not loaded',
+					$archive_hooks ? '' : 'CRM message archive hooks missing',
+				) ) ),
+		);
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — prove the shared archive whitelist covers Messenger as well as Zalo Personal.
+		$archive_channels = $archive_loaded && defined( 'BizCity_Channel_Conversation_Archive::CHANNELS' )
+			? (array) constant( 'BizCity_Channel_Conversation_Archive::CHANNELS' )
+			: array();
+		$archive_channels_ok = in_array( 'zalo_personal', $archive_channels, true ) && in_array( 'messenger', $archive_channels, true );
+		if ( ! $archive_channels_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.archive.channels — Runtime: shared Messenger/Zalo archive whitelist',
+			'status' => $archive_channels_ok ? 'pass' : 'fail',
+			'detail' => $archive_channels_ok ? 'Encrypted archive accepts zalo_personal and messenger through one event pipeline.' : 'Archive channel whitelist is incomplete.',
+		);
+		$archive_bound_ok = $archive_loaded && defined( 'BizCity_Channel_Conversation_Archive::MAX_LINE_BYTES' ) && (int) constant( 'BizCity_Channel_Conversation_Archive::MAX_LINE_BYTES' ) > 0;
+		if ( ! $archive_bound_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.archive.bound — Runtime: archive row size limit',
+			'status' => $archive_bound_ok ? 'pass' : 'fail',
+			'detail' => $archive_bound_ok ? 'Archive rows are bounded before filesystem append.' : 'Archive row size limit is missing.',
+		);
+		$owner_service_ok = class_exists( 'BizCity_Zalo_Bridge_REST' )
+			&& method_exists( 'BizCity_Zalo_Bridge_REST', 'create_account_for_owner' )
+			&& method_exists( 'BizCity_Zalo_Bridge_REST', 'start_qr_for_owner' )
+			&& method_exists( 'BizCity_Zalo_Bridge_REST', 'qr_status_for_owner' )
+			&& method_exists( 'BizCity_Zalo_Bridge_REST', 'delete_account_for_owner' );
+		if ( ! $owner_service_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.twin-gpt.owner — Loader/Runtime: identity-aware Personal service boundary',
+			'status' => $owner_service_ok ? 'pass' : 'fail',
+			'detail' => $owner_service_ok ? 'Twin GPT Personal operations use owner-scoped service methods.' : 'Owner-scoped Personal service method is missing.',
+		);
+		$archive_lifecycle_ok = $archive_loaded
+			&& method_exists( 'BizCity_Channel_Conversation_Archive', 'purge_expired' )
+			&& method_exists( 'BizCity_Channel_Conversation_Archive', 'export_conversation' )
+			&& method_exists( 'BizCity_Channel_Conversation_Archive', 'erase_conversation' )
+			&& method_exists( 'BizCity_Channel_Conversation_Archive', 'reconcile_partition' );
+		if ( ! $archive_lifecycle_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.archive.lifecycle — Loader/Runtime: retention/export/erase/reconcile APIs',
+			'status' => $archive_lifecycle_ok ? 'pass' : 'fail',
+			'detail' => $archive_lifecycle_ok ? 'Bounded archive lifecycle methods are loaded; caller authorization remains required for export/erase/reconcile.' : 'Archive lifecycle API is incomplete.',
+		);
+		$crm_projection_ok = class_exists( 'BizCity_TwinWeb_REST' )
+			&& method_exists( 'BizCity_TwinWeb_REST', 'get_mychannels_zalo_personal_conversations' )
+			&& method_exists( 'BizCity_TwinWeb_REST', 'get_mychannels_zalo_personal_conversation' )
+			&& method_exists( 'BizCity_TwinWeb_REST', 'get_mychannels_zalo_personal_messages' );
+		if ( ! $crm_projection_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.twin-gpt.crm — Loader/Runtime: Personal CRM projection routes',
+			'status' => $crm_projection_ok ? 'pass' : 'fail',
+			'detail' => $crm_projection_ok ? 'Twin GPT Personal list/detail/messages projection methods are loaded.' : 'Personal CRM projection method is missing.',
+		);
+		$crm_send_ok = $crm_projection_ok && method_exists( 'BizCity_TwinWeb_REST', 'send_mychannels_zalo_personal_message' );
+		if ( ! $crm_send_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.twin-gpt.crm-send — Loader/Runtime: Personal CRM write boundary',
+			'status' => $crm_send_ok ? 'pass' : 'fail',
+			'detail' => $crm_send_ok ? 'Personal send delegates to canonical CRM post_message after owner/inbox validation.' : 'Personal CRM send boundary is missing.',
+		);
+		$retention_hook_ok = $archive_loaded && false !== has_action( 'bizcity_channel_jsonl_retention', array( 'BizCity_Channel_Conversation_Archive', 'retention_tick' ) );
+		if ( ! $retention_hook_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.archive.retention — Loader/Runtime: guarded retention hook',
+			'status' => $retention_hook_ok ? 'pass' : 'fail',
+			'detail' => $retention_hook_ok ? 'Archive retention callback is attached to the existing Channel Gateway retention job.' : 'Archive retention callback is not attached.',
+		);
+		$archive_rest_ok = $archive_loaded
+			&& method_exists( 'BizCity_Channel_Conversation_Archive', 'register_rest_routes' )
+			&& method_exists( 'BizCity_Channel_Conversation_Archive', 'rest_reconcile' )
+			&& method_exists( 'BizCity_Channel_Conversation_Archive', 'rest_export' )
+			&& method_exists( 'BizCity_Channel_Conversation_Archive', 'rest_erase' );
+		if ( ! $archive_rest_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.archive.rest — Loader/Runtime: authorized maintenance routes',
+			'status' => $archive_rest_ok ? 'pass' : 'fail',
+			'detail' => $archive_rest_ok ? 'Admin-only reconcile/export/erase routes are loaded behind tenant authorization.' : 'Archive maintenance REST boundary is incomplete.',
+		);
+
+		foreach ( $rows as $row ) {
+			if ( strtolower( (string) ( $row['status'] ?? '' ) ) !== 'pass' ) {
+				$this->trace( 'row_result', array(
+					'status' => (string) ( $row['status'] ?? '' ),
+					'label'  => (string) ( $row['label'] ?? '' ),
+					'detail' => (string) ( $row['detail'] ?? '' ),
+				) );
+			}
+		}
+		$this->trace( 'run_complete', array(
+			'status' => $pass ? 'pass' : 'fail',
+			'rows'   => count( $rows ),
+		) );
 		return array(
 			'status' => $pass ? 'pass' : 'fail',
 			'rows'   => $rows,
 		);
+		} catch ( \Throwable $e ) {
+			$message = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $e->getMessage() ) : strip_tags( $e->getMessage() );
+			$message = preg_replace( '/(?:https?:\/\/|Bearer\s+)[^\s]+/i', '[redacted]', (string) $message );
+			$this->trace( 'probe_exception', array(
+				'exception' => get_class( $e ),
+				'line'      => (int) $e->getLine(),
+				'message'   => substr( (string) $message, 0, 240 ),
+			) );
+			$rows[] = array(
+				'label'  => 'modules.zalo-personal — probe exception',
+				'status' => 'fail',
+				'detail' => get_class( $e ) . ' at line ' . (int) $e->getLine() . ': ' . substr( (string) $message, 0, 240 ),
+			);
+			return array(
+				'status' => 'fail',
+				'rows'   => $rows,
+			);
+		}
 	}
 
 	// [2026-06-08 Johnny Chu] HOTFIX — add missing interface method.

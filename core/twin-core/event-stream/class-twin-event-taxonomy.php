@@ -55,7 +55,8 @@ class BizCity_Twin_Event_Taxonomy {
 	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — added 5 product_* timeline event_types.
 	// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — added event-sourced Twin Goal Loop lifecycle.
 	// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — added event-sourced HIL Instance lifecycle (twin_hil_*).
-	const TAXONOMY_VERSION = 11;
+	// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — added canonical deterministic Notebook fallback notice event.
+	const TAXONOMY_VERSION = 12;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -137,6 +138,7 @@ class BizCity_Twin_Event_Taxonomy {
 	const TWIN_GOAL_CLOSED     = 'twin_goal_closed';
 	const CONVERSATION_ROUTE_DECIDED = 'conversation_route_decided';
 	const CONVERSATION_CONFIRM_PROMPT = 'conversation_confirm_prompt';
+	const EVIDENCE_FALLBACK_NOTICE = 'evidence_fallback_notice';
 
 	// ---- MPR-V5-HIL-RUNTIME (2026-08-16) — bounded slot-collection instance lifecycle -------
 	// Schemas: core/twin-core/event-stream/schemas/events/twin_hil_*.json.
@@ -223,6 +225,7 @@ class BizCity_Twin_Event_Taxonomy {
 			self::TWIN_GOAL_CLOSED     => [ 'goal_id', 'session_id', 'status', 'completion_score', 'closure_signal', 'state' ],
 			self::CONVERSATION_ROUTE_DECIDED => [ 'trace_id', 'route', 'confidence', 'needs_confirm' ],
 			self::CONVERSATION_CONFIRM_PROMPT => [ 'trace_id', 'route', 'expires_in' ],
+			self::EVIDENCE_FALLBACK_NOTICE => [ 'trace_id', 'trigger', 'reason', 'notice' ],
 
 			// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — each event carries a normalized HIL Instance snapshot.
 			self::TWIN_HIL_OPENED     => [ 'hil_id', 'spec_id', 'trigger_id', 'session_id', 'status', 'state' ],

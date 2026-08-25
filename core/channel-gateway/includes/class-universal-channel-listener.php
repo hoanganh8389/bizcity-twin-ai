@@ -65,6 +65,15 @@ class BizCity_Universal_Channel_Listener {
 			'msgid_field'   => 'message_id',
 			'event_type'    => 'message',
 		),
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — dedicated Zone 1 Personal CRM trigger.
+		'bizcity_zalo_personal_message_received' => array(
+			'platform'      => 'ZALO_PERSONAL',
+			'account_field' => 'account_id',
+			'user_field'    => 'from_user_id',
+			'message_field' => 'message_text',
+			'msgid_field'   => 'message_id',
+			'event_type'    => 'message',
+		),
 		'bizcity_zalo_message_received'     => array(
 			'platform'      => 'ZALO_BOT',
 			'account_field' => 'conversation_id', // bizcity-zalo-bot uses this for OA id (was wrongly 'oa_id')
@@ -102,10 +111,14 @@ class BizCity_Universal_Channel_Listener {
 		if ( $platform === 'ZALO_BOT' ) {
 			return;
 		}
+		if ( $platform === 'ZALO_PERSONAL' || ( is_array( $message_data ) && (string) ( $message_data['code'] ?? '' ) === 'zalo_personal' ) ) {
+			do_action( 'waic_twf_process_flow', 'bizcity_zalo_personal_message_received', (array) $message_data );
+			return;
+		}
 
 		// Avoid double-fire if Zalo plugin ever switches to workflow trigger.
 		static $seen = array();
-		$mid = is_array( $message_data ) ? (string) ( $message_data['msg_id'] ?? '' ) : '';
+		$mid = is_array( $message_data ) ? (string) ( $message_data['message_id'] ?? ( $message_data['msg_id'] ?? '' ) ) : '';
 		if ( $mid !== '' && isset( $seen[ $mid ] ) ) {
 			return;
 		}
@@ -471,6 +484,8 @@ class BizCity_Universal_Channel_Listener {
 			// [2026-07-27 Johnny Chu] PHASE-0.52 W1 — keep OA identity separate from Zone 2 Zalo Bot.
 			case 'ZALO_OA':
 				return 'zalooa_' . $account_id . '_' . $user_id;
+			case 'ZALO_PERSONAL':
+				return 'zalop_' . $account_id . '_' . $user_id;
 			case 'WEBCHAT':
 				return 'webchat_' . $user_id;
 			default:

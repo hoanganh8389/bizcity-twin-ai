@@ -21,7 +21,8 @@ final class BizCity_Personal_Profile_Entrypoint_Manager {
 		foreach ( $entries as $entry ) {
 			if ( ! is_array( $entry ) ) { continue; }
 			$channel = sanitize_key( (string) ( $entry['channelCode'] ?? $entry['channel_code'] ?? '' ) );
-			if ( ! in_array( $channel, array( 'messenger', 'zalo_oa', 'webchat', 'twin_gpt' ), true ) ) {
+			// [2026-08-22 Johnny Chu] R-PQR-13 — allow the Zone 1 Zalo Personal entrypoint in the canonical Profile funnel.
+			if ( ! in_array( $channel, array( 'messenger', 'zalo_oa', 'zalo_personal', 'webchat', 'twin_gpt' ), true ) ) {
 				return new WP_Error( 'invalid_param', 'Kênh kết nối Profile không được hỗ trợ.', array( 'status' => 400 ) );
 			}
 			$presentation = sanitize_key( (string) ( $entry['presentation'] ?? ( 'webchat' === $channel ? 'profile_float' : 'external' ) ) );
@@ -49,6 +50,30 @@ final class BizCity_Personal_Profile_Entrypoint_Manager {
 			);
 		}
 		return $normalized;
+	}
+
+	public static function validate_owner_accounts( array $entries, $owner_user_id ) {
+		// [2026-08-22 Johnny Chu] PHASE-TBP-6.3 — reject enabled Zalo Personal URLs that are not owned by the Profile owner.
+		$owner_user_id = (int) $owner_user_id;
+		$allowed_urls = array();
+		if ( class_exists( 'BizCity_Zalo_Mapping_Repo' ) && $owner_user_id > 0 ) {
+			$accounts = BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner( $owner_user_id );
+			foreach ( $accounts as $account ) {
+				if ( 'connected' !== (string) ( $account['status'] ?? '' ) ) { continue; }
+				$zalo_uid = (string) ( $account['zalo_uid'] ?? '' );
+				if ( '' !== $zalo_uid ) {
+					$allowed_urls[ 'https://zalo.me/' . rawurlencode( $zalo_uid ) ] = true;
+				}
+			}
+		}
+		foreach ( $entries as $entry ) {
+			if ( 'zalo_personal' !== (string) ( $entry['channelCode'] ?? '' ) || empty( $entry['enabled'] ) ) { continue; }
+			$fallback_url = (string) ( $entry['fallbackUrl'] ?? '' );
+			if ( '' === $fallback_url || ! isset( $allowed_urls[ $fallback_url ] ) ) {
+				return new WP_Error( 'invalid_param', 'Zalo cá nhân chưa được liên kết đúng tài khoản.', array( 'status' => 400 ) );
+			}
+		}
+		return $entries;
 	}
 
 	public static function read_from_config( array $config ) {

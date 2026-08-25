@@ -13,6 +13,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Managed Zalo entitlement capacity repair — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Root-cause trace | Confirmed the failing key can be `master_premium` with `bizcity-zalo-personal` enabled while `zalo_personal_account_limit=0`; Branch 19 correctly fails closed on the independent capacity gate. | Verified from production response for key `4474` |
+| Hub migration | Bumped Master Plan schema migration to `2.6.2`; built-in managed Zalo defaults are now Free `1`, Pro `3`, Premium `-1` (unlimited), with the feature enabled in all three plans. | Implemented locally; deploy and rerun `/master/config` |
+| Admin save safety | Legacy Master Plan submissions that omit the Zalo capacity field now preserve the stored value instead of silently writing `0`. | Implemented locally |
+| Error reason clarity | Exact-key Zalo capability now distinguishes `account_capacity_disabled` from `feature_not_enabled`; client UI explains that the plugin is enabled but the account capacity is zero. | Implemented locally |
+| Client capability freshness | Zalo Personal UI now prefers the latest `/zalo-bridge/health` capability over stale cached settings capability, so `allowed=true/account_limit=-1` can enable account creation immediately. | Implemented locally; deploy rebuilt Channel Gateway bundle |
+| Acceptance gate | Added roadmap/API documentation requiring exact-key `channels.zalo_personal` verification after migration. | Documented; runtime evidence pending |
+
+### Managed Zalo default seat policy — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Product policy | Managed Zalo Personal is enabled by default for Free, Pro and Premium; account seats are `1 / 3 / -1 unlimited`. | Implemented in Hub seed/migration and documented across Hub/client/plugin contracts |
+| Zero-capacity semantics | `0` remains an explicit lock; `reason=account_capacity_disabled` distinguishes it from a missing feature slug. | Implemented locally |
+
+### B1/B2/C Master Plan entitlement contract — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Hub plan catalog | Added the canonical `BizCity_LLM_Client::get_master_plans()` wrapper and made the same-origin Wallet proxy preserve `member_seats`, `channels.zalo_personal`, and `zalo_personal_account_limit`. | Implemented locally; deploy and verify `/bizcity-channel/v1/master/plans` |
+| Exact-key entitlement | The current-plan proxy now resolves through `get_plan_config()` with `allow_main_site_fallback=false`; local user meta is no longer used as a Hub plan identity. | Implemented locally; deploy and verify current-blog key scope |
+| Framework contract | Documented B1 Hub exact-key ceiling → B2 tenant projection/policy → C actor/member policy, explicitly separating public plan catalog from runtime authorization. | Documented in B2B2C and Membership contracts |
+
+### TBP-6.3 Profile Zalo Personal owner picker — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Profile REST | Added `platform=zalo_personal` account projection from `BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner()`, filtering to the current owner's connected accounts with a usable Zalo UID. | Implemented locally; live bridge/CRM ownership smoke pending |
+| Profile UI | Added the owner-scoped Zalo Personal selector to Entrypoints and dedicated public CTA labeling. | Implemented locally; Profile UI build PASS |
+| Loader/DDV | Loaded Zalo Personal mapping on Profile Care/Public editor routes and extended the Profile Wave 6.2 probe with picker contract evidence. | Implemented locally; WordPress probe rerun required |
+| Save boundary | Enabled Zalo Personal entrypoints now require a fallback URL derived from a connected account owned by the current Profile owner; arbitrary manually submitted URLs are rejected. | Implemented locally; live ownership/CRM smoke pending |
+
+### Diagnostics phase groups and stale-deploy hardening — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Curated phase groups | Added P0 foundation, B1 entitlement, B2 isolation, C Twin GPT CRM and W8 archive `Run group` shortcuts in Diagnostics. | Implemented locally; run on authenticated WordPress Diagnostics |
+| Zalo managed compatibility | Added the missing Hub client singleton and guarded every managed bridge callsite so stale deployments degrade instead of throwing `undefined method ...::instance()`. | Implemented locally; deploy and rerun `modules.zalo-personal` |
+| Schema inventory | Reconciled `modules.twin-crm.json` automation-rules catalog v1.28.1 with the active CRM installer (`created_by_id`, `inbox_id`, `last_run_at`, `idx_event_active`, `idx_inbox`). | Implemented locally; deploy and rerun `schema.inventory` |
+| Probe runtime fixes | Corrected Zalo Personal probe to use `Integration_Registry::get()`, loaded the existing `core.channel.zone_ui` probe in Diagnostics bootstrap, and synchronized the Personal probe's 35-row metadata. | Implemented locally; deploy and rerun P0/B1/B2/W8 groups |
+
+### Managed Zalo health contract — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Health boundary | Added `BizCity_Zalo_Bridge_Client::health()` for managed Hub and custom sidecar modes; REST now normalizes `success/ok` and degrades safely when a mixed-version client lacks the method. | Implemented locally; deploy both Bridge Client and REST, then rerun the Zalo Personal probe |
+
+### Profile roadmap and next wave — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Runtime evidence | Recorded that `modules.personal.profile`, `modules.personal.profile.wave5`, and `modules.personal.profile.wave62` each passed on WordPress runtime; the curated `profile` group remains pending aggregate execution. | Individual probes PASS; group run pending |
+| TBP-6 | Defined the next wave for Profile Public channel funnel and ownership: five channels converge on canonical CRM, Zalo Personal account ownership is verified server-side, Profile Care/Public navigation is separated while BE remains shared, and public Brain rendering observes publish-time privacy/performance boundaries. | Roadmap defined; implementation pending |
+
+### Profile Diagnostics group — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Curated probe group | Added the `profile` Diagnostics quick-run group, covering `modules.personal.profile`, `modules.personal.profile.wave5`, and `modules.personal.profile.wave62` while preserving each probe's individual evidence and cleanup behavior. | Implemented locally; run the group on the WordPress Diagnostics page |
+
+### Managed Zalo Personal B2B2C enforcement — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| B1 Hub entitlement | Master Plan migration repairs existing Pro rows with the canonical `bizcity-zalo-personal` feature and exposes exact-key account capacity through Branch 19. | Implemented locally; Hub migration and two-key runtime smoke required |
+| B2 tenant isolation | Managed client calls use the current blog's API key without main-site fallback; Hub callback registration requires an exact key domain and caches account counts by physical Hub database plus `key_id`. | Implemented locally; multi-client callback smoke required |
+| C Twin GPT | `/gpt/` Personal account routes require the managed Hub capability before list/create/QR/status/delete, reject guests/custom bridge mode, and create accounts through an explicit `owner_user_id` service boundary. | Implemented locally; member/guest/denied browser smoke required |
+| Ownership review fixes | QR/status/delete no longer delegate to admin-only handlers; the owner service verifies `kind=personal`, and the Personal route cannot be repurposed to create a Zalo OA account. | Implemented locally |
+| Legacy tenant migration | Mapping migration v1.1.4 backfills `owner_user_id` from legacy `user_id` and `account_name` from `label` so existing accounts remain visible under owner-scoped `/gpt/` queries. | Implemented locally; tenant migration smoke required |
+| Callback transport security | Managed Branch 19 rejects non-HTTPS callback URLs before registering account-specific bearer credentials. | Implemented locally |
+| Capacity concurrency | Branch 19 serializes provisioning per exact API key and invalidates the entitlement count after create/delete. | Implemented locally; concurrent quota smoke required |
+| Conversation archive | The encrypted append-only CRM archive now uses one channel-aware pipeline for both `zalo_personal` and `messenger`, including a channel contract diagnostic row. | Implemented locally; Messenger event and archive smoke required |
+| Archive safety bound | Archive JSONL rows are rejected above 256 KiB before filesystem append and emit a redacted operational failure event. | Implemented locally |
+| Archive lifecycle | Added 365-day monthly retention through the existing guarded retention job, authorization-scoped encrypted export, legal-hold-aware atomic conversation erase, and bounded read-only partition reconciliation. | Implemented locally; production policy and smoke required |
+| Archive integrity | Export and reconciliation now verify `blog_id`, channel, account HMAC, and peer HMAC against the requested partition before accepting an archive row. | Implemented locally |
+| Archive maintenance boundary | Added admin-only same-origin `bizcity-channel/v1/conversation-archive/{reconcile,export,erase}` routes scoped to the current tenant; Inbox never calls these endpoints. | Implemented locally; production authorization smoke required |
+| Twin GPT Personal CRM | Added same-origin Personal CRM list/detail/messages routes and a read-only Inbox panel in My Channels, reusing tenant CRM SQL and owner/inbox ACLs. | Implemented locally; authenticated browser smoke required |
+| Twin GPT Personal CRM send | Added owner/inbox-scoped Personal send route and composer delegating to canonical CRM `post_message()` and channel adapter delivery path. | Implemented locally; authenticated Zalo Personal outbound smoke required |
+| Twin GPT Personal send safety | Personal CRM history remains readable after logout, while outbound is restricted to connected Personal accounts only. | Implemented locally |
+
+### Zalo Personal admin control plane — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| QR/account state | Zalo Personal QR success now refreshes the account list so `connected` is reflected immediately instead of leaving the row at `pending_qr`. | Implemented locally; deploy + browser smoke required |
+| Guru binding | Channel Gateway now exposes per-account Zalo Personal Guru binding using the canonical `ZALO_PERSONAL` binding registry. | Implemented locally; runtime binding smoke required |
+| Twin Brain reply switch | Added explicit `Bật trả lời` / `Tắt trả lời` control backed by the existing binding `mode` + `auto_reply` contract. New Zalo Personal bindings default to `manual/OFF`; OFF keeps CRM Inbox ingestion and disables automatic Guru reply. | Implemented locally; runtime send/skip smoke required |
+| Guru Quick Edit | Personal accounts can open the shared Guru Quick Edit surface for system prompt, runtime, Quick Training, notebook attach/detach, and source-to-notebook bridge. | Implemented locally; deploy + browser smoke required |
+| CRM Inbox progress | Recorded the live admin evidence: connected Personal account and inbound contact/conversation/message visible in BizCity Twin CRM Inbox BE. | Verified on admin BE; outbound/access policy evidence remains pending |
+| Auto-reply enforcement | CRM AI Autoreply Listener now fails closed for `zalo_personal` unless an exact Guru binding has `auto_reply=1`; the previous global default could call Chat Gateway even when the Personal UI showed OFF. | Fixed locally; deploy + OFF/ON live smoke required |
+
 ### Diagnostics CI mock-mode stabilization — 2026-08-21
 
 | Area | Root cause / change | Status | Prevention |

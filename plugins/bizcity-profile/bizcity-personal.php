@@ -3,7 +3,7 @@
  * Plugin Name: BizCity Personal
  * Plugin URI:  https://bizcity.vn
  * Description: Trợ lý cá nhân: lịch, việc, ngân sách, tài liệu, nhật ký và chat.
- * Version:     1.1.0
+ * Version:     1.5.0
  * Author:      BizCity
  * Text Domain: bizcity-twin-ai
  * Requires PHP: 7.4

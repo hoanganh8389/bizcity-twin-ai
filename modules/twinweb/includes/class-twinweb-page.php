@@ -608,7 +608,7 @@ window.twinwebMounts[' . $root_id_json . '] = Object.assign({}, window.twinwebCo
 		// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — allow async iframe shell routes /gpt/{app}/ without stealing /gpt/{uuid}/ thread links.
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — include My Channels/My Workflows so routes survive F5 and OAuth redirect-backs.
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — expose /gpt/myplan/ while keeping /gpt/mycontent/ as legacy alias.
-		if ( in_array( $tail, array( 'twinchat', 'astro', 'creator', 'doc', 'image', 'profile', 'mychannels', 'myworkflows' , 'mycontent', 'myplan', 'mymcp' ), true ) ) {
+		if ( in_array( $tail, array( 'twinchat', 'astro', 'creator', 'doc', 'image', 'profile', 'profile-care', 'profile-public', 'mychannels', 'myworkflows' , 'mycontent', 'myplan', 'mymcp' ), true ) ) {
 			return true;
 		}
 		return (bool) preg_match( '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $tail );

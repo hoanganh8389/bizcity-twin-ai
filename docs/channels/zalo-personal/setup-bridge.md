@@ -8,7 +8,8 @@
 
 ## Bước 1: Chuẩn bị server
 
-Bạn cần một server/VPS có thể chạy Docker, với WordPress site có thể gọi HTTP đến port 4000 của server đó.
+Bạn cần một server/VPS có thể chạy Docker. WordPress phải gọi được bridge qua
+HTTP/HTTPS và bridge phải gọi được WordPress inbound endpoint.
 
 **Ví dụ topology:**
 - Cùng server: `http://127.0.0.1:4000`
@@ -16,7 +17,7 @@ Bạn cần một server/VPS có thể chạy Docker, với WordPress site có t
 
 ---
 
-## Bước 2: Tạo file `.env`
+## Bước 2: Tạo file `.env` cho WordPress CRM mode
 
 ```bash
 cp .env.example .env
@@ -32,6 +33,9 @@ PUBLIC_BASE_URL=http://your-server-ip:4000
 # Tạo bằng: openssl rand -hex 32
 CREDENTIALS_KEY=<32-byte-hex>
 
+# Không cần Chatwoot cho mode này.
+CHATWOOT_BASE_URL=
+
 # URL WordPress nhận inbound
 BIZCITY_INBOUND_URL=https://your-wp-site.com/wp-json/bizcity-channel/v1/zalo-bridge/inbound
 
@@ -39,14 +43,18 @@ BIZCITY_INBOUND_URL=https://your-wp-site.com/wp-json/bizcity-channel/v1/zalo-bri
 BIZCITY_INBOUND_TOKEN=<openssl-rand-hex-32>
 ```
 
+`BIZCITY_INBOUND_TOKEN` là shared secret hai chiều. Nhập cùng giá trị vào
+WordPress option `bizcity_zalo_bridge_token`. `CREDENTIALS_KEY` phải giữ nguyên
+sau lần đăng nhập QR đầu tiên.
+
 > ⚠️ `CREDENTIALS_KEY` mã hóa session Zalo trong DB. Không được thay đổi sau khi đăng nhập.
 
 ---
 
-## Bước 3: Chạy Docker
+## Bước 3: Chạy Docker từ source custom
 
 ```bash
-docker-compose -f docker-compose.example.yml up -d
+docker compose -f docker-compose.example.yml up -d --build
 
 # Kiểm tra
 curl http://localhost:4000/healthz

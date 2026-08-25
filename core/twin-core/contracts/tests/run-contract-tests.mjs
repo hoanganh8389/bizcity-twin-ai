@@ -220,6 +220,16 @@ function run() {
       throw new Error(`${contract.id}: invalid fixture unexpectedly passed`);
     }
 
+    const additionalValidFixtures = contract.fixtures.additional_valid ?? [];
+    for (const fixtureRef of additionalValidFixtures) {
+      const fixturePath = path.join(schemaRoot, fixtureRef);
+      const fixture = readJson(fixturePath);
+      const fixtureErrors = validate(schema, fixture, '$', schema);
+      if (fixtureErrors.length > 0) {
+        throw new Error(`${contract.id}: additional fixture ${fixtureRef} failed\n${fixtureErrors.join('\n')}`);
+      }
+    }
+
     if (contract.id === 'admin-navigation') {
       assert.equal(validFixture.top_level_groups.length, 3,
         'admin-navigation must define exactly three top-level groups');

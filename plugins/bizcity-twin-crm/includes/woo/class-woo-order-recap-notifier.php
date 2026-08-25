@@ -270,6 +270,7 @@ final class BizCity_CRM_Woo_Order_Recap_Notifier {
 			'fb'       => 'facebook',
 			'facebook' => 'facebook',
 			'zalo'     => 'zalo',
+			'zalo_personal' => 'zalo',
 			'webchat'  => 'webchat',
 			'telegram' => 'webchat', // fallback
 		);

@@ -3,7 +3,7 @@
   "module_id": "modules.twin-crm",
   "owner": "plugins/bizcity-twin-crm",
   "installer_id": "twin_crm",
-  "current_version": "1.28.0",
+  "current_version": "1.31.0",
   "version_option": "bizcity_crm_db_ver",
   "tables": {
     "bizcity_crm_broadcasts": {
@@ -280,11 +280,25 @@
         "private":         { "type": "TINYINT NOT NULL DEFAULT 0",             "since": "1.0.0", "comment": "1=agent note, not sent to customer" },
         "meta_json":       { "type": "LONGTEXT NULL",                          "since": "1.0.0", "comment": "Platform message_id, attachments, buttons, etc." },
         "platform_msg_id": { "type": "VARCHAR(190) NULL",                      "since": "1.0.0" },
-        "created_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+        "created_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "content_storage_state": { "type": "VARCHAR(20) NOT NULL DEFAULT 'hot'", "since": "1.29.0", "comment": "hot | archive_pending | archived | offload_pending | offloaded | archive_failed | offload_failed" },
+        "content_preview": { "type": "VARCHAR(255) NULL", "since": "1.29.0" },
+        "archive_channel": { "type": "VARCHAR(32) NULL", "since": "1.29.0" },
+        "archive_account_key": { "type": "VARCHAR(128) NULL", "since": "1.29.0" },
+        "archive_peer_key": { "type": "VARCHAR(128) NULL", "since": "1.29.0" },
+        "archive_month": { "type": "CHAR(7) NULL", "since": "1.29.0" },
+        "archive_receipt_hash": { "type": "CHAR(64) NULL", "since": "1.29.0" },
+        "archived_at": { "type": "DATETIME NULL", "since": "1.29.0" },
+        "offloaded_at": { "type": "DATETIME NULL", "since": "1.29.0" },
+        "storage_error_code": { "type": "VARCHAR(64) NULL", "since": "1.29.0" },
+        "storage_attempts": { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "1.29.0" }
       },
       "indexes": {
         "idx_conversation": { "cols": ["conversation_id", "created_at"], "since": "1.0.0" },
-        "idx_platform_msg": { "cols": ["platform_msg_id"],               "since": "1.0.0" }
+        "idx_platform_msg": { "cols": ["platform_msg_id"],               "since": "1.0.0" },
+        "idx_storage_state": { "cols": ["content_storage_state", "created_at", "id"], "since": "1.29.0" },
+        "idx_storage_conversation": { "cols": ["conversation_id", "content_storage_state", "created_at"], "since": "1.29.0" },
+        "idx_archive_receipt": { "cols": ["archive_receipt_hash"], "since": "1.29.0" }
       }
     },
 
@@ -397,17 +411,23 @@
       "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
       "columns": {
         "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
-        "name":            { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
-        "event_name":      { "type": "VARCHAR(100) NOT NULL",                  "since": "1.0.0", "comment": "conversation_created | message_created | label_added | sla_breach | ..." },
+        "name":            { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "description":     { "type": "TEXT NULL",                              "since": "1.28.1" },
+        "event_name":      { "type": "VARCHAR(64) NOT NULL",                   "since": "1.0.0", "comment": "conversation_created | message_created | label_added | sla_breach | ..." },
+        "inbox_id":        { "type": "BIGINT UNSIGNED NULL",                   "since": "1.28.1", "comment": "Optional tenant inbox scope for the rule" },
         "conditions_json": { "type": "LONGTEXT NULL",                          "since": "1.0.0", "comment": "Array of {attr, operator, value} conditions" },
-        "actions_json":    { "type": "LONGTEXT NOT NULL",                      "since": "1.0.0", "comment": "Array of {action_name, action_params} to execute" },
-        "active":          { "type": "TINYINT NOT NULL DEFAULT 1",             "since": "1.0.0" },
-        "run_count":       { "type": "INT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.0.0" },
-        "created_by":      { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "actions_json":    { "type": "LONGTEXT NULL",                          "since": "1.0.0", "comment": "Array of {action_name, action_params} to execute" },
+        "active":          { "type": "TINYINT(1) NOT NULL DEFAULT 1",          "since": "1.0.0" },
+        "run_count":       { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",     "since": "1.0.0" },
+        "last_run_at":     { "type": "DATETIME NULL",                          "since": "1.28.1" },
+        "created_by_id":   { "type": "BIGINT UNSIGNED NULL",                   "since": "1.28.1", "comment": "WordPress user who created the rule" },
         "created_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
         "updated_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
       },
-      "indexes": { "idx_event": { "cols": ["event_name", "active"], "since": "1.0.0" } }
+      "indexes": {
+        "idx_event_active": { "cols": ["event_name", "active"], "since": "1.0.0" },
+        "idx_inbox":        { "cols": ["inbox_id"],              "since": "1.28.1" }
+      }
     },
 
     "bizcity_crm_contracts": {
@@ -758,9 +778,175 @@
         "idx_blog_created":     { "cols": ["blog_id", "created_at"],     "since": "1.28.0" },
         "idx_event":             { "cols": ["event_type", "created_at"],   "since": "1.28.0" }
       }
+    },
+    "bizcity_crm_archive_receipts": {
+      "since": "1.29.0",
+      "purpose": "Content-free per-message receipt proving encrypted archive write before SQL offload.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.29.0", "pk": true },
+        "crm_message_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.29.0" },
+        "conversation_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.29.0" },
+        "inbox_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.29.0" },
+        "channel_type": { "type": "VARCHAR(32) NOT NULL", "since": "1.29.0" },
+        "account_key": { "type": "VARCHAR(128) NOT NULL", "since": "1.29.0" },
+        "peer_key": { "type": "VARCHAR(128) NOT NULL", "since": "1.29.0" },
+        "archive_month": { "type": "CHAR(7) NOT NULL", "since": "1.29.0" },
+        "archive_schema_version": { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 1", "since": "1.29.0" },
+        "archive_key_version": { "type": "VARCHAR(32) NOT NULL DEFAULT 'v1'", "since": "1.29.0" },
+        "line_hash": { "type": "CHAR(64) NOT NULL", "since": "1.29.0" },
+        "archive_status": { "type": "VARCHAR(16) NOT NULL DEFAULT 'written'", "since": "1.29.0", "comment": "pending | written | verify_failed | erased" },
+        "written_at": { "type": "DATETIME NULL", "since": "1.29.0" },
+        "verified_at": { "type": "DATETIME NULL", "since": "1.29.0" },
+        "created_at": { "type": "DATETIME NOT NULL", "since": "1.29.0" },
+        "updated_at": { "type": "DATETIME NOT NULL", "since": "1.29.0" }
+      },
+      "indexes": {
+        "uniq_message_schema": { "cols": ["crm_message_id", "archive_schema_version"], "since": "1.29.0", "unique": true },
+        "idx_partition": { "cols": ["channel_type", "account_key", "peer_key", "archive_month"], "since": "1.29.0" },
+        "idx_status_created": { "cols": ["archive_status", "created_at"], "since": "1.29.0" }
+      }
+    },
+    "bizcity_crm_reporting_events": {
+      "since": "1.30.0",
+      "purpose": "Bounded content-free reporting facts; short retention source for daily rollups.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.30.0", "pk": true },
+        "event_uuid": { "type": "CHAR(36) NOT NULL", "since": "1.30.0" },
+        "metric": { "type": "VARCHAR(64) NOT NULL", "since": "1.30.0" },
+        "occurred_at": { "type": "DATETIME NOT NULL", "since": "1.30.0" },
+        "event_date": { "type": "DATE NOT NULL", "since": "1.30.0" },
+        "inbox_id": { "type": "BIGINT UNSIGNED NULL", "since": "1.30.0" },
+        "team_id": { "type": "BIGINT UNSIGNED NULL", "since": "1.30.0" },
+        "user_id": { "type": "BIGINT UNSIGNED NULL", "since": "1.30.0" },
+        "conversation_id": { "type": "BIGINT UNSIGNED NULL", "since": "1.30.0" },
+        "channel_type": { "type": "VARCHAR(32) NULL", "since": "1.30.0" },
+        "value": { "type": "DECIMAL(18,4) NOT NULL DEFAULT 1", "since": "1.30.0" },
+        "business_hours_value": { "type": "DECIMAL(18,4) NULL", "since": "1.30.0" },
+        "dedupe_key": { "type": "VARCHAR(190) NOT NULL", "since": "1.30.0" },
+        "created_at": { "type": "DATETIME NOT NULL", "since": "1.30.0" }
+      },
+      "indexes": {
+        "uniq_dedupe": { "cols": ["dedupe_key"], "since": "1.30.0", "unique": true },
+        "idx_date_metric": { "cols": ["event_date", "metric"], "since": "1.30.0" },
+        "idx_dimension_date": { "cols": ["inbox_id", "team_id", "user_id", "event_date"], "since": "1.30.0" }
+      }
+    },
+    "bizcity_crm_reporting_event_rollups": {
+      "since": "1.30.0",
+      "purpose": "Long-lived daily aggregate source for CRM dashboards; contains no message content.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.30.0", "pk": true },
+        "bucket_date": { "type": "DATE NOT NULL", "since": "1.30.0" },
+        "dimension_type": { "type": "VARCHAR(16) NOT NULL", "since": "1.30.0" },
+        "dimension_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.30.0" },
+        "channel_type": { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "1.30.0" },
+        "metric": { "type": "VARCHAR(64) NOT NULL", "since": "1.30.0" },
+        "count": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.30.0" },
+        "sum_value": { "type": "DECIMAL(18,4) NOT NULL DEFAULT 0", "since": "1.30.0" },
+        "sum_business_hours": { "type": "DECIMAL(18,4) NOT NULL DEFAULT 0", "since": "1.30.0" },
+        "created_at": { "type": "DATETIME NOT NULL", "since": "1.30.0" },
+        "updated_at": { "type": "DATETIME NOT NULL", "since": "1.30.0" }
+      },
+      "indexes": {
+        "uniq_bucket_dimension": { "cols": ["bucket_date", "dimension_type", "dimension_id", "channel_type", "metric"], "since": "1.30.0", "unique": true },
+        "idx_metric_date": { "cols": ["metric", "bucket_date"], "since": "1.30.0" },
+        "idx_dimension_date": { "cols": ["dimension_type", "dimension_id", "bucket_date"], "since": "1.30.0" }
+      }
+    },
+    "bizcity_crm_teams": {
+      "since": "1.31.0",
+      "purpose": "Tenant-local CRM operational teams; WP users remain identity source.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.31.0", "pk": true },
+        "name": { "type": "VARCHAR(190) NOT NULL", "since": "1.31.0" },
+        "description": { "type": "TEXT NULL", "since": "1.31.0" },
+        "allow_auto_assign": { "type": "TINYINT(1) NOT NULL DEFAULT 1", "since": "1.31.0" },
+        "is_active": { "type": "TINYINT(1) NOT NULL DEFAULT 1", "since": "1.31.0" },
+        "created_by": { "type": "BIGINT UNSIGNED NULL", "since": "1.31.0" },
+        "created_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" },
+        "updated_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" }
+      },
+      "indexes": { "uniq_name": { "cols": ["name"], "since": "1.31.0", "unique": true }, "idx_active": { "cols": ["is_active", "allow_auto_assign"], "since": "1.31.0" } }
+    },
+    "bizcity_crm_team_members": {
+      "since": "1.31.0",
+      "purpose": "Tenant-local N:N team to current-blog WP user membership.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.31.0", "pk": true },
+        "team_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.31.0" },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.31.0" },
+        "member_role": { "type": "VARCHAR(20) NOT NULL DEFAULT 'agent'", "since": "1.31.0" },
+        "is_active": { "type": "TINYINT(1) NOT NULL DEFAULT 1", "since": "1.31.0" },
+        "last_assigned_at": { "type": "DATETIME NULL", "since": "1.31.0" },
+        "created_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" },
+        "updated_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" }
+      },
+      "indexes": { "uniq_team_user": { "cols": ["team_id", "user_id"], "since": "1.31.0", "unique": true }, "idx_user_active": { "cols": ["user_id", "is_active"], "since": "1.31.0" } }
+    },
+    "bizcity_crm_inbox_members": {
+      "since": "1.31.0",
+      "purpose": "Tenant-local inbox work membership and assignment permission.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.31.0", "pk": true },
+        "inbox_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.31.0" },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.31.0" },
+        "member_role": { "type": "VARCHAR(20) NOT NULL DEFAULT 'agent'", "since": "1.31.0" },
+        "can_assign": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "1.31.0" },
+        "is_active": { "type": "TINYINT(1) NOT NULL DEFAULT 1", "since": "1.31.0" },
+        "created_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" },
+        "updated_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" }
+      },
+      "indexes": { "uniq_inbox_user": { "cols": ["inbox_id", "user_id"], "since": "1.31.0", "unique": true }, "idx_user_inbox": { "cols": ["user_id", "inbox_id", "is_active"], "since": "1.31.0" } }
+    },
+    "bizcity_crm_assignment_policies": {
+      "since": "1.31.0",
+      "purpose": "Tenant-local fair assignment policy configuration.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.31.0", "pk": true },
+        "name": { "type": "VARCHAR(190) NOT NULL", "since": "1.31.0" },
+        "description": { "type": "TEXT NULL", "since": "1.31.0" },
+        "enabled": { "type": "TINYINT(1) NOT NULL DEFAULT 1", "since": "1.31.0" },
+        "assignment_order": { "type": "VARCHAR(32) NOT NULL DEFAULT 'round_robin'", "since": "1.31.0" },
+        "conversation_priority": { "type": "VARCHAR(32) NOT NULL DEFAULT 'earliest_created'", "since": "1.31.0" },
+        "fair_distribution_limit": { "type": "INT UNSIGNED NOT NULL DEFAULT 100", "since": "1.31.0" },
+        "fair_distribution_window_seconds": { "type": "INT UNSIGNED NOT NULL DEFAULT 3600", "since": "1.31.0" },
+        "max_open_conversations_per_user": { "type": "INT UNSIGNED NULL", "since": "1.31.0" },
+        "overflow_action": { "type": "VARCHAR(32) NOT NULL DEFAULT 'leave_unassigned'", "since": "1.31.0" },
+        "created_by": { "type": "BIGINT UNSIGNED NULL", "since": "1.31.0" },
+        "updated_by": { "type": "BIGINT UNSIGNED NULL", "since": "1.31.0" },
+        "created_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" },
+        "updated_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" }
+      },
+      "indexes": { "uniq_name": { "cols": ["name"], "since": "1.31.0", "unique": true }, "idx_enabled_order": { "cols": ["enabled", "assignment_order"], "since": "1.31.0" } }
+    },
+    "bizcity_crm_inbox_assignment_policies": {
+      "since": "1.31.0",
+      "purpose": "One optional assignment policy/team binding per inbox.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.31.0", "pk": true },
+        "inbox_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.31.0" },
+        "assignment_policy_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.31.0" },
+        "team_id": { "type": "BIGINT UNSIGNED NULL", "since": "1.31.0" },
+        "enabled": { "type": "TINYINT(1) NOT NULL DEFAULT 1", "since": "1.31.0" },
+        "created_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" },
+        "updated_at": { "type": "DATETIME NOT NULL", "since": "1.31.0" }
+      },
+      "indexes": { "uniq_inbox": { "cols": ["inbox_id"], "since": "1.31.0", "unique": true }, "idx_policy_team": { "cols": ["assignment_policy_id", "team_id"], "since": "1.31.0" } }
     }
   },
   "history": [
+    { "version": "1.31.0", "date": "2026-08-24", "change": "PHASE-0.39F F2-F5: Declare archive receipts, message storage lifecycle fields, bounded reporting facts/daily rollups, tenant-local Teams, Team Members, Inbox Members and assignment policy bindings. No CRM user shadow table; no message content in reporting tables." },
+    { "version": "1.30.0", "date": "2026-08-24", "change": "PHASE-0.39F F3: Add content-free reporting events and daily rollup schema contract." },
+    { "version": "1.29.0", "date": "2026-08-24", "change": "PHASE-0.39F F2: Add message storage lifecycle and verified archive receipt schema contract." },
+    { "version": "1.28.1", "date": "2026-08-22", "change": "Reconcile bizcity_crm_automation_rules catalog with the active installer: description, inbox_id, last_run_at, created_by_id, idx_event_active and idx_inbox." },
     { "version": "1.28.0", "date": "2026-08-12", "change": "PHASE-CRM-CONTACTS-UNIFY-V2: Add append-only identity conflict audit history and paginated/filterable review contract." },
     { "version": "1.27.0", "date": "2026-08-11", "change": "PHASE-CRM-CONTACTS-UNIFY-V2 W1: Add conflict queue lease/backoff fields claimed_by, claimed_at and retry_after for maintenance retry/claim workflow." },
     { "version": "1.26.0", "date": "2026-08-11", "change": "PHASE-CRM-CONTACTS-UNIFY-V2 W1: Add tenant-scoped bizcity_crm_identity_conflicts durable queue for Woo/user-points identity mismatches. Stores internal candidate IDs, dedupe/payload hashes, status, retry and resolution audit; no raw PII." },

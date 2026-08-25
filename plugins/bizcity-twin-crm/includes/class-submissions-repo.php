@@ -45,6 +45,8 @@ class BizCity_CRM_Submissions_Repo {
 		'webchat_optin',
 		'zns_reply',
 		'zalo_ref',
+		// [2026-08-23 Johnny Chu] PHASE-0.39D — preserve Zalo Personal submission provenance.
+		'zalo_personal',
 		'manual',
 		'import',
 	);
@@ -481,6 +483,7 @@ class BizCity_CRM_Submissions_Repo {
 			'zns'              => 'zns_reply',
 			'zns_reply'        => 'zns_reply',
 			'zalo_ref'         => 'zalo_ref',
+			'zalo_personal'    => 'zalo_personal',
 			'comment'          => 'manual',
 			'manual'           => 'manual',
 			'import'           => 'import',

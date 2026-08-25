@@ -1,0 +1,34 @@
+{
+  "contract": "zalo-personal-bridge",
+  "version": "1.0.0",
+  "scenario": "denied_domain_mismatch",
+  "request": {
+    "surface": "channel-gateway",
+    "domain": "mrodemo.btnet.vn",
+    "blog_id": 742,
+    "shard": "slave_1",
+    "key_id": 59,
+    "allowed_domain": "other-client.example",
+    "callback_host": "mrodemo.btnet.vn"
+  },
+  "entitlement": {
+    "allowed": true,
+    "account_limit": -1,
+    "accounts_used": 0,
+    "accounts_remaining": -1,
+    "source": "exact_api_key"
+  },
+  "error": {
+    "code": "permission_denied",
+    "message": "Callback URL không khớp domain của API key.",
+    "hint": "Dùng đúng domain đã đăng ký với API key hiện tại.",
+    "help_code": "permission_denied",
+    "reason_bucket": "key_domain_mismatch"
+  },
+  "outcome": {
+    "sidecar_called": false,
+    "mapping_persisted": false,
+    "crm_inbox_persisted": false,
+    "result": "denied"
+  }
+}

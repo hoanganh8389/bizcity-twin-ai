@@ -47,6 +47,8 @@ class BizCity_CRM_Facebook_Ingestor {
 		'bizcity_zalo_message_received'      => 'zalo',
 		// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — Zone 1 OA path → adapter zalo_oa
 		'bizcity_zalo_oa_message_received'   => 'zalo_oa',
+		// [2026-08-21 Johnny Chu] PHASE-0.39B — Personal customer-care path uses its own adapter code.
+		'bizcity_zalo_personal_message_received' => 'zalo_personal',
 	);
 
 	public static function instance(): self {
@@ -176,6 +178,17 @@ class BizCity_CRM_Facebook_Ingestor {
 	 * @return int message_id (0 if dedupe-skipped or invalid)
 	 */
 	public function ingest( BizCity_CRM_Channel_Adapter $adapter, array $norm ): int {
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — reject malformed or Zone 2 adapter output before CRM SQL.
+		if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
+			error_log( '[bizcity-crm] channel contract unavailable; inbound refused before SQL' );
+			return 0;
+		}
+		$validated = BizCity_CRM_Channel_Contract::normalize_inbound( $adapter->code(), $norm );
+		if ( is_wp_error( $validated ) ) {
+			error_log( '[bizcity-crm] channel contract rejected inbound code=' . sanitize_key( $adapter->code() ) . ' reason=' . sanitize_key( $validated->get_error_code() ) );
+			return 0;
+		}
+		$norm = $validated;
 		// 1. Inbox.
 		$inbox_id = BizCity_CRM_Repository::upsert_inbox(
 			$adapter->code(),
@@ -208,9 +221,20 @@ class BizCity_CRM_Facebook_Ingestor {
 			'message_type'       => 'incoming',
 			'sender_type'        => 'contact',
 			'sender_id'          => (int) $ids['contact_id'],
+			'ai_metadata'        => isset( $norm['ai_metadata'] ) && is_array( $norm['ai_metadata'] ) ? $norm['ai_metadata'] : null,
+			'trace_id'           => (string) ( $norm['trace_id'] ?? '' ),
 			'attachments'        => $norm['attachments'] ?? array(),
 			'created_at'         => isset( $norm['received_at'] ) ? (string) $norm['received_at'] : current_time( 'mysql' ),
 		) );
+		if ( $msg_id > 0 && $adapter->code() === 'zalo_personal'
+			&& class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+			// [2026-08-21 Johnny Chu] PHASE-0.39B — close provider-to-CRM mapping after canonical insert.
+			BizCity_Zalo_Mapping_Repo::link_crm_message(
+				(int) ( $norm['_zalo_local_account_id'] ?? 0 ),
+				(string) ( $norm['_zalo_message_id'] ?? '' ),
+				$msg_id
+			);
+		}
 
 		// v1.16.0 — fan-out hook for Pipeline_Sync (and any future subscriber).
 		// Keeps fb-ingestor decoupled from sales-pipeline logic.
@@ -489,6 +513,7 @@ class BizCity_CRM_Facebook_Ingestor {
 			'responder_user_id'  => $stamp_uid,
 			'character_id'       => $stamp_cid,
 			'attachments'        => $norm['attachments'] ?? array(),
+			'trace_id'           => (string) ( $norm['trace_id'] ?? '' ),
 			'created_at'         => isset( $norm['received_at'] ) ? (string) $norm['received_at'] : current_time( 'mysql' ),
 		) );
 

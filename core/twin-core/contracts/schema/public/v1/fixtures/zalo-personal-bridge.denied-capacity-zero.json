@@ -1,0 +1,34 @@
+{
+  "contract": "zalo-personal-bridge",
+  "version": "1.0.0",
+  "scenario": "denied_capacity_zero",
+  "request": {
+    "surface": "channel-gateway",
+    "domain": "free-client.example",
+    "blog_id": 743,
+    "shard": "slave_1",
+    "key_id": 60,
+    "allowed_domain": "free-client.example",
+    "callback_host": "free-client.example"
+  },
+  "entitlement": {
+    "allowed": false,
+    "account_limit": 0,
+    "accounts_used": 0,
+    "accounts_remaining": 0,
+    "source": "exact_api_key"
+  },
+  "error": {
+    "code": "account_capacity_disabled",
+    "message": "Zalo Personal managed đang bị khóa hạn mức.",
+    "hint": "Đặt capacity lớn hơn 0 trên Master Plan rồi làm mới quyền.",
+    "help_code": "feature_not_enabled",
+    "reason_bucket": "capacity_zero"
+  },
+  "outcome": {
+    "sidecar_called": false,
+    "mapping_persisted": false,
+    "crm_inbox_persisted": false,
+    "result": "denied"
+  }
+}

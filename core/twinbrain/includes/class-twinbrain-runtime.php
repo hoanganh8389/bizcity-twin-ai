@@ -1033,6 +1033,11 @@ class BizCity_TwinBrain_Runtime {
 				$opts['search_context']           = (array) ( $notebook_source_payload['search_context'] ?? array() );
 				$opts['search_context_results']   = (array) ( $notebook_source_payload['search_context_results'] ?? array() );
 				$opts['search_context_total']     = (int) ( $notebook_source_payload['search_context_total'] ?? 0 );
+				$opts['final_context_chunks']     = (array) ( $notebook_source_payload['final_context_chunks'] ?? array() );
+				$opts['final_context_count']      = (int) ( $notebook_source_payload['final_context_count'] ?? count( $opts['final_context_chunks'] ) );
+				$opts['product_entities']         = (array) ( $notebook_source_payload['product_entities'] ?? array() );
+				$opts['product_entity_count']     = (int) ( $notebook_source_payload['product_entity_count'] ?? count( $opts['product_entities'] ) );
+				$opts['product_name_entity_count'] = (int) ( $notebook_source_payload['product_name_entity_count'] ?? 0 );
 				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.12 — non-stream parity for N4 cross-notebook links.
 				$opts['cross_notebook_links']     = (array) ( $notebook_source_payload['cross_notebook_links'] ?? array() );
 				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.13 — non-stream parity for N5 training gap report.
@@ -1078,7 +1083,6 @@ class BizCity_TwinBrain_Runtime {
 				) );
 			}
 		}
-
 		/* PHASE-0.35 / F7.C4 — Layer 5 Tool_Decision (no dispatch yet; that's F7.C5). */
 		$direct_vertical_mode = strtolower( (string) ( $opts['web_mode'] ?? 'off' ) );
 		$tool_decision = $direct_vertical_mode === 'woo_bizops'
@@ -1111,6 +1115,9 @@ class BizCity_TwinBrain_Runtime {
 		$tool_results = $direct_vertical_mode === 'woo_bizops'
 			? array()
 			: ( ! empty( $dispatch['skipped'] ) ? $this->planned_tool_results( $tool_decision ) : $this->dispatched_tool_results( $dispatch ) );
+		// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — expose completed tool evidence to the shared fallback resolver.
+		$opts['tool_dispatch'] = $dispatch;
+		$opts['tool_results'] = $tool_results;
 
 		$synth     = BizCity_TwinBrain_Synthesizer::instance();
 		$synth_t0  = microtime( true );
@@ -1183,6 +1190,44 @@ class BizCity_TwinBrain_Runtime {
 				break;
 			}
 		}
+		if ( class_exists( 'BizCity_TwinBrain_Final_Composer' ) ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — share the stream/non-stream evidence decision before final composition.
+			$opts['evidence_fallback_state'] = BizCity_TwinBrain_Final_Composer::instance()->resolve_evidence_fallback_state( $opts, $prompt );
+		}
+		$final = array();
+		if ( class_exists( 'BizCity_TwinBrain_Final_Composer' ) && ! empty( $opts['evidence_fallback_state']['fallback'] ) ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — keep non-stream channel replies on the canonical Final Composer contract.
+			$final_opts = $opts;
+			$final_opts['final_gate'] = $final_gate;
+			try {
+				$final = BizCity_TwinBrain_Final_Composer::instance()->compose_stream(
+					$trace_id,
+					$prompt,
+					$synthesis,
+					$answers,
+					$final_opts,
+					null
+				);
+				if ( ! empty( $final['answer_md'] ) ) {
+					$synthesis['answer_md_synth'] = (string) ( $synthesis['answer_md'] ?? '' );
+					$synthesis['answer_md'] = (string) $final['answer_md'];
+					$synthesis['final_compose'] = $final;
+				}
+			} catch ( \Throwable $e ) {
+				self::write_runtime_log( 'error', 'final_composer_nonstream_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface' => self::SURFACE,
+					'exception_class' => get_class( $e ),
+				) );
+			}
+		}
+		// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — resolve citations from the final answer, not the pre-composer Synthesizer payload.
+		if ( ! empty( $final['evidence_fallback'] ) ) {
+			$synthesis['citations'] = array();
+		}
+		$final_inline_pids = $this->extract_inline_passage_refs( (string) ( $synthesis['answer_md'] ?? '' ) );
+		$cited_entity_ids = $this->resolve_cited_entity_ids( (array) ( $synthesis['citations'] ?? array() ) );
+		$cited_passages   = $this->resolve_cited_passages( (array) ( $synthesis['citations'] ?? array() ), $final_inline_pids );
 
 		// Stage 4 telemetry — emit granular brain_synthesize before the
 		// final assistant_message so admin replay can show timing & model.
@@ -1228,6 +1273,9 @@ class BizCity_TwinBrain_Runtime {
 				'ms'                => $synth_ms,
 				'fallback'          => (string) ( $synthesis['fallback'] ?? '' ),
 				'final_gate'        => $final_gate,
+				'evidence_fallback' => ! empty( $final['evidence_fallback'] ),
+				'evidence_fallback_trigger' => (string) ( $final['evidence_fallback_trigger'] ?? '' ),
+				'deep_research_offer' => ! empty( $final['deep_research_offer'] ),
 			],
 		] );
 
@@ -1249,6 +1297,9 @@ class BizCity_TwinBrain_Runtime {
 			'cited_entity_ids'  => $cited_entity_ids,
 			'cited_passages'    => $cited_passages,
 			'final_gate'        => $final_gate,
+			'evidence_fallback' => ! empty( $final['evidence_fallback'] ),
+			'evidence_fallback_trigger' => (string) ( $final['evidence_fallback_trigger'] ?? '' ),
+			'deep_research_offer' => ! empty( $final['deep_research_offer'] ),
 		];
 		if ( class_exists( 'BizCity_TwinBrain_Goal_Loop_Runtime' ) ) {
 			try {
@@ -1653,6 +1704,26 @@ class BizCity_TwinBrain_Runtime {
 				? $this->planned_tool_results( $tool_decision )
 				: $this->dispatched_tool_results( $dispatch );
 		}
+		// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — expose completed stream tool evidence before fallback notice emission.
+		$opts['tool_dispatch'] = $dispatch;
+		$opts['tool_results'] = $tool_results;
+
+		if ( class_exists( 'BizCity_TwinBrain_Final_Composer' ) ) {
+			// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — publish Part 1 after Notebook and Tool evidence decisions are complete.
+			$evidence_fallback_state = BizCity_TwinBrain_Final_Composer::instance()->resolve_evidence_fallback_state( $opts, $prompt );
+			$opts['evidence_fallback_state'] = $evidence_fallback_state;
+			if ( ! empty( $evidence_fallback_state['fallback'] ) ) {
+				$notice_payload = array(
+					'trace_id' => $trace_id,
+					'trigger' => (string) ( $evidence_fallback_state['trigger'] ?? '' ),
+					'reason' => (string) ( $evidence_fallback_state['reason'] ?? '' ),
+					'notice' => BizCity_TwinBrain_Final_Composer::instance()->render_evidence_fallback_notice( array_merge( $opts, array( 'evidence_fallback_state' => $evidence_fallback_state ) ) ),
+				);
+				$sse->emit( 'evidence_fallback_notice', $notice_payload );
+				// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — persist the notice under its canonical Event Taxonomy type, while SSE remains the transport event.
+				$this->emit_event( 'evidence_fallback_notice', array_merge( array( 'surface' => self::SURFACE ), $notice_payload ) );
+			}
+		}
 
 		$sse->emit( 'synthesis_started', [ 'trace_id' => $trace_id ] );
 
@@ -1845,6 +1916,10 @@ class BizCity_TwinBrain_Runtime {
 		$final_ms = (int) ( ( microtime( true ) - $final_t0 ) * 1000 );
 
 		$final_text = (string) ( $final['answer_md'] ?? '' );
+		if ( ! empty( $final['evidence_fallback'] ) ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — final general-knowledge text owns citation metadata after the stream is cleaned.
+			$synthesis['citations'] = array();
+		}
 
 		// [2026-06-10 Johnny Chu] R-QUOTA-KEY — Brain mode quota check (same pattern as astro mode).
 		// Emit SSE error BEFORE final_done so FE renders QuotaErrorBanner.
@@ -1902,6 +1977,9 @@ class BizCity_TwinBrain_Runtime {
 			'source_file_counts'       => (array) ( $opts['source_file_counts'] ?? array() ),
 			'notebook_source_block_md' => (string) ( $opts['notebook_source_block_md'] ?? '' ),
 			'invalid_notebook_citations_stripped' => (int) ( $final['invalid_notebook_citations_stripped'] ?? 0 ),
+			'evidence_fallback' => ! empty( $final['evidence_fallback'] ),
+			'evidence_fallback_trigger' => (string) ( $final['evidence_fallback_trigger'] ?? '' ),
+			'deep_research_offer' => ! empty( $final['deep_research_offer'] ),
 			'final_gate' => $final_gate,
 			'skeleton_id' => (string) ( $final['skeleton_id'] ?? '' ),
 			'required_sections' => (array) ( $final['required_sections'] ?? array() ),
@@ -2154,6 +2232,9 @@ class BizCity_TwinBrain_Runtime {
 					'named_evidence_count' => (int) ( $final['named_evidence_count'] ?? 0 ),
 					'product_entity_count' => (int) ( $final['product_entity_count'] ?? $opts['product_entity_count'] ?? 0 ),
 					'product_name_entity_count' => (int) ( $final['product_name_entity_count'] ?? $opts['product_name_entity_count'] ?? 0 ),
+					'evidence_fallback' => ! empty( $final['evidence_fallback'] ),
+					'evidence_fallback_trigger' => (string) ( $final['evidence_fallback_trigger'] ?? '' ),
+					'deep_research_offer' => ! empty( $final['deep_research_offer'] ),
 					// [2026-08-10 Johnny Chu] GOAL-FOLLOWUP-1 — persist continuity question metadata for session replay.
 					'followup_gate' => (string) ( $final['followup_gate'] ?? 'not_required' ),
 					'followup_contract' => (array) ( $final['followup_contract'] ?? array() ),
@@ -2230,6 +2311,9 @@ class BizCity_TwinBrain_Runtime {
 			'cited_entity_ids'  => $cited_entity_ids,
 			'cited_passages'    => $cited_passages,
 			'final_gate'        => $final_gate,
+			'evidence_fallback' => ! empty( $final['evidence_fallback'] ),
+			'evidence_fallback_trigger' => (string) ( $final['evidence_fallback_trigger'] ?? '' ),
+			'deep_research_offer' => ! empty( $final['deep_research_offer'] ),
 			'duration_ms'       => $wall_ms,
 		];
 		if ( class_exists( 'BizCity_TwinBrain_Goal_Loop_Runtime' ) ) {
@@ -2606,6 +2690,9 @@ class BizCity_TwinBrain_Runtime {
 				'ms'        => (int)    ( $f['ms']     ?? 0 ),
 				'fallback'  => (string) ( $f['fallback'] ?? '' ),
 				'success'   => ! empty( $f['success'] ),
+				'evidence_fallback' => ! empty( $f['evidence_fallback'] ),
+				'evidence_fallback_trigger' => (string) ( $f['evidence_fallback_trigger'] ?? '' ),
+				'deep_research_offer' => ! empty( $f['deep_research_offer'] ),
 			);
 		}
 
@@ -8024,6 +8111,26 @@ class BizCity_TwinBrain_Runtime {
 		}
 
 		if ( class_exists( 'BizCity_Twin_Event_Bus' ) ) {
+			if ( $event_key === 'evidence_fallback_notice'
+				&& class_exists( 'BizCity_Twin_Event_Taxonomy' )
+				&& method_exists( 'BizCity_Twin_Event_Bus', 'dispatch_v2' ) ) {
+				// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — persist the deterministic notice through the canonical append-only Event Stream.
+				try {
+					BizCity_Twin_Event_Bus::dispatch_v2(
+						BizCity_Twin_Event_Taxonomy::EVIDENCE_FALLBACK_NOTICE,
+						$payload,
+						array(
+							'event_source' => 'twinbrain',
+							'session_id'   => $this->current_session_id,
+							'user_id'      => (int) ( $payload['user_id'] ?? get_current_user_id() ),
+							'trace_id'     => (string) ( $payload['trace_id'] ?? '' ),
+						)
+					);
+					return;
+				} catch ( \Throwable $e ) {
+					error_log( '[TwinBrain] canonical event dispatch failed: ' . $event_key . ' — ' . $e->getMessage() );
+				}
+			}
 			try {
 				BizCity_Twin_Event_Bus::dispatch( $event_key, $payload );
 				return;

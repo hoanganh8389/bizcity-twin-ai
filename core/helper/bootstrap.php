@@ -97,6 +97,10 @@ if ( ! function_exists( 'bizcity_tbl_invalidate' ) ) {
 		$GLOBALS['bizcity_table_cache_generation'] = isset( $GLOBALS['bizcity_table_cache_generation'] )
 			? (int) $GLOBALS['bizcity_table_cache_generation'] + 1
 			: 1;
+		// [2026-08-22 Johnny Chu] R-METADATA-CACHE — table DDL invalidates single and batched column memos together.
+		$GLOBALS['bizcity_column_cache_generation'] = isset( $GLOBALS['bizcity_column_cache_generation'] )
+			? (int) $GLOBALS['bizcity_column_cache_generation'] + 1
+			: 1;
 		$ck = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table_name );
 		wp_cache_delete( $ck, 'bizcity_tbl' );
 		if ( function_exists( 'bizcity_table_type_invalidate' ) ) {
@@ -139,6 +143,14 @@ if ( ! function_exists( 'bizcity_table_type_invalidate' ) ) {
 if ( ! function_exists( 'bizcity_column_exists' ) ) {
 	function bizcity_column_exists( $table_name, $column_name ) {
 		static $memo = array();
+		static $generation = null;
+		$current_generation = isset( $GLOBALS['bizcity_column_cache_generation'] )
+			? (int) $GLOBALS['bizcity_column_cache_generation']
+			: 0;
+		if ( $generation !== $current_generation ) {
+			$memo = array();
+			$generation = $current_generation;
+		}
 		global $wpdb;
 		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
 		$memo_key = (int) get_current_blog_id() . ':' . $database . ':' . $table_name . ':' . $column_name;
@@ -168,6 +180,10 @@ if ( ! function_exists( 'bizcity_column_exists' ) ) {
 // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — invalidate schema cache after additive DDL or repair.
 if ( ! function_exists( 'bizcity_column_invalidate' ) ) {
 	function bizcity_column_invalidate( $table_name, $column_name ) {
+		// [2026-08-22 Johnny Chu] R-METADATA-CACHE — clear both persistent and same-request column memos after DDL repair.
+		$GLOBALS['bizcity_column_cache_generation'] = isset( $GLOBALS['bizcity_column_cache_generation'] )
+			? (int) $GLOBALS['bizcity_column_cache_generation'] + 1
+			: 1;
 		global $wpdb;
 		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
 		$cache_key = 'bz_col_' . (int) get_current_blog_id() . '_' . md5( $database . '|' . $table_name . '|' . $column_name );
@@ -185,7 +201,8 @@ if ( ! function_exists( 'bizcity_columns_exist' ) ) {
 		}
 
 		$database  = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
-		$cache_key = 'bz_cols_' . (int) get_current_blog_id() . '_' . md5( $database . '|' . $table_name . '|' . implode( ',', $columns ) );
+		$generation = isset( $GLOBALS['bizcity_column_cache_generation'] ) ? (int) $GLOBALS['bizcity_column_cache_generation'] : 0;
+		$cache_key = 'bz_cols_' . (int) get_current_blog_id() . '_' . md5( $database . '|' . $table_name . '|' . implode( ',', $columns ) . '|' . $generation );
 		$cached    = wp_cache_get( $cache_key, 'bizcity_tbl' );
 		if ( false !== $cached ) {
 			return (bool) $cached;
@@ -206,6 +223,10 @@ if ( ! function_exists( 'bizcity_columns_exist' ) ) {
 // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — clear the batched schema result after KG DDL.
 if ( ! function_exists( 'bizcity_columns_invalidate' ) ) {
 	function bizcity_columns_invalidate( $table_name, $column_names ) {
+		// [2026-08-22 Johnny Chu] R-METADATA-CACHE — invalidate batched same-request and persistent metadata results.
+		$GLOBALS['bizcity_column_cache_generation'] = isset( $GLOBALS['bizcity_column_cache_generation'] )
+			? (int) $GLOBALS['bizcity_column_cache_generation'] + 1
+			: 1;
 		global $wpdb;
 		$columns = array_values( array_unique( array_filter( array_map( 'strval', (array) $column_names ) ) ) );
 		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';

@@ -27,7 +27,7 @@ defined( 'ABSPATH' ) || exit;
 // [2026-06-24 Johnny Chu] PHASE-HOME — module constants
 define( 'BIZCITY_PERSONAL_DIR',            __DIR__ . '/' );
 define( 'BIZCITY_PERSONAL_URL',            plugin_dir_url( __FILE__ ) );
-define( 'BIZCITY_PERSONAL_VERSION',        '1.1.0' ); // [2026-06-24 Johnny Chu] PHASE-HOME-ARCH — bumped after W2/W7 deprecation + automation adapter
+define( 'BIZCITY_PERSONAL_VERSION',        '1.5.2' ); // [2026-08-25 Johnny Chu] PHASE-PROFILE-PUBLIC-SSE — invalidate bundle: Hero graph now drifts gently after settling ("bay bay").
 define( 'BIZCITY_PERSONAL_REWRITE_VERSION', '1.0.0' );
 
 // ── Includes ──────────────────────────────────────────────────────────────────
@@ -52,9 +52,41 @@ require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-cha
 require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-entrypoint-manager.php';
 require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-contacts-bridge.php';
 require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-analytics.php';
+// [2026-08-23 Johnny Chu] R-CH-FILE-LOG — public Profile traffic must have the canonical daily logger without loading the full Channel Gateway.
+if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+	$_profile_file_logger = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR . 'core/channel-gateway/includes/class-channel-file-logger.php' : '';
+	if ( '' !== $_profile_file_logger && is_readable( $_profile_file_logger ) ) {
+		require_once $_profile_file_logger;
+	}
+	unset( $_profile_file_logger );
+}
+// [2026-08-23 Johnny Chu] PHASE-TBP-6.4 — public Profile transcript uses the existing WebChat message store; load only its lightweight class contract here.
+if ( ! class_exists( 'BizCity_WebChat_Database', false ) && defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
+	$_profile_webchat_database = BIZCITY_TWIN_AI_DIR . 'modules/webchat/includes/class-webchat-database.php';
+	if ( is_readable( $_profile_webchat_database ) ) {
+		require_once $_profile_webchat_database;
+	}
+	unset( $_profile_webchat_database );
+}
+require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-wheel-provider.php';
+// [2026-08-21 Johnny Chu] PHASE-TWIN-BRAIN-PROFILE — repair provider registration after mixed/legacy loader paths so the registry never exposes an empty Mabel catalog.
+if ( class_exists( 'BizCity_Profile_Wheel_Provider_Registry' )
+	&& class_exists( 'BizCity_Profile_Mabel_Wheel_Provider' )
+	&& method_exists( 'BizCity_Profile_Wheel_Provider_Registry', 'get' )
+	&& method_exists( 'BizCity_Profile_Wheel_Provider_Registry', 'register' )
+	&& ! BizCity_Profile_Wheel_Provider_Registry::get( 'mabel' ) ) {
+	BizCity_Profile_Wheel_Provider_Registry::register( new BizCity_Profile_Mabel_Wheel_Provider() );
+}
+require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-wheel-bridge.php';
 require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-qr-manager.php';
 require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-vcard-export.php';
 require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-rest.php';
+add_action( 'init', function () {
+	// [2026-08-21 Johnny Chu] PHASE-TWIN-BRAIN-PROFILE — TBP-4: wire optional Mabel play attribution after WordPress/plugin loading is ready.
+		if ( class_exists( 'BizCity_Personal_Profile_Wheel_Bridge' ) ) {
+			BizCity_Personal_Profile_Wheel_Bridge::init();
+		}
+}, 20 );
 
 // ── DB installer (R-CR.2, R-DCL) ─────────────────────────────────────────────
 // [2026-06-24 Johnny Chu] PHASE-HOME W6 — run on init only when version stale; schema registry

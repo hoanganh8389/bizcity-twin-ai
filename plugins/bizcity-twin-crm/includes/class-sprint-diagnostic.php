@@ -246,13 +246,46 @@ class BizCity_CRM_Sprint_Diagnostic {
 		$iface_ok = interface_exists( 'BizCity_CRM_Channel_Adapter', false );
 		$reg_ok   = class_exists( 'BizCity_CRM_Channel_Registry', false );
 		$adapters = $reg_ok ? BizCity_CRM_Channel_Registry::all() : array();
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — DDV must verify the shared input/output/zone contract, not only adapter presence.
+		$contract_ok = class_exists( 'BizCity_CRM_Channel_Contract', false )
+			&& method_exists( 'BizCity_CRM_Channel_Contract', 'describe' )
+			&& method_exists( 'BizCity_CRM_Channel_Contract', 'normalize_inbound' )
+			&& method_exists( 'BizCity_CRM_Channel_Contract', 'normalize_send_result' );
+		$catalog = $reg_ok && method_exists( 'BizCity_CRM_Channel_Registry', 'contract_catalog' )
+			? BizCity_CRM_Channel_Registry::contract_catalog()
+			: array();
+		$catalog_ok = $contract_ok && count( $catalog ) === count( $adapters );
+		if ( $catalog_ok ) {
+			foreach ( $catalog as $descriptor ) {
+				if ( empty( $descriptor['contract_version'] ) || empty( $descriptor['code'] ) || ! in_array( $descriptor['zone'] ?? 'unknown', array( 'customer', 'admin' ), true ) ) {
+					$catalog_ok = false;
+					break;
+				}
+			}
+		}
+		$input_probe_ok = false;
+		$zone_probe_ok = false;
+		if ( $contract_ok ) {
+			$input_probe = BizCity_CRM_Channel_Contract::normalize_inbound( 'facebook', array(
+				'inbox_ref' => 'probe-page', 'source_id' => 'probe-user', 'content' => 'probe',
+				'content_type' => 'text', 'attachments' => array(), 'external_source_id' => 'probe-message',
+				'received_at' => '2026-08-24 00:00:00',
+			) );
+			$zone_probe = BizCity_CRM_Channel_Contract::normalize_inbound( 'telegram', array(
+				'inbox_ref' => 'probe-bot', 'source_id' => 'probe-user', 'content' => 'probe',
+				'content_type' => 'text', 'attachments' => array(), 'external_source_id' => 'probe-message',
+				'received_at' => '2026-08-24 00:00:00',
+			) );
+			$input_probe_ok = is_array( $input_probe ) && ( $input_probe['channel_code'] ?? '' ) === 'facebook' && isset( $input_probe['identity']['source_id'] );
+			$zone_probe_ok = is_wp_error( $zone_probe ) && $zone_probe->get_error_code() === 'channel_zone_not_crm';
+		}
 		$out[] = array(
 			'id'       => 'T-M1.4',
-			'status'   => ( $iface_ok && $reg_ok && ! empty( $adapters ) ) ? 'PASS' : 'FAIL',
-			'check'    => 'Interface + Registry available; ≥1 adapter registered',
-			'evidence' => sprintf( "Interface: %s\nRegistry: %s\nAdapters: [%s]",
-				$iface_ok ? 'YES' : 'NO', $reg_ok ? 'YES' : 'NO',
-				implode( ',', array_keys( $adapters ) )
+			'status'   => ( $iface_ok && $reg_ok && ! empty( $adapters ) && $catalog_ok && $input_probe_ok && $zone_probe_ok ) ? 'PASS' : 'FAIL',
+			'check'    => 'Interface + Registry + shared Channel Contract; adapter descriptors valid',
+			'evidence' => sprintf( "Interface: %s\nRegistry: %s\nContract: %s\nCatalog: %s\nValid input probe: %s\nZone 2 reject probe: %s\nAdapters: [%s]",
+				$iface_ok ? 'YES' : 'NO', $reg_ok ? 'YES' : 'NO', $contract_ok ? 'YES' : 'NO',
+				$catalog_ok ? 'YES' : 'NO', $input_probe_ok ? 'PASS' : 'FAIL', $zone_probe_ok ? 'PASS' : 'FAIL', implode( ',', array_keys( $adapters ) )
 			),
 		);
 

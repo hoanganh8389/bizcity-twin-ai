@@ -90,12 +90,17 @@ class BizCity_TwinBrain_Final_Composer {
 		// [2026-08-05 Johnny Chu] V4.1/V4.2 — resolve a deterministic answer skeleton before composing prose.
 		$answer_skeleton = $this->resolve_answer_skeleton( $prompt, $answer_intent, $opts );
 		$opts['answer_skeleton'] = $answer_skeleton;
-		$followup_contract = $this->resolve_followup_contract( $opts );
 		$opts['named_evidence_candidates'] = $this->extract_named_evidence_candidates( $opts );
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.15 — extract concrete product entities from evidence excerpts before composing.
 		$opts['product_entities'] = isset( $opts['product_entities'] ) && is_array( $opts['product_entities'] )
 			? $opts['product_entities']
 			: $this->extract_product_entities( $opts );
+		// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — resolve after product extraction so no-product-name cannot false-positive on valid entities.
+		$evidence_fallback_state = $this->resolve_evidence_fallback_state( $opts, $prompt );
+		$opts['evidence_fallback_state'] = $evidence_fallback_state;
+		$followup_contract = ! empty( $evidence_fallback_state['fallback'] )
+			? array( 'required' => false, 'source' => 'evidence_fallback', 'question' => '', 'rendered' => false, 'gate' => 'not_required' )
+			: $this->resolve_followup_contract( $opts );
 		$llm_purpose = $this->resolve_llm_purpose( $depth_profile, $opts );
 
 		// Degrade gracefully when gateway not configured: just echo the
@@ -107,7 +112,11 @@ class BizCity_TwinBrain_Final_Composer {
 				$ans = (string) ( $synth['answer_md'] ?? '' );
 			}
 			$source_contract = $this->apply_notebook_source_contract( $ans, $opts );
-			$skeleton_validation = $this->validate_answer_skeleton( (string) $source_contract['answer_md'], $answer_skeleton, $opts );
+			$fallback_contract = $source_contract;
+			if ( ! empty( $evidence_fallback_state['fallback'] ) ) {
+				$fallback_contract = array( 'answer_md' => $this->render_evidence_fallback_notice( $opts ), 'invalid_count' => 0, 'invalid_tokens' => array() );
+			}
+			$skeleton_validation = $this->validate_answer_skeleton( (string) $fallback_contract['answer_md'], $answer_skeleton, $opts );
 			$ans = (string) $skeleton_validation['answer_md'];
 			if ( is_callable( $on_token ) && $ans !== '' ) {
 				// Single emit so FE final-row still renders something.
@@ -133,13 +142,16 @@ class BizCity_TwinBrain_Final_Composer {
 				'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
 				'followup_gate' => (string) ( $skeleton_validation['followup_gate'] ?? 'not_required' ),
 				'followup_contract' => (array) ( $skeleton_validation['followup_contract'] ?? $followup_contract ),
+				'evidence_fallback' => ! empty( $evidence_fallback_state['fallback'] ),
+				'evidence_fallback_trigger' => (string) ( $evidence_fallback_state['trigger'] ?? '' ),
+				'deep_research_offer' => false,
 				'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 				'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 				'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
 				'notebook_depth_profile' => (string) $depth_profile['profile'],
 				'notebook_depth_budget'  => $depth_profile,
-				'invalid_notebook_citations_stripped' => (int) $source_contract['invalid_count'],
-				'invalid_notebook_citation_tokens'    => (array) $source_contract['invalid_tokens'],
+				'invalid_notebook_citations_stripped' => (int) $fallback_contract['invalid_count'],
+				'invalid_notebook_citation_tokens'    => (array) $fallback_contract['invalid_tokens'],
 			];
 		}
 
@@ -179,12 +191,21 @@ class BizCity_TwinBrain_Final_Composer {
 		// Accumulator wrapper so we capture full text even if caller passes
 		// no on_token (probe mode).
 		$accumulated = '';
+		$visible_accumulated = '';
 		$delta_n     = 0;
-		$relay = function ( $delta, $full ) use ( &$accumulated, &$delta_n, $on_token ) {
+		$fallback_prefix = ! empty( $evidence_fallback_state['fallback'] ) ? $this->render_evidence_fallback_notice( $opts ) . "\n\n" : '';
+		if ( $fallback_prefix !== '' ) {
+			$visible_accumulated = $fallback_prefix;
+			if ( is_callable( $on_token ) && empty( $evidence_fallback_state['fallback'] ) ) {
+				call_user_func( $on_token, $fallback_prefix, $visible_accumulated );
+			}
+		}
+		$relay = function ( $delta, $full ) use ( &$accumulated, &$visible_accumulated, &$delta_n, $on_token, $fallback_prefix ) {
 			$accumulated = (string) $full;
+			$visible_accumulated = $fallback_prefix . $accumulated;
 			$delta_n++;
-			if ( is_callable( $on_token ) ) {
-				call_user_func( $on_token, (string) $delta, (string) $full );
+			if ( is_callable( $on_token ) && $fallback_prefix === '' ) {
+				call_user_func( $on_token, (string) $delta, $visible_accumulated );
 			}
 		};
 
@@ -223,9 +244,12 @@ class BizCity_TwinBrain_Final_Composer {
 		if ( empty( $result['success'] ) || $final_text === '' ) {
 			$fallback_text = (string) ( $synth['answer_md'] ?? '' );
 			$source_contract = $this->apply_notebook_source_contract( $fallback_text, $opts );
-			$skeleton_validation = $this->validate_answer_skeleton( (string) $source_contract['answer_md'], $answer_skeleton, $opts );
+			$fallback_contract = empty( $evidence_fallback_state['fallback'] )
+				? $source_contract
+				: array( 'answer_md' => $this->render_evidence_fallback_notice( $opts ), 'invalid_count' => 0, 'invalid_tokens' => array() );
+			$skeleton_validation = $this->validate_answer_skeleton( (string) $fallback_contract['answer_md'], $answer_skeleton, $opts );
 			$fallback_text = (string) $skeleton_validation['answer_md'];
-			if ( is_callable( $on_token ) && $fallback_text !== '' && $delta_n === 0 ) {
+			if ( is_callable( $on_token ) && $fallback_text !== '' && ( $delta_n === 0 || ! empty( $evidence_fallback_state['fallback'] ) ) ) {
 				// FE never received any deltas — emit synth as a single chunk.
 				call_user_func( $on_token, $fallback_text, $fallback_text );
 			} elseif ( is_callable( $on_token ) && ! empty( $skeleton_validation['followup_contract']['rendered'] ) ) {
@@ -272,20 +296,30 @@ class BizCity_TwinBrain_Final_Composer {
 				'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
 				'followup_gate' => (string) ( $skeleton_validation['followup_gate'] ?? 'not_required' ),
 				'followup_contract' => (array) ( $skeleton_validation['followup_contract'] ?? $followup_contract ),
+				'evidence_fallback' => ! empty( $evidence_fallback_state['fallback'] ),
+				'evidence_fallback_trigger' => (string) ( $evidence_fallback_state['trigger'] ?? '' ),
+				'deep_research_offer' => false,
 				'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 				'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 				'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
 				'notebook_depth_profile' => (string) $depth_profile['profile'],
 				'notebook_depth_budget'  => $depth_profile,
-				'invalid_notebook_citations_stripped' => (int) $source_contract['invalid_count'],
-				'invalid_notebook_citation_tokens'    => (array) $source_contract['invalid_tokens'],
+				'invalid_notebook_citations_stripped' => (int) $fallback_contract['invalid_count'],
+				'invalid_notebook_citation_tokens'    => (array) $fallback_contract['invalid_tokens'],
 			];
 		}
 
 		$source_contract = $this->apply_notebook_source_contract( $final_text, $opts );
-		$skeleton_validation = $this->validate_answer_skeleton( (string) $source_contract['answer_md'], $answer_skeleton, $opts );
+			$fallback_contract = empty( $evidence_fallback_state['fallback'] )
+				? $source_contract
+				: array( 'answer_md' => $this->render_evidence_fallback_notice( $opts ), 'invalid_count' => 0, 'invalid_tokens' => array() );
+		$skeleton_validation = $this->validate_answer_skeleton( (string) $fallback_contract['answer_md'], $answer_skeleton, $opts );
 		$final_text = (string) $skeleton_validation['answer_md'];
-		if ( is_callable( $on_token ) && ! empty( $skeleton_validation['followup_contract']['rendered'] ) ) {
+		if ( is_callable( $on_token ) && ! empty( $evidence_fallback_state['fallback'] ) ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — emit only the cleaned two-part answer so fake citations never flash in the UI.
+			call_user_func( $on_token, $final_text, $final_text );
+		}
+		if ( is_callable( $on_token ) && empty( $evidence_fallback_state['fallback'] ) && ! empty( $skeleton_validation['followup_contract']['rendered'] ) ) {
 			// [2026-08-10 Johnny Chu] GOAL-FOLLOWUP-1 — relay deterministic follow-up repair after streamed model text.
 			call_user_func( $on_token, "\n\n**Một câu hỏi để mình tiếp tục:** " . (string) $skeleton_validation['followup_contract']['question'], $final_text );
 		}
@@ -313,13 +347,16 @@ class BizCity_TwinBrain_Final_Composer {
 			'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
 			'followup_gate' => (string) ( $skeleton_validation['followup_gate'] ?? 'not_required' ),
 			'followup_contract' => (array) ( $skeleton_validation['followup_contract'] ?? $followup_contract ),
+			'evidence_fallback' => ! empty( $evidence_fallback_state['fallback'] ),
+			'evidence_fallback_trigger' => (string) ( $evidence_fallback_state['trigger'] ?? '' ),
+			'deep_research_offer' => ! empty( $evidence_fallback_state['fallback'] ),
 			'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 			'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 			'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
 			'notebook_depth_profile' => (string) $depth_profile['profile'],
 			'notebook_depth_budget'  => $depth_profile,
-			'invalid_notebook_citations_stripped' => (int) $source_contract['invalid_count'],
-			'invalid_notebook_citation_tokens'    => (array) $source_contract['invalid_tokens'],
+			'invalid_notebook_citations_stripped' => (int) $fallback_contract['invalid_count'],
+			'invalid_notebook_citation_tokens'    => (array) $fallback_contract['invalid_tokens'],
 		];
 	}
 
@@ -400,6 +437,109 @@ class BizCity_TwinBrain_Final_Composer {
 		$budget['reason'] = $reason;
 
 		return (array) apply_filters( 'bizcity_twinbrain_notebook_depth_profile', $budget, $prompt, $opts, $has_guru );
+	}
+
+	/**
+	 * Resolve whether the completed evidence path needs the two-part fallback.
+	 *
+	 * @return array{fallback:bool,trigger:string,reason:string}
+	 */
+	public function resolve_evidence_fallback_state( array $opts, string $prompt = '' ): array {
+		// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — use existing source/gate counters so missing evidence is deterministic and auditable.
+		if ( strtolower( (string) ( $opts['web_mode'] ?? 'off' ) ) !== 'off' ) {
+			return array( 'fallback' => false, 'trigger' => '', 'reason' => 'explicit_vertical_mode' );
+		}
+		$source_counts = (array) ( $opts['notebook_source_counts'] ?? array() );
+		$search_context = (array) ( $opts['search_context'] ?? array() );
+		$passage_count = (int) ( $source_counts['passage_count'] ?? 0 );
+		$search_total  = (int) ( $opts['search_context_total'] ?? ( $search_context['total'] ?? 0 ) );
+		$final_count   = (int) ( $opts['final_context_count'] ?? count( (array) ( $opts['final_context_chunks'] ?? array() ) ) );
+		$tool_results  = (array) ( $opts['tool_results'] ?? array() );
+		$tool_dispatch = (array) ( $opts['tool_dispatch'] ?? array() );
+		$tool_slug     = strtolower( trim( (string) ( $tool_dispatch['tool_slug'] ?? '' ) ) );
+		$memory_tool   = $tool_slug !== '' && ( strpos( $tool_slug, 'memory_' ) === 0 || strpos( $tool_slug, 'memory-' ) === 0 );
+		// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — only successful non-memory dispatch output suppresses the Notebook fallback.
+		if ( ! $memory_tool && ! empty( $tool_dispatch['ok'] ) && ! empty( $tool_results ) ) {
+			foreach ( $tool_results as $tool_result ) {
+				$result_text = is_array( $tool_result ) ? trim( (string) ( $tool_result['result'] ?? '' ) ) : '';
+				if ( $result_text !== '' && strpos( $result_text, 'PLANNED:' ) !== 0 && strpos( $result_text, 'Tool execution failed:' ) !== 0 ) {
+					return array( 'fallback' => false, 'trigger' => '', 'reason' => 'tool_evidence_available' );
+				}
+			}
+		}
+		$answer_meta   = (array) ( $opts['answer_intent_meta'] ?? array() );
+		if ( empty( $answer_meta ) && $prompt !== '' ) {
+			$answer_meta = $this->resolve_answer_intent( $prompt, $opts );
+		}
+		$named_required = ! empty( $answer_meta['requires_named_evidence'] );
+		$product_names = (int) ( $opts['product_name_entity_count'] ?? count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ) );
+		$gate = is_array( $opts['final_gate'] ?? null ) ? $opts['final_gate'] : array();
+
+		if ( $named_required && $product_names === 0 && ( $passage_count > 0 || $search_total > 0 || ! empty( $opts['source_file_briefs'] ) ) ) {
+			return array( 'fallback' => true, 'trigger' => 'no_product_name', 'reason' => 'related_source_without_product_entity' );
+		}
+		if ( $passage_count === 0 && $search_total === 0 && $final_count === 0 ) {
+			return array( 'fallback' => true, 'trigger' => 'full_empty', 'reason' => (string) ( $gate['gate_reason'] ?? 'no_notebook_evidence' ) );
+		}
+		return array( 'fallback' => false, 'trigger' => '', 'reason' => '' );
+	}
+
+	public function render_evidence_fallback_notice( array $opts ): string {
+		// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — render the evidence boundary without allowing provider prose to invent Notebook state.
+		$state = (array) ( $opts['evidence_fallback_state'] ?? array() );
+		if ( (string) ( $state['trigger'] ?? '' ) === 'no_product_name' ) {
+			$notice = "## Notebook chưa có tên sản phẩm cụ thể\n\nCó file liên quan, nhưng chưa trích được tên dòng sữa cụ thể từ nội dung.";
+		} else {
+			$notice = "## Notebook chưa có dữ liệu cho câu hỏi này\n\nMình đã tìm trong Notebook của bạn nhưng chưa thấy tài liệu/ghi chú đủ liên quan để trả lời có trích dẫn.";
+		}
+		$upload_url = trim( (string) ( $opts['notebook_upload_url'] ?? '' ) );
+		if ( $upload_url !== '' && preg_match( '#^https?://#i', $upload_url ) ) {
+			$notice .= "\n\nHãy [tải tài liệu lên Notebook](" . esc_url( $upload_url ) . ") để lần sau mình trả lời chính xác và có trích dẫn hơn.";
+		} else {
+			$notice .= "\n\nNếu có tài liệu liên quan, hãy tải tài liệu lên Notebook để lần sau mình trả lời chính xác và có trích dẫn hơn.";
+		}
+		return $notice;
+	}
+
+	/**
+	 * Apply the two-part fallback after provider output and preserve the source drawer.
+	 *
+	 * @return array{answer_md:string,invalid_count:int,invalid_tokens:array<int,string>}
+	 */
+	private function apply_evidence_fallback_contract( string $answer_md, array $opts ): array {
+		if ( empty( $opts['evidence_fallback_state']['fallback'] ) ) {
+			return array( 'answer_md' => $answer_md, 'invalid_count' => 0, 'invalid_tokens' => array() );
+		}
+		$source_marker = '### Nguồn từ Notebook';
+		$parts = explode( $source_marker, $answer_md, 2 );
+		$body = (string) $parts[0];
+		$source = count( $parts ) > 1 ? $source_marker . $parts[1] : '';
+		$invalid_tokens = array();
+		if ( preg_match_all( '/\[(?:nb:\d+\/p\d+|web:\d+#[^\]]+)\]/i', $body, $matches ) ) {
+			$invalid_tokens = array_values( array_unique( (array) $matches[0] ) );
+			$body = str_replace( $invalid_tokens, '', $body );
+		}
+		$body = trim( $body );
+		$notice = $this->render_evidence_fallback_notice( $opts );
+		if ( strpos( $body, '## Notebook chưa có' ) !== 0 ) {
+			$body = $notice . "\n\n" . $body;
+		}
+		$part_two_heading = '## Trả lời tham khảo dựa trên kiến thức chung (không phải từ Notebook của bạn)';
+		if ( strpos( $body, $part_two_heading ) === false ) {
+			if ( strpos( $body, $notice ) === 0 ) {
+				$provider_body = trim( substr( $body, strlen( $notice ) ) );
+				$body = $notice . "\n\n" . $part_two_heading . ( $provider_body !== '' ? "\n\n" . $provider_body : '' );
+			} else {
+				$body = $part_two_heading . "\n\n" . $body;
+			}
+		}
+		$deep_question = 'Bạn có muốn mình chuyển sang chế độ Deep Research để tìm thêm thông tin mới nhất không?';
+		$body = preg_replace( '/' . preg_quote( $deep_question, '/' ) . '/u', '', $body );
+		if ( $source !== '' ) {
+			$body .= "\n\n" . trim( $source );
+		}
+		// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — confirmation transport owns the Deep Research question; the answer body must not duplicate it.
+		return array( 'answer_md' => trim( $body ), 'invalid_count' => count( $invalid_tokens ), 'invalid_tokens' => $invalid_tokens );
 	}
 
 	/**
@@ -567,7 +707,9 @@ class BizCity_TwinBrain_Final_Composer {
 		if ( $structure_gate === 'degraded' ) {
 			$violations[] = 'required_sections_missing';
 		}
-		$followup = $this->resolve_followup_contract( $opts );
+		$followup = ! empty( $opts['evidence_fallback_state']['fallback'] )
+			? array( 'required' => false, 'source' => 'evidence_fallback', 'question' => '', 'rendered' => false, 'gate' => 'not_required' )
+			: $this->resolve_followup_contract( $opts );
 		if ( ! empty( $followup['required'] ) && ! empty( $followup['question'] ) ) {
 			$question = (string) $followup['question'];
 			if ( false === stripos( $text, $question ) ) {
@@ -667,7 +809,7 @@ class BizCity_TwinBrain_Final_Composer {
 		}
 
 		$prompt_lc = function_exists( 'mb_strtolower' ) ? mb_strtolower( $prompt ) : strtolower( $prompt );
-		$list_markers = array( 'kể tên', 'ke ten', 'liệt kê', 'liet ke', 'dòng nào', 'dong nao', 'sản phẩm nào', 'san pham nao', 'hãng nào', 'hang nao', 'loại nào', 'loai nao', 'các dòng', 'cac dong' );
+		$list_markers = array( 'kể tên', 'ke ten', 'liệt kê', 'liet ke', 'dòng nào', 'dong nao', 'dòng sữa', 'dong sua', 'loại sữa', 'loai sua', 'gợi ý sữa', 'goi y sua', 'nên mua sữa', 'nen mua sua', 'sản phẩm nào', 'san pham nao', 'hãng nào', 'hang nao', 'loại nào', 'loai nao', 'các dòng', 'cac dong' );
 		$product_markers = array( 'sữa', 'sua', 'dòng sữa', 'dong sua', 'sữa công thức', 'sua cong thuc', 'sản phẩm', 'san pham', 'thương hiệu', 'thuong hieu', 'brand', 'product' );
 
 		$has_list_marker = false;
@@ -1228,6 +1370,7 @@ class BizCity_TwinBrain_Final_Composer {
 		$depth_profile = isset( $opts['notebook_depth_profile_meta'] ) && is_array( $opts['notebook_depth_profile_meta'] )
 			? $opts['notebook_depth_profile_meta']
 			: $this->resolve_notebook_depth_profile( $prompt, $opts, $has_guru );
+		$is_evidence_fallback = ! empty( $opts['evidence_fallback_state']['fallback'] );
 		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — answer word caps now follow Notebook depth profiles.
 		$ans_cap  = isset( $depth_profile['ans_cap'] ) ? (int) $depth_profile['ans_cap'] : ( $has_guru ? 1100 : 750 );
 		// [2026-07-07 Johnny Chu] PHASE-FAA2-TWINBRAIN A13 — per-call answer
@@ -1272,7 +1415,7 @@ class BizCity_TwinBrain_Final_Composer {
 			$synth_block .= "\n**Synthesizer answer (raw):**\n" . mb_substr( wp_strip_all_tags( $synth_md ), 0, self::ANS_TRUNC );
 		}
 
-		$has_web = ! empty( $web_lines );
+		$has_web = ! $is_evidence_fallback && ! empty( $web_lines );
 		$web_rule = $has_web
 			? "5. Khi tr\u00edch ngu\u1ed3n web, B\u1eaeT BU\u1ed8C d\u00f9ng token `[web:<N>#<URL>]` (\u0111\u00fang index trong CITATION MAP \u1edf khung WEB SOURCES). KH\u00d4NG \u0111\u1ed5i th\u00e0nh footnote s\u1ed1 ho\u1eb7c [^1]."
 			: "5. Turn n\u00e0y kh\u00f4ng c\u00f3 ngu\u1ed3n web \u2014 ch\u1ec9 d\u00f9ng [nb:X/pY] khi tr\u00edch notebook.";
@@ -1327,7 +1470,7 @@ SYS;
 		// chip `[mem:U#<id>]`.
 		$tools_enabled = (bool) apply_filters(
 			'bizcity_twinbrain_memory_tools_enabled',
-			true,
+			! $is_evidence_fallback,
 			$opts
 		);
 		if ( $tools_enabled && class_exists( 'BizCity_TwinBrain_Memory_Tool_Dispatcher' ) ) {
@@ -1358,7 +1501,7 @@ SYS;
 		$named_evidence_candidates = isset( $opts['named_evidence_candidates'] ) && is_array( $opts['named_evidence_candidates'] )
 			? $opts['named_evidence_candidates']
 			: $this->extract_named_evidence_candidates( $opts );
-		if ( $notebook_source_block !== '' && ! empty( $notebook_source_map ) ) {
+		if ( ! $is_evidence_fallback && $notebook_source_block !== '' && ! empty( $notebook_source_map ) ) {
 			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — make notebook source identity a hard composer contract.
 			$system .= "\n\n## NOTEBOOK SOURCE CONTRACT\n"
 				. "- Câu trả lời đang ở Notebook/Ask Brain mode. Notebook là nguồn nội bộ chính, không phải phụ lục debug.\n"
@@ -1401,12 +1544,20 @@ SYS;
 			}
 		}
 
-		$user_parts = [
-			"## C\u00c2U H\u1ed0I C\u1ee6A USER\n" . $prompt,
-			$synth_block,
-		];
+		$user_parts = array( "## C\u00c2U H\u1ed0I C\u1ee6A USER\n" . $prompt );
+		if ( ! $is_evidence_fallback ) {
+			$user_parts[] = $synth_block;
+		}
+		if ( ! empty( $opts['evidence_fallback_state']['fallback'] ) ) {
+			// [2026-08-23 Johnny Chu] TBR-EVIDENCE-FALLBACK — reserve Part 1 for deterministic evidence status and Part 2 for one provider completion.
+			$system .= "\n\n## EVIDENCE FALLBACK CONTRACT\n"
+				. "Notebook/Search/Retrieval chưa có bằng chứng đủ cho câu hỏi này. Part 1 đã được hệ thống chèn cố định; không lặp lại Part 1. Viết Part 2 bắt đầu bằng heading `## Trả lời tham khảo dựa trên kiến thức chung (không phải từ Notebook của bạn)`.\n"
+				. "Part 2 phải hữu ích, nhưng phải nói rõ là kiến thức chung chưa được xác minh trong Notebook của user. Không dùng token `[nb:*]` hoặc `[web:*]`, không tạo citation giả, không trình bày tên file/category như tên sản phẩm.\n"
+				. "Nếu câu hỏi liên quan sức khỏe trẻ em/y tế, dùng ngôn ngữ có điều kiện, không chẩn đoán hoặc đưa liều lượng cứng, và thêm lưu ý hỏi bác sĩ/chuyên gia khi cần. Không đặt câu hỏi chuyển Deep Research trong nội dung Part 2; confirmation event là owner duy nhất của lời mời đó.";
+			$user_parts[] = "### PART 1 — TRẠNG THÁI NOTEBOOK\n" . $this->render_evidence_fallback_notice( $opts );
+		}
 		$goal_loop_brief = trim( (string) ( $opts['goal_loop_brief'] ?? '' ) );
-		if ( $goal_loop_brief !== '' ) {
+		if ( $goal_loop_brief !== '' && ! $is_evidence_fallback ) {
 			// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G2 — keep the final answer accountable to the active goal and open loops.
 			$system .= "\n\n## TWIN GOAL LOOP CONTRACT\n"
 				. "Đây là goal đang mở của người dùng. Trả lời lượt này phải phục vụ goal, không tuyên bố hoàn thành nếu chưa có evidence. Nếu còn open loop, nêu bước tiếp theo rõ ràng.\n";
@@ -1423,7 +1574,7 @@ SYS;
 				$obligation_map[ (string) $obligation['id'] ] = (string) ( $obligation['question'] ?? '' );
 			}
 		}
-		if ( ! empty( $score_rows ) ) {
+		if ( ! $is_evidence_fallback && ! empty( $score_rows ) ) {
 			$score_lines = array();
 			foreach ( array_slice( $score_rows, 0, 20 ) as $score_row ) {
 				if ( ! is_array( $score_row ) || empty( $score_row['obligation_id'] ) ) {
@@ -1446,14 +1597,14 @@ SYS;
 					. implode( "\n", $score_lines );
 			}
 		}
-		if ( $fallback_policy === 'answer_with_limit_notice' ) {
+		if ( ! $is_evidence_fallback && $fallback_policy === 'answer_with_limit_notice' ) {
 			// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — bounded fallback must be honest about unresolved evidence and must not claim completion.
 			$system .= "\n\n## FINAL GATE FALLBACK POLICY\n"
 				. "Gate chưa mở hoàn toàn. Trả lời phần có evidence, nói ngắn gọn thông tin nào còn chưa xác minh, và đưa ra bước tiếp theo cụ thể. Không nói 'đã kiểm tra đầy đủ', 'chắc chắn', hoặc tuyên bố goal đã hoàn tất nếu scoreboard còn RETRIEVE.\n";
 		}
 
 		$subject_ctx = trim( (string) ( $opts['subject_context_md'] ?? '' ) );
-		if ( $subject_ctx !== '' ) {
+		if ( $subject_ctx !== '' && ! $is_evidence_fallback ) {
 			// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — subject-first profile contract for non-Astro Notebook/vertical answers.
 			$subject_label = trim( (string) ( $opts['subject_context_label'] ?? 'HỒ SƠ CUSTOMER' ) );
 			$system .= "\n\n## SUBJECT PROFILE CONTRACT\n"
@@ -1465,7 +1616,7 @@ SYS;
 		}
 
 		$multimodal_ctx = trim( (string) ( $opts['multimodal_context_md'] ?? '' ) );
-		if ( $multimodal_ctx !== '' ) {
+		if ( $multimodal_ctx !== '' && ! $is_evidence_fallback ) {
 			// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — Final Composer must consume vision/file intake facts separately from Notebook citations.
 			$system .= "\n\n## MULTIMODAL INTAKE CONTRACT\n"
 				. "- Nếu MULTIMODAL INTAKE CONTEXT có vision/file facts thành công, dùng facts đó để trả lời câu hỏi về ảnh/file trước khi dùng Notebook; với câu hỏi kiểu `ảnh gì đây`, mở đầu bằng kết quả Vision LLM.\n"
@@ -1481,7 +1632,7 @@ SYS;
 		 * cắt bởi ANS_TRUNC=1200 như nhánh synthesizer. Cap rộng (12KB) để
 		 * tránh prompt nổ token; filter cho phép tuỳ chỉnh. */
 		$extra_ctx = trim( (string) ( $opts['extra_context_md'] ?? '' ) );
-		if ( $extra_ctx !== '' ) {
+		if ( $extra_ctx !== '' && ! $is_evidence_fallback ) {
 			$extra_cap = (int) apply_filters(
 				'bizcity_twinbrain_final_compose_extra_ctx_cap',
 				12000,
@@ -1573,13 +1724,13 @@ SYS;
 		 * notes before reading synthesizer output. Block already includes
 		 * `[mem:U#<id>]` tokens for citation echo. */
 		$memory_block = trim( (string) ( $opts['memory_block'] ?? '' ) );
-		if ( $memory_block !== '' ) {
+		if ( $memory_block !== '' && ! $is_evidence_fallback ) {
 			array_unshift( $user_parts, $memory_block );
 		}
-		if ( $nb_block !== '' ) {
+		if ( $nb_block !== '' && ! $is_evidence_fallback ) {
 			$user_parts[] = "### NOTEBOOK PERSPECTIVES (compact)\n" . $nb_block;
 		}
-		if ( ! empty( $answer_intent['requires_named_evidence'] ) ) {
+		if ( ! $is_evidence_fallback && ! empty( $answer_intent['requires_named_evidence'] ) ) {
 			// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.15 — product entity block is the primary list-products evidence.
 			$user_parts[] = "### ANSWER INTENT + PRODUCT ENTITIES (W0.15)\n"
 				. "intent: `" . (string) ( $answer_intent['intent'] ?? 'list_products' ) . "`; reason: `" . (string) ( $answer_intent['reason'] ?? '' ) . "`\n"
@@ -1589,7 +1740,7 @@ SYS;
 				$user_parts[] = "### SOURCE-TITLE FALLBACK FOR DEBUG ONLY (do not present as product names)\n" . $this->render_named_evidence_candidates_compact( $named_evidence_candidates );
 			}
 		}
-		if ( $notebook_source_block !== '' && ! empty( $notebook_source_map ) ) {
+		if ( ! $is_evidence_fallback && $notebook_source_block !== '' && ! empty( $notebook_source_map ) ) {
 			$source_json = (string) wp_json_encode( $notebook_source_map, JSON_UNESCAPED_UNICODE );
 			$source_file_json = ! empty( $source_file_briefs ) ? (string) wp_json_encode( $source_file_briefs, JSON_UNESCAPED_UNICODE ) : '[]';
 			$source_file_block = $this->render_source_file_briefs_compact( $source_file_briefs );
@@ -1612,7 +1763,7 @@ SYS;
 				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.12 — append cross-notebook graph section.
 				. ( $cross_graph_block !== '' ? "\n\n### CROSS-NOTEBOOK ENTITY GRAPH (W0.12)\n" . $cross_graph_block : '' );
 		}
-		if ( $web_block !== '' ) {
+		if ( ! $is_evidence_fallback && $web_block !== '' ) {
 			$user_parts[] = "### WEB SOURCES + CITATION MAP\n" . $web_block;
 		}
 		$user_parts[] = "Vi\u1ebft c\u00e2u tr\u1ea3 l\u1eddi cu\u1ed1i c\u00f9ng cho user theo nguy\u00ean t\u1eafc tr\u00ean.";

@@ -45,6 +45,7 @@ final class BizCity_Probe_TwinBrain_Chat_Default implements BizCity_Diagnostics_
 		$root = defined( 'BIZCITY_TWINBRAIN_DIR' ) ? (string) BIZCITY_TWINBRAIN_DIR : '';
 		$router_file = $root . 'includes/class-twinbrain-conversation-router.php';
 		$schema_file = $root . 'includes/event-schemas/conversation_route_decided.json';
+		$evidence_fallback_schema_file = $root . 'includes/event-schemas/evidence_fallback_notice.json';
 		$confirm_schema_file = $root . 'includes/event-schemas/conversation_confirm_prompt.json';
 		$confirm_file = $root . 'includes/class-twinbrain-conversation-confirmation.php';
 		$catalog_file = defined( 'BIZCITY_AUTOMATION_DIR' ) ? BIZCITY_AUTOMATION_DIR . '/includes/class-automation-workflow-catalog.php' : '';
@@ -53,6 +54,7 @@ final class BizCity_Probe_TwinBrain_Chat_Default implements BizCity_Diagnostics_
 
 		$ok = $this->step( $ctx, $steps, 'Disk: Conversation Router file', is_readable( $router_file ), $router_file ) && $ok;
 		$ok = $this->step( $ctx, $steps, 'Disk: route event schema', is_readable( $schema_file ), $schema_file ) && $ok;
+		$ok = $this->step( $ctx, $steps, 'Disk: evidence fallback event schema', is_readable( $evidence_fallback_schema_file ), $evidence_fallback_schema_file ) && $ok;
 		$ok = $this->step( $ctx, $steps, 'Disk: confirmation helper/schema', is_readable( $confirm_file ) && is_readable( $confirm_schema_file ), $confirm_file ) && $ok;
 		$ok = $this->step( $ctx, $steps, 'Disk: Workflow Catalog file', is_readable( $catalog_file ), $catalog_file ) && $ok;
 		$default_reply_source = is_readable( $default_reply_file ) ? (string) file_get_contents( $default_reply_file ) : '';
@@ -146,6 +148,27 @@ final class BizCity_Probe_TwinBrain_Chat_Default implements BizCity_Diagnostics_
 			&& ( $generic['decision']['route'] ?? '' ) === 'casual'
 			&& ( $generic['decision']['web_mode'] ?? '' ) === 'chat';
 		$ok = $this->step( $ctx, $steps, 'Runtime: invalid reply retains pending and "không" falls back', $generic_ok, $generic_ok ? 'Invalid reply retained state; generic confirmation consumed it.' : wp_json_encode( array( 'invalid' => $invalid, 'generic' => $generic ) ) ) && $ok;
+		$deep_accept_key = $this->confirmation_probe_key . ':deep-accept';
+		$deep_decline_key = $this->confirmation_probe_key . ':deep-decline';
+		$deep_accept_started = BizCity_TwinBrain_Conversation_Confirmation::begin( $deep_accept_key, 'tư vấn dòng sữa cho bé trên 12 tháng', array(
+			'offer_type' => 'deep_research',
+			'route' => 'vertical',
+			'web_mode' => 'deep',
+			'needs_confirm' => true,
+		) );
+		$deep_accept = $deep_accept_started ? BizCity_TwinBrain_Conversation_Confirmation::consume( $deep_accept_key, 'Có' ) : array();
+		$deep_decline_started = BizCity_TwinBrain_Conversation_Confirmation::begin( $deep_decline_key, 'tư vấn dòng sữa cho bé trên 12 tháng', array(
+			'offer_type' => 'deep_research',
+			'route' => 'vertical',
+			'web_mode' => 'deep',
+			'needs_confirm' => true,
+		) );
+		$deep_decline = $deep_decline_started ? BizCity_TwinBrain_Conversation_Confirmation::consume( $deep_decline_key, 'Không' ) : array();
+		$deep_confirmation_ok = $deep_accept_started
+			&& ( $deep_accept['decision']['web_mode'] ?? '' ) === 'deep'
+			&& $deep_decline_started
+			&& ( $deep_decline['decision']['reason'] ?? '' ) === 'deep_research_declined';
+		$ok = $this->step( $ctx, $steps, 'Runtime: Deep Research accept/decline contract', $deep_confirmation_ok, $deep_confirmation_ok ? 'Accept unlocks web_mode=deep; decline is terminal and marked for no-rerun handling.' : wp_json_encode( array( 'accept' => $deep_accept, 'decline' => $deep_decline ) ) ) && $ok;
 
 		$casual = BizCity_TwinBrain_Conversation_Router::route( 'alo', 0 );
 		$casual_ok = ( $casual['route'] ?? '' ) === 'casual'
@@ -178,6 +201,83 @@ final class BizCity_Probe_TwinBrain_Chat_Default implements BizCity_Diagnostics_
 		$suggestion = BizCity_Automation_Workflow_Catalog::suggest_trigger( '@thoanh', 'admin' );
 		$suggestion_api_ok = $suggestion === null || ( is_array( $suggestion ) && isset( $suggestion['term'], $suggestion['workflow_id'] ) );
 		$ok = $this->step( $ctx, $steps, 'Runtime: fuzzy suggestion API is safe', $suggestion_api_ok, $suggestion_api_ok ? 'No unsafe execution; suggestion shape is valid.' : wp_json_encode( $suggestion ) ) && $ok;
+		$composer_file = $root . 'includes/class-twinbrain-final-composer.php';
+		$composer_source = is_readable( $composer_file ) ? (string) file_get_contents( $composer_file ) : '';
+		$runtime_file = $root . 'includes/class-twinbrain-runtime.php';
+		$runtime_source = is_readable( $runtime_file ) ? (string) file_get_contents( $runtime_file ) : '';
+		$plugin_root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? (string) BIZCITY_TWIN_AI_DIR : dirname( dirname( $root ) ) . '/';
+		$taxonomy_file = $plugin_root . 'core/twin-core/event-stream/class-twin-event-taxonomy.php';
+		$taxonomy_source = is_readable( $taxonomy_file ) ? (string) file_get_contents( $taxonomy_file ) : '';
+		$fallback_schema_file = $plugin_root . 'core/twin-core/event-stream/schemas/events/evidence_fallback_notice.json';
+		$fallback_schema_source = is_readable( $fallback_schema_file ) ? (string) file_get_contents( $fallback_schema_file ) : '';
+		$twinweb_file = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR . 'modules/twinweb/includes/class-twinweb-rest.php' : '';
+		$twinweb_source = is_readable( $twinweb_file ) ? (string) file_get_contents( $twinweb_file ) : '';
+		$two_part_source_ok = strpos( $composer_source, 'resolve_evidence_fallback_state' ) !== false
+			&& strpos( $composer_source, 'apply_evidence_fallback_contract' ) !== false
+			&& strpos( $composer_source, 'render_evidence_fallback_notice' ) !== false
+			&& strpos( $composer_source, 'EVIDENCE FALLBACK CONTRACT' ) !== false
+			&& strpos( $composer_source, 'deep_research_offer' ) !== false;
+		$event_contract_source_ok = strpos( $taxonomy_source, "EVIDENCE_FALLBACK_NOTICE = 'evidence_fallback_notice'" ) !== false
+			&& strpos( $taxonomy_source, "self::EVIDENCE_FALLBACK_NOTICE => [ 'trace_id', 'trigger', 'reason', 'notice' ]" ) !== false
+			&& strpos( $fallback_schema_source, '"evidence_fallback_notice"' ) !== false
+			&& strpos( $runtime_source, 'dispatch_v2' ) !== false;
+		$two_part_runtime_ok = false;
+		$two_part_detail = 'Final Composer class is not loaded; deterministic fallback fixture skipped.';
+		if ( class_exists( 'BizCity_TwinBrain_Final_Composer' ) ) {
+			try {
+				$composer = BizCity_TwinBrain_Final_Composer::instance();
+				$resolve = new ReflectionMethod( 'BizCity_TwinBrain_Final_Composer', 'resolve_evidence_fallback_state' );
+				$resolve->setAccessible( true );
+				$apply = new ReflectionMethod( 'BizCity_TwinBrain_Final_Composer', 'apply_evidence_fallback_contract' );
+				$apply->setAccessible( true );
+				$empty_opts = array(
+					'notebook_source_counts' => array( 'passage_count' => 0 ),
+					'search_context_total' => 0,
+					'final_context_count' => 0,
+				);
+				$empty_state = (array) $resolve->invoke( $composer, $empty_opts );
+				// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — regression fixture keeps successful tool output outside the empty-Notebook fallback.
+				$tool_state = (array) $resolve->invoke( $composer, array_merge( $empty_opts, array(
+					'tool_dispatch' => array( 'ok' => true, 'tool_slug' => 'search_web' ),
+					'tool_results' => array( array( 'skill' => 'search_web', 'result' => 'Kết quả tool thật' ) ),
+				) ) );
+				$empty_opts['evidence_fallback_state'] = $empty_state;
+				$empty_answer = (array) $apply->invoke( $composer, '## Trả lời\nCó thể tham khảo [nb:1/p2].', $empty_opts );
+				$product_opts = array(
+					'notebook_source_counts' => array( 'passage_count' => 2 ),
+					'answer_intent_meta' => array( 'requires_named_evidence' => true ),
+					'product_name_entity_count' => 0,
+					'evidence_fallback_state' => array( 'fallback' => true, 'trigger' => 'no_product_name' ),
+				);
+				$product_state = (array) $resolve->invoke( $composer, $product_opts );
+				$product_opts['evidence_fallback_state'] = $product_state;
+				$product_answer = (array) $apply->invoke( $composer, '## Trả lời\nDữ liệu [nb:7/p9] cần kiểm tra.', $product_opts );
+				$two_part_runtime_ok = ( $empty_state['fallback'] ?? false )
+					&& ( $empty_state['trigger'] ?? '' ) === 'full_empty'
+					&& empty( $tool_state['fallback'] )
+					&& ( $tool_state['reason'] ?? '' ) === 'tool_evidence_available'
+					&& strpos( (string) $empty_answer['answer_md'], '[nb:' ) === false
+					&& strpos( (string) $empty_answer['answer_md'], 'Notebook chưa có dữ liệu' ) !== false
+					&& ( $product_state['fallback'] ?? false )
+					&& ( $product_state['trigger'] ?? '' ) === 'no_product_name'
+					&& strpos( (string) $product_answer['answer_md'], '[nb:' ) === false
+					&& strpos( (string) $product_answer['answer_md'], 'chưa có tên sản phẩm cụ thể' ) !== false;
+				$two_part_detail = $two_part_runtime_ok ? 'Full-empty and no-product-name fixtures render Part 1 and remove Part 2 notebook citations.' : wp_json_encode( array( 'empty' => $empty_state, 'product' => $product_state, 'empty_answer' => $empty_answer, 'product_answer' => $product_answer ) );
+			} catch ( \Throwable $e ) {
+				$two_part_detail = 'Two-part fallback fixture exception: ' . get_class( $e ) . ' ' . $e->getMessage();
+			}
+		}
+		$ok = $this->step( $ctx, $steps, 'Disk: Two-Part Answer fallback contract', $two_part_source_ok, $two_part_source_ok ? $composer_file : 'Final Composer fallback markers are missing.' ) && $ok;
+		$ok = $this->step( $ctx, $steps, 'Disk: canonical evidence fallback event contract', $event_contract_source_ok, $event_contract_source_ok ? $fallback_schema_file : 'Canonical taxonomy or Event Stream schema is missing.' ) && $ok;
+		$event_contract_runtime_ok = class_exists( 'BizCity_Twin_Event_Taxonomy' )
+			&& defined( 'BizCity_Twin_Event_Taxonomy::EVIDENCE_FALLBACK_NOTICE' )
+			&& in_array( 'evidence_fallback_notice', BizCity_Twin_Event_Taxonomy::all(), true );
+		$ok = $this->step( $ctx, $steps, 'Runtime: canonical evidence fallback event registration', $event_contract_runtime_ok, $event_contract_runtime_ok ? 'evidence_fallback_notice is registered in the loaded Event Taxonomy.' : 'Loaded Event Taxonomy does not expose evidence_fallback_notice.' ) && $ok;
+		$ok = $this->step( $ctx, $steps, 'Runtime: Two-Part Answer fallback fixtures', $two_part_runtime_ok, $two_part_detail ) && $ok;
+		$deep_offer_bridge_ok = strpos( $rest_source, 'evidence_fallback_offer' ) !== false
+			&& strpos( $twinweb_source, 'evidence_fallback_offer' ) !== false
+			&& strpos( $default_reply_source, 'evidence_fallback_deep_research_offer' ) !== false;
+		$ok = $this->step( $ctx, $steps, 'Loader: Deep Research confirmation handoff', $deep_offer_bridge_ok, $deep_offer_bridge_ok ? 'TwinChat, TwinWeb and text-channel callers persist the post-search deep offer after the answer.' : 'Deep Research confirmation handoff markers are missing.' ) && $ok;
 
 		$memory_citation_file = $root . 'includes/class-twinbrain-citation-resolver.php';
 		$memory_citation_source = is_readable( $memory_citation_file ) ? (string) file_get_contents( $memory_citation_file ) : '';

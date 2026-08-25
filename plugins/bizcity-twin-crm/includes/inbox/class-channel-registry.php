@@ -37,6 +37,24 @@ class BizCity_CRM_Channel_Registry {
 		return $all[ $code ] ?? null;
 	}
 
+	/** Return framework descriptors for the loaded adapter catalog. */
+	public static function contract_catalog(): array {
+		// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — make zone, identity, storage and TwinBrain ownership inspectable by Diagnostics/UI.
+		$out = array();
+		foreach ( self::all() as $code => $adapter ) {
+			$descriptor = class_exists( 'BizCity_CRM_Channel_Contract' )
+				? BizCity_CRM_Channel_Contract::describe( $code )
+				: array( 'code' => $code, 'zone' => 'unknown' );
+			$out[ $code ] = array_merge( $descriptor, array(
+				'adapter_class' => get_class( $adapter ),
+				'capabilities'  => (array) $adapter->capabilities(),
+				'normalize'     => method_exists( $adapter, 'normalize_inbound' ),
+				'send'          => method_exists( $adapter, 'send' ),
+			) );
+		}
+		return $out;
+	}
+
 	public static function flush_cache(): void {
 		self::$cache = null;
 	}

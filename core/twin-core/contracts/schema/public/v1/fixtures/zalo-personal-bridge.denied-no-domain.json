@@ -1,0 +1,34 @@
+{
+  "contract": "zalo-personal-bridge",
+  "version": "1.0.0",
+  "scenario": "denied_no_domain",
+  "request": {
+    "surface": "channel-gateway",
+    "domain": "mrodemo.btnet.vn",
+    "blog_id": 742,
+    "shard": "slave_1",
+    "key_id": 59,
+    "allowed_domain": "",
+    "callback_host": "mrodemo.btnet.vn"
+  },
+  "entitlement": {
+    "allowed": true,
+    "account_limit": -1,
+    "accounts_used": 0,
+    "accounts_remaining": -1,
+    "source": "exact_api_key"
+  },
+  "error": {
+    "code": "invalid_metadata",
+    "message": "API key chưa có domain hợp lệ cho Zalo managed.",
+    "hint": "Đăng ký đúng domain của site cho API key này tại Hub rồi thử lại.",
+    "help_code": "api_key_invalid",
+    "reason_bucket": "key_domain_missing"
+  },
+  "outcome": {
+    "sidecar_called": false,
+    "mapping_persisted": false,
+    "crm_inbox_persisted": false,
+    "result": "denied"
+  }
+}

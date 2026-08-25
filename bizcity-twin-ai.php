@@ -389,6 +389,10 @@ $_bizcity_admin_ctx =
         )
     );
 
+// [2026-08-22 Johnny Chu] PHASE-TBP-6.3 — Profile Care/Public editor needs the owner-scoped Zalo Personal mapping contract.
+$_bizcity_zalo_personal_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/(?:gpt|profile|profile-care|profile-public)(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+
 // [2026-08-07 Johnny Chu] R-PERF - the TwinChat admin shell does not need every backend/admin module in its HTML request.
 $_bizcity_twinchat_admin_page = is_admin()
     && isset( $_GET['page'] )
@@ -481,7 +485,7 @@ unset( $_bzc_tracking_file );
 // [2026-06-09 Johnny Chu] PERF-2 — channel-gateway: webhook routing + channel admin UI.
 // Not needed on plain frontend HTML renders — twinchat has its own REST routes.
 // Still loads on: REST (/wp-json/), /bizhook/ webhooks, wp-admin, cron, WP-CLI, /tool-* pages.
-if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page ) {
+if ( ( $_bizcity_admin_ctx || $_bizcity_zalo_personal_public_request ) && ! $_bizcity_twinchat_admin_page ) {
     require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
 }
 
@@ -749,7 +753,7 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         continue;
     }
     // [2026-06-09 Johnny Chu] PERF-2 — Skip admin-only plugins on plain frontend HTML renders.
-    if ( ( ( ! $_bizcity_admin_ctx && ! $_bizcity_agent_public_request ) || $_bizcity_twinchat_admin_page )
+    if ( ( ( ! $_bizcity_admin_ctx && ! $_bizcity_agent_public_request && !( 'bizcity-zalo-personal' === $_slug && $_bizcity_zalo_personal_public_request ) ) || $_bizcity_twinchat_admin_page )
         && in_array( $_slug, $_bizcity_admin_only_slugs, true ) ) {
         continue;
     }
@@ -771,16 +775,23 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         require_once $_bundled_file;
     }
 }
-// [2026-08-21 Johnny Chu] HOTFIX — force-load BizCity Profile on its canonical public route even when a stale loader already defined its version constant.
+// [2026-08-22 Johnny Chu] PHASE-PROFILE-ROLE-SPLIT — force-load all Profile role routes even when a stale loader already defined its version constant.
 $_bizcity_profile_request_path = (string) parse_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '', PHP_URL_PATH );
-if ( 'profile' === trim( $_bizcity_profile_request_path, '/' ) && ! class_exists( 'BizCity_Personal_Page', false ) ) {
+$__bizcity_profile_route_match = false;
+foreach ( array( 'profile', 'profile-care', 'profile-public' ) as $__bizcity_profile_slug ) {
+    if ( trim( $_bizcity_profile_request_path, '/' ) === trim( (string) parse_url( home_url( '/' . $__bizcity_profile_slug . '/' ), PHP_URL_PATH ), '/' ) ) {
+        $__bizcity_profile_route_match = true;
+        break;
+    }
+}
+if ( $__bizcity_profile_route_match && ! class_exists( 'BizCity_Personal_Page', false ) ) {
     $_bizcity_profile_bootstrap = __DIR__ . '/plugins/bizcity-profile/bizcity-personal.php';
     if ( file_exists( $_bizcity_profile_bootstrap ) ) {
         require_once $_bizcity_profile_bootstrap;
     }
     unset( $_bizcity_profile_bootstrap );
 }
-unset( $_bizcity_profile_request_path );
+unset( $_bizcity_profile_request_path, $__bizcity_profile_route_match, $__bizcity_profile_slug );
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
@@ -794,7 +805,7 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
     add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );
 }
 
-unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_skills_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request, $_bizcity_twinsearch_public_request );
+unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_zalo_personal_public_request, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_skills_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request, $_bizcity_twinsearch_public_request );
 
 // Activation hook — install DB tables, set defaults
 register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );

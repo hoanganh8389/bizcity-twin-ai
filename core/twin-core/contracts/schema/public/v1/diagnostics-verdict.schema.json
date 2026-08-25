@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/diagnostics-verdict-v1.json",
+  "title": "BizCity Twin Diagnostics Verdict",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "plugin", "path", "checks", "verdict", "counts", "exit_code"],
+  "properties": {
+    "contract": {
+      "type": "string",
+      "const": "bizcity.twin.diagnostics-verdict"
+    },
+    "version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "plugin": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "path": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "verdict": {
+      "enum": ["pass", "warn", "fail", "skip"]
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "warn", "fail", "skip"],
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "warn": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "skip": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "exit_code": { "type": "integer", "enum": [0, 1, 2] },
+    "strict": { "type": "boolean" }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "status", "severity", "evidence", "fix_hint", "file"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "status": { "enum": ["pass", "warn", "fail", "skip"] },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "evidence": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "fix_hint": { "type": "string", "maxLength": 2000 },
+        "file": { "type": "string", "maxLength": 500 }
+      }
+    }
+  }
+}

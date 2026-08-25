@@ -81,6 +81,21 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 
 			];
 		}
+		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-REGISTRY — expose the feature-flagged unified memory installer to Site Provisioner when the flag is enabled.
+		if ( class_exists( 'BizCity_Memory_Unified_Installer' ) ) {
+			$list[] = [
+				'id'           => 'memory_unified',
+				'label'        => 'Memory — unified table',
+				'callback'     => static function () {
+					if ( class_exists( 'BizCity_Memory_Unified_Installer' )
+						&& BizCity_Memory_Unified_Installer::is_enabled() ) {
+						BizCity_Memory_Unified_Installer::instance()->maybe_install();
+					}
+				},
+				'version_opt'  => BizCity_Memory_Unified_Installer::DB_VERSION_OPTION,
+				'expected_ver' => BizCity_Memory_Unified_Installer::DB_VERSION,
+			];
+		}
 
 		// ── Research ──────────────────────────────────────────────────
 		if ( class_exists( 'BizCity_Research_DB' ) ) {

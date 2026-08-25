@@ -320,6 +320,12 @@ BizCity_CG_Order_Tracking_REST::init();
 // MUST load before class-cg-debug-logger so ::log() can delegate to it.
 // Full spec: core/channel-gateway/docs/RULE-CHANNEL-FILE-LOG.md
 require_once $gateway_dir . 'class-channel-file-logger.php';
+// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — encrypted CRM conversation archive is separate from redacted operational logs.
+require_once $gateway_dir . 'class-channel-conversation-archive.php';
+// [2026-08-22 Johnny Chu] R-DDV-LOADER — call register explicitly after require_once; file-scope registration may be skipped by an earlier include.
+if ( class_exists( 'BizCity_Channel_Conversation_Archive' ) ) {
+	BizCity_Channel_Conversation_Archive::register();
+}
 
 // Debug Logger — JSON-Lines pipeline tracer (uploads/[sites/{id}/]bizcity-cg-logs/).
 require_once $gateway_dir . 'class-cg-debug-logger.php';

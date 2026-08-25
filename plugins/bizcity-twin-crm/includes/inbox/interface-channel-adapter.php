@@ -27,6 +27,12 @@ interface BizCity_CRM_Channel_Adapter {
 	public function capabilities(): array;
 
 	/**
+	 * Framework contract: inbound adapters must produce identity + storage-ready
+	 * data; outbound adapters must return a normalized delivery outcome.
+	 * Implementations remain provider-specific, but all writes pass the CRM gate.
+	 */
+
+	/**
 	 * Normalize an inbound webhook/event payload into CRM-ready shape.
 	 *
 	 * @return array|null  null = skip (e.g. not a message event)
@@ -42,6 +48,9 @@ interface BizCity_CRM_Channel_Adapter {
 	 *   external_source_id  string  unique per inbox (FB mid, Zalo msg_id…)
 	 *   received_at         DateTimeInterface|string
 	 *   inbox_name          ?string  (used to seed inbox row)
+	 *   channel_code        string   (injected by the framework gate)
+	 *   contract_version    string   (injected by the framework gate)
+	 *   identity            array    (inbox_ref, source_id, external_source_id)
 	 */
 	public function normalize_inbound( array $raw ): ?array;
 
@@ -50,7 +59,7 @@ interface BizCity_CRM_Channel_Adapter {
 	 *
 	 * @param array $conversation Conversation row (assoc array from CRM table).
 	 * @param array $message      ['content','content_type','attachments']
-	 * @return array{success:bool, external_source_id:?string, error:?string}
+	 * @return array{success:bool, outcome:string, code:string, external_source_id:?string, error:?string, retryable:bool, channel_code:string, contract_version:string}
 	 */
 	public function send( array $conversation, array $message ): array;
 

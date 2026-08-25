@@ -61,6 +61,59 @@ class BizCity_Notify_Dispatcher {
 		// [2026-06-13 Johnny Chu] PHASE-CG-NOTIFY-BINDINGS — WP comment + post publish.
 		add_action( 'comment_post',           array( __CLASS__, 'on_comment_new' ),    20, 2 );
 		add_action( 'transition_post_status', array( __CLASS__, 'on_post_published' ), 20, 3 );
+
+		// [2026-08-23 Johnny Chu] PHASE-0.39E — independent bridge monitor alert ingress.
+		add_action( 'bizcity_zalo_bridge_state_changed', array( __CLASS__, 'on_bridge_state_changed' ), 10, 1 );
+	}
+
+	/**
+	 * Dispatch one deduplicated bridge state transition through email only.
+	 *
+	 * @param array $payload Monitor payload: state, reason, instance, account, trace.
+	 * @return void
+	 */
+	public static function on_bridge_state_changed( $payload ) {
+		// [2026-08-23 Johnny Chu] PHASE-0.39E — never route outage alerts through the failing Zalo channel.
+		if ( ! is_array( $payload ) ) { return; }
+		$state = sanitize_key( (string) ( $payload['state'] ?? '' ) );
+		$event_map = array(
+			'offline'                => 'bridge_offline',
+			'worker_stalled'         => 'bridge_worker_stalled',
+			'auth_failed'            => 'bridge_auth_failed',
+			'session_disconnected'   => 'bridge_session_disconnected',
+			'mapping_failed'         => 'bridge_mapping_failed',
+			'recovered'              => 'bridge_recovered',
+		);
+		if ( ! isset( $event_map[ $state ] ) ) { return; }
+		$event_code = $event_map[ $state ];
+		$dedupe = sanitize_key( (string) ( $payload['dedupe_key'] ?? '' ) );
+		if ( $dedupe === '' ) {
+			$dedupe = md5( wp_json_encode( array(
+				(string) ( $payload['bridge_instance_id'] ?? 'default' ),
+				(string) ( $payload['account_id_hash'] ?? '' ),
+				$state,
+				gmdate( 'Y-m-d-H' ),
+			) ) );
+		}
+		$lock_key = 'bizcity_bridge_alert_' . substr( md5( $dedupe ), 0, 24 );
+		if ( get_transient( $lock_key ) !== false ) { return; }
+		set_transient( $lock_key, '1', 'recovered' === $state ? 3600 : 900 );
+
+		$instance = sanitize_text_field( (string) ( $payload['bridge_instance_id'] ?? 'default' ) );
+		$reason = sanitize_key( (string) ( $payload['reason'] ?? $state ) );
+		$account_hash = sanitize_text_field( (string) ( $payload['account_id_hash'] ?? '' ) );
+		$trace = sanitize_text_field( (string) ( $payload['trace_id'] ?? '' ) );
+		$subject = '[BizCity] Zalo bridge ' . ( 'recovered' === $state ? 'đã hoạt động lại' : 'cần kiểm tra' );
+		$message = sprintf(
+			"Trạng thái zca-bridge: %s\nBridge instance: %s\nAccount hash: %s\nReason: %s\nTrace: %s\nThời gian: %s\n\nMở Channel Gateway → Zalo Personal → Bridge Diagnostics để xem trace và Recovery Runbook.",
+			strtoupper( str_replace( '_', ' ', $state ) ),
+			$instance !== '' ? $instance : 'default',
+			$account_hash !== '' ? $account_hash : '—',
+			$reason,
+			$trace !== '' ? $trace : '—',
+			current_time( 'mysql' )
+		);
+		self::dispatch_email_only( $event_code, $subject, $message );
 	}
 
 	// -------------------------------------------------------------------------
@@ -315,6 +368,17 @@ class BizCity_Notify_Dispatcher {
 		}
 	}
 
+	private static function dispatch_email_only( $event_code, $subject, $msg ) {
+		$settings = self::get_settings();
+		if ( empty( $settings['notify_events'] ) || ! in_array( $event_code, (array) $settings['notify_events'], true ) ) { return; }
+		$smtp_uid = isset( $settings['email_smtp_uid'] ) ? (string) $settings['email_smtp_uid'] : '';
+		if ( $smtp_uid === '' ) { return; }
+		$recipients = isset( $settings['email_recipients'] ) && is_array( $settings['email_recipients'] ) && count( $settings['email_recipients'] ) > 0
+			? $settings['email_recipients']
+			: array( get_bloginfo( 'admin_email' ) );
+		self::send_email( $recipients, $subject . ' — ' . wp_strip_all_tags( mb_substr( $msg, 0, 100 ) ), $msg );
+	}
+
 	// -------------------------------------------------------------------------
 	// Zalo send
 	// -------------------------------------------------------------------------
@@ -384,10 +448,10 @@ class BizCity_Notify_Dispatcher {
 	 * @param string $msg
 	 * @return void
 	 */
-	private static function send_email( $recipients, $msg ) {
+	private static function send_email( $recipients, $msg, $body_override = '' ) {
 		// [2026-06-13 Johnny Chu] PHASE-CG-NOTIFY-BINDINGS — email via wp_mail (SMTP override applied automatically).
 		$subject = '[BizCity] ' . wp_strip_all_tags( mb_substr( $msg, 0, 80 ) );
-		$body    = wp_strip_all_tags( $msg );
+		$body    = $body_override !== '' ? wp_strip_all_tags( $body_override ) : wp_strip_all_tags( $msg );
 
 		$sent = wp_mail(
 			$recipients,
