@@ -362,6 +362,17 @@ jobs:
           wp config create --dbname=wordpress_test --dbuser=root --dbpass=root --dbhost=127.0.0.1 --skip-check
           wp core install --url=http://cli.local --title=Test --admin_user=admin --admin_email=admin@example.com --admin_password=admin
 
+      - name: Verify shipped plugin tree
+        run: |
+          set -euo pipefail
+          provider='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/includes/profile/class-personal-profile-wheel-provider.php'
+          if [ ! -f "$provider" ]; then
+            echo "::error::Clean checkout is missing $provider"
+            echo "The Profile module is required by plugins/bizcity-profile/bootstrap.php."
+            exit 1
+          fi
+          echo "Profile provider present: $provider"
+
       - name: Activate plugin
         run: wp plugin activate bizcity-twin-ai
 

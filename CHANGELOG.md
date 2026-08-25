@@ -13,6 +13,243 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI clean checkout and diagnostics activation gate - 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| Packaging | Stopped excluding the active `plugins/bizcity-profile/` module from Git, which caused the clean-checkout activation fatal for the required Profile wheel provider. | Implemented locally; push required |
+| CI | Added a shipped-tree preflight before `wp plugin activate` so missing runtime artifacts fail with an actionable path. | Implemented locally |
+| Roadmap | Made the two PHASE-1.24 audit roadmaps trackable and recorded the remaining WordPress matrix and Diagnostics JUnit gates. | Implemented locally; CI rerun pending |
+
+### Facebook webhook dùng duy nhất callback Plan B — 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| Channel Gateway | Loại bỏ URL Plan A và Plan A fallback khỏi REST settings/UI; `/?fbhook=1` là callback Facebook chính thức duy nhất. | Implemented locally; frontend artifact build passed |
+
+### Profile shared Twin GPT SSE and no-notebook chat — 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| Transport | Profile public React chat now consumes the canonical TwinWeb `/chat/stream` SSE event contract with live token rendering and synchronous fallback. | Implemented locally; WordPress runtime SSE smoke pending |
+| Identity | Profile stream verifies signed Profile context, keeps WEBCHAT/Guru/CRM attribution and Profile session prefix through completion. | Implemented locally; runtime CRM stream smoke pending |
+| Grounding | Profile forces `mode=chat`, ignores notebook focus and injects canonical public Profile context into the shared runtime prompt. | Implemented locally; answer-quality smoke pending |
+
+### PHASE-0.39F CRM progress snapshot and Inbox column collapse — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| F5 assignment | Added assignment policy CRUD/binding, fair-count and capacity selection, tenant lock/transaction, scoped auto-assign REST command and no-admin-fallback outcomes. | Local foundation implemented; canonical inbound trigger, idempotency and concurrency DDV pending |
+| F6 Kanban | Added scoped conversation/order-care projections, repository-backed conversation move command and cache invalidation without creating CRM order/Kanban shadow tables. | Local foundation implemented; FE adoption, task/opportunity commands and browser/DDV pending |
+| Inbox UI | Added independent collapse controls to Channels, Conversation List, Conversation and Contact columns; collapsed tracks use `44px` and responsive selectors preserve tablet/mobile behavior. | CRM frontend build and artifact smoke passed; browser visual smoke pending |
+| Release status | Added dated progress snapshot and synchronized PHASE-0.39F/master tracker status. | Overall 0.39F remains ACTIVE / PRE-RELEASE; F2/F3/F7/F8 and bridge BD-4..BD-6 gates remain open |
+
+### Floating brain Hero polish and compact chat launcher — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Hero | Replaced the unstable circular force layout with a stable two-hemisphere neural mesh, multicolor links and floating brain aura. | Implemented locally; browser visual smoke pending |
+| Chat float | Replaced the oversized closed pill with a circular icon-only launcher; the readable chat headline and prompt input appear after opening the panel. | Implemented locally; browser chat smoke pending |
+| Deployment gate | Profile diagnostics now requires the compact launcher, neural mesh and public chat panel markers. | Implemented locally |
+
+### Floating brain neuron Hero and visible prompt — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Hero visual | Increased the public graph field to a dense two-hemisphere neuron silhouette with cross-links, aura and central fissure treatment. | Implemented locally; browser visual smoke pending |
+| Prompt | Public React chat now shows an input composer immediately instead of requiring a launcher first. | Implemented locally; browser chat smoke pending |
+| Data boundary | Ambient points are unlabeled visual-only particles; labeled nodes remain limited to the published public graph/capability allowlist. | Implemented locally |
+
+### Public Profile graph density and prompt composer — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Hero graph | Added ambient visual points and low-emphasis ring links when the public snapshot has few nodes, while keeping labeled nodes limited to public-safe data. | Implemented locally; browser visual smoke pending |
+| Chat prompt | Added an always-visible React prompt composer in the public Profile chat surface; Enter and Send use the canonical Profile chat route. | Implemented locally; browser chat smoke pending |
+| Diagnostics | The deployed public artifact gate now requires the Hero graph, highlight event and visible prompt composer markers. | Implemented locally |
+
+### Public Profile Hero graph visualization — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Hero | Ported a public-safe read-only SVG graph into the Profile Hero/cover position with category colors, curved relations, drag, zoom and pulse effects. | Implemented locally; browser visual smoke pending |
+| Chat reaction | Chat questions and answers broadcast public label matches; the Hero highlights matched nodes and connected relations while dimming unrelated nodes. | Implemented locally; runtime graph snapshot smoke pending |
+| Privacy | The graph reads only the server-published `publicGraphSnapshot` or `publicCapabilities`; no notebook/KG query, drawer or edit action is exposed publicly. | Implemented locally |
+
+### Public Profile React chat foundation — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Public mount | Added a dedicated `profile-public.js` React entrypoint for public Profile WebChat, while preserving Page Builder HTML as the SEO/no-JS fallback. | Implemented locally; browser/runtime WordPress smoke pending |
+| Chat contract | React chat reuses the existing signed `channel_context`, `chat_turn`, `profile_webchat_{card_id}_*` session and canonical CRM/TwinBrain handler. | Implemented locally |
+| Performance | Public Profile no longer needs to load the 412 KB dashboard bundle; dedicated chat artifact is about 153 KB before gzip. | Implemented locally |
+
+### Profile Public and editor UX fixes — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Editor | Moved Avatar/Cover controls into the Hero panel and added a Template-tab artifact gate plus production asset-version bump. | Implemented locally; production deployment/cache purge pending |
+| Avatar | Added a profile icon fallback for empty or broken avatar URLs in Profile Edit, Page Builder canvas and public export. | Implemented locally |
+| Public assistant | Renamed the public CTA to “Hỏi quản gia của tôi” and made it open the actual WebChat launcher. | Implemented locally; browser smoke pending |
+
+### Profile Edit template picker — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Template tab | Added a Profile Edit tab that loads the three server-owned Profile templates and applies a selected layout after explicit confirmation. | Implemented locally; browser/runtime WordPress smoke pending |
+| Preservation | Template switching keeps owner Profile/Twin/CTA/slug/capability data, `profileCardId`, and the canonical CF7 lead form, then republishes already-published cards. | Implemented locally; aggregate Profile Diagnostics pending |
+| Safety | Added an owner-scoped REST route and diagnostics contract; no new table, browser file path, Membership or entitlement logic. | Implemented locally |
+
+### Page Builder canvas parity for Profile portfolio — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Canvas renderers | Added `timeline` features, `progress` stats, Portfolio/Blog metadata cards and Portfolio category filter to the Page Builder canvas preview. | Implemented locally; browser editor smoke pending |
+| Canvas layout | Canvas now mirrors unique block anchors and the responsive `vcard_portfolio` sidebar/main composition used by public export. | Implemented locally; browser editor smoke pending |
+| Safety | Canvas filtering is local to the preview iframe; no CRM, provider, visitor or public-page side effects are introduced. | Implemented locally |
+
+### PHASE-0.39F CRM framework storage and operations foundations — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Archive F1 | Expanded encrypted conversation archive to active Zone 1 channels and added redacted attachment refs. | Implemented locally; per-channel runtime/DDV pending |
+| Hybrid storage F2 | Added storage lifecycle fields, archive receipt index, bounded offload method and read-only cold rehydrate path. | Foundation implemented; pilot activation and round-trip DDV pending |
+| Reporting F3 | Added content-free reporting facts, daily rollup tables/writer and scoped `/reports/rollups` endpoint with cache. | Foundation implemented; migrate existing dashboards and validate metric parity |
+| Teams/assignment F4-F5 | Added tenant-local Teams, Team Members, Inbox Members, capabilities, policy CRUD/binding and scoped assignment foundations; manual assignment now checks membership. | Foundation implemented; canonical inbound trigger, fair-distribution fixtures, UI and DDV pending |
+| Owner scope F7 | `BizCity_CRM_Inbox_Access` now unions explicit Inbox Members with the existing Zalo Personal owner scope. | Partial; provider-specific ownership and field projection remain |
+
+### CRM archive channel coverage — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Zone 1 archive | Expanded encrypted conversation archive to Facebook, Messenger, Zalo OA, Zalo Personal, WebChat, Email, Instagram and WhatsApp. Normalized legacy adapter aliases (`email_imap`, `web_widget`, `whatsapp_cloud`, `zalo`) to canonical archive channels. | Implemented locally; deployed per-channel archive DDV pending |
+| Attachment archive refs | Archive rows now include attachment ID/type, keyed hashes, bounded size and MIME metadata without raw provider URLs. | Implemented locally; media fixture and retention/reconcile DDV pending |
+| Hybrid offload | No SQL content offload was enabled by this slice. Archive receipt/lifecycle contract remains a prerequisite before clearing message content. | Intentionally pending F2 |
+
+### Profile portfolio fidelity pass — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Resume | Added an additive `timeline` variant to the existing features renderer and ported the source education/experience structure. | Implemented locally; public browser smoke pending |
+| Skills | Added an additive `progress` variant to the existing stats renderer for source-style skill bars. | Implemented locally; public browser smoke pending |
+| Content cards | Portfolio and Blog entries now support title/date/description metadata while retaining the existing gallery contract. | Implemented locally |
+
+### Profile portfolio interaction port — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Layout | Ported the source vCard responsive desktop sidebar/main composition using existing Page Builder output; it collapses to one column on mobile. | Implemented locally; public browser smoke pending |
+| Portfolio filter | Added reusable category filtering for gallery blocks and enabled it on the portfolio template with All, Web design, Applications and Web development categories. | Implemented locally; public browser smoke pending |
+| Source boundary | Ported visual language and interaction behavior only; no vendor HTML/CSS/JS was copied, and Profile WebChat, lead-form/CRM and tracking mounts remain canonical. | Implemented locally |
+
+### CRM Channel Framework contract gate — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Channel input | Added `BizCity_CRM_Channel_Contract` validation before shared CRM SQL: stable inbox/source/dedupe identity, content type, attachments, zone, storage and TwinBrain descriptors. | Implemented locally; multi-channel runtime DDV pending |
+| Channel output | Normalized adapter outcomes to `success`, `outcome`, `code`, `external_source_id`, `error`, `retryable`, `channel_code` and `contract_version`. | Implemented locally |
+| CRM write ownership | Moved outbound message status mutation into `BizCity_CRM_Repository::update_message_delivery()`; REST no longer writes message status directly. | Implemented locally; PHP runtime smoke pending |
+| Zone and catalog | Registry/REST channel catalog now exposes the framework descriptor; Zone 2 adapter ingress is rejected by the shared CRM gate, with T-M1.4 synthetic valid-input and Telegram rejection probes. | Implemented locally; deployed Diagnostics PASS and producer ownership migration pending |
+| TwinBrain | Kept one `crm_message_received` AI listener owner and documented that full canonical TwinBrain parity is still pending for Personal/WebChat/Email/other Zone 1 channels. | Contract documented; parity work remains roadmap |
+
+### Profile portfolio template port — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Template | Added `business-card-portfolio.json`, porting the supplied vCard Personal Portfolio structure into existing Page Builder blocks: About, Resume, Portfolio, Blog, Contact, services, testimonials, clients and skills. | Implemented locally; public browser smoke pending |
+| Visual language | Added the `vcard_portfolio` Profile preset with Poppins, dark surfaces and yellow accent while preserving Profile WebChat, vCard, lead-form and CRM contracts. | Implemented locally; public browser smoke pending |
+| Navigation | Page Builder section anchors now use unique block IDs, so repeated `content`/`gallery` sections remain reachable from the portfolio navbar. | Implemented locally; Page Builder build PASS |
+
+### Profile portfolio snapshot and KG graph redaction — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Portfolio | Publish now creates a bounded `publicPortfolioSnapshot` from allowlisted public Page Builder blocks; forms, shortcodes, custom HTML and team/private payloads are excluded. | Implemented locally; publish/browser smoke pending |
+| Graph privacy | `publicGraphSnapshot` accepts only server-authorized graph input through `bizcity_profile_public_graph_snapshot`, then allowlists node/edge fields, caps sizes and drops invalid references/private fields. | Implemented locally; trusted KG provider and runtime privacy smoke pending |
+| Freshness | Added `graph_hash` alongside the capability `content_hash` so published graph changes have an independent fingerprint. | Implemented locally |
+| Scope | No live KG query, CRM query, new table or Membership entitlement policy was added to public rendering. | Implemented locally |
+
+### Profile editor accent-aware link preview — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Editor preview | Added a compact live preview for populated contact, social and messaging links; icon/border/background accents follow `brainAccentColor`. | Implemented locally; browser smoke pending |
+| Scope | Presentation-only change; Profile REST, CRM ownership and Membership entitlement contracts are unchanged. | Implemented locally |
+
+### Profile gift provider fallback — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Public resilience | Profile renderer now shows a neutral fallback when the selected Gift Wheel provider is unavailable or returns no public markup; chat and portfolio remain available. | Implemented locally; public browser smoke pending |
+
+### Profile Funnel DDV contract expansion — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Public snapshot probe | Extended `modules.personal.profile.wave62` with an in-memory privacy fixture for `publicGraphSnapshot`, including allowlisted fields and content-hash verification. | Implemented locally; Diagnostics rerun pending |
+| Surface probe | Added deployed artifact checks for Profile Care/Public navigation and a side-effect-free loader check for the canonical WebChat CRM adapter/ingestor. | Implemented locally; WordPress runtime evidence pending |
+| CRM attribution fixture | Profile WebChat now carries the real `profile_card_id` and `profile_public` source through normalization; the probe verifies stable external message ID and card attribution without CRM writes. | Implemented locally; CRM runtime smoke pending |
+
+### Profile Care/Public navigation split — 2026-08-24
+
+| Area | Change | Status |
+|---|---|---|
+| Surface navigation | Profile Care no longer exposes or reopens the Profile Public card workspace through sidebar, query or legacy hash navigation. Profile Public keeps its direct card/portfolio workspace. | Implemented locally; browser smoke pending |
+| Boundary | This is a presentation/navigation split only; backend REST ownership remains shared and server-side entitlement is still pending. | Documented |
+
+### Profile publish-time public-safe capability snapshot — 2026-08-23
+
+| Area | Change | Status |
+|---|---|---|
+| Publish boundary | Profile publish now writes a server-generated `publicGraphSnapshot` into the existing `profile-card.props`, containing only approved capability fields and a content hash. | Implemented locally; WordPress publish smoke pending |
+| Public renderer | Page Builder prefers the published snapshot and preserves `publicCapabilities` fallback for legacy cards. No private KG, memory or CRM query was added to public rendering. | Implemented locally; public browser smoke pending |
+| Snapshot freshness | Editing `publicCapabilities` removes the old snapshot from shared SiteConfig; the next publish regenerates it from the current owner-approved capabilities. | Implemented locally; republish smoke pending |
+
+### Profile Public WebChat to canonical CRM — 2026-08-23
+
+| Area | Change | Status |
+|---|---|---|
+| CRM projection | Profile Public WebChat inbound now reuses the canonical CRM WebChat adapter and ingestor; owner projection also includes `profile_webchat_{card_id}_*` sessions. | Implemented locally; WordPress runtime smoke pending |
+| Single responder | Profile temporarily vetoes CRM AI auto-reply while ingesting the inbound turn, then mirrors the successful TwinBrain answer into the CRM conversation without a second channel send. | Implemented locally; duplicate-reply smoke pending |
+| Provenance | Pipeline lead source preserves `webchat` instead of classifying Profile WebChat as `zalo_oa`; CRM message IDs are stable for idempotent inserts. | Implemented locally |
+
+### Profile detailed metrics and chat transcript — 2026-08-23
+
+| Area | Change | Status |
+|---|---|---|
+| Dashboard metrics | Added separate views, Tel, Email, Facebook, chat-open, successful-chat and contact metrics to per-card and aggregate Profile dashboards. | Implemented locally; public/runtime smoke pending |
+| Chat content | Added owner-scoped `/profile/cards/{id}/chat-transcript`, persisting Profile WebChat user questions and Twin answers in canonical `bizcity_webchat_messages` under `profile_webchat_{card_id}_*`. | Implemented locally; WebChat/CRM runtime smoke pending |
+| Cache compatibility | Versioned Profile analytics report cache to `report_v2` so old cached payloads without `metrics` cannot mask the new REST contract. | Implemented locally |
+
+### Profile metrics and chat transcript — 2026-08-23
+
+| Area | Change | Status |
+|---|---|---|
+| Metrics | Profile analytics now returns and renders separate counts for views, Tel, Email, Facebook, chat opens, successful chat questions, and submitted contacts in both per-card and aggregate dashboards. | Implemented locally; public/runtime smoke pending |
+| Transcript | Successful Profile WebChat turns persist user questions and Twin answers in canonical `bizcity_webchat_messages` under a card-scoped session prefix; owner-scoped read-only transcript REST/UI was added. | Implemented locally; WordPress CRM/WebChat runtime smoke pending |
+| Privacy boundary | Daily Profile JSONL remains redacted event evidence only; raw chat content is kept in WebChat canonical storage and is never copied into traffic logs. | Implemented locally |
+
+### Profile Public runtime UX and observability — 2026-08-23
+
+| Area | Change | Status |
+|---|---|---|
+| Brain hero | Added a deterministic visible Brain visualization behind the canvas animation and a legacy `profileCardId` resolver from published page to Profile registry, preventing `card_id=0` from disabling chat/tracking/vCard. | Implemented locally; public browser smoke pending |
+| Ordering | Added native drag-and-drop ordering for public contact links and social links; order persists in the shared Page Builder SiteConfig. | Implemented locally; Profile UI build PASS |
+| Traffic | Mirrored accepted Profile events into the canonical daily `profile` JSONL channel log and added owner/card/date-filtered log REST reads in analytics. | Implemented locally; WordPress runtime log read pending |
+| Twin GPT menus | Split the server app catalog into `My card QR` and `My profile`, with deep-link support for Profile Public/Care while preserving the legacy `profile` ID. | Implemented locally; Twin GPT UI build PASS |
+| Notebook detail | Remounted the page editor after detail fetch so API-provided title/content is displayed; documented SQL metadata/index versus `.md` content ownership. | Implemented locally; Profile UI build PASS |
+| Legacy card recovery | Page Builder now passes its known published `post_id` into Profile rendering, making `profileCardId` recovery deterministic even when query context is unavailable. | Implemented locally; public browser smoke pending |
+| Analytics contract | Added the missing `funnel` field to Profile analytics REST responses and ensured the resolved card ID is applied before rendering the public Profile tab. | Implemented locally; public browser smoke pending |
+
+### Zalo Personal native self-echo and Personal-only scope — 2026-08-23
+
+| Area | Change | Status |
+|---|---|---|
+| Personal ownership | `bizcity-zalo-personal` bootstrap/probe now owns Personal only; OA is not loaded or required by this module. | Implemented locally; deploy + rerun Diagnostics |
+| Native Zalo messages | Sidecar preserves `threadId`, records WP-only outbound provider IDs, and marks `origin=crm` versus `origin=native_zalo`; native messages mirror into CRM as outgoing agent rows. | Implemented locally; production smoke pending |
+| CRM resolver | Added the missing WordPress DB handle in `BizCity_CRM_Guru_Resolver` before binding/notebook queries. | Implemented locally; production log verification pending |
+| Probe semantics | Domain-deny fixtures now allow entitlement to remain true; Personal probe no longer fails because OA is owned elsewhere. | Implemented locally; WordPress Diagnostics rerun pending |
+
 ### Managed Zalo entitlement capacity repair — 2026-08-22
 
 | Area | Change | Status |
@@ -24,12 +261,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Client capability freshness | Zalo Personal UI now prefers the latest `/zalo-bridge/health` capability over stale cached settings capability, so `allowed=true/account_limit=-1` can enable account creation immediately. | Implemented locally; deploy rebuilt Channel Gateway bundle |
 | Acceptance gate | Added roadmap/API documentation requiring exact-key `channels.zalo_personal` verification after migration. | Documented; runtime evidence pending |
 
+### Managed Zalo create UX and trace — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Sheet lifecycle | Save/create sheets close only after `ok=true`, show global success/error toast, and refresh account/health state after account creation. | Implemented locally; deploy rebuilt Channel Gateway bundle |
+| Create trace | Added redacted `[BIZCITY_ZCA_TRACE]` milestones for auth, Hub response, sidecar account, mapping schema/save, CRM inbox upsert, and completion. | Implemented locally; inspect PHP/file channel logs after the next create attempt |
+| Error response | Client Zalo REST proxy now preserves `code`, `message`, `hint`, and `help_code` instead of returning a blank degraded message. | Implemented locally |
+
 ### Managed Zalo default seat policy — 2026-08-22
 
 | Area | Change | Status |
 |---|---|---|
 | Product policy | Managed Zalo Personal is enabled by default for Free, Pro and Premium; account seats are `1 / 3 / -1 unlimited`. | Implemented in Hub seed/migration and documented across Hub/client/plugin contracts |
 | Zero-capacity semantics | `0` remains an explicit lock; `reason=account_capacity_disabled` distinguishes it from a missing feature slug. | Implemented locally |
+
+### Managed Zalo create domain-gate trace — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Exact-key diagnosis | Confirmed production create for `mrodemo.btnet.vn` authenticates as Hub API key `#59`; the request stops at `allowed_domain` before any sidecar call. | Verified from `invalid_metadata` response |
+| Redacted trace | Hub now records `domain_gate` with key id, domain presence, host hashes and match booleans; client forwards safe correlation fields without raw domain or credential. | Implemented locally; deploy and retry once |
+| Repair path | Existing-key Master Admin now provides a sanitized hostname editor; set key `#59` to the real client hostname, then retry account creation. | Implemented locally; production parse-error artifact must be replaced |
+
+### API-key revoke diagnostics — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Revoke backend | Key revoke now verifies the exact row is active, checks the database update result, reads back `is_active=0`, and logs redacted `revoke_start/update/complete` stages. | Implemented locally |
+| Revoke UI | HTTP `403`/AJAX failures now show an error and re-enable the button instead of failing silently after the confirm dialog. | Implemented locally; deploy Master Admin artifact |
+| Domain contract | Documented `invalid_metadata` as exact-key `allowed_domain` failure with safe `key_id/domain_set/host_hash` correlation. | Documented |
+
+### Master Admin script-loader fix — 2026-08-22
+
+| Area | Root cause / change | Status |
+|---|---|---|
+| JavaScript boot | Master page was loading API Monitor's `admin-monitor.js`, which expects `BizMonitor`; this caused `BizMonitor is not defined` and prevented admin handlers from running. | Fixed locally; deploy Master Admin artifact |
+| Inline config | `BizMaster` is now defined before the Master page's inline key/plan handlers execute; jQuery is explicitly enqueued. | Fixed locally |
+| Revoke interaction | Revoke buttons are explicit `type="button"` controls and use AJAX error handling with DB read-back verification. | Fixed locally |
+
+### Production verification: Managed Zalo provisioning — 2026-08-22
+
+| Area | Evidence | Status |
+|---|---|---|
+| Exact-key entitlement | Client production received Premium `channels.zalo_personal.allowed=true` with `account_limit=-1`. | User-confirmed production verification |
+| Domain gate | API key `#59` was assigned the client hostname and the create request passed `allowed_domain`. | User-confirmed production verification |
+| Account provisioning | Managed Zalo account creation proceeded after entitlement and domain repairs. | User-confirmed production verification |
+| Remaining gate | QR login, managed inbound callback, outbound delivery, restart recovery and two-key isolation still need separate evidence. | Pending |
+
+### B2B2C trace-first framework and Zalo UI consolidation — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Framework rule | Added a reusable preflight route matrix across Copilot instructions, R-B2B2C, Framework Guide, contract testing/runtime, Plugin Standard, Hub API and client/module contracts. | Implemented and validated locally |
+| Failure classification | Standardized transport/auth/entitlement/domain/tenant/mapping/side-effect/presentation-cache classification with success and denial evidence requirements. | Documented |
+| UI ownership | Merged Zalo Personal Guru controls and account list into one Overview Card; Guru panel supports embedded rendering and no longer owns a duplicate card. | Implemented locally; Channel Gateway build PASS |
+
+### Phase 0.39C production-closure roadmap — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Roadmap | Created `PHASE-0.39C-ZALO-PERSONAL-PRODUCTION-CLOSURE-ROADMAP.md` with ordered C0-C7 slices, route trace matrix, denial matrix, code anchors and release checklist. | Active roadmap |
+| Remaining gates | QR/restart recovery, managed inbound callback, CRM outbound, two-key isolation, `/gpt/` member smoke and archive/DDV production evidence are explicitly separated from already verified entitlement/domain/account-create work. | Pending by wave |
+
+### Phase 0.39C C0 contract fixtures — 2026-08-22
+
+| Area | Change | Status |
+|---|---|---|
+| Public contract | Registered `zalo-personal-bridge` v1 in `core/twin-core` contract catalog with schema, allowed/denied/mapping fixture matrix and invalid fixture. | Implemented locally; Node suite PASS with 14 contracts |
+| Diagnostics | Extended `modules.zalo-personal` with Disk/Loader/Runtime semantics for exact key, domain, entitlement, side effect and mapping outcomes without network calls. | Implemented locally; WordPress runtime PASS pending |
+| Next wave | C1 is now the active coding slice: managed QR, status transitions and restart/expiry recovery. | Ready to implement |
 
 ### B1/B2/C Master Plan entitlement contract — 2026-08-22
 
@@ -106,6 +407,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Guru Quick Edit | Personal accounts can open the shared Guru Quick Edit surface for system prompt, runtime, Quick Training, notebook attach/detach, and source-to-notebook bridge. | Implemented locally; deploy + browser smoke required |
 | CRM Inbox progress | Recorded the live admin evidence: connected Personal account and inbound contact/conversation/message visible in BizCity Twin CRM Inbox BE. | Verified on admin BE; outbound/access policy evidence remains pending |
 | Auto-reply enforcement | CRM AI Autoreply Listener now fails closed for `zalo_personal` unless an exact Guru binding has `auto_reply=1`; the previous global default could call Chat Gateway even when the Personal UI showed OFF. | Fixed locally; deploy + OFF/ON live smoke required |
+| Legacy Zalo channel cleanup | Added a dedicated `DELETE /bizcity-crm/v1/inboxes/{id}/zalo-legacy` route and CRM Inbox rail action. It only purges `zalo_personal` inboxes with no local managed-account mapping; active managed channels are protected. | Implemented locally; deploy + legacy/managed deletion smoke required |
+| QR/session recovery | QR login now validates Personal account type, prevents duplicate in-flight login, persists terminal expiry, resumes an existing QR, and marks connected accounts with missing credentials as expired on restart. | Implemented locally; deploy + restart/QR smoke required |
+| CRM Zalo flow diagnostic | Added read-only `GET /bizcity-crm/v1/inboxes/{id}/zalo-diagnostic` and a per-inbox `Kiểm tra flow` action. It checks CRM inbox, adapter, account mapping, Client/Hub bridge health and recent inbound/outbound evidence without sending a message. | Implemented locally; deploy + browser flow smoke required |
 
 ### Diagnostics CI mock-mode stabilization — 2026-08-21
 

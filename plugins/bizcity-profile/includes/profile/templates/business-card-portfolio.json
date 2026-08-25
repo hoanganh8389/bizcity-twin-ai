@@ -1,0 +1,205 @@
+{
+  "name": "Danh thiep Profile Portfolio",
+  "theme": {
+    "bg0": "#121212",
+    "bg1": "#1e1e1f",
+    "bg2": "#29292b",
+    "bg3": "#333336",
+    "bg4": "#3d3d40",
+    "bg5": "#47474b",
+    "text0": "#f5f5f7",
+    "text1": "#aaaab2",
+    "text2": "#d5d5da",
+    "text3": "#78787f",
+    "accent": "#f1c75b",
+    "accentDim": "#3a3018",
+    "borderDefault": "#3d3d40",
+    "borderSubtle": "#29292b",
+    "borderHover": "#f1c75b",
+    "fontSans": "Poppins",
+    "fontDisplay": "Poppins",
+    "fontMono": "JetBrains Mono",
+    "radius": 14,
+    "radiusLg": 22
+  },
+  "blocks": [
+    {
+      "id": "portfolio-nav",
+      "type": "navbar",
+      "variant": "minimal",
+      "props": {
+        "logo": "",
+        "links": [
+          { "label": "About", "href": "#about" },
+          { "label": "Resume", "href": "#resume" },
+          { "label": "Portfolio", "href": "#portfolio" },
+          { "label": "Blog", "href": "#blog" },
+          { "label": "Contact", "href": "#contact" }
+        ],
+        "ctaText": ""
+      }
+    },
+    {
+      "id": "profile-card-portfolio",
+      "type": "profile-card",
+      "variant": "full",
+      "props": {
+        "variant": "full",
+        "profileStyle": "vcard_portfolio",
+        "heroStyle": "brain",
+        "brainAccentColor": "#f1c75b",
+        "name": "Tên của bạn",
+        "jobTitle": "Chức danh chuyên môn",
+        "company": "Tên công ty",
+        "bio": "Một đoạn giới thiệu ngắn về chuyên môn, cách bạn tạo ra giá trị và điều khiến công việc của bạn đáng nhớ.",
+        "quickActions": ["call", "email"],
+        "publicCapabilities": [
+          { "id": "cap-1", "label": "Tư duy sản phẩm", "category": "expertise", "weight": 8 },
+          { "id": "cap-2", "label": "Thiết kế trải nghiệm", "category": "expertise", "weight": 7 },
+          { "id": "cap-3", "label": "Chiến lược tăng trưởng", "category": "expertise", "weight": 7 }
+        ],
+        "contactFields": [
+          { "type": "email", "label": "Email", "value": "" },
+          { "type": "phone", "label": "Điện thoại", "value": "" },
+          { "type": "address", "label": "Địa điểm", "value": "" }
+        ],
+        "socialLinks": [],
+        "messagingLinks": [],
+        "giftWheelProvider": "mabel",
+        "giftWheelId": 0,
+        "chatEntrypoints": [
+          { "channelCode": "webchat", "enabled": true, "presentation": "profile_float", "trackingTag": "portfolio", "fallbackUrl": "" }
+        ],
+        "twinBrainEnabled": true,
+        "twinBrainGreeting": "Xin chào, tôi là Twin của bạn. Hãy hỏi tôi về chuyên môn, dịch vụ hoặc những dự án tôi có thể hỗ trợ.",
+        "twinBrainSuggestedQuestions": [
+          "Bạn có thể giúp tôi việc gì?",
+          "Hãy xem portfolio của bạn.",
+          "Tôi muốn trao đổi về một dự án."
+        ],
+        "twinBrainGoal": "portfolio",
+        "ctaSave": true,
+        "ctaShare": true,
+        "profileCardId": 0
+      }
+    },
+    {
+      "id": "about",
+      "type": "content",
+      "variant": "default",
+      "props": {
+        "title": "About me",
+        "body": "Tôi giúp doanh nghiệp biến những vấn đề phức tạp thành sản phẩm rõ ràng, đẹp và dễ sử dụng. Đây là nơi bạn có thể kể câu chuyện chuyên môn bằng giọng của chính mình, thay vì chỉ liệt kê chức danh.\n\nHãy thay nội dung mẫu này bằng cách bạn làm việc, loại bài toán bạn yêu thích và giá trị bạn mang lại cho khách hàng."
+      }
+    },
+    {
+      "id": "services",
+      "type": "features",
+      "variant": "grid",
+      "props": {
+        "title": "What I’m doing",
+        "subtitle": "Một vài năng lực có thể giúp dự án tiến về phía trước.",
+        "items": [
+          { "title": "Web design", "description": "Thiết kế giao diện hiện đại, có hệ thống và tập trung vào trải nghiệm thật.", "icon": "✦" },
+          { "title": "Web development", "description": "Xây dựng website nhanh, dễ mở rộng và đủ rõ ràng để đội ngũ tiếp tục vận hành.", "icon": "◈" },
+          { "title": "Mobile apps", "description": "Biến luồng sử dụng phức tạp thành trải nghiệm mobile gọn và trực quan.", "icon": "▣" },
+          { "title": "Creative direction", "description": "Kết nối chiến lược, nội dung và hình ảnh thành một câu chuyện thống nhất.", "icon": "◎" }
+        ]
+      }
+    },
+    {
+      "id": "testimonials",
+      "type": "testimonials",
+      "variant": "default",
+      "props": {
+        "title": "Testimonials",
+        "items": [
+          { "quote": "Một người biến những ý tưởng rời rạc thành hướng đi rõ ràng và có thể triển khai.", "author": "Tên khách hàng", "role": "Founder", "rating": 5 },
+          { "quote": "Cách làm việc sâu, thực tế và luôn quan tâm đến trải nghiệm cuối cùng.", "author": "Tên đối tác", "role": "Product lead", "rating": 5 }
+        ]
+      }
+    },
+    {
+      "id": "clients",
+      "type": "logocloud",
+      "variant": "default",
+      "props": {
+        "title": "Clients & collaborators",
+        "logos": ["Client one", "Client two", "Studio three", "Partner four", "Brand five"]
+      }
+    },
+    {
+      "id": "resume",
+      "type": "features",
+      "variant": "timeline",
+      "props": {
+        "title": "Resume",
+        "items": [
+          { "title": "Tên trường / Chuyên ngành", "period": "2014 — 2018", "description": "Nền tảng học tập, chứng chỉ hoặc những điều đã định hình cách bạn làm việc." },
+          { "title": "Creative director", "period": "2021 — Hiện tại", "description": "Dẫn dắt hướng sản phẩm, thương hiệu và trải nghiệm cho các dự án đang phát triển." },
+          { "title": "Art director", "period": "2018 — 2021", "description": "Đồng hành cùng đội ngũ thiết kế và nội dung để biến ý tưởng thành sản phẩm rõ ràng." }
+        ]
+      }
+    },
+    {
+      "id": "skills",
+      "type": "stats",
+      "variant": "progress",
+      "props": {
+        "title": "My skills",
+        "items": [
+          { "label": "Web design", "value": "80", "suffix": "%" },
+          { "label": "Product strategy", "value": "75", "suffix": "%" },
+          { "label": "Branding", "value": "90", "suffix": "%" },
+          { "label": "WordPress", "value": "70", "suffix": "%" }
+        ]
+      }
+    },
+    {
+      "id": "portfolio",
+      "type": "gallery",
+      "variant": "grid",
+      "props": {
+        "title": "Portfolio",
+        "filterable": true,
+        "images": [
+          { "src": "https://images.unsplash.com/photo-1558655146-9f40138edfeb?auto=format&fit=crop&w=900&q=80", "alt": "Thiết kế dashboard", "title": "Finance", "caption": "Web development", "category": "web-development" },
+          { "src": "https://images.unsplash.com/photo-1559028012-481c04fa702d?auto=format&fit=crop&w=900&q=80", "alt": "Thiết kế sản phẩm số", "title": "Orizon", "caption": "Web development", "category": "web-development" },
+          { "src": "https://images.unsplash.com/photo-1559028012-d6e3c7c1a7f4?auto=format&fit=crop&w=900&q=80", "alt": "Ứng dụng mobile", "title": "Fundo", "caption": "Web design", "category": "web-design" },
+          { "src": "https://images.unsplash.com/photo-1545235617-9465d2a55698?auto=format&fit=crop&w=900&q=80", "alt": "Landing page", "title": "Brawlhalla", "caption": "Applications", "category": "applications" },
+          { "src": "https://images.unsplash.com/photo-1551650975-87deedd944c3?auto=format&fit=crop&w=900&q=80", "alt": "Mobile app", "title": "DSM", "caption": "Web design", "category": "web-design" },
+          { "src": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=900&q=80", "alt": "Báo cáo dữ liệu", "title": "Summary", "caption": "Web development", "category": "web-development" }
+        ]
+      }
+    },
+    {
+      "id": "blog",
+      "type": "gallery",
+      "variant": "grid",
+      "props": {
+        "title": "Blog",
+        "images": [
+          { "src": "https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&w=900&q=80", "alt": "Bài viết về thiết kế", "title": "Design conferences in 2022", "date": "23 Feb, 2022", "description": "Những quan sát về thiết kế, sản phẩm và cách các đội ngũ tạo ra trải nghiệm tốt hơn.", "caption": "Design" },
+          { "src": "https://images.unsplash.com/photo-1523726491678-bf852e717f6a?auto=format&fit=crop&w=900&q=80", "alt": "Typography", "title": "Best fonts every designer", "date": "23 Feb, 2022", "description": "Một ghi chú ngắn về typography và cách chọn chữ cho sản phẩm số.", "caption": "Design" },
+          { "src": "https://images.unsplash.com/photo-1558655146-d09347e92766?auto=format&fit=crop&w=900&q=80", "alt": "Design digest", "title": "Design digest #80", "date": "23 Feb, 2022", "description": "Tổng hợp những chi tiết nhỏ tạo nên cảm giác hoàn chỉnh của một giao diện.", "caption": "Design" },
+          { "src": "https://images.unsplash.com/photo-1559028012-481c04fa702d?auto=format&fit=crop&w=900&q=80", "alt": "UI interactions", "title": "UI interactions of the week", "date": "23 Feb, 2022", "description": "Một vài interaction đáng chú ý và điều chúng dạy ta về nhịp điệu sản phẩm.", "caption": "Design" }
+        ]
+      }
+    },
+    {
+      "id": "contact",
+      "type": "lead-form",
+      "variant": "default",
+      "props": {
+        "title": "Contact",
+        "subtitle": "Để lại vài dòng về điều bạn đang xây dựng. Tôi sẽ phản hồi sớm.",
+        "submitText": "Send message",
+        "fields": [
+          { "name": "name", "label": "Họ tên", "type": "text", "required": true },
+          { "name": "email", "label": "Email", "type": "email", "required": true },
+          { "name": "message", "label": "Tin nhắn", "type": "textarea", "required": true }
+        ]
+      }
+    }
+  ]
+}

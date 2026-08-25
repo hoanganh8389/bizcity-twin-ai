@@ -930,8 +930,7 @@ class BizCity_Facebook_Page_REST {
 		$app_id       = (string) get_option( 'bztfb_app_id', '' );
 		$app_secret   = (string) get_option( 'bztfb_app_secret', '' );
 		$verify_token = (string) get_option( 'bztfb_verify_token', 'bizgpt' );
-		$callback_a   = home_url( '/facehook/' );
-		$callback_a_q = home_url( '/?facehook=1' );
+		// [2026-08-25 Johnny Chu] R-CH-NS — make the legacy Plan B callback the only official Facebook webhook URL.
 		$callback_b   = home_url( '/?fbhook=1' );
 
 		// Fallback to legacy keys.
@@ -943,13 +942,9 @@ class BizCity_Facebook_Page_REST {
 			'app_id_last4'       => $app_id ? substr( $app_id, -4 ) : '',
 			'has_app_secret'     => $app_secret !== '',
 			'verify_token'       => $verify_token !== '' ? $verify_token : 'bizgpt',
-			// Plan A (recommended): central webhook hub URL for multisite routing.
-			'central_webhook'    => $callback_a,
-			'central_webhook_fallback' => $callback_a_q,
-			// Plan B (compat): legacy site-local webhook handler.
-			'webhook_url'        => $callback_b,
-			'callback_plan_a'    => $callback_a,
+			// Plan B is the official site-local webhook endpoint.
 			'callback_plan_b'    => $callback_b,
+			'webhook_url'        => $callback_b,
 			'webhook_fields'     => 'messages, messaging_postbacks, messaging_referrals',
 			'oauth_redirect_uri' => home_url( '/?biz_fb_oauth=callback' ),
 			'oauth_redirect_legacy' => home_url( '/?fb_callback=1' ),
