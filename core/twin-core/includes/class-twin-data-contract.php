@@ -42,6 +42,7 @@ class BizCity_Twin_Data_Contract {
 	 * ================================================================ */
 
 	const SRC_KNOWLEDGE  = 'knowledge_input';
+	const SRC_MESSAGE    = 'canonical_messages'; // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-CORE-MESSAGE — retain the shared message projection under core ownership.
 	const SRC_WEBCHAT    = 'webchat_raw';
 	const SRC_EVIDENCE   = 'message_linked_evidence';
 	const SRC_MEMORY     = 'memory_stack';
@@ -55,6 +56,12 @@ class BizCity_Twin_Data_Contract {
 	 */
 	public static function source_registry(): array {
 		return [
+			self::SRC_MESSAGE => [
+				'tables'     => [ 'bizcity_webchat_messages' ],
+				'owner'      => 'core/twin-core',
+				'role'       => 'retained shared message projection; event-stream correlation target',
+				'min_fields' => [ 'message_id', 'session_id', 'platform_type', 'message_from', 'message_text', 'created_at' ],
+			],
 			self::SRC_KNOWLEDGE => [
 				'tables'     => [
 					'bizcity_knowledge_sources',
@@ -67,13 +74,12 @@ class BizCity_Twin_Data_Contract {
 			],
 			self::SRC_WEBCHAT => [
 				'tables'     => [
-					'bizcity_webchat_messages',
 					'bizcity_webchat_sessions',
 					'bizcity_webchat_projects',
 				],
-				'owner'      => 'webchat',
-				'role'       => 'timeline + prompt evidence',
-				'min_fields' => [ 'message_id', 'session_id', 'project_id', 'message_from', 'created_at' ],
+				'owner'      => 'extensions/bizcity-webchat',
+				'role'       => 'legacy session/project projections under staged quarantine',
+				'min_fields' => [ 'session_id', 'project_id' ],
 			],
 			self::SRC_EVIDENCE => [
 				'tables'     => [

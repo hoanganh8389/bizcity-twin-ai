@@ -227,6 +227,13 @@ class BizCity_TwinWeb_REST {
 			'callback'            => array( $this, 'get_mychannels' ),
 			'permission_callback' => '__return_true',
 		) );
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — member-safe CRM projection; identity is resolved inside the handler before any CRM query.
+		register_rest_route( $ns, '/crm/me', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_crm_member_projection' ),
+			'permission_callback' => '__return_true',
+			'args'                => array( 'limit' => array( 'type' => 'integer', 'default' => 50 ) ),
+		) );
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — owner-scoped Personal account control plane for /gpt/.
 		register_rest_route( $ns, '/mychannels/zalo-personal/accounts', array(
 			array(
@@ -2557,6 +2564,20 @@ class BizCity_TwinWeb_REST {
 			'facebook' => array( 'pages' => $facebook['items'], '_degraded' => ! empty( $facebook['_degraded'] ) ),
 			'dashboard' => $this->build_mychannels_dashboard_payload( $identity ),
 		) );
+	}
+
+	public function get_crm_member_projection( WP_REST_Request $request ) {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — resolve Twin GPT identity before class lookup, scope resolution or CRM SQL.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem dữ liệu CRM của mình.', 'Đăng nhập vào Twin GPT rồi mở lại trang này.', 'auth_required' );
+		}
+		if ( ! class_exists( 'BizCity_TwinWeb_CRM_Projection' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Dữ liệu CRM cá nhân chưa sẵn sàng.', 'Bật module CRM rồi tải lại trang.', 'module_not_loaded' );
+		}
+		$limit = max( 1, min( 100, (int) ( $request->get_param( 'limit' ) ?: 50 ) ) );
+		$projection = BizCity_TwinWeb_CRM_Projection::get_for_identity( $identity, $limit );
+		return rest_ensure_response( array( 'success' => true, 'data' => $projection ) );
 	}
 
 	private function mychannels_zalo_personal_account( WP_REST_Request $request, array $identity ) {

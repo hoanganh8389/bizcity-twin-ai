@@ -26,6 +26,31 @@ final class BizCity_CRM_Assignment_Manager {
 		'overflow_action' => 'leave_unassigned',
 	);
 
+	public static function register(): void {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F5 — auto-assign only once from the canonical new-conversation event.
+		static $registered = false;
+		if ( $registered ) { return; }
+		$registered = true;
+		add_action( 'bizcity_crm_event_crm_conversation_opened', array( __CLASS__, 'on_conversation_opened' ), 30, 1 );
+	}
+
+	public static function on_conversation_opened( $payload ): void {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F5 — keep assignment fail-open for ingest while retaining an explicit outcome.
+		if ( ! is_array( $payload ) || (int) ( $payload['conversation_id'] ?? 0 ) <= 0 ) { return; }
+		try {
+			self::assign_conversation( (int) $payload['conversation_id'] );
+		} catch ( \Throwable $e ) {
+			if ( class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
+				BizCity_CRM_Event_Emitter::emit( 'crm_assignment_failed', array(
+					'conversation_id' => (int) $payload['conversation_id'],
+					'inbox_id'        => (int) ( $payload['inbox_id'] ?? 0 ),
+					'reason'          => 'assignment_exception',
+					'error_class'     => get_class( $e ),
+				) );
+			}
+		}
+	}
+
 	public static function list_policies(): array {
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F5 — cache the tenant-local policy catalog with module invalidation.
 		$cache_key = 'policies_' . (int) get_current_blog_id();
@@ -142,6 +167,7 @@ final class BizCity_CRM_Assignment_Manager {
 			return self::outcome( 'retryable', 'assignment_lock_timeout' );
 		}
 		$transaction_started = false;
+		$previous_conversation = $conversation;
 		try {
 			// [2026-08-24 Johnny Chu] PHASE-0.39F-F5 — keep team, assignee and fair-distribution cursor in one tenant transaction.
 			$transaction_started = false !== $wpdb->query( 'START TRANSACTION' );
@@ -164,12 +190,12 @@ final class BizCity_CRM_Assignment_Manager {
 				return self::outcome( 'ignored', 'no_eligible_agent', array( 'overflow_action' => (string) $policy['overflow_action'] ) );
 			}
 			$selected = self::select_candidate( $candidates, $policy );
-			if ( ! BizCity_CRM_Repository::set_conversation_team( $conversation_id, $team_id > 0 ? $team_id : null, 0 ) ) {
+			if ( ! BizCity_CRM_Repository::set_conversation_team( $conversation_id, $team_id > 0 ? $team_id : null, 0, false ) ) {
 				$wpdb->query( 'ROLLBACK' );
 				$transaction_started = false;
 				return self::outcome( 'retryable', 'team_assignment_failed' );
 			}
-			if ( ! BizCity_CRM_Repository::set_conversation_assignee( $conversation_id, (int) $selected['user_id'], 0 ) ) {
+			if ( ! BizCity_CRM_Repository::set_conversation_assignee( $conversation_id, (int) $selected['user_id'], 0, array( 'team_id' => $team_id, 'policy_id' => (int) ( $policy['id'] ?? 0 ), 'reason' => 'auto_assign' ), false ) ) {
 				$wpdb->query( 'ROLLBACK' );
 				$transaction_started = false;
 				return self::outcome( 'retryable', 'assignee_assignment_failed' );
@@ -181,6 +207,8 @@ final class BizCity_CRM_Assignment_Manager {
 			}
 			$wpdb->query( 'COMMIT' );
 			$transaction_started = false;
+			// [2026-08-25 Johnny Chu] PHASE-0.39F-S2 — emit assignment events only after the transaction commits.
+			self::emit_committed_assignment_events( $previous_conversation, $conversation_id, $team_id, $selected, (int) ( $policy['id'] ?? 0 ) );
 			return self::outcome( 'accepted', 'assigned', array( 'user_id' => (int) $selected['user_id'], 'team_id' => $team_id ?: null ) );
 		} finally {
 			if ( $transaction_started ) {
@@ -242,6 +270,32 @@ final class BizCity_CRM_Assignment_Manager {
 	private static function select_candidate( array $candidates, array $policy ): array {
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F5 — conversation priority belongs to queue ordering, not agent candidate ordering.
 		return (array) reset( $candidates );
+	}
+
+	private static function emit_committed_assignment_events( array $previous_conversation, int $conversation_id, int $team_id, array $selected, int $policy_id ): void {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-S2 — publish only the committed assignment transition with its original state.
+		if ( ! class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
+			return;
+		}
+		$previous_team_id = ! empty( $previous_conversation['team_id'] ) ? (int) $previous_conversation['team_id'] : null;
+		$next_team_id = $team_id > 0 ? $team_id : null;
+		if ( $previous_team_id !== $next_team_id ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_team_changed', array(
+				'conversation_id' => $conversation_id,
+				'previous_team_id' => $previous_team_id,
+				'team_id' => $next_team_id,
+				'by_user_id' => get_current_user_id(),
+			) );
+		}
+		BizCity_CRM_Event_Emitter::emit( 'crm_conversation_assigned', array(
+			'conversation_id' => $conversation_id,
+			'previous_assignee_id' => ! empty( $previous_conversation['assignee_id'] ) ? (int) $previous_conversation['assignee_id'] : null,
+			'assignee_id' => (int) ( $selected['user_id'] ?? 0 ),
+			'by_user_id' => get_current_user_id(),
+			'team_id' => $next_team_id,
+			'policy_id' => $policy_id > 0 ? $policy_id : null,
+			'reason' => 'auto_assign',
+		) );
 	}
 
 	private static function mark_assigned( int $user_id, int $inbox_id, int $team_id ): bool {

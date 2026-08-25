@@ -87,6 +87,19 @@ define( 'BZDOC_SCHEMA_VERSION', '2.5' );
    AUTOLOAD INCLUDES
    ═══════════════════════════════════════════════ */
 require_once BZDOC_DIR . 'includes/class-installer.php';
+// [2026-08-25 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — ensure Doc tables are provisioned through the plugin installer on activation.
+register_activation_hook( __FILE__, array( 'BZDoc_Installer', 'maybe_create_tables' ) );
+register_deactivation_hook( __FILE__, function() {
+	// [2026-08-25 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — deactivate removes owned Doc storage through the uninstall path.
+	if ( ! defined( 'BZDOC_DEACTIVATION_PURGE' ) ) {
+		define( 'BZDOC_DEACTIVATION_PURGE', true );
+	}
+	$_bzdoc_uninstall = BZDOC_DIR . 'uninstall.php';
+	if ( is_file( $_bzdoc_uninstall ) && is_readable( $_bzdoc_uninstall ) ) {
+		require_once $_bzdoc_uninstall;
+	}
+	unset( $_bzdoc_uninstall );
+} );
 require_once BZDOC_DIR . 'includes/api-helpers.php';
 require_once BZDOC_DIR . 'includes/class-admin-menu.php';
 require_once BZDOC_DIR . 'includes/class-rest-api.php';

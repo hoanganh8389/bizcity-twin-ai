@@ -97,9 +97,15 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-changelog-loa
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-auto-create.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-installer-resolver.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-notices.php';
+// [2026-08-25 Johnny Chu] PHASE-1.28-LOG-RETENTION — queue the shared retention probe with the diagnostics catalog.
+bizcity_diagnostics_require_probe( 'class-probe-log-retention.php' );
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-rest.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-orphan-cleaner.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-site-provisioner.php';
+// [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — verify retained core messages and blocked legacy projection writes.
+bizcity_diagnostics_require_probe( 'class-probe-webchat-sql-lifecycle.php' );
+// [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-SURFACE — verify moved extension shortcodes and REST surface without chat writes.
+bizcity_diagnostics_require_probe( 'class-probe-webchat-surface.php' );
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/installer-registry.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-error-reporter.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/trait-rest-error.php';
@@ -535,6 +541,8 @@ bizcity_diagnostics_require_probe( 'class-probe-twinweb-owner-continuity.php' );
 
 // [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — DDV probe for /gpt/mychannels customer channels MVP.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-customer-channels.php' );
+// [2026-08-25 Johnny Chu] PHASE-0.39F-F8-DDV — verify identity-first member CRM projection and field redaction.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-member-scope.php' );
 
 // [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — DDV probe for customer-owned channel automation runtime guards.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-customer-channel-automation.php' );
@@ -667,6 +675,8 @@ bizcity_diagnostics_require_probe( 'class-probe-crm-broadcast-bizcity.php' );
 bizcity_diagnostics_require_probe( 'class-probe-crm-qr-link.php' );
 // [2026-08-25 Johnny Chu] PHASE-0.39F-F5-F6-DDV — verify assignment hook and Kanban REST/board integration without mutation.
 bizcity_diagnostics_require_probe( 'class-probe-crm-team-assignment-kanban.php' );
+// [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX-DDV — verify one group source key for multiple senders without mutation.
+bizcity_diagnostics_require_probe( 'class-probe-crm-group-inbox.php' );
 
 // [2026-07-10 Johnny Chu] PHASE-0.47 — Broadcast import smoke matrix probe
 // for csv/xls/xlsx/google_sheet_url REST path.

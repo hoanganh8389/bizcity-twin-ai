@@ -364,7 +364,8 @@ unset( $_bc_market );
 // ── WebChat (BizCity_Intent_Provider phải có trước khi regular plugins load) ─
 // Cần thiết vì page-aiagent-home.php dùng BizCity_WebChat_Admin_Dashboard
 // và các tool plugins extend BizCity_Intent_Provider ở file scope.
-$_bc_webchat = BIZCITY_TWIN_AI_DIR . 'modules/webchat/bootstrap.php';
+// [2026-08-25 Johnny Chu] PHASE-1.29-EXTENSIONS — point source compat loader to the moved WebChat extension.
+$_bc_webchat = BIZCITY_TWIN_AI_DIR . 'extensions/bizcity-webchat/bootstrap.php';
 if ( ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_webchat ) && ! class_exists( 'BizCity_WebChat_Database', false ) ) {
     require_once $_bc_webchat;
 }

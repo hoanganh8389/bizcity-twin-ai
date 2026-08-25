@@ -2,9 +2,10 @@
 /**
  * Bizcity Twin AI — TwinChat Database (Unified Bridge)
  *
- * Sprint 4.5 — Unified messages/sessions into shared webchat tables:
- *   bizcity_webchat_messages  (platform_type = 'TWINCHAT', project_id = notebook_id)
- *   bizcity_webchat_sessions  (platform_type = 'TWINCHAT', project_id = notebook_id)
+ * Sprint 4.5 — Unified messages/sessions into a core-owned message contract and
+ * compatibility projections:
+ *   bizcity_webchat_messages  (platform_type = 'TWINCHAT', project_id = notebook_id) — Core owner
+ *   bizcity_webchat_sessions  (platform_type = 'TWINCHAT', project_id = notebook_id) — legacy projection
  *
  * The old bizcity_twinchat_messages table is no longer created.
  * TwinChat-specific fields (sources, thinking, agent_steps, kg_entities)
@@ -21,6 +22,8 @@ class BizCity_TwinChat_Database {
 
 	/** Platform tag stored in every row written by TwinChat. */
 	const PLATFORM = 'TWINCHAT';
+	/** Core-owned shared message projection; physical table name stays compatible. */
+	const MESSAGE_TABLE = 'bizcity_webchat_messages';
 
 	private static $instance = null;
 
@@ -31,10 +34,10 @@ class BizCity_TwinChat_Database {
 		return self::$instance;
 	}
 
-	/** Shared messages table (managed by WebChat module). */
+	/** Core message contract backed by the shared WebChat-compatible table. */
 	public function table_messages() {
 		global $wpdb;
-		return $wpdb->prefix . 'bizcity_webchat_messages';
+		return $wpdb->prefix . self::MESSAGE_TABLE;
 	}
 
 	/** Shared sessions table (managed by WebChat module). */
@@ -44,10 +47,11 @@ class BizCity_TwinChat_Database {
 	}
 
 	/**
-	 * No DDL needed — tables owned by WebChat module.
-	 * Triggers WebChat install if tables don't exist yet.
+	 * No local TwinChat DDL — the core message contract delegates its single-table
+	 * schema to the WebChat extension without provisioning quarantined projections.
+	 * Triggers the scoped message installer if the retained table does not exist.
 	 *
-	 * Caches the "installed" flag in an option so we skip the SHOW TABLES probe
+	 * Caches the "installed" flag in an option so we skip the metadata probe
 	 * on every request (Query Monitor flagged this as a slow recurring query).
 	 */
 	public function maybe_install() {
@@ -57,19 +61,36 @@ class BizCity_TwinChat_Database {
 		}
 		global $wpdb;
 		$tbl    = $this->table_messages();
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-		if ( $exists === $tbl ) {
+		$exists = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $tbl );
+		if ( $exists ) {
 			update_option( $opt_key, '1', true );
 			return;
 		}
 		if ( class_exists( 'BizCity_WebChat_Database' ) ) {
-			BizCity_WebChat_Database::instance()->create_tables();
+			self::install_message_table();
 			// Re-probe once to confirm before caching.
-			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-			if ( $exists === $tbl ) {
+			$exists = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $tbl );
+			if ( $exists ) {
 				update_option( $opt_key, '1', true );
 			}
 		}
+	}
+
+	/**
+	 * Install only the core-owned message projection through the shared DDL owner.
+	 */
+	public static function install_message_table() {
+		// [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-CORE-MESSAGE — core owns the message contract without duplicating extension DDL.
+		if ( ! class_exists( 'BizCity_WebChat_Database' ) ) {
+			return false;
+		}
+		$database = BizCity_WebChat_Database::instance();
+		$database->create_messages_table();
+		$ready = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( self::instance()->table_messages() );
+		if ( $ready ) {
+			update_option( 'bizcity_twinchat_message_db_ver', '1.0.0', true );
+		}
+		return $ready;
 	}
 
 	/**
@@ -151,7 +172,12 @@ class BizCity_TwinChat_Database {
 
 		// Only include created_at / token columns if they exist in the live table.
 		// The migration in webchat's maybe_upgrade_conversations() will add them on next init.
-		$msg_cols = $wpdb->get_col( "DESCRIBE {$this->table_messages()}", 0 ) ?: [];
+		$msg_cols = array();
+		foreach ( array( 'created_at', 'input_tokens', 'output_tokens', 'finish_reason' ) as $column ) {
+			if ( function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $this->table_messages(), $column ) ) {
+				$msg_cols[] = $column;
+			}
+		}
 		if ( in_array( 'created_at', $msg_cols, true ) ) {
 			$row['created_at'] = current_time( 'mysql', true );
 		}
@@ -189,7 +215,12 @@ class BizCity_TwinChat_Database {
 
 		// Detect whether input_tokens/output_tokens exist (they may be absent on older tables
 		// before the migration in maybe_upgrade_conversations() adds them).
-		$cols         = $wpdb->get_col( "DESCRIBE {$tbl}", 0 ) ?: [];
+		$cols         = array();
+		foreach ( array( 'input_tokens', 'output_tokens' ) as $column ) {
+			if ( function_exists( 'bizcity_column_exists' ) && bizcity_column_exists( $tbl, $column ) ) {
+				$cols[] = $column;
+			}
+		}
 		$has_tokens   = in_array( 'input_tokens', $cols, true );
 		$token_select = $has_tokens ? ', input_tokens, output_tokens' : '';
 
@@ -251,8 +282,8 @@ class BizCity_TwinChat_Database {
 		$ses_tbl     = $this->table_sessions();
 
 		// Prefer webchat_sessions when available.
-		$ses_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $ses_tbl ) );
-		if ( $ses_exists === $ses_tbl ) {
+		$ses_exists = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $ses_tbl );
+		if ( $ses_exists ) {
 			$rows = $wpdb->get_results( $wpdb->prepare(
 				"SELECT session_id,
 				        last_message_at      AS last_at,
@@ -272,8 +303,8 @@ class BizCity_TwinChat_Database {
 
 		// Fallback: aggregate from messages table.
 		$msg_tbl = $this->table_messages();
-		$exists  = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $msg_tbl ) );
-		if ( $exists !== $msg_tbl ) {
+		$exists  = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $msg_tbl );
+		if ( ! $exists ) {
 			return [];
 		}
 		$rows = $wpdb->get_results( $wpdb->prepare(
@@ -303,8 +334,8 @@ class BizCity_TwinChat_Database {
 	public function upsert_session( array $args ) {
 		global $wpdb;
 		$ses_tbl     = $this->table_sessions();
-		$ses_exists  = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $ses_tbl ) );
-		if ( $ses_exists !== $ses_tbl ) {
+		$ses_exists  = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $ses_tbl );
+		if ( ! $ses_exists ) {
 			return false; // webchat_sessions table not installed yet.
 		}
 
@@ -353,4 +384,15 @@ class BizCity_TwinChat_Database {
 			'started_at'           => $now,
 		] );
 	}
+}
+
+// [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-CORE-MESSAGE — central schema owner for the retained shared message projection.
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		'bizcity_webchat_messages',
+		'core.twin-core',
+		'1.0.0',
+		'bizcity_twinchat_message_db_ver',
+		array( 'BizCity_TwinChat_Database', 'install_message_table' )
+	);
 }

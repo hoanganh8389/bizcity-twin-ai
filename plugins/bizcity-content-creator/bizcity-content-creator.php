@@ -95,6 +95,17 @@ add_filter( 'bizcity_persona_tool_providers', function ( array $providers ): arr
 
 /* ── Activation hook ── */
 register_activation_hook( __FILE__, [ 'BZCC_Installer', 'activate' ] );
+register_deactivation_hook( __FILE__, function() {
+	// [2026-08-25 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — deactivate removes owned Creator storage through the uninstall path.
+	if ( ! defined( 'BZCC_DEACTIVATION_PURGE' ) ) {
+		define( 'BZCC_DEACTIVATION_PURGE', true );
+	}
+	$_bzcc_uninstall = BZCC_DIR . 'uninstall.php';
+	if ( is_file( $_bzcc_uninstall ) && is_readable( $_bzcc_uninstall ) ) {
+		require_once $_bzcc_uninstall;
+	}
+	unset( $_bzcc_uninstall );
+} );
 
 /* ── Self-healing: table creation for marketplace/AJAX activation ── */
 // [2026-08-09 Johnny Chu] R-PERF/R-DCL — schema repair is not part of frontend HTML bootstrap.

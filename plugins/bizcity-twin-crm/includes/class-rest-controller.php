@@ -101,6 +101,7 @@ class BizCity_CRM_REST_Controller {
 				'assignee_id' => array( 'type' => 'integer', 'minimum' => 1 ),
 				'unassigned'  => array( 'type' => 'boolean' ),
 				'label_id'    => array( 'type' => 'integer' ),
+				'thread_kind' => array( 'type' => 'string', 'enum' => array( 'group', 'personal' ) ),
 				'q'           => array( 'type' => 'string' ),
 				'limit'       => array( 'type' => 'integer', 'default' => 50 ),
 				'before_id'   => array( 'type' => 'integer' ),
@@ -1758,7 +1759,10 @@ class BizCity_CRM_REST_Controller {
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_conversation_board' ),
 			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
-			'args'                => array( 'limit' => array( 'type' => 'integer', 'default' => 100 ) ),
+			'args'                => array(
+				'limit'       => array( 'type' => 'integer', 'default' => 100 ),
+				'thread_kind' => array( 'type' => 'string', 'enum' => array( 'group', 'personal' ) ),
+			),
 		) );
 		register_rest_route( $ns, '/boards/order-care', array(
 			'methods'             => WP_REST_Server::READABLE,
@@ -1775,6 +1779,20 @@ class BizCity_CRM_REST_Controller {
 				'column'          => array( 'type' => 'string', 'required' => true ),
 				'assignee_id'     => array( 'type' => 'integer' ),
 				'team_id'         => array( 'type' => 'integer' ),
+				'idempotency_key' => array( 'type' => 'string', 'required' => true, 'minLength' => 16, 'maxLength' => 190 ),
+			),
+		) );
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-S3 — route task/opportunity board moves through the repository owner.
+		register_rest_route( $ns, '/boards/order-care/move', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_order_care_board_move' ),
+			'permission_callback' => array( __CLASS__, 'can_write_order_care_move' ),
+			'args'                => array(
+				'object_type'     => array( 'type' => 'string', 'required' => true ),
+				'object_id'       => array( 'type' => 'integer', 'required' => true ),
+				'target_state'    => array( 'type' => 'string', 'required' => true ),
+				'changes'         => array( 'type' => 'object', 'required' => false ),
+				'idempotency_key' => array( 'type' => 'string', 'required' => true, 'minLength' => 16, 'maxLength' => 190 ),
 			),
 		) );
 		register_rest_route( $ns, '/activities/recent', array(
@@ -2314,6 +2332,15 @@ class BizCity_CRM_REST_Controller {
 		return $conversation_id > 0 && class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::can_view_conversation( $conversation_id );
 	}
 
+	public static function can_write_order_care_move( $request = null ): bool {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-S3 — authorize order-care moves by canonical object ownership, never by posted owner_id.
+		$user_id = (int) get_current_user_id();
+		if ( $user_id <= 0 || ! $request instanceof WP_REST_Request || ! class_exists( 'BizCity_CRM_Repository' ) ) { return false; }
+		$object_type = sanitize_key( (string) $request->get_param( 'object_type' ) );
+		$object_id = (int) $request->get_param( 'object_id' );
+		return BizCity_CRM_Repository::can_user_move_order_care( $object_type, $object_id, $user_id );
+	}
+
 	public static function get_identity_conflicts( WP_REST_Request $req ) {
 		if ( ! class_exists( 'BizCity_CRM_Identity_Conflict_Queue' ) ) {
 			return new WP_Error( 'module_not_loaded', 'Identity conflict queue chưa được nạp.', array( 'status' => 503 ) );
@@ -2551,6 +2578,8 @@ class BizCity_CRM_REST_Controller {
 			$user_id = (int) get_current_user_id();
 			$is_admin = class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id );
 			$args = array( 'limit' => min( 200, max( 1, (int) ( $req->get_param( 'limit' ) ?: 100 ) ) ) );
+			$thread_kind = (string) $req->get_param( 'thread_kind' );
+			if ( in_array( $thread_kind, array( 'group', 'personal' ), true ) ) { $args['thread_kind'] = $thread_kind; }
 			if ( ! $is_admin ) {
 				$args['inbox_ids'] = BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id );
 			}
@@ -2572,11 +2601,21 @@ class BizCity_CRM_REST_Controller {
 			// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — route board drag actions through the scoped repository write contract.
 			$conversation_id = (int) $req->get_param( 'conversation_id' );
 			$column = sanitize_key( (string) $req->get_param( 'column' ) );
+			$idempotency_key = sanitize_text_field( (string) $req->get_param( 'idempotency_key' ) );
 			$conversation = BizCity_CRM_Repository::get_conversation( $conversation_id );
 			if ( ! $conversation ) { throw new \RuntimeException( 'conversation_not_found' ); }
 			if ( ! in_array( $column, array( 'unassigned', 'open', 'pending', 'resolved', 'snoozed' ), true ) ) { throw new \RuntimeException( 'invalid_board_column' ); }
+			if ( strlen( $idempotency_key ) < 16 || strlen( $idempotency_key ) > 190 ) { throw new \RuntimeException( 'idempotency_key_required' ); }
 			$assignee_id = max( 0, (int) $req->get_param( 'assignee_id' ) );
 			$team_id = max( 0, (int) $req->get_param( 'team_id' ) );
+			$target_status = 'unassigned' === $column ? 'open' : $column;
+			$current_column = 'open' === (string) ( $conversation['status'] ?? '' ) && empty( $conversation['assignee_id'] ) ? 'unassigned' : (string) ( $conversation['status'] ?? '' );
+			$current_team_id = ! empty( $conversation['team_id'] ) ? (int) $conversation['team_id'] : 0;
+			$current_assignee_id = ! empty( $conversation['assignee_id'] ) ? (int) $conversation['assignee_id'] : 0;
+			$target_assignee_id = 'unassigned' === $column ? 0 : $assignee_id;
+			if ( $current_column === $column && $current_team_id === $team_id && $current_assignee_id === $target_assignee_id ) {
+				return array( 'moved' => true, 'already_applied' => true, 'idempotency_key' => $idempotency_key, 'conversation_id' => $conversation_id, 'column' => $column, 'assignee_id' => $target_assignee_id ?: null, 'team_id' => $team_id ?: null );
+			}
 			if ( $assignee_id > 0 && ! current_user_can( 'manage_options' ) && ! BizCity_CRM_Team_Manager::can_assign( $conversation_id, (int) get_current_user_id(), $assignee_id ) ) { throw new \RuntimeException( 'assignee_membership_denied' ); }
 			if ( $team_id > 0 && ! current_user_can( 'manage_options' ) ) {
 				$has_inbox_member = false;
@@ -2586,10 +2625,29 @@ class BizCity_CRM_REST_Controller {
 				if ( ! $has_inbox_member ) { throw new \RuntimeException( 'team_has_no_inbox_member' ); }
 			}
 			if ( ! BizCity_CRM_Repository::set_conversation_team( $conversation_id, $team_id > 0 ? $team_id : null, (int) get_current_user_id() ) ) { throw new \RuntimeException( 'team_assignment_failed' ); }
-			$target_assignee = 'unassigned' === $column ? 0 : $assignee_id;
-			if ( ! BizCity_CRM_Repository::set_conversation_assignee( $conversation_id, $target_assignee > 0 ? $target_assignee : null, (int) get_current_user_id() ) ) { throw new \RuntimeException( 'assignee_assignment_failed' ); }
-			if ( ! BizCity_CRM_Repository::set_conversation_status( $conversation_id, 'unassigned' === $column ? 'open' : $column, (int) get_current_user_id() ) ) { throw new \RuntimeException( 'conversation_status_update_failed' ); }
-			return array( 'moved' => true, 'conversation_id' => $conversation_id, 'column' => $column, 'assignee_id' => $target_assignee ?: null, 'team_id' => $team_id ?: null );
+			if ( ! BizCity_CRM_Repository::set_conversation_assignee( $conversation_id, $target_assignee_id > 0 ? $target_assignee_id : null, (int) get_current_user_id(), array( 'team_id' => $team_id, 'reason' => 'board_move' ) ) ) { throw new \RuntimeException( 'assignee_assignment_failed' ); }
+			if ( ! BizCity_CRM_Repository::set_conversation_status( $conversation_id, $target_status, (int) get_current_user_id() ) ) { throw new \RuntimeException( 'conversation_status_update_failed' ); }
+			return array( 'moved' => true, 'already_applied' => false, 'idempotency_key' => $idempotency_key, 'conversation_id' => $conversation_id, 'column' => $column, 'assignee_id' => $target_assignee_id ?: null, 'team_id' => $team_id ?: null );
+		} );
+	}
+
+	public static function post_order_care_board_move( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			// [2026-08-25 Johnny Chu] PHASE-0.39F-S3 — require a bounded command key while durable idempotency remains a later gate.
+			$idempotency_key = sanitize_text_field( (string) $req->get_param( 'idempotency_key' ) );
+			if ( strlen( $idempotency_key ) < 16 || strlen( $idempotency_key ) > 190 ) { throw new \RuntimeException( 'idempotency_key_required' ); }
+			$changes = $req->get_param( 'changes' );
+			$changes = is_array( $changes ) ? $changes : array();
+			$result = BizCity_CRM_Repository::move_order_care_object(
+				sanitize_key( (string) $req->get_param( 'object_type' ) ),
+				(int) $req->get_param( 'object_id' ),
+				sanitize_key( (string) $req->get_param( 'target_state' ) ),
+				$changes,
+				(int) get_current_user_id()
+			);
+			$result['idempotency_key'] = $idempotency_key;
+			if ( empty( $result['success'] ) && ! empty( $result['retryable'] ) ) { throw new \RuntimeException( (string) ( $result['code'] ?? 'order_care_move_retryable' ) ); }
+			return $result;
 		} );
 	}
 
@@ -5686,6 +5744,7 @@ class BizCity_CRM_REST_Controller {
 				'priority'    => $req->get_param( 'priority' ),
 				'assignee_id' => (int) $req->get_param( 'assignee_id' ),
 				'label_id'    => (int) $req->get_param( 'label_id' ),
+				'thread_kind' => in_array( (string) $req->get_param( 'thread_kind' ), array( 'group', 'personal' ), true ) ? (string) $req->get_param( 'thread_kind' ) : '', // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — preserve list filter semantics.
 				'q'           => (string) $req->get_param( 'q' ),
 				'limit'       => (int) ( $req->get_param( 'limit' ) ?: 50 ),
 				'before_id'   => (int) $req->get_param( 'before_id' ),
@@ -5720,6 +5779,7 @@ class BizCity_CRM_REST_Controller {
 			'priority'    => $req->get_param( 'priority' ),
 			'assignee_id' => (int) $req->get_param( 'assignee_id' ),
 			'label_id'    => (int) $req->get_param( 'label_id' ),
+			'thread_kind' => in_array( (string) $req->get_param( 'thread_kind' ), array( 'group', 'personal' ), true ) ? (string) $req->get_param( 'thread_kind' ) : '', // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — keep CSV scope aligned with Inbox mode.
 			'q'           => (string) $req->get_param( 'q' ),
 			'unassigned'  => $req->get_param( 'unassigned' ),
 		);
@@ -5929,6 +5989,9 @@ class BizCity_CRM_REST_Controller {
 				'source_id'  => (string) ( $r['source_id']    ?? '' ),
 				'name'       => (string) ( $r['contact_name'] ?? '' ),
 				'avatar_url' => $r['contact_avatar'] ?? null,
+				'is_group'   => 0 === strpos( (string) ( $r['source_id'] ?? '' ), 'group:' ), // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — expose canonical group identity to Inbox clients.
+				'thread_kind'=> 0 === strpos( (string) ( $r['source_id'] ?? '' ), 'group:' ) ? 'group' : 'personal', // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — expose canonical thread kind.
+				'group_id'   => 0 === strpos( (string) ( $r['source_id'] ?? '' ), 'group:' ) ? substr( (string) $r['source_id'], 6 ) : null, // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — expose group ID without changing the source key.
 			),
 		);
 	}

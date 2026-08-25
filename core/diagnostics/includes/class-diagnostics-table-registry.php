@@ -90,8 +90,8 @@ final class BizCity_Diagnostics_Table_Registry {
 
 			// ── core/twin-core ────────────────────────────────────────────
 			// [2026-07-29 Johnny Chu] PHASE-1.21-C — register the three active Twin state tables.
-			[ 'name' => 'bizcity_twin_prompt_specs',  'owner' => 'core/twin-core', 'group' => 'twin-core', 'critical' => true, 'class' => 'BizCity_Twin_State_Schema', 'feature' => 'objective extraction', 'purpose' => 'One row per user turn: parsed prompt/objectives consumed by the intent pipeline. Retention: 7 days (already active).', 'readers' => [ 'core/intent pipeline' ], 'writers' => [ 'BizCity_Twin_Prompt_Parser' ] ],
-			[ 'name' => 'bizcity_twin_milestones',    'owner' => 'core/twin-core', 'group' => 'twin-core', 'class' => 'BizCity_Twin_State_Schema', 'feature' => 'engagement milestones', 'purpose' => 'Analytics/event milestones for Twin Event Bus. Retention: 7 days (already active).', 'readers' => [ 'BizCity_Twin_Event_Bus' ], 'writers' => [ 'BizCity_Twin_Event_Bus' ] ],
+			[ 'name' => 'bizcity_twin_prompt_specs',  'owner' => 'core/twin-core', 'group' => 'twin-core', 'critical' => true, 'lifecycle' => 'core_active', 'class' => 'BizCity_Twin_State_Schema', 'feature' => 'objective extraction', 'purpose' => 'One row per user turn: parsed prompt/objectives consumed by the intent pipeline. Retention: 7 days (already active).', 'readers' => [ 'core/intent pipeline' ], 'writers' => [ 'BizCity_Twin_Prompt_Parser' ] ],
+			[ 'name' => 'bizcity_twin_milestones',    'owner' => 'core/twin-core', 'group' => 'twin-core', 'critical' => true, 'lifecycle' => 'core_active', 'class' => 'BizCity_Twin_State_Schema', 'feature' => 'engagement milestones', 'purpose' => 'Analytics/event milestones for Twin Event Bus. Retention: 7 days (already active).', 'readers' => [ 'BizCity_Twin_Event_Bus' ], 'writers' => [ 'BizCity_Twin_Event_Bus' ] ],
 			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-ORPHAN-GATE — annotate twin_context_logs runtime role before staged quarantine tracking.
 			[ 'name' => 'bizcity_twin_context_logs',  'owner' => 'core/twin-core', 'group' => 'twin-core', 'class' => 'BizCity_Twin_State_Schema', 'feature' => 'context decision trace', 'purpose' => 'Decision-log stream emitted by Twin Event Bus for focus/suppress/extend/tool decisions. Retention is active in Twin State Schema.', 'readers' => [ 'BizCity_Twin_State_Schema::gc_retention', 'BizCity_Twin_Event_Bus' ], 'writers' => [ 'BizCity_Twin_Event_Bus::record_context_log' ] ],
 			// Installer = BizCity_Twin_Event_Stream_Schema::ensure_table (registered
@@ -167,15 +167,16 @@ final class BizCity_Diagnostics_Table_Registry {
 			// ── modules/twinchat — studio ─────────────────────────────────
 			[ 'name' => 'bizcity_webchat_studio_jobs', 'owner' => 'modules/twinchat/studio',   'group' => 'twinchat', 'critical' => true ],
 
-			// ── modules/webchat ───────────────────────────────────────────
-			[ 'name' => 'bizcity_webchat_projects',      'owner' => 'modules/webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
-			[ 'name' => 'bizcity_webchat_sessions',      'owner' => 'modules/webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
-			[ 'name' => 'bizcity_webchat_conversations', 'owner' => 'modules/webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
-			[ 'name' => 'bizcity_webchat_messages',      'owner' => 'modules/webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
-			[ 'name' => 'bizcity_webchat_tasks',         'owner' => 'modules/webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
+			// [2026-08-25 Johnny Chu] PHASE-1.29-EXTENSIONS — table ownership follows the moved WebChat extension.
+			// ── extensions/bizcity-webchat ────────────────────────────────
+			[ 'name' => 'bizcity_webchat_projects',      'owner' => 'extensions/bizcity-webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database', 'lifecycle' => 'observe_active', 'quarantine_only' => true, 'orphan_gate' => 'Cut over TwinWeb/Intent project CRUD and prove owner-scoped replacement before DROP.' ],
+			[ 'name' => 'bizcity_webchat_sessions',      'owner' => 'extensions/bizcity-webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
+			[ 'name' => 'bizcity_webchat_conversations', 'owner' => 'extensions/bizcity-webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
+			[ 'name' => 'bizcity_webchat_messages',      'owner' => 'core/twin-core', 'group' => 'twin-core', 'critical' => true, 'class' => 'BizCity_TwinChat_Database', 'feature' => 'shared message projection', 'purpose' => 'Retained core-compatible message projection while Twin Event Stream remains canonical event source.', 'lifecycle' => 'core_active', 'related_tables' => [ 'bizcity_twin_event_stream' ] ],
+			[ 'name' => 'bizcity_webchat_tasks',         'owner' => 'extensions/bizcity-webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database', 'lifecycle' => 'quarantine_write_block', 'quarantine_only' => true, 'orphan_gate' => 'Prove Goal/Event Stream task replacement and zero active task readers before DROP.' ],
 			// [2026-07-29 Johnny Chu] PHASE-1.21-B — registry suffix matches class-webchat-database.php.
-			[ 'name' => 'bizcity_webchat_task_steps',    'owner' => 'modules/webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
-			[ 'name' => 'bizcity_memory_session',        'owner' => 'modules/webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database' ],
+			[ 'name' => 'bizcity_webchat_task_steps',    'owner' => 'extensions/bizcity-webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database', 'lifecycle' => 'quarantine_write_block', 'quarantine_only' => true, 'orphan_gate' => 'Prove task-step timeline replacement and zero active readers before DROP.' ],
+			[ 'name' => 'bizcity_memory_session',        'owner' => 'extensions/bizcity-webchat', 'group' => 'webchat', 'class' => 'BizCity_WebChat_Database', 'lifecycle' => 'quarantine_write_block', 'quarantine_only' => true, 'orphan_gate' => 'Prove unified memory/event parity and zero legacy memory writers before DROP.' ],
 			[ 'name' => 'bizcity_memory_notes',          'owner' => 'modules/twinchat/notebooklm', 'group' => 'memory', 'class' => 'BizCity_TwinChat_Notes_Service' ],
 
 			// ── plugins/bizcity-twin-crm (selected; CRM ships many tables) ─
@@ -260,6 +261,11 @@ final class BizCity_Diagnostics_Table_Registry {
 				'purpose'  => (string) ( $t['purpose']  ?? ( $purpose_by_group[ $group ] ?? 'Registered framework data' ) ),
 				'readers'  => is_array( $t['readers'] ?? null ) ? array_values( $t['readers'] ) : [],
 				'writers'  => is_array( $t['writers'] ?? null ) ? array_values( $t['writers'] ) : [],
+				// [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — preserve lifecycle metadata for runtime ownership probes.
+				'lifecycle' => (string) ( $t['lifecycle'] ?? '' ),
+				'quarantine_only' => ! empty( $t['quarantine_only'] ),
+				'orphan_gate' => (string) ( $t['orphan_gate'] ?? '' ),
+				'related_tables' => is_array( $t['related_tables'] ?? null ) ? array_values( $t['related_tables'] ) : [],
 			];
 		}
 		return self::$cache = $out;
@@ -327,7 +333,7 @@ final class BizCity_Diagnostics_Table_Registry {
 			// [2026-07-30 Johnny Chu] PHASE-0.6-KG-CLEANUP — no active INSERT/SELECT consumer; retire safely via zero-row orphan cleanup.
 			[ 'name' => 'bizcity_kg_mentions',           'module' => 'core/knowledge/kg-hub', 'feature' => 'knowledge graph', 'purpose' => 'Legacy passage/entity graph edges', 'class' => 'BizCity_KG_Database', 'reason' => 'DEAD — declared by the legacy KG source layer but no active INSERT/SELECT consumer; export non-empty rows before DROP.' ],
 			// [2026-07-31 Johnny Chu] PHASE-1.22-TOOL-CATALOG — WebChat timeline now reads the unified registry; export non-empty legacy rows before DROP.
-			[ 'name' => 'bizcity_webchat_tools',         'module' => 'modules/webchat', 'feature' => 'tool catalog', 'purpose' => 'Legacy WebChat tool display catalog', 'class' => 'BizCity_Tool_Registry', 'reason' => 'RETIRED — no active writer; timeline metadata now comes from BizCity_Tool_Registry.' ],
+			[ 'name' => 'bizcity_webchat_tools',         'module' => 'extensions/bizcity-webchat', 'feature' => 'tool catalog', 'purpose' => 'Legacy WebChat tool display catalog', 'class' => 'BizCity_Tool_Registry', 'reason' => 'RETIRED — no active writer; timeline metadata now comes from BizCity_Tool_Registry.' ],
 			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-ORPHAN-GATE — stage every active *_log(s) table in quarantine so Orphan Cleaner can track dependency gates before final DROP.
 			[ 'name' => 'bizcity_intent_logs',          'module' => 'core/intent', 'feature' => 'pipeline step trace', 'purpose' => 'Retired SQL trace; canonical evidence is JSONL.', 'class' => 'BizCity_Intent_Logger', 'reason' => 'ORPHAN-CANDIDATE — SQL writer/reader retired; drop after seven-day retention leaves zero rows.', 'orphan_gate' => 'Verify JSONL probe PASS and COUNT(*)=0 before DROP.' ],
 			[ 'name' => 'bizcity_intent_prompt_logs',   'module' => 'core/intent', 'feature' => 'per-turn telemetry', 'purpose' => 'Retired SQL prompt telemetry; canonical evidence is JSONL.', 'class' => 'BizCity_Intent_Database', 'reason' => 'ORPHAN-CANDIDATE — SQL writer/reader retired; drop after seven-day retention leaves zero rows.', 'orphan_gate' => 'Verify JSONL reader/stats and COUNT(*)=0 before DROP.' ],

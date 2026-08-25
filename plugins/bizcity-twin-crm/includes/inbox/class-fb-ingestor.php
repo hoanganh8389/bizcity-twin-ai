@@ -212,6 +212,19 @@ class BizCity_CRM_Facebook_Ingestor {
 		if ( ! $conv_id ) { return 0; }
 
 		// 4. Message.
+		$ai_metadata = isset( $norm['ai_metadata'] ) && is_array( $norm['ai_metadata'] ) ? $norm['ai_metadata'] : array();
+		if ( ! empty( $norm['thread_kind'] ) ) {
+			$ai_metadata['thread_kind'] = sanitize_key( (string) $norm['thread_kind'] );
+		}
+		if ( ! empty( $norm['group_id'] ) ) {
+			$ai_metadata['group_id'] = sanitize_text_field( (string) $norm['group_id'] );
+		}
+		if ( ! empty( $norm['sender_user_id'] ) ) {
+			$ai_metadata['sender_user_id'] = sanitize_text_field( (string) $norm['sender_user_id'] );
+		}
+		if ( array_key_exists( 'sender_name', $norm ) ) {
+			$ai_metadata['sender_name'] = sanitize_text_field( (string) $norm['sender_name'] );
+		}
 		$msg_id = BizCity_CRM_Repository::insert_message( array(
 			'conversation_id'    => $conv_id,
 			'inbox_id'           => $inbox_id,
@@ -221,7 +234,7 @@ class BizCity_CRM_Facebook_Ingestor {
 			'message_type'       => 'incoming',
 			'sender_type'        => 'contact',
 			'sender_id'          => (int) $ids['contact_id'],
-			'ai_metadata'        => isset( $norm['ai_metadata'] ) && is_array( $norm['ai_metadata'] ) ? $norm['ai_metadata'] : null,
+			'ai_metadata'        => $ai_metadata,
 			'trace_id'           => (string) ( $norm['trace_id'] ?? '' ),
 			'attachments'        => $norm['attachments'] ?? array(),
 			'created_at'         => isset( $norm['received_at'] ) ? (string) $norm['received_at'] : current_time( 'mysql' ),

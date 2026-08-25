@@ -42,6 +42,42 @@ BizCity_Safe_Loader::require_file( $_helper_includes . 'class-bizcity-phone-norm
 
 // [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — per-blog JSONL logs for CRM and memory.
 BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-jsonl-file-logger.php', 'helper.jsonl_logger' );
+BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-log-contract-registry.php', 'helper.log_contract_registry' );
+BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-log-explorer.php', 'helper.log_explorer' );
+if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
+	BizCity_Log_Contract_Registry::register( 'core.intent.pipeline_trace', array(
+		'owner_module'       => 'core/intent',
+		'label'              => 'Intent pipeline trace',
+		'jsonl_folder'       => 'bizcity-intent-logs',
+		'jsonl_module'       => 'pipeline-trace',
+		'related_sql_tables' => array( 'bizcity_intent_logs' ),
+		'retention_days'     => 7,
+	) );
+	BizCity_Log_Contract_Registry::register( 'core.intent.prompt_log', array(
+		'owner_module'       => 'core/intent',
+		'label'              => 'Intent prompt telemetry',
+		'jsonl_folder'       => 'bizcity-intent-logs',
+		'jsonl_module'       => 'prompt-log',
+		'related_sql_tables' => array( 'bizcity_intent_prompt_logs' ),
+		'retention_days'     => 7,
+	) );
+	BizCity_Log_Contract_Registry::register( 'core.memory.mutation_audit', array(
+		'owner_module'       => 'core/memory',
+		'label'              => 'Memory mutation audit',
+		'jsonl_folder'       => 'bizcity-memory-logs',
+		'jsonl_module'       => 'mutation-audit',
+		'related_sql_tables' => array( 'bizcity_memory_logs' ),
+		'retention_days'     => 7,
+	) );
+	BizCity_Log_Contract_Registry::register( 'core.mcp.audit', array(
+		'owner_module'       => 'core/mcp',
+		'label'              => 'MCP request audit',
+		'jsonl_folder'       => 'bizcity-mcp-logs',
+		'jsonl_module'       => 'audit',
+		'related_sql_tables' => array( 'bizcity_mcp_audit_log' ),
+		'retention_days'     => 7,
+	) );
+}
 // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — register one bounded
 // sweep for shared JSONL evidence folders after all cron owners are loaded.
 add_action( 'init', array( 'BizCity_JSONL_File_Logger', 'register_retention_cron' ), 20 );

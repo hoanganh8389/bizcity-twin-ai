@@ -1,0 +1,69 @@
+{
+	"folders": [
+		{
+			"name": "bizcity-admin-hook",
+			"path": "../../mu-plugins/bizcity-admin-hook"
+		},
+		{
+			"name": "bizcity-admin-hook-zalo",
+			"path": "../../mu-plugins/bizcity-admin-hook-zalo"
+		},
+		{
+			"name": "bizcity-openrouter",
+			"path": "../../mu-plugins/bizcity-openrouter"
+		},
+		{
+			"name": "bizcity-twin-ai",
+			"path": "."
+		},
+		{
+			"name": "bizcity-dashboard",
+			"path": "../../mu-plugins/bizcity-dashboard"
+		},
+		{
+			"name": "bizcity-wallet",
+			"path": "../../mu-plugins/bizcity-wallet"
+		},
+		{
+			"name": "bizcity-llm-router",
+			"path": "../bizcity-llm-router"
+		},
+		{
+			"name": "bizcity-web",
+			"path": "../../mu-plugins/bizcity-web"
+		},
+		{
+			"name": "db-multisite",
+			"path": "../../db-multisite"
+		},
+		{
+			"name": "bizcity-zalo-bot",
+			"path": "../../mu-plugins/bizcity-zalo-bot"
+		},
+		{
+			"name": "bizcity-webchat",
+			"path": "./extensions/bizcity-webchat"
+		},
+		{
+			"name": "bizcity-twin-crm",
+			"path": "./plugins/bizcity-twin-crm"
+		},
+		{
+			"name": "bizgpt-oauth-server-new",
+			"path": "../bizgpt-oauth-server-new"
+		},
+		{
+			"name": "bizgpt-oauth-client-new",
+			"path": "../bizgpt-oauth-client-new"
+		},
+		{
+			"path": "../wp-mail-smtp"
+		},
+		{
+			"path": "../login-with-google"
+		}
+	],
+	"settings": {
+		"powershell.cwd": "bizcity-gemini-knowledge"
+	}
+}

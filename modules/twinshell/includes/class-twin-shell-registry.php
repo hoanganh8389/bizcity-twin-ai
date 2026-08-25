@@ -286,7 +286,7 @@ class BizCity_Twin_Shell_Registry {
 	/**
 	 * Map registry entries to the legacy webchat sidebar shape.
 	 *
-	 * Output schema (consumed by modules/webchat React sidebar):
+	 * Output schema (consumed by extensions/bizcity-webchat React sidebar):
 	 *   [ 'slug' => id, 'label' => label, 'icon' => emoji, 'type' => 'link',
 	 *     'src' => url, 'section' => 'top'|'bottom', 'mode' => mode, 'pluginId' => id ]
 	 *

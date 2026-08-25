@@ -32,6 +32,31 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		if ( ! is_array( $normalized ) ) {
 			return null;
 		}
+		$is_group = 'group' === sanitize_key( (string) ( $raw['thread_kind'] ?? '' ) ) || ! empty( $raw['is_group'] );
+		$group_id = (string) ( $raw['thread_id'] ?? $raw['conversation_id'] ?? '' );
+		if ( $is_group && $group_id === '' ) {
+			return null;
+		}
+		if ( $is_group ) {
+			// [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — group_id owns the CRM conversation; sender identity stays message metadata.
+			$normalized['source_id'] = 'group:' . $group_id;
+			$normalized['contact_name'] = (string) ( $raw['group_name'] ?? '' );
+			if ( $normalized['contact_name'] === '' ) {
+				$normalized['contact_name'] = 'Nhóm Zalo ' . substr( $group_id, -8 );
+			}
+			$normalized['thread_kind'] = 'group';
+			$normalized['group_id'] = $group_id;
+			$normalized['group_name'] = (string) ( $raw['group_name'] ?? '' );
+			$normalized['sender_user_id'] = (string) ( $raw['from_user_id'] ?? '' );
+			$normalized['sender_name'] = (string) ( $raw['from_user_name'] ?? '' );
+			$normalized['ai_metadata'] = array_merge( (array) ( $normalized['ai_metadata'] ?? array() ), array(
+				'thread_kind' => 'group',
+				'group_id' => $group_id,
+				'group_name' => (string) ( $raw['group_name'] ?? '' ),
+				'sender_user_id' => (string) ( $raw['from_user_id'] ?? '' ),
+				'sender_name' => (string) ( $raw['from_user_name'] ?? '' ),
+			) );
+		}
 		$normalized['inbox_name'] = 'Zalo Cá nhân ' . (string) ( $raw['account_name'] ?? $raw['conversation_id'] ?? '' );
 		$normalized['_zalo_local_account_id'] = (int) ( $raw['_zalo_local_account_id'] ?? 0 );
 		$normalized['_zalo_message_id']       = (string) ( $raw['message_id'] ?? '' );
@@ -39,7 +64,7 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		$trace_id = substr( sanitize_text_field( (string) ( $raw['trace_id'] ?? '' ) ), 0, 128 );
 		if ( $trace_id !== '' ) {
 			$normalized['trace_id']    = $trace_id;
-			$normalized['ai_metadata'] = array( 'trace_id' => $trace_id );
+			$normalized['ai_metadata'] = array_merge( (array) ( $normalized['ai_metadata'] ?? array() ), array( 'trace_id' => $trace_id ) ); // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — preserve group metadata alongside correlation.
 		}
 		return $normalized;
 	}
@@ -87,6 +112,12 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			self::log_send_result( 'personal_recipient_missing', false, $conversation );
 			return array( 'success' => false, 'external_source_id' => null, 'error' => 'personal_recipient_missing' );
 		}
+		$thread_kind = 'user';
+		if ( 0 === strpos( $recipient, 'group:' ) ) {
+			// [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — route group replies as Group, never as a user recipient.
+			$thread_kind = 'group';
+			$recipient = substr( $recipient, 6 );
+		}
 
 		$text         = (string) ( $message['content'] ?? '' );
 		$content_type = (string) ( $message['content_type'] ?? 'text' );
@@ -106,7 +137,8 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			// [2026-08-21 Johnny Chu] PHASE-0.39B — bridge receives caption text separately from attachment URL.
 			$text,
 			$type,
-			$type === 'image' ? array( array( 'url' => $attachment_url, 'name' => '' ) ) : array()
+			$type === 'image' ? array( array( 'url' => $attachment_url, 'name' => '' ) ) : array(),
+			$thread_kind
 		);
 		$sent = ! empty( $result['success'] ) && empty( $result['_degraded'] );
 		self::log_send_result( $sent ? 'outbound_accepted' : 'outbound_failed', $sent, $conversation );

@@ -148,7 +148,7 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	}
 
 	/** Enqueue Personal outbound through the managed Hub. */
-	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array() ): array {
+	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user' ): array { // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry group delivery semantics through the managed Hub wrapper.
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — outbound remains inside exact key/account scope.
 		return $this->post( '/zalo-personal-bridge/outbound', array(
 			'account_id'  => $account_id,
@@ -156,6 +156,7 @@ final class BizCity_Zalo_Personal_Hub_Client {
 			'text'        => $text,
 			'type'        => $type,
 			'attachments' => $attachments,
+			'thread_kind' => in_array( $thread_kind, array( 'user', 'group' ), true ) ? $thread_kind : 'user',
 		) );
 	}
 

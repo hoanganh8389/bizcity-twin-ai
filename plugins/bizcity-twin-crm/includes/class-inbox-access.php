@@ -28,30 +28,84 @@ final class BizCity_CRM_Inbox_Access {
 	 * @return int[]|null Null means tenant-wide administrator access.
 	 */
 	public static function allowed_inbox_ids( int $user_id = 0 ) {
-		// [2026-08-21 Johnny Chu] PHASE-0.39B — resolve Personal owner inbox scope without a new ACL table.
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F7 — keep the legacy ID API backed by the structured scope resolver.
+		$user_id = $user_id > 0 ? $user_id : (int) get_current_user_id();
+		$scope = self::resolve_scope( $user_id );
+		return $scope['inbox_ids'];
+	}
+
+	/**
+	 * Resolve the current-blog CRM scope without trusting posted resource IDs.
+	 *
+	 * @return array{scope_type:string,user_id:int,inbox_ids:int[]|null,channel_types:string[],sources:array,field_projection:array}
+	 */
+	public static function resolve_scope( int $user_id = 0 ): array {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F7 — centralize admin/owner/member scope for future /gpt/ projections.
 		$user_id = $user_id > 0 ? $user_id : (int) get_current_user_id();
 		if ( self::is_admin( $user_id ) ) {
-			return null;
+			return array(
+				'scope_type' => 'admin',
+				'user_id' => $user_id,
+				'inbox_ids' => null,
+				'channel_types' => array( '*' ),
+				'sources' => array( 'tenant_admin' => true ),
+				'field_projection' => array( 'operator_safe' => true, 'message_content' => true, 'private_notes' => true ),
+			);
 		}
-		if ( $user_id <= 0 || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
-			return array();
+		if ( $user_id <= 0 ) {
+			return self::empty_scope( $user_id );
 		}
-		$rows = BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner( $user_id );
-		$ids  = array();
-		foreach ( $rows as $row ) {
-			$inbox_id = (int) ( $row['crm_inbox_id'] ?? 0 );
-			if ( $inbox_id > 0 ) {
-				$ids[] = $inbox_id;
-			}
+		$personal_ids = self::personal_owner_inbox_ids( $user_id );
+		$member_ids = self::inbox_member_ids( $user_id );
+		$ids = array_values( array_unique( array_merge( $personal_ids, $member_ids ) ) );
+		if ( empty( $ids ) ) {
+			return self::empty_scope( $user_id, array( 'zalo_personal_owner' => false, 'inbox_member' => false ) );
 		}
-		// [2026-08-24 Johnny Chu] PHASE-0.39F-F7 — union explicit tenant-local Inbox Members for Facebook, Messenger, OA, WebChat and Email scopes.
-		if ( class_exists( 'BizCity_CRM_DB_Installer_V2' ) && BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_inbox_members() ) ) {
+		$channel_types = array();
+		if ( class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
 			global $wpdb;
-			$member_table = BizCity_CRM_DB_Installer_V2::tbl_inbox_members();
-			$member_ids = $wpdb->get_col( $wpdb->prepare( "SELECT inbox_id FROM `{$member_table}` WHERE user_id = %d AND is_active = 1", $user_id ) );
-			$ids = array_merge( $ids, array_map( 'intval', is_array( $member_ids ) ? $member_ids : array() ) );
+			$inboxes = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+			$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+			$rows = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT channel_type FROM `{$inboxes}` WHERE id IN ({$placeholders})", $ids ) );
+			$channel_types = array_values( array_unique( array_filter( array_map( 'sanitize_key', is_array( $rows ) ? $rows : array() ) ) ) );
+		}
+		return array(
+			'scope_type' => 'owner_or_member',
+			'user_id' => $user_id,
+			'inbox_ids' => $ids,
+			'channel_types' => $channel_types,
+			'sources' => array( 'zalo_personal_owner' => ! empty( $personal_ids ), 'inbox_member' => ! empty( $member_ids ) ),
+			'field_projection' => array( 'operator_safe' => false, 'message_content' => true, 'private_notes' => false, 'provider_identifiers' => false ),
+		);
+	}
+
+	private static function personal_owner_inbox_ids( int $user_id ): array {
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) { return array(); }
+		$ids = array();
+		foreach ( (array) BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner( $user_id ) as $row ) {
+			$inbox_id = (int) ( $row['crm_inbox_id'] ?? 0 );
+			if ( $inbox_id > 0 ) { $ids[] = $inbox_id; }
 		}
 		return array_values( array_unique( $ids ) );
+	}
+
+	private static function inbox_member_ids( int $user_id ): array {
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) || ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_inbox_members() ) ) { return array(); }
+		global $wpdb;
+		$member_table = BizCity_CRM_DB_Installer_V2::tbl_inbox_members();
+		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT inbox_id FROM `{$member_table}` WHERE user_id = %d AND is_active = 1", $user_id ) );
+		return array_values( array_unique( array_map( 'intval', is_array( $ids ) ? $ids : array() ) ) );
+	}
+
+	private static function empty_scope( int $user_id, array $sources = array() ): array {
+		return array(
+			'scope_type' => 'empty',
+			'user_id' => $user_id,
+			'inbox_ids' => array(),
+			'channel_types' => array(),
+			'sources' => $sources,
+			'field_projection' => array( 'operator_safe' => false, 'message_content' => false, 'private_notes' => false, 'provider_identifiers' => false ),
+		);
 	}
 
 	public static function can_view_inbox( int $inbox_id, int $user_id = 0 ): bool {

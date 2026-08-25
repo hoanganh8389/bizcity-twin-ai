@@ -232,6 +232,10 @@ final class BizCity_CRM_Plugin {
 		require_once $inc . 'class-team-manager.php';
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — load read-only Kanban projections after repository ownership is available.
 		require_once $inc . 'class-kanban-manager.php';
+		// [2026-08-25 Johnny Chu] PHASE-1.24-LOADER-GUARD — tolerate stale/partial assignment-manager artifacts without fatal activation.
+		if ( class_exists( 'BizCity_CRM_Assignment_Manager' ) && method_exists( 'BizCity_CRM_Assignment_Manager', 'register' ) ) {
+			BizCity_CRM_Assignment_Manager::register();
+		}
 		// [2026-08-04 Johnny Chu] PHASE-0.48-H6 — load the whitelist CSV export helper before REST routes.
 		require_once $inc . 'class-crm-export.php';
 		// M-CRM.M1.W3 — Audit log (v1.17.0)

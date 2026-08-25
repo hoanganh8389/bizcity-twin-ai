@@ -66,6 +66,20 @@ require_once BZTOOL_CONTENT_DIR . 'includes/class-tools-content.php';
 require_once BZTOOL_CONTENT_DIR . 'includes/class-post-type.php';
 require_once BZTOOL_CONTENT_DIR . 'includes/class-ajax-content.php';
 require_once BZTOOL_CONTENT_DIR . 'includes/admin-menu.php';
+require_once BZTOOL_CONTENT_DIR . 'includes/install.php';
+
+// [2026-08-25 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — provision and remove owned history storage.
+register_activation_hook( __FILE__, 'bztc_install_tables' );
+register_deactivation_hook( __FILE__, function() {
+    if ( ! defined( 'BZTOOL_CONTENT_DEACTIVATION_PURGE' ) ) {
+        define( 'BZTOOL_CONTENT_DEACTIVATION_PURGE', true );
+    }
+    $_bztc_uninstall = BZTOOL_CONTENT_DIR . 'uninstall.php';
+    if ( is_file( $_bztc_uninstall ) && is_readable( $_bztc_uninstall ) ) {
+        require_once $_bztc_uninstall;
+    }
+    unset( $_bztc_uninstall );
+} );
 
 /* ── CPT registration on init ── */
 BizCity_Content_Post_Type::init();

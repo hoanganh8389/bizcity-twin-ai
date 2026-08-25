@@ -65,6 +65,8 @@ unset( $_bizcity_twinweb_content_artifact_service );
 // [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — prompt input can reuse ZaloBot keyword workflow matching.
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-prompt-automation-bridge.php';
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-rest.php';
+// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — load the member-safe CRM projection contract before TwinWeb REST handlers.
+require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-projection.php';
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-profile-grounding.php';
 // [2026-07-31 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — persist MPR web citations into the canonical notebook source ledger through a deferred queue.
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-citation-source-persistence.php';

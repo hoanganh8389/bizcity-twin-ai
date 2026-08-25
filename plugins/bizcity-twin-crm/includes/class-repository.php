@@ -452,6 +452,7 @@ class BizCity_CRM_Repository {
 		$tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
 		$tbl_ct   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 		$tbl_msg  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
 
 		$where  = array( '1=1' );
 		$params = array();
@@ -517,11 +518,20 @@ class BizCity_CRM_Repository {
 			$where[]  = 'c.id IN ( SELECT conversation_id FROM ' . $cl_tbl . ' WHERE label_id = %d )';
 			$params[] = (int) $args['label_id'];
 		}
+		if ( ! empty( $args['contact_wp_user_id'] ) ) {
+			$where[]  = 'ct.wp_user_id = %d';
+			$params[] = (int) $args['contact_wp_user_id'];
+		}
+		if ( isset( $args['thread_kind'] ) && in_array( (string) $args['thread_kind'], array( 'group', 'personal' ), true ) ) {
+			// [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — filter by canonical group contact key, never by display name.
+			$where[] = 'group' === (string) $args['thread_kind'] ? "ci.source_id LIKE 'group:%'" : "ci.source_id NOT LIKE 'group:%'"; // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — scope list reads by canonical group key.
+		}
 
 		$limit = max( 1, min( 200, (int) ( $args['limit'] ?? 50 ) ) );
 
 		$sql = "SELECT
 					c.id, c.inbox_id, c.contact_inbox_id, c.status, c.assignee_id,
+					i.channel_type,
 					c.notebook_id, c.priority,
 					c.snoozed_until, c.waiting_since, c.first_reply_at, c.cached_label_list,
 					c.sla_policy_id, c.team_id,
@@ -535,6 +545,7 @@ class BizCity_CRM_Repository {
 					m.created_at AS last_message_at
 				FROM {$tbl_conv} c
 				LEFT JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+				LEFT JOIN {$tbl_ibx} i ON i.id = c.inbox_id
 				LEFT JOIN {$tbl_ct} ct ON ct.id = ci.contact_id
 				LEFT JOIN {$tbl_msg} m  ON m.id  = c.last_message_id
 				WHERE " . implode( ' AND ', $where ) . "
@@ -545,6 +556,114 @@ class BizCity_CRM_Repository {
 		$prepared = $params ? $wpdb->prepare( $sql, $params ) : $sql;
 		$rows     = $wpdb->get_results( $prepared, ARRAY_A );
 		return $rows ?: array();
+	}
+
+	/**
+	 * List conversations belonging to a member's canonical CRM contact.
+	 *
+	 * The contact user binding is an additional boundary to inbox scope; an
+	 * inbox member must not gain access to every customer conversation in /gpt/.
+	 */
+	public static function list_conversations_for_member( int $wp_user_id, $allowed_inbox_ids = null, int $limit = 50, int $before_id = 0 ): array {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — bind member conversation reads to contact.wp_user_id plus resolver-derived inbox scope.
+		if ( $wp_user_id <= 0 || ( is_array( $allowed_inbox_ids ) && empty( $allowed_inbox_ids ) ) ) { return array(); }
+		return self::list_conversations( array(
+			'contact_wp_user_id' => $wp_user_id,
+			'inbox_ids'         => is_array( $allowed_inbox_ids ) ? $allowed_inbox_ids : null,
+			'limit'             => max( 1, min( 100, $limit ) ),
+			'before_id'         => max( 0, $before_id ),
+		) );
+	}
+
+	/** List member-visible care tasks without exposing internal notes or tenant-wide rows. */
+	public static function list_tasks_for_member( int $wp_user_id, int $limit = 50 ): array {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — expose only assigned or own-contact tasks to the C surface.
+		if ( $wp_user_id <= 0 ) { return array(); }
+		global $wpdb;
+		$tasks = self::tbl_crm_tasks();
+		$contacts = self::tbl_contacts();
+		$limit = max( 1, min( 100, $limit ) );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.related_entity_type, t.related_entity_id, t.updated_at FROM `{$tasks}` t WHERE t.deleted_at IS NULL AND (t.assignee_id = %d OR (t.related_entity_type = 'contact' AND EXISTS (SELECT 1 FROM `{$contacts}` c WHERE c.id = t.related_entity_id AND c.wp_user_id = %d AND c.deleted_at IS NULL))) ORDER BY t.due_date IS NULL ASC, t.due_date ASC, t.id DESC LIMIT %d", $wp_user_id, $wp_user_id, $limit ), ARRAY_A );
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/** Return canonical contacts linked to a WordPress user for order projection. */
+	public static function list_contacts_for_wp_user( int $wp_user_id, int $limit = 20 ): array {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — resolve order subjects from tenant CRM contacts, never posted contact IDs.
+		if ( $wp_user_id <= 0 ) { return array(); }
+		global $wpdb;
+		$table = self::tbl_contacts();
+		$limit = max( 1, min( 20, $limit ) );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM `{$table}` WHERE wp_user_id = %d AND deleted_at IS NULL ORDER BY id DESC LIMIT %d", $wp_user_id, $limit ), ARRAY_A );
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	public static function can_user_move_order_care( string $object_type, int $object_id, int $user_id = 0 ): bool {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-S3 — enforce task/opportunity ownership at the repository boundary.
+		$user_id = $user_id > 0 ? $user_id : (int) get_current_user_id();
+		if ( $object_id <= 0 || $user_id <= 0 ) { return false; }
+		if ( user_can( $user_id, 'manage_options' ) ) { return true; }
+		global $wpdb;
+		if ( 'task' === $object_type ) {
+			$tasks = self::tbl_crm_tasks();
+			$contacts = self::tbl_contacts();
+			$row = $wpdb->get_row( $wpdb->prepare( "SELECT assignee_id, related_entity_type, related_entity_id FROM `{$tasks}` WHERE id = %d AND deleted_at IS NULL LIMIT 1", $object_id ), ARRAY_A );
+			if ( ! is_array( $row ) ) { return false; }
+			if ( (int) ( $row['assignee_id'] ?? 0 ) === $user_id ) { return true; }
+			return 'contact' === (string) ( $row['related_entity_type'] ?? '' ) && (bool) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$contacts}` WHERE id = %d AND wp_user_id = %d AND deleted_at IS NULL LIMIT 1", (int) $row['related_entity_id'], $user_id ) );
+		}
+		if ( 'opportunity' === $object_type ) {
+			$opportunities = self::tbl_crm_opportunities();
+			return (bool) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$opportunities}` WHERE id = %d AND owner_id = %d AND deleted_at IS NULL LIMIT 1", $object_id, $user_id ) );
+		}
+		return false;
+	}
+
+	public static function move_order_care_object( string $object_type, int $object_id, string $target_state, array $changes = array(), int $actor_user_id = 0 ): array {
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-S3 — own task/opportunity board state mutation and return repeat-safe current-state outcomes.
+		$object_type = sanitize_key( $object_type );
+		$target_state = sanitize_key( $target_state );
+		$actor_user_id = $actor_user_id > 0 ? $actor_user_id : (int) get_current_user_id();
+		if ( ! in_array( $object_type, array( 'task', 'opportunity' ), true ) || $object_id <= 0 ) {
+			return array( 'success' => false, 'outcome' => 'permanent_failed', 'code' => 'invalid_order_care_object', 'retryable' => false, 'contract_version' => '1.0.0' );
+		}
+		if ( ! self::can_user_move_order_care( $object_type, $object_id, $actor_user_id ) ) {
+			return array( 'success' => false, 'outcome' => 'permanent_failed', 'code' => 'order_care_scope_denied', 'retryable' => false, 'contract_version' => '1.0.0' );
+		}
+		global $wpdb;
+		$table = 'task' === $object_type ? self::tbl_crm_tasks() : self::tbl_crm_opportunities();
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$table}` WHERE id = %d AND deleted_at IS NULL LIMIT 1", $object_id ), ARRAY_A );
+		if ( ! is_array( $row ) ) {
+			return array( 'success' => false, 'outcome' => 'permanent_failed', 'code' => 'order_care_object_not_found', 'retryable' => false, 'contract_version' => '1.0.0' );
+		}
+		$allowed = 'task' === $object_type
+			? array( 'open', 'pending', 'in_progress', 'done', 'cancelled' )
+			: array( 'prospecting', 'qualification', 'proposal', 'negotiation', 'closed_won', 'closed_lost' );
+		if ( ! in_array( $target_state, $allowed, true ) ) {
+			return array( 'success' => false, 'outcome' => 'permanent_failed', 'code' => 'invalid_order_care_state', 'retryable' => false, 'contract_version' => '1.0.0' );
+		}
+		$current_state = 'task' === $object_type ? sanitize_key( (string) ( $row['status'] ?? '' ) ) : sanitize_key( (string) ( $row['stage'] ?? '' ) );
+		if ( $current_state === $target_state ) {
+			return array( 'success' => true, 'outcome' => 'already_applied', 'code' => 'already_applied', 'retryable' => false, 'contract_version' => '1.0.0', 'object_type' => $object_type, 'object_id' => $object_id, 'target_state' => $target_state );
+		}
+		$fields = array( 'updated_at' => current_time( 'mysql' ) );
+		if ( 'task' === $object_type ) {
+			$fields['status'] = $target_state;
+			$fields['completed'] = 'done' === $target_state ? 1 : 0;
+			$fields['completed_at'] = 'done' === $target_state ? current_time( 'mysql' ) : null;
+			if ( isset( $changes['priority'] ) && in_array( (string) $changes['priority'], array( 'low', 'medium', 'high', 'urgent' ), true ) ) { $fields['priority'] = sanitize_key( (string) $changes['priority'] ); }
+			if ( array_key_exists( 'due_date', $changes ) ) { $fields['due_date'] = $changes['due_date'] ? sanitize_text_field( (string) $changes['due_date'] ) : null; }
+		} else {
+			$fields['stage'] = $target_state;
+		}
+		if ( false === $wpdb->update( $table, $fields, array( 'id' => $object_id ) ) ) {
+			return array( 'success' => false, 'outcome' => 'retryable', 'code' => 'order_care_move_failed', 'retryable' => true, 'contract_version' => '1.0.0' );
+		}
+		if ( class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_order_care_moved', array( 'object_type' => $object_type, 'object_id' => $object_id, 'from_state' => $current_state, 'to_state' => $target_state, 'by_user_id' => $actor_user_id ) );
+		}
+		if ( class_exists( 'BizCity_Cache_Registry' ) ) { BizCity_Cache_Registry::flush_module( 'modules.twin-crm' ); }
+		return array( 'success' => true, 'outcome' => 'updated', 'code' => 'moved', 'retryable' => false, 'contract_version' => '1.0.0', 'object_type' => $object_type, 'object_id' => $object_id, 'from_state' => $current_state, 'target_state' => $target_state );
 	}
 
 	/**
@@ -617,7 +736,7 @@ class BizCity_CRM_Repository {
 	}
 
 	// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — persist assignment through the CRM write gate.
-	public static function set_conversation_assignee( int $conv_id, ?int $assignee_id, int $by_user_id = 0 ): bool {
+	public static function set_conversation_assignee( int $conv_id, ?int $assignee_id, int $by_user_id = 0, array $event_context = array(), bool $emit_event = true ): bool {
 		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — emit assignment only after a real state change.
 		global $wpdb;
 		$tbl  = BizCity_CRM_DB_Installer_V2::tbl_conversations();
@@ -633,18 +752,22 @@ class BizCity_CRM_Repository {
 			array( $next_id === null ? '%s' : '%d', '%s' ),
 			array( '%d' )
 		);
-		if ( $ok ) {
-			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_assigned', array(
+		if ( $ok && $emit_event ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_assigned', array_merge( array(
 				'conversation_id'      => $conv_id,
 				'previous_assignee_id' => $previous_id,
 				'assignee_id'          => $next_id,
 				'by_user_id'           => $by_user_id ?: get_current_user_id(),
-			) );
+			), array(
+				'team_id'   => ! empty( $event_context['team_id'] ) ? (int) $event_context['team_id'] : null,
+				'policy_id' => ! empty( $event_context['policy_id'] ) ? (int) $event_context['policy_id'] : null,
+				'reason'    => sanitize_key( (string) ( $event_context['reason'] ?? 'manual' ) ),
+			) ) );
 		}
 		return $ok;
 	}
 
-	public static function set_conversation_team( int $conv_id, ?int $team_id, int $by_user_id = 0 ): bool {
+	public static function set_conversation_team( int $conv_id, ?int $team_id, int $by_user_id = 0, bool $emit_event = true ): bool {
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F4 — persist team ownership through the CRM repository and event contract.
 		global $wpdb;
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_conversations();
@@ -654,7 +777,7 @@ class BizCity_CRM_Repository {
 		$next_id = $team_id && $team_id > 0 ? (int) $team_id : null;
 		if ( $previous_id === $next_id ) { return true; }
 		$ok = false !== $wpdb->update( $tbl, array( 'team_id' => $next_id, 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $conv_id ), array( $next_id === null ? '%s' : '%d', '%s' ), array( '%d' ) );
-		if ( $ok && class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
+		if ( $ok && $emit_event && class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
 			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_team_changed', array( 'conversation_id' => $conv_id, 'previous_team_id' => $previous_id, 'team_id' => $next_id, 'by_user_id' => $by_user_id ?: get_current_user_id() ) );
 		}
 		return $ok;

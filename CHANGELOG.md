@@ -36,6 +36,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | F8 projection | Added identity-first `/bizcity-twinweb/v1/crm/me`, repository member filters and read-only conversations, care tasks and Woo order summaries in the existing My Channels owner screen. | Local backend/UI partial; Runtime DDV and browser smoke pending |
 | Diagnostics | Added and queued `modules.twin_gpt.crm_member_scope` read-only Disk/Loader/Runtime probe. | Source wired; WordPress Diagnostics run pending |
 
+### PHASE-0.39F concrete sprint execution plan - 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| S0-S3 | Documented contract freeze, two-user `/crm/me` isolation, F5 assignment matrix/concurrency and F6 task/opportunity move/idempotency tests. | Plan recorded; runtime fixtures pending |
+| S4-S6 | Documented F2 archive receipt/hash round-trip, offload pilot gate, F3 dashboard parity/non-admin scope and F7 provider owner mapping. | Plan recorded; runtime evidence pending |
+| S7-S9 | Documented `/gpt/`, My Channels and CRM Inbox browser smoke, bridge BD-4..BD-6 deployment/drills and final release/rollback review. | Plan recorded; production DDV pending |
+
+### PHASE-0.39F S1 identity boundary hardening - 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| F8 projection | CRM projection now rejects a stale or forged identity object before scope resolution or CRM reads; mismatch returns a degraded empty projection. | Implemented locally; two-user Runtime fixture pending |
+| Diagnostics | Extended `modules.twin_gpt.crm_member_scope` with read-only forged identity and posted `owner_id`/`inbox_id`/`account_id` assertions. | Source wired; WordPress Diagnostics run pending |
+| Checklist | Marked only the local hardening/editor-diagnostics item in Sprint 1; A/B fixture, cache invalidation and field-redaction Runtime checks remain open. | ACTIVE / PRE-RELEASE |
+
+### PHASE-0.39F S2 assignment transaction event safety - 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| F5 assignment | Repository assignment/team mutations can suppress events inside the transaction; the assignment service emits the committed transition after `COMMIT` using the pre-mutation snapshot. | Implemented locally; concurrency and rollback Runtime fixture pending |
+| Diagnostics | Extended `modules.crm.team_assignment_kanban` with a read-only deferred-event API contract check. | Source wired; WordPress Diagnostics run pending |
+| Checklist | Marked only the local transaction event-safety item in Sprint 2; candidate matrix, concurrency and no-admin-fallback Runtime checks remain open. | ACTIVE / PRE-RELEASE |
+
+### PHASE-0.39F S3 order-care move foundation - 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| F6 command | Added repository-owned, scoped task/opportunity move command with state allowlist, ownership check, normalized outcomes, event emission and Kanban cache invalidation. | Implemented locally; durable idempotency and Runtime fixture pending |
+| F6 REST | Added `bizcity-crm/v1/boards/order-care/move` with bounded `idempotency_key`, object type/id, target state and optional changes payload. | Source wired; WordPress route and authorization run pending |
+| Diagnostics | Extended `modules.crm.team_assignment_kanban` with route and invalid-object no-mutation checks. | Source wired; WordPress Diagnostics run pending |
+| Checklist | Marked only the local S3 command foundation item; valid move matrix, conflict/timeout replay and Woo HPOS invariance remain open. | ACTIVE / PRE-RELEASE |
+
 ### CI clean checkout and diagnostics activation gate - 2026-08-25
 
 | Area | Change | Status |
@@ -54,6 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Diagnostics loader CI gate | CI now rejects a diagnostics bootstrap that does not preload the R-DCL changelog loader and Auto-Create owner before Site Provisioner/probes. | Implemented locally; CI rerun pending |
 | Memory schema evidence | Unified Memory now logs bounded Auto-Create `action/errors` reason buckets when reconciliation fails, allowing the next CI run to distinguish JSON, CREATE, and ADD-only schema failures without exposing full SQL. | Implemented locally; CI rerun pending |
 | Production loader hardening | Profile wheel provider is optional at bootstrap, and KG-Hub owns registration of the `bizcity_kg_5min` interval used by filestore migration cron hooks. | Implemented locally; production deploy verification pending |
+| Safe loader rule | Added `BizCity_Safe_Loader` core helper and migrated the Profile bootstrap module artifacts to guarded loading with bounded missing/load-failure evidence. | Implemented locally; production deploy verification pending |
+| Safe loader CI enforcement | Added a shipped-tree CI guard rejecting raw Profile module/probe `require_once` calls and requiring both Profile entrypoints to use the core Safe Loader. | Implemented locally; CI rerun pending |
+| Global bootstrap rule | Elevated R-SAFE-LOADER to Tier 0 for `plugins/`, `core/`, and `modules/`; added changed/strict validator modes with an initial inventory of 46 bootstrap files and 1,037 legacy raw requires. | Implemented locally; CI rerun pending |
 | Roadmap | Made the two PHASE-1.24 audit roadmaps trackable and recorded the remaining WordPress matrix and Diagnostics JUnit gates. | Implemented locally; CI rerun pending |
 
 ### Facebook webhook dùng duy nhất callback Plan B — 2026-08-25

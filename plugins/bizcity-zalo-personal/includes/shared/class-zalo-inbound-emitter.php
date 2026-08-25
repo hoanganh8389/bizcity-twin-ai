@@ -50,12 +50,11 @@ class BizCity_Zalo_Inbound_Emitter {
 		if ( 'personal' !== $kind ) {
 			return -1;
 		}
-		// [2026-08-23 Johnny Chu] PHASE-0.39D — MVP group chat is fail-closed; never flatten members into personal contacts.
 		$thread_kind = sanitize_key( (string) ( $body['thread_kind'] ?? '' ) );
-		if ( 'group' === $thread_kind || ! empty( $body['is_group'] ) ) {
-			error_log( '[bizcity-zalo-personal] group_chat_out_of_scope account=' . substr( md5( $account_id ), 0, 10 ) );
-			return -1;
-		}
+		$is_group = 'group' === $thread_kind || ! empty( $body['is_group'] );
+		$thread_id = (string) ( $body['thread_id'] ?? $body['conversation_id'] ?? '' );
+		// [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — accept groups only with a stable group thread ID; never infer it from the sender.
+		if ( $is_group && $thread_id === '' ) { return -1; }
 		// [2026-08-23 Johnny Chu] PHASE-0.39D — CRM-originated echoes are deduped; native app messages are mirrored as outgoing CRM rows.
 		if ( ! empty( $body['is_self'] ) ) {
 			if ( 'native_zalo' !== sanitize_key( (string) ( $body['origin'] ?? '' ) ) ) {
@@ -66,7 +65,7 @@ class BizCity_Zalo_Inbound_Emitter {
 			if ( $local_account_id <= 0 || (int) ( $db_account['owner_user_id'] ?? 0 ) <= 0 || (int) ( $db_account['crm_inbox_id'] ?? 0 ) <= 0 ) {
 				return -1;
 			}
-			$peer_id = (string) ( $body['from_user_id'] ?? '' );
+			$peer_id = $is_group ? $thread_id : (string) ( $body['from_user_id'] ?? '' );
 			if ( $peer_id === '' || '0' === $peer_id || ! class_exists( 'BizCity_CRM_Facebook_Ingestor' ) ) {
 				return 0;
 			}
@@ -99,7 +98,7 @@ class BizCity_Zalo_Inbound_Emitter {
 			$msg_id = BizCity_CRM_Facebook_Ingestor::instance()->ingest_outbound( 'zalo_personal', array(
 				'inbox_ref'          => $account_id,
 				'inbox_name'         => 'Zalo Cá nhân ' . (string) ( $body['account_name'] ?? $account_id ),
-				'source_id'          => $peer_id,
+				'source_id'          => $is_group ? 'group:' . $peer_id : $peer_id, // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — keep self-echo on the group source key.
 				// [2026-08-23 Johnny Chu] PHASE-0.39D — native self sender name belongs to the agent, never seed the peer contact name.
 				'contact_name'       => '',
 				'content'            => (string) ( $body['message_text'] ?? '' ),
@@ -111,7 +110,12 @@ class BizCity_Zalo_Inbound_Emitter {
 				'ai_metadata'        => array(
 					'zalo_personal_origin' => 'native_zalo',
 					'contact_name_source'  => 'self_echo_unreliable',
+					'thread_kind'         => $is_group ? 'group' : 'personal',
+					'group_id'            => $is_group ? $peer_id : '',
+					'trace_id'             => sanitize_text_field( (string) ( $body['trace_id'] ?? '' ) ),
 				),
+				'thread_kind'        => $is_group ? 'group' : 'personal',
+				'group_id'           => $is_group ? $peer_id : '',
 				'attachments'        => $attachments,
 			) );
 			if ( $msg_id > 0 ) {
@@ -139,8 +143,9 @@ class BizCity_Zalo_Inbound_Emitter {
 			$claimed = BizCity_Zalo_Mapping_Repo::save_map( array(
 				'account_id'     => $local_account_id,
 				'zalo_msg_id'    => $zalo_msg_id,
-				'zalo_thread_id' => (string) ( $body['from_user_id'] ?? '' ),
-				'thread_kind'    => $kind,
+				'zalo_thread_id' => $is_group ? $thread_id : (string) ( $body['from_user_id'] ?? '' ),
+				// [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — mapping follows the canonical group/private thread kind.
+				'thread_kind'    => $is_group ? 'group' : 'personal',
 				'crm_message_id' => 0,
 				'direction'      => 'in',
 				'quote_src_json' => '',
@@ -170,10 +175,17 @@ class BizCity_Zalo_Inbound_Emitter {
 			'account_name'     => (string) ( $body['account_name'] ?? '' ),
 			'from_user_id'     => $from_user_id,
 			'from_user_name'   => $from_user_name,
+			// [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — preserve group thread identity; sender remains message-level metadata.
+			'thread_kind'      => $is_group ? 'group' : 'personal',
+			'thread_id'        => $is_group ? $thread_id : $from_user_id,
+			'is_group'         => $is_group,
+			'group_id'         => $is_group ? $thread_id : '',
+			'group_name'       => $is_group ? (string) ( $body['group_name'] ?? '' ) : '',
 			'message_id'       => $zalo_msg_id,
 			'message_text'     => (string) ( $body['message_text'] ?? '' ),
 			'message_type'     => (string) ( $body['message_type'] ?? 'text' ),
 			'message_time'     => isset( $body['message_time'] ) ? (int) $body['message_time'] : time(),
+			'trace_id'         => sanitize_text_field( (string) ( $body['trace_id'] ?? '' ) ),
 			'image_url'        => (string) ( $body['image_url'] ?? '' ),
 			'file_url'         => (string) ( $body['file_url'] ?? '' ),
 			'file_name'        => (string) ( $body['file_name'] ?? '' ),

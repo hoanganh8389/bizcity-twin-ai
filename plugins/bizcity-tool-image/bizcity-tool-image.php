@@ -618,6 +618,15 @@ register_activation_hook( __FILE__, function() {
 } );
 
 register_deactivation_hook( __FILE__, function() {
+    // [2026-08-25 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — deactivate removes owned Image storage through the uninstall path.
+    if ( ! defined( 'BZTIMG_DEACTIVATION_PURGE' ) ) {
+        define( 'BZTIMG_DEACTIVATION_PURGE', true );
+    }
+    $_bztimg_uninstall = BZTIMG_DIR . 'uninstall.php';
+    if ( is_file( $_bztimg_uninstall ) && is_readable( $_bztimg_uninstall ) ) {
+        require_once $_bztimg_uninstall;
+    }
+    unset( $_bztimg_uninstall );
     flush_rewrite_rules();
 } );
 

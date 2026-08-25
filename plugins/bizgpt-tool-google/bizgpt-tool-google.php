@@ -78,6 +78,17 @@ require_once BZGOOGLE_DIR . 'includes/class-cron.php';
 register_activation_hook( __FILE__, [ 'BZGoogle_Installer', 'activate' ] );
 register_activation_hook( __FILE__, function() { flush_rewrite_rules(); } );
 register_deactivation_hook( __FILE__, [ 'BZGoogle_Cron', 'deactivate' ] );
+register_deactivation_hook( __FILE__, function() {
+    // [2026-08-25 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — deactivate removes current-blog Google data through the uninstall path.
+    if ( ! defined( 'BZGOOGLE_DEACTIVATION_PURGE' ) ) {
+        define( 'BZGOOGLE_DEACTIVATION_PURGE', true );
+    }
+    $_bzgoogle_uninstall = BZGOOGLE_DIR . 'uninstall.php';
+    if ( is_file( $_bzgoogle_uninstall ) && is_readable( $_bzgoogle_uninstall ) ) {
+        require_once $_bzgoogle_uninstall;
+    }
+    unset( $_bzgoogle_uninstall );
+} );
 register_deactivation_hook( __FILE__, function() { flush_rewrite_rules(); } );
 
 /* ── Self-healing: create tables if activation hook was skipped ── */

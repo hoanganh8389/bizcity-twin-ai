@@ -34,8 +34,10 @@ final class BizCity_CRM_Kanban_Manager {
 		$columns = array( 'unassigned' => array(), 'open' => array(), 'pending' => array(), 'snoozed' => array(), 'resolved' => array() );
 		foreach ( $rows as $row ) {
 			$status = (string) ( $row['status'] ?? 'open' );
-			$column = ! empty( $row['assignee_id'] ) ? $status : 'unassigned';
+			$column = 'open' === $status && empty( $row['assignee_id'] ) ? 'unassigned' : $status;
 			if ( ! isset( $columns[ $column ] ) ) { $column = 'open'; }
+			$source_id = (string) ( $row['source_id'] ?? '' );
+			$is_group = 0 === strpos( $source_id, 'group:' ); // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — project group identity into board cards.
 			$columns[ $column ][] = array(
 				'id' => (int) $row['id'],
 				'inbox_id' => (int) $row['inbox_id'],
@@ -45,6 +47,9 @@ final class BizCity_CRM_Kanban_Manager {
 				'assignee_id' => ! empty( $row['assignee_id'] ) ? (int) $row['assignee_id'] : null,
 				'team_id' => ! empty( $row['team_id'] ) ? (int) $row['team_id'] : null,
 				'contact_name' => (string) ( $row['contact_name'] ?? '' ),
+				'is_group' => $is_group,
+				'thread_kind' => $is_group ? 'group' : 'personal',
+				'group_id' => $is_group ? substr( $source_id, 6 ) : null,
 				'last_message_type' => (string) ( $row['last_message_type'] ?? '' ),
 				'last_message_at' => (string) ( $row['last_message_at'] ?? '' ),
 			);

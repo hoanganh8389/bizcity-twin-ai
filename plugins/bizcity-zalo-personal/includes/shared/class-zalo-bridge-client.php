@@ -255,9 +255,9 @@ class BizCity_Zalo_Bridge_Client {
 	 * @param array  $attachments [{ url:string, name:string }].
 	 * @return array { success:bool, job_id?:string, _degraded?:bool }
 	 */
-	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array() ): array {
+	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user' ): array { // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry the canonical Zalo thread kind through outbound transport.
 		if ( $this->is_managed_mode() ) {
-			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->enqueue_outbound( $account_id, $recipient, $text, $type, $attachments ) : $this->degraded( 'managed_client_missing' );
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->enqueue_outbound( $account_id, $recipient, $text, $type, $attachments, $thread_kind ) : $this->degraded( 'managed_client_missing' );
 		}
 		return $this->post( 'wp/outbound', array(
 			'account_id'  => $account_id,
@@ -265,6 +265,7 @@ class BizCity_Zalo_Bridge_Client {
 			'text'        => $text,
 			'type'        => $type,
 			'attachments' => $attachments,
+			'thread_kind' => in_array( $thread_kind, array( 'user', 'group' ), true ) ? $thread_kind : 'user',
 		) );
 	}
 
