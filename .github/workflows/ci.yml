@@ -381,17 +381,33 @@ jobs:
               echo "::warning::CRM checkout is partial; proprietary CRM will be skipped by the main loader."
               echo "Expected $crm_access or $crm_legacy_access for a complete CRM deployment."
               echo "This does not block the public framework Diagnostics matrix."
-              exit 0
-            fi
-            if grep -Eq "require_once[[:space:]]+\\\$inc[[:space:]]*\\.[[:space:]]*'inbox/class-inbox-access\\.php'" "$crm_bootstrap"; then
+            elif grep -Eq "require_once[[:space:]]+\\\$inc[[:space:]]*\\.[[:space:]]*'inbox/class-inbox-access\\.php'" "$crm_bootstrap"; then
               echo "::error::Stale CRM bootstrap directly requires the removed Inbox Access path."
               echo "Deploy the CRM loader with its canonical/legacy readable-path fallback before running Diagnostics."
               exit 1
+            else
+              echo "CRM loader dependency contract present: $crm_bootstrap"
             fi
-            echo "CRM loader dependency contract present: $crm_bootstrap"
           else
             echo "CRM package absent; proprietary CRM checks are skipped."
           fi
+
+          diagnostics_runner='wp-content/plugins/bizcity-twin-ai/bin/diagnostics-run.php'
+          if [ ! -f "$diagnostics_runner" ]; then
+            echo "::error::Diagnostics runner is missing: $diagnostics_runner"
+            exit 1
+          fi
+          if ! grep -Fq 'BizCity_Site_Provisioner::run_all( true )' "$diagnostics_runner"; then
+            echo "::error::Diagnostics runner lacks Site Provisioner orchestration."
+            echo "The runner must provision the registered schema before executing probes."
+            exit 1
+          fi
+          if grep -Fq 'Channel_Messages::maybe_install()' "$diagnostics_runner"; then
+            echo "::error::Diagnostics runner still contains the retired direct-installer sequence."
+            echo "Use BizCity_Site_Provisioner::run_all( true ) as the single schema entrypoint."
+            exit 1
+          fi
+          echo "Diagnostics schema orchestration contract present: $diagnostics_runner"
 
       - name: Activate plugin
         run: wp plugin activate bizcity-twin-ai

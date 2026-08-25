@@ -138,31 +138,17 @@ if ( function_exists( 'did_action' ) && function_exists( 'do_action' ) && ! did_
     do_action( 'init' );
 }
 
-// [2026-08-19 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI-SCHEMA - several installers
-// (channel bindings, identity hub, channel-user-linker, scheduler, automation)
-// only self-heal on 'admin_init' / 'current_screen', hooks that never fire in
-// a headless run. Firing `do_action('admin_init')` wholesale is unsafe here —
-// unrelated admin_init callbacks (e.g. dashboard redirect guards) call
-// wp_redirect()+exit() when $_GET['page'] is unset, which is always true in
-// CLI and would kill this script mid-run. Call only the known-safe static
-// installers directly instead, BEFORE probes run, so schema exists up front.
-if ( class_exists( 'BizCity_Channel_Messages', false ) ) {
-    BizCity_Channel_Messages::maybe_install();
-}
-if ( class_exists( 'BizCity_Channel_Binding', false ) ) {
-    BizCity_Channel_Binding::maybe_install();
-}
-if ( class_exists( 'BizCity_Identity_Hub', false ) ) {
-    BizCity_Identity_Hub::maybe_install();
-}
-if ( class_exists( 'BizCity_Channel_User_Linker', false ) ) {
-    BizCity_Channel_User_Linker::maybe_install();
-}
-if ( class_exists( 'BizCity_Scheduler_Manager', false ) ) {
-    BizCity_Scheduler_Manager::instance()->ensure_schema();
-}
-if ( class_exists( 'BizCity_Automation_Installer', false ) ) {
-    BizCity_Automation_Installer::ensure();
+// [2026-08-21 Johnny Chu] DIAGNOSTICS-CLI-SCHEMA-ORCHESTRATION — use the
+// canonical Site Provisioner registry so headless diagnostics provisions every
+// registered tenant schema, not only the six installers historically listed
+// here. Do not fire admin_init wholesale: unrelated callbacks can redirect or
+// exit in a CLI request.
+if ( class_exists( 'BizCity_Site_Provisioner', false ) ) {
+    // [2026-08-21 Johnny Chu] DIAGNOSTICS-CLI-RECOVERY — plugin recovery can happen after plugins_loaded, so register the default installer filter explicitly.
+    if ( function_exists( 'bizcity_register_default_installers' ) ) {
+        bizcity_register_default_installers();
+    }
+    BizCity_Site_Provisioner::run_all( true );
 }
 
 /* ── Discover probes ───────────────────────────────────────────────── */
@@ -216,7 +202,8 @@ foreach ( $ids as $id ) {
         $line .= ' · ' . substr( (string) $res['summary'], 0, 240 );
     }
     if ( $status === 'fail' && ! empty( $res['error'] ) ) {
-        $line .= "\n      ↳ " . substr( (string) $res['error'], 0, 200 );
+        // [2026-08-21 Johnny Chu] DIAGNOSTICS-CLI-EVIDENCE — preserve enough structured error detail for multi-step probes.
+        $line .= "\n      ↳ " . substr( (string) $res['error'], 0, 500 );
     }
     echo $line . "\n";
 
@@ -252,7 +239,7 @@ if ( $opts['junit'] !== '' ) {
         if ( $st === 'fail' ) {
             $xml .= sprintf(
                 '      <failure message="%s">%s</failure>' . "\n",
-                htmlspecialchars( substr( (string) ( $res['error'] ?? 'fail' ), 0, 200 ), ENT_XML1 | ENT_COMPAT, 'UTF-8' ),
+                htmlspecialchars( substr( (string) ( $res['error'] ?? 'fail' ), 0, 500 ), ENT_XML1 | ENT_COMPAT, 'UTF-8' ),
                 htmlspecialchars( (string) ( $res['summary'] ?? '' ), ENT_XML1 | ENT_COMPAT, 'UTF-8' )
             );
         } elseif ( $st === 'precheck-fail' ) {

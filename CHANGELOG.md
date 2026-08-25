@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Main loader | Main plugin now skips incomplete proprietary CRM artifacts before the legacy bootstrap can execute; public framework Diagnostics continues without CRM. | Implemented locally; CI rerun pending |
 | Memory schema | Existing unified memory tables now use Diagnostics Auto-Create for additive repair; `dbDelta()` is limited to fresh creation to avoid invalid `ALTER ... ADD` output during CI. | Implemented locally; CI rerun pending |
 | Diagnostics schema guard | Diagnostics CLI now routes fresh and partial Unified Memory tables through the JSON-backed Auto-Create owner and blocks `dbDelta()` fallback when that owner is unavailable. | Implemented locally; CI rerun pending |
+| CI runner parity | Preflight now requires `BizCity_Site_Provisioner::run_all( true )` in `bin/diagnostics-run.php` and rejects the retired direct-installer sequence before probe execution. | Implemented locally; CI rerun pending |
 | Roadmap | Made the two PHASE-1.24 audit roadmaps trackable and recorded the remaining WordPress matrix and Diagnostics JUnit gates. | Implemented locally; CI rerun pending |
 
 ### Facebook webhook dùng duy nhất callback Plan B — 2026-08-25
