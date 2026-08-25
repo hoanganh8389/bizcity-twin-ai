@@ -182,7 +182,13 @@ class BizCity_Memory_Unified_Installer {
 		if ( class_exists( 'BizCity_Diagnostics_Auto_Create' ) && ( $existing || $diagnostics_context ) ) {
 			$reconcile = BizCity_Diagnostics_Auto_Create::run( self::TABLE_SUFFIX );
 			if ( empty( $reconcile['ok'] ) ) {
-				error_log( '[BizCity_Memory_Unified_Installer] additive schema reconcile failed for ' . $table . ' action=' . (string) ( $reconcile['action'] ?? 'unknown' ) );
+				// [2026-08-25 Johnny Chu] PHASE-1.24 — expose bounded schema reason buckets so CI distinguishes JSON, CREATE, and additive ALTER failures without logging full SQL.
+				$schema_errors = is_array( $reconcile['errors'] ?? null ) ? array_slice( $reconcile['errors'], 0, 2 ) : array();
+				$schema_errors = array_map( static function ( $error ) {
+					$error = preg_replace( '/\s+/', ' ', (string) $error );
+					return substr( $error, 0, 220 );
+				}, $schema_errors );
+				error_log( '[BizCity_Memory_Unified_Installer] additive schema reconcile failed for ' . $table . ' action=' . (string) ( $reconcile['action'] ?? 'unknown' ) . ' errors=' . implode( ' | ', $schema_errors ) );
 				return false;
 			}
 		} elseif ( $diagnostics_context ) {

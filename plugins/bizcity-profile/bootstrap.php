@@ -68,7 +68,12 @@ if ( ! class_exists( 'BizCity_WebChat_Database', false ) && defined( 'BIZCITY_TW
 	}
 	unset( $_profile_webchat_database );
 }
-require_once BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-wheel-provider.php';
+// [2026-08-25 Johnny Chu] PHASE-1.24 — keep the optional wheel provider from making Profile activation fatal when the vendor adapter artifact is absent.
+$_profile_wheel_provider = BIZCITY_PERSONAL_DIR . 'includes/profile/class-personal-profile-wheel-provider.php';
+if ( is_readable( $_profile_wheel_provider ) ) {
+	require_once $_profile_wheel_provider;
+}
+unset( $_profile_wheel_provider );
 // [2026-08-21 Johnny Chu] PHASE-TWIN-BRAIN-PROFILE — repair provider registration after mixed/legacy loader paths so the registry never exposes an empty Mabel catalog.
 if ( class_exists( 'BizCity_Profile_Wheel_Provider_Registry' )
 	&& class_exists( 'BizCity_Profile_Mabel_Wheel_Provider' )

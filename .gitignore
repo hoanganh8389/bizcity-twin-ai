@@ -32,9 +32,7 @@ vendor/
 /plugins/bizcoach-pro/
 
 # bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).
-/plugins/bizcity-twin-crm/
 
-/plugins/bizcity-zalo-personal/
 /core/intent/includes/backup-legacy/
 /core/intent/logs/
 

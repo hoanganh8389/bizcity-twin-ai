@@ -71,6 +71,21 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-filestore-backfill.ph
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-filestore-diagnostic.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-graph-embedding-migration.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-triplet-raw-migration.php';
+
+// [2026-08-25 Johnny Chu] PHASE-1.24 — register the filestore interval at the KG owner boundary so cron rescheduling works when the main plugin schedule filter is not loaded.
+if ( ! function_exists( 'bizcity_kg_register_filestore_schedule' ) ) {
+	function bizcity_kg_register_filestore_schedule( $schedules ) {
+		// [2026-08-25 Johnny Chu] PHASE-1.24 — preserve the canonical schedule name used by all KG filestore migration hooks.
+		if ( ! isset( $schedules['bizcity_kg_5min'] ) ) {
+			$schedules['bizcity_kg_5min'] = array(
+				'interval' => 5 * MINUTE_IN_SECONDS,
+				'display'  => 'KG Filestore (5 min)',
+			);
+		}
+		return $schedules;
+	}
+}
+add_filter( 'cron_schedules', 'bizcity_kg_register_filestore_schedule', 1 );
 BizCity_KG_Filestore_Backfill::instance()->bind();
 // [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — migrate legacy entity/relation embedding LONGTEXT to .embed.bin sidecars.
 BizCity_KG_Graph_Embedding_Migration::instance()->bind();

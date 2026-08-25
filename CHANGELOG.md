@@ -13,6 +13,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### PHASE-0.39F F5 inbound assignment and F6 conversation board — 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| F5 assignment | Connected auto-assignment to the canonical `crm_conversation_opened` event for new conversations and added `team_id`, `policy_id` and `reason` to repository-owned assignment events. | Local integrated foundation; concurrency, capacity, no-candidate and Runtime DDV pending |
+| F6 board | Added RTK Query board APIs, five-lane Conversation Board, list/board toggle and scoped REST drag/drop with idempotency keys. | Local FE partial; task/opportunity commands, runtime idempotency and browser smoke pending |
+| Validation | Rebuilt CRM `assets/dist/inbox-app.js` and `inbox-app.css`; responsive board and Inbox collapse controls compile successfully. | `npm run build` passed; production WordPress/DDV evidence pending |
+
+### PHASE-0.39F F5/F6 DDV probe and retry safety - 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| Diagnostics | Added read-only `modules.crm.team_assignment_kanban` Disk/Loader/Runtime probe for the F5 assignment hook, F6 routes and normalized no-mutation outcome. | Source wired; WordPress Diagnostics run pending |
+| Board retry | Board move now requires a bounded idempotency key and returns `already_applied` when status/team/assignee already match; unassigned columns follow status semantics. | Local implementation; fixture and production DDV pending |
+
+### PHASE-0.39F F7/F8 member CRM scope projection - 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| F7 scope | Added structured `BizCity_CRM_Inbox_Access::resolve_scope()` with admin/owner-or-member/empty scope, inbox IDs, channel types and safe field-projection flags while preserving the legacy ID API. | Local partial; provider-specific ownership union and two-user isolation pending |
+| F8 projection | Added identity-first `/bizcity-twinweb/v1/crm/me`, repository member filters and read-only conversations, care tasks and Woo order summaries in the existing My Channels owner screen. | Local backend/UI partial; Runtime DDV and browser smoke pending |
+| Diagnostics | Added and queued `modules.twin_gpt.crm_member_scope` read-only Disk/Loader/Runtime probe. | Source wired; WordPress Diagnostics run pending |
+
 ### CI clean checkout and diagnostics activation gate - 2026-08-25
 
 | Area | Change | Status |
@@ -25,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Memory schema | Existing unified memory tables now use Diagnostics Auto-Create for additive repair; `dbDelta()` is limited to fresh creation to avoid invalid `ALTER ... ADD` output during CI. | Implemented locally; CI rerun pending |
 | Diagnostics schema guard | Diagnostics CLI now routes fresh and partial Unified Memory tables through the JSON-backed Auto-Create owner and blocks `dbDelta()` fallback when that owner is unavailable. | Implemented locally; CI rerun pending |
 | CI runner parity | Preflight now requires `BizCity_Site_Provisioner::run_all( true )` in `bin/diagnostics-run.php` and rejects the retired direct-installer sequence before probe execution. | Implemented locally; CI rerun pending |
+| Scheduler migration | Scheduler now skips historical CREATE/RENAME steps when canonical `bizcity_crm_events` is already provisioned, avoiding duplicate-table noise and protecting the automation publish probe. | Implemented locally; CI rerun pending |
+| Scheduler CI gate | Added a shipped-tree preflight requiring the canonical Scheduler migration guard before the Diagnostics matrix starts. | Implemented locally; CI rerun pending |
+| Diagnostics schema loader | Diagnostics bootstrap now loads the changelog loader and additive Auto-Create owner before schema installers and probes, removing Memory Unified repair ordering ambiguity. | Implemented locally; CI rerun pending |
+| Diagnostics loader CI gate | CI now rejects a diagnostics bootstrap that does not preload the R-DCL changelog loader and Auto-Create owner before Site Provisioner/probes. | Implemented locally; CI rerun pending |
+| Memory schema evidence | Unified Memory now logs bounded Auto-Create `action/errors` reason buckets when reconciliation fails, allowing the next CI run to distinguish JSON, CREATE, and ADD-only schema failures without exposing full SQL. | Implemented locally; CI rerun pending |
+| Production loader hardening | Profile wheel provider is optional at bootstrap, and KG-Hub owns registration of the `bizcity_kg_5min` interval used by filestore migration cron hooks. | Implemented locally; production deploy verification pending |
 | Roadmap | Made the two PHASE-1.24 audit roadmaps trackable and recorded the remaining WordPress matrix and Diagnostics JUnit gates. | Implemented locally; CI rerun pending |
 
 ### Facebook webhook dùng duy nhất callback Plan B — 2026-08-25
