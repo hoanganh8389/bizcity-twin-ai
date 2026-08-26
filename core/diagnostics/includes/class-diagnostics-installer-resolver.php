@@ -42,7 +42,7 @@ final class BizCity_Diagnostics_Installer_Resolver {
 		// 'core/bizcity-market'     => 'market',
 		'modules/twinchat/learning'  => 'kg_hub',
 		'modules/twinchat/studio'    => 'studio_job',
-		'extensions/bizcity-webchat' => 'webchat',
+		'modules/webchat'            => 'webchat',
 		'plugins/bizcity-twin-crm'   => 'crm',
 		'plugins/bizgpt-tool-google' => 'tool_google',
 	];

@@ -33,15 +33,15 @@
     },
     {
       "id": "bizcity.webchat",
-      "path": "extensions/bizcity-webchat",
+      "path": "modules/webchat",
       "kind": "framework_integrated",
       "status": "partial",
-      "tier": "extension",
+      "tier": "module",
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
       "manifest": null,
-      "bootstrap": "extensions/bizcity-webchat/bootstrap.php",
+      "bootstrap": "modules/webchat/bootstrap.php",
       "required_surfaces": ["channel_normalized", "identity_scoping", "sse_events", "error_envelope"]
     },
     {
@@ -160,62 +160,6 @@
       "required_surfaces": ["identity_scoping", "profile_routes", "runtime_probe"]
     },
     {
-      "id": "bizcity.tool-content",
-      "path": "plugins/bizcity-tool-content",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "tier": "optional",
-      "db_reversible": false,
-      "teardown_implemented": true,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": null,
-      "bootstrap": "plugins/bizcity-tool-content/bizcity-tool-content.php",
-      "required_surfaces": ["gateway_client", "content_pipeline", "error_envelope", "runtime_probe"]
-    },
-    {
-      "id": "bizcity.video-kling",
-      "path": "plugins/bizcity-video-kling",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "tier": "optional",
-      "db_reversible": false,
-      "teardown_implemented": true,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": null,
-      "bootstrap": "plugins/bizcity-video-kling/bizcity-video-kling.php",
-      "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "idempotency", "error_envelope", "runtime_probe"]
-    },
-    {
-      "id": "bizcity.tool-image",
-      "path": "plugins/bizcity-tool-image",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "tier": "optional",
-      "db_reversible": false,
-      "teardown_implemented": true,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": null,
-      "bootstrap": "plugins/bizcity-tool-image/bizcity-tool-image.php",
-      "required_surfaces": ["gateway_client", "network_policy", "upload_policy", "error_envelope", "runtime_probe"]
-    },
-    {
-      "id": "bizcity.doc",
-      "path": "plugins/bizcity-doc",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "tier": "optional",
-      "db_reversible": false,
-      "teardown_implemented": true,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": null,
-      "bootstrap": "plugins/bizcity-doc/bizcity-doc.php",
-      "required_surfaces": ["gateway_client", "network_policy", "error_envelope", "runtime_probe"]
-    },
-    {
       "id": "bizcity.bizcoach-pro",
       "path": "plugins/bizcoach-pro",
       "kind": "framework_integrated",
@@ -236,34 +180,6 @@
       "manifest": null,
       "bootstrap": "plugins/bizcity-zalo-bizcity/bootstrap.php",
       "required_surfaces": ["adapter_boundary", "channel_normalized", "ddl_governance", "error_envelope"]
-    },
-    {
-      "id": "bizcity.google-tool",
-      "path": "plugins/bizgpt-tool-google",
-      "kind": "framework_integrated",
-      "status": "review",
-      "tier": "optional",
-      "db_reversible": false,
-      "teardown_implemented": true,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": null,
-      "bootstrap": "plugins/bizgpt-tool-google/bizgpt-tool-google.php",
-      "required_surfaces": ["secret_boundary", "ddl_governance", "cron_meta", "runtime_probe"]
-    },
-    {
-      "id": "bizcity.content-creator",
-      "path": "plugins/bizcity-content-creator",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "tier": "optional",
-      "db_reversible": false,
-      "teardown_implemented": true,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": null,
-      "bootstrap": "plugins/bizcity-content-creator/bizcity-content-creator.php",
-      "required_surfaces": ["cache_contract", "ddl_governance", "error_envelope", "runtime_probe"]
     }
   ]
 }

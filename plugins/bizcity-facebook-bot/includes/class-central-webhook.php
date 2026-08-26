@@ -88,7 +88,12 @@ class BizCity_Facebook_Central_Webhook {
      * Handle ?facehook=1 query param (fallback for non-pretty-permalink setups).
      */
     public function handle_facehook_query() {
-        if ( ! isset( $_GET['facehook'] ) || (string) $_GET['facehook'] !== '1' ) {
+        $is_facehook_param = isset( $_GET['facehook'] ) && (string) $_GET['facehook'] === '1';
+        $request_uri       = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+        // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — handle the canonical URI even before rewrite_rules has been refreshed.
+        $is_facehook_uri = (bool) preg_match( '#^/facehook/?(?:\?|$)#', $request_uri );
+
+        if ( ! $is_facehook_param && ! $is_facehook_uri ) {
             return;
         }
         $this->process_central_webhook();

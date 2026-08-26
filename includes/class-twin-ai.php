@@ -143,7 +143,8 @@ class BizCity_Twin_AI {
         $dest_dir = rtrim( WPMU_PLUGIN_DIR, '/\\' );
         $dest = $dest_dir . '/bizcity-twin-compat.php';
 
-        if ( ! file_exists( $src ) ) {
+        // [2026-08-26 Johnny Chu] R-AUTO-MU — the bundle source is the only authority; a missing or unreadable source cannot overwrite the client MU loader.
+        if ( ! is_file( $src ) || ! is_readable( $src ) ) {
             return false;
         }
 
@@ -160,7 +161,13 @@ class BizCity_Twin_AI {
             return false;
         }
 
-        if ( file_exists( $dest ) && $src_hash === md5_file( $dest ) ) {
+        $compat_status = self::compat_loader_status();
+        $src_version   = $compat_status['source_version'];
+        $dest_version  = $compat_status['client_version'];
+        $version_drift = ! $compat_status['version_match'];
+        $hash_drift    = ! is_file( $dest ) || ! is_readable( $dest ) || $src_hash !== md5_file( $dest );
+        // [2026-08-26 Johnny Chu] R-AUTO-MU — version drift is authoritative; hash is only a fallback when the source has no version marker.
+        if ( ! $version_drift && ( '' !== $src_version || ! $hash_drift ) ) {
             return true;
         }
 
@@ -175,6 +182,51 @@ class BizCity_Twin_AI {
 
         // Windows hosts may reject rename() over an existing file; retain a direct-copy fallback.
         return @copy( $src, $dest );
+    }
+
+    /**
+     * Report canonical and deployed twin-compat loader state without executing either file.
+     *
+     * @return array{source_exists:bool,client_exists:bool,source_version:string,client_version:string,version_match:bool,current:bool}
+     */
+    public static function compat_loader_status(): array {
+        $source = defined( 'BIZCITY_TWIN_AI_DIR' )
+            ? BIZCITY_TWIN_AI_DIR . 'mu-plugin/bizcity-twin-compat.php'
+            : '';
+        $client = defined( 'WPMU_PLUGIN_DIR' ) && '' !== WPMU_PLUGIN_DIR
+            ? rtrim( WPMU_PLUGIN_DIR, '/\\' ) . '/bizcity-twin-compat.php'
+            : '';
+        $source_exists  = '' !== $source && is_file( $source ) && is_readable( $source );
+        $client_exists  = '' !== $client && is_file( $client ) && is_readable( $client );
+        $source_version = $source_exists ? self::compat_loader_version( $source ) : '';
+        $client_version = $client_exists ? self::compat_loader_version( $client ) : '';
+        $version_match  = $source_version !== '' && $source_version === $client_version;
+
+        return array(
+            'source_exists'  => $source_exists,
+            'client_exists'  => $client_exists,
+            'source_version' => $source_version,
+            'client_version' => $client_version,
+            'version_match'  => $version_match,
+            'current'        => $source_exists && $client_exists && $version_match,
+        );
+    }
+
+    /**
+     * Read the compat version marker without executing a client MU artifact.
+     *
+     * @param string $path Absolute PHP file path.
+     * @return string
+     */
+    private static function compat_loader_version( string $path ): string {
+        if ( ! is_file( $path ) || ! is_readable( $path ) ) {
+            return '';
+        }
+        $contents = @file_get_contents( $path );
+        if ( false === $contents || ! preg_match( '/@version\s+([0-9]+\.[0-9]+\.[0-9]+)/', $contents, $match ) ) {
+            return '';
+        }
+        return (string) $match[1];
     }
 
     /**

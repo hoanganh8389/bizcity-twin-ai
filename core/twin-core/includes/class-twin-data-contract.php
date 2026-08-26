@@ -77,7 +77,7 @@ class BizCity_Twin_Data_Contract {
 					'bizcity_webchat_sessions',
 					'bizcity_webchat_projects',
 				],
-				'owner'      => 'extensions/bizcity-webchat',
+				'owner'      => 'modules/webchat',
 				'role'       => 'legacy session/project projections under staged quarantine',
 				'min_fields' => [ 'session_id', 'project_id' ],
 			],

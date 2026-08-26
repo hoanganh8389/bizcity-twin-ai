@@ -58,11 +58,16 @@ final class BizCity_Probe_WebChat_Surface implements BizCity_Diagnostics_Probe {
 		// [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-SURFACE — verify moved extension contracts without provider or data writes.
 		$steps = array();
 		$pass  = true;
-		$emit  = function ( $label, $ok, $detail ) use ( $ctx, &$steps, &$pass ) {
+		$emit  = function ( $label, $ok, $detail, $status = '' ) use ( $ctx, &$steps, &$pass ) {
 			$step = array( 'label' => $label, 'status' => $ok ? 'pass' : 'fail', 'detail' => $detail );
+			if ( $status !== '' ) {
+				$step['status'] = $status;
+			}
 			$steps[] = $step;
 			$ctx->emit_step( $step );
-			$pass = $pass && $ok;
+			if ( $status !== 'skip' ) {
+				$pass = $pass && $ok;
+			}
 		};
 
 		$shortcodes_ok = shortcode_exists( 'bizcity_webchat' ) && shortcode_exists( 'bizcity_webchat_timeline' );
@@ -80,9 +85,10 @@ final class BizCity_Probe_WebChat_Surface implements BizCity_Diagnostics_Probe {
 			$rest_hook_ok ? 'bizcity-webchat/v1 REST registration hook is attached.' : 'WebChat REST registration hook is missing.'
 		);
 
+		$rest_available = function_exists( 'rest_get_server' );
 		$route_status = 'REST server unavailable; route enumeration deferred to REST smoke.';
-		$route_ok = true;
-		if ( function_exists( 'rest_get_server' ) ) {
+		$route_ok = $rest_available;
+		if ( $rest_available ) {
 			$routes = rest_get_server()->get_routes();
 			$route_ok = false;
 			foreach ( array_keys( (array) $routes ) as $route ) {
@@ -93,7 +99,7 @@ final class BizCity_Probe_WebChat_Surface implements BizCity_Diagnostics_Probe {
 			}
 			$route_status = $route_ok ? 'GET /bizcity-webchat/v1/ready is registered.' : 'REST server is available but the WebChat ready route is missing.';
 		}
-		$emit( 'Runtime - WebChat ready route', $route_ok, $route_status );
+		$emit( 'Runtime - WebChat ready route', $route_ok, $route_status, $rest_available ? '' : 'skip' );
 
 		$required_routes = array( '/ready', '/send', '/inbox', '/list', '/conversation/', '/timeline' );
 		$missing_routes = array();
@@ -112,11 +118,14 @@ final class BizCity_Probe_WebChat_Surface implements BizCity_Diagnostics_Probe {
 				}
 			}
 		}
-		$routes_ok = empty( $missing_routes );
+		$routes_ok = $rest_available && empty( $missing_routes );
 		$emit(
 			'Runtime - WebChat REST route family',
 			$routes_ok,
-			$routes_ok ? 'ready/send/inbox/list/conversation/timeline route family is registered.' : 'Missing WebChat REST routes: ' . implode( ', ', $missing_routes )
+			! $rest_available
+				? 'REST server is unavailable in this execution surface; route-family check is deferred to REST smoke.'
+				: ( $routes_ok ? 'ready/send/inbox/list/conversation/timeline route family is registered.' : 'Missing WebChat REST routes: ' . implode( ', ', $missing_routes ) ),
+			! $rest_available ? 'skip' : ''
 		);
 
 		return array(

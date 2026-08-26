@@ -42,6 +42,9 @@ for (const [collectionName, packages] of collections) {
     if (plugin.kind === 'reference' && plugin.manifest === null) {
       errors.push(`${prefix} reference package must declare a manifest`);
     }
+    if (plugin.tier === 'optional') {
+      errors.push(`${prefix} optional feature plugins are outside the framework contract registry`);
+    }
   }
 }
 

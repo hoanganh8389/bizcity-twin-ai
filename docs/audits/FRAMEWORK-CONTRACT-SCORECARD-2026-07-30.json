@@ -104,7 +104,7 @@
   "module_matrix": [
     {"package":"modules/twinchat","status":"partial","primary_gaps":["manifest_adoption","runtime_probe_evidence","gateway_boundary_coverage"]},
     {"package":"modules/twinweb","status":"partial","primary_gaps":["manifest_adoption","ownership_runtime_probe","same_origin_proxy_evidence"]},
-    {"package":"extensions/bizcity-webchat","status":"partial","primary_gaps":["error_envelope_adoption","runtime_probe_evidence","channel_identity_continuity"]},
+    {"package":"modules/webchat","status":"partial","primary_gaps":["error_envelope_adoption","runtime_probe_evidence","channel_identity_continuity"]},
     {"package":"modules/twinsearch","status":"review","primary_gaps":["wrapper_contract_evidence","reliable_http_probe","runtime_surface_inventory"]},
     {"package":"modules/twinshell","status":"partial","primary_gaps":["capability_manifest","runtime_probe_evidence","error_envelope_adoption"]},
     {"package":"modules/twinsource","status":"review","primary_gaps":["source_contract_evidence","ownership_probe","cache_contract_evidence"]}

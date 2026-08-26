@@ -69,6 +69,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Diagnostics | Extended `modules.crm.team_assignment_kanban` with route and invalid-object no-mutation checks. | Source wired; WordPress Diagnostics run pending |
 | Checklist | Marked only the local S3 command foundation item; valid move matrix, conflict/timeout replay and Woo HPOS invariance remain open. | ACTIVE / PRE-RELEASE |
 
+### PHASE-0.39F Group Inbox normalization and filtering - 2026-08-25
+
+| Area | Change | Status |
+|---|---|---|
+| Inbound | Forwarded Zalo Personal `thread_kind`, `thread_id`, `group_id` and `group_name`; group mappings retain `thread_kind=group`. | Implemented locally; Runtime group fixture pending |
+| CRM | Multiple group senders now share `group:<thread_id>` as the CRM source key while sender identity remains message metadata. | Implemented locally; old flattened-contact reconciliation pending |
+| Inbox UI | Added shared group/private selector for list and board, group DTO/card fields and export filter parity. | CRM build passed; browser/runtime evidence pending |
+| Outbound | Propagated `thread_kind=group` through client, Hub client and ZCA route so Group replies do not target a user recipient. | ZCA build and regression suite passed; deployed bridge evidence pending |
+| Diagnostics | Added read-only `modules.crm.group_inbox` probe and queued it in central Diagnostics. | Source wired; WordPress Diagnostics run pending |
+
 ### CI clean checkout and diagnostics activation gate - 2026-08-25
 
 | Area | Change | Status |
@@ -622,8 +632,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### R-PERF/R-CACHE audit ledger — 2026-08-09
 
+
 | Area | Canonical record | Change / evidence | Status | Next action |
 |---|---|---|---|---|
+| Bundled plugin activation boundary | `R-SAFE-LOADER` + `R-AUTO-MU` | Removed nested bundled-plugin injection into WordPress `get_plugins()`/`all_plugins`, added stale activation-entry cleanup, and made `bizcity-twin-compat.php` source/version drift auto-sync from `mu-plugin/`. | Fixed locally 2026-08-26 | Deploy both compat/main loader artifacts and verify a clean host lists only the top-level plugin; rerun Diagnostics on the deployed runtime. |
 | Diagnostics probe lazy queue | `R-PERF-LOADER` + `R-DDV` | Removed an early `bizcity_diagnostics_load_probes_once()` flush from `core/diagnostics/bootstrap.php`; it could mark the loader complete before the remaining probe queue declarations were registered, leaving the Diagnostics catalog empty or incomplete. | Fixed locally 2026-08-16 | Deploy to the affected site and verify `GET /wp-json/bizcity-diagnostics/v1/smoke/probes` returns a non-empty catalog as an admin. |
 | Canonical loader rule | `R-PERF-LOADER` + `R-DDV` | Codified PHASE-1.23 lessons: surface-scoped loading, pre-`plugins_loaded` evidence, compat/main/bundle parity, shell iframe isolation, file/class delta as primary signal, and QM A/B instrumentation. The observed shell gates reduced approximately 6 MB and are now mandatory guidance for new core/module/plugin loaders. | Fixed locally | Read `docs/rules/PHASE-0-RULE-PERFORMANCE-LOADER.md` before any loader/context-gate change. |
 | PHASE-1.23 roadmap status | `R-PERF-LOADER` + `R-DDV` | Updated the root-cause document from analysis-only to implementation status: Wave 1–3 done locally, Wave 5 in progress, Wave 4 WooCommerce REST profiling next, and Wave 6 surface manifest/thin cron bridge planned. Added A/B, regression matrix and stop conditions. | Fixed locally | Establish deploy parity and route-level Woo evidence before shared-runtime changes. |

@@ -5,7 +5,6 @@
  *
  * @package    Bizcity_Twin_Claw
  * @subpackage Core
- * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
  * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
  * @license    GPL-2.0-or-later
  * @link       https://bizcity.vn
@@ -201,6 +200,8 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
         || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/wp-json/' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/bizhook/' )
+        // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — load the gateway client for the canonical central Facebook endpoint.
+        || false !== strpos( $bizcity_llm_bootstrap_uri, '/facehook/' )
         // [2026-08-13 Johnny Chu] HOTFIX-ZALO-LLM-LOADER — the Zalo Bot rewrite is /zalohook/, so load the gateway client before TwinBrain synthesis.
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/zalohook/' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/tool-' )
@@ -238,8 +239,10 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 			&& (
 				false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
-				|| false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
-				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
+                // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — keep the canonical /facehook/ request inside the backend gate.
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/facehook/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], 'fbhook=1' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
                 // [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX — public upload-link
@@ -354,6 +357,8 @@ $_bizcity_admin_ctx =
             // core/channel-gateway (and thus BizCity_CG_Debug_Logger) would NOT load during FB
             // webhook requests, making the referral → campaign dispatch flow unloggable.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' ) 
+            // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — canonical central Facebook webhook path.
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/facehook/' )
             || false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )   // Facebook pretty webhook
             || false !== strpos( $_SERVER['REQUEST_URI'], 'fbhook=1' )     // Facebook legacy ?fbhook=1
             // [2026-06-09 Johnny Chu] PERF-2 — bizcity agent tool pages so tool plugins still
@@ -530,6 +535,8 @@ $_bizcity_automation_runtime_request =
     || preg_match( '#^/flow(?:/|\?|$)#', $_bizcity_automation_uri )
     || false !== strpos( $_bizcity_automation_uri, '/bizhook/' )
     || false !== strpos( $_bizcity_automation_uri, '/bizfbhook' )
+    // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — load automation dependencies for central Facebook dispatch.
+    || false !== strpos( $_bizcity_automation_uri, '/facehook/' )
     || false !== strpos( $_bizcity_automation_uri, '/zalohook/' )
     || false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'fbhook=1' );
 if ( $_bizcity_automation_runtime_request
@@ -631,8 +638,13 @@ $_bizcity_diagnostics_ctx =
     || ( defined( 'WP_CLI' ) && WP_CLI )
     || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
     || ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/bizcity-diagnostics/' ) );
-if ( $_bizcity_diagnostics_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/diagnostics/bootstrap.php';
+// [2026-08-26 Johnny Chu] R-SAFE-LOADER — Diagnostics entrypoint must degrade safely when its optional bootstrap artifact is absent or unreadable.
+if ( $_bizcity_diagnostics_ctx
+    && ! $_bizcity_twinchat_admin_page
+    && class_exists( 'BizCity_Safe_Loader', false )
+    && is_file( __DIR__ . '/core/diagnostics/bootstrap.php' )
+    && is_readable( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
+    BizCity_Safe_Loader::require_file( __DIR__ . '/core/diagnostics/bootstrap.php', 'diagnostics.bootstrap' );
 }
 
 // Test pages — archived 2026-06-01, moved to tests/_archived/
@@ -791,8 +803,13 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         }
         unset( $_crm_has_inbox_access );
     }
-    if ( is_dir( $_bundled_dir ) && file_exists( $_bundled_file ) ) {
-        require_once $_bundled_file;
+    // [2026-08-26 Johnny Chu] R-SAFE-LOADER — bundled feature artifacts are
+    // optional/deployable and must not turn a partial checkout into a fatal.
+    if ( is_dir( $_bundled_dir )
+        && is_file( $_bundled_file )
+        && is_readable( $_bundled_file )
+        && class_exists( 'BizCity_Safe_Loader', false ) ) {
+        BizCity_Safe_Loader::require_file( $_bundled_file, 'bundled.' . $_slug );
     }
 }
 // [2026-08-22 Johnny Chu] PHASE-PROFILE-ROLE-SPLIT — force-load all Profile role routes even when a stale loader already defined its version constant.
@@ -854,11 +871,12 @@ function bizcity_twin_ai_notice_compat_loader(): void {
         return;
     }
 
+    $compat_status = BizCity_Twin_AI::compat_loader_status();
     $dest = WPMU_PLUGIN_DIR . '/bizcity-twin-compat.php';
     $src  = BIZCITY_TWIN_AI_DIR . 'mu-plugin/bizcity-twin-compat.php';
 
-    // Both exist and identical — nothing to show
-    if ( file_exists( $dest ) && file_exists( $src ) && md5_file( $src ) === md5_file( $dest ) ) {
+    // [2026-08-26 Johnny Chu] R-AUTO-MU — version match is the canonical current-state check; source/deployed comments may differ harmlessly.
+    if ( ! empty( $compat_status['current'] ) ) {
         return;
     }
 

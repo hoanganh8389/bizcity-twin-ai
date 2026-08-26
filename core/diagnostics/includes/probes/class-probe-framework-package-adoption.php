@@ -1,6 +1,6 @@
 <?php
 /**
- * DDV probe for the Phase 1.24 PageBuilder and Video Kling adoption slice.
+ * DDV probe for the Phase 1.24 PageBuilder adoption slice and optional Video Kling feature.
  *
  * Uses source markers and mock gateway HTTP only. No provider credential or
  * production mutation is used.
@@ -12,7 +12,21 @@
 
 defined( 'ABSPATH' ) || exit;
 
-require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
+// [2026-08-25 Johnny Chu] R-SAFE-LOADER — load the probe contract through the guarded core loader.
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+	$_bizcity_safe_loader = dirname( __DIR__, 4 ) . '/core/helper/class-bizcity-safe-loader.php';
+	if ( is_file( $_bizcity_safe_loader ) && is_readable( $_bizcity_safe_loader ) ) {
+		require_once $_bizcity_safe_loader;
+	}
+	unset( $_bizcity_safe_loader );
+}
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+	return;
+}
+if ( ! interface_exists( 'BizCity_Diagnostics_Probe', false )
+	&& ! BizCity_Safe_Loader::require_file( dirname( __DIR__ ) . '/interface-diagnostics-probe.php', 'diagnostics.probe_interface' ) ) {
+	return;
+}
 
 if ( class_exists( 'BizCity_Probe_Framework_Package_Adoption', false ) ) {
 	return;
@@ -21,21 +35,18 @@ if ( class_exists( 'BizCity_Probe_Framework_Package_Adoption', false ) ) {
 final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnostics_Probe {
 
 	public function id(): string { return 'core.framework.package_adoption'; }
-	public function label(): string { return 'Phase 1.24 PageBuilder and Video Kling adoption'; }
-	public function description(): string { return 'Kiểm tra error envelope, mutation boundary, Video client và quarantine provider bằng mock gateway.'; }
+	public function label(): string { return 'Phase 1.24 PageBuilder adoption + optional Video Kling'; }
+	public function description(): string { return 'Kiểm tra error envelope, mutation boundary và PageBuilder; chỉ kiểm tra Video client bằng mock khi plugin phụ được deploy.'; }
 	public function severity(): string { return 'critical'; }
 	public function order(): int { return 21; }
 	public function icon(): string { return 'package-check'; }
 	public function estimate_ms(): int { return 400; }
 	public function precondition() {
 		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( dirname( dirname( dirname( dirname( __FILE__ ) ) ) ) ) . '/';
-		$optional_dirs = array(
-			$root . 'plugins/bizcity-pagebuilder',
-			$root . 'plugins/bizcity-video-kling',
-		);
-		foreach ( $optional_dirs as $dir ) {
+		$required_dirs = array( $root . 'plugins/bizcity-pagebuilder' );
+		foreach ( $required_dirs as $dir ) {
 			if ( ! is_dir( $dir ) ) {
-				return new WP_Error( 'optional_package_missing', 'PageBuilder/Video Kling proprietary package is not deployed in this CI checkout.' );
+				return new WP_Error( 'required_package_missing', 'PageBuilder framework package is not deployed in this CI checkout.' );
 			}
 		}
 		return true;
@@ -54,61 +65,61 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 			'plugins/bizcity-pagebuilder/app/src/api.ts',
 			'plugins/bizcity-pagebuilder/assets/dist/pagebuilder-app.js',
 		);
-		$video_files = array(
+		$video_plugin_files = array(
 			'plugins/bizcity-video-kling/lib/kling_api.php',
 			'plugins/bizcity-video-kling/includes/class-tools-kling.php',
-			'core/bizcity-llm/includes/class-video-client.php',
 		);
+		$video_available = is_dir( $root . 'plugins/bizcity-video-kling' );
 		$missing = array();
-		foreach ( array_merge( $pagebuilder_files, $pagebuilder_transport_files, $video_files ) as $relative ) {
+		foreach ( array_merge( $pagebuilder_files, $pagebuilder_transport_files ) as $relative ) {
 			if ( ! is_readable( $root . $relative ) ) {
 				$missing[] = $relative;
 			}
 		}
 		$steps[] = array(
-			'label'  => 'Disk — PageBuilder and Video adoption files exist',
+			'label'  => 'Disk — PageBuilder adoption files exist',
 			'status' => empty( $missing ) ? 'pass' : 'fail',
-			'detail' => empty( $missing ) ? 'Required package files are readable.' : implode( ', ', $missing ),
+			'detail' => empty( $missing ) ? 'Framework-facing PageBuilder files are readable.' : implode( ', ', $missing ),
 		);
 		if ( ! empty( $missing ) ) {
-			return array( 'status' => 'fail', 'summary' => 'Package adoption files are missing.', 'steps' => $steps );
+			return array( 'status' => 'fail', 'summary' => 'PageBuilder adoption files are missing.', 'steps' => $steps );
 		}
 
 		$pagebuilder_source = $this->read_sources( $root, $pagebuilder_files );
-		$video_source       = $this->read_sources( $root, $video_files );
 		$pagebuilder_transport_source = $this->read_sources( $root, $pagebuilder_transport_files );
+		$video_source = $video_available ? $this->read_sources( $root, $video_plugin_files ) : '';
 		$pagebuilder_static = false !== strpos( $pagebuilder_source, 'BizCity_Error_Payload' )
 			&& false !== strpos( $pagebuilder_source, 'send_submission_error' )
 			&& false !== strpos( $pagebuilder_source, 'rest_error' );
-		$video_static = false === strpos( $video_source, 'bizcity_video_kling_api_key' )
+		$video_static = ! $video_available || ( false === strpos( $video_source, 'bizcity_video_kling_api_key' )
 			&& false === strpos( $video_source, 'bizcity_video_kling_openai_api_key' )
 			&& false === strpos( $video_source, 'twf_openai_api_key' )
 			&& false === strpos( $video_source, 'api.piapi.ai' )
 			&& false === strpos( $video_source, 'api.openai.com' )
-			&& false !== strpos( $video_source, 'BizCity_Video_Client' );
+			&& false !== strpos( $video_source, 'BizCity_Video_Client' ) );
 		$pagebuilder_transport_static = false !== strpos( $pagebuilder_transport_source, 'saveProject' )
 			&& false !== strpos( $pagebuilder_transport_source, 'deleteProject' )
 			&& false !== strpos( $pagebuilder_transport_source, 'publishProject' )
 			&& false !== strpos( $pagebuilder_transport_source, 'X-Idempotency-Key' );
 		$steps[] = array(
-			'label'  => 'Disk — package boundary markers and provider quarantine',
-			'status' => $pagebuilder_static && $video_static && $pagebuilder_transport_static ? 'pass' : 'fail',
-			'detail' => wp_json_encode( array( 'pagebuilder_error_boundary' => $pagebuilder_static, 'pagebuilder_mutation_transport' => $pagebuilder_transport_static, 'video_provider_quarantine' => $video_static ) ),
+			'label'  => 'Disk — PageBuilder boundary markers and optional Video provider quarantine',
+			'status' => $pagebuilder_static && $pagebuilder_transport_static ? 'pass' : 'fail',
+			'detail' => wp_json_encode( array( 'pagebuilder_error_boundary' => $pagebuilder_static, 'pagebuilder_mutation_transport' => $pagebuilder_transport_static, 'video_provider_quarantine' => $video_available ? $video_static : 'skip_optional_absent' ) ),
 		);
 
 		$loaded = class_exists( 'BizCity_Error_Payload' )
 			&& class_exists( 'BizCity_Twin_Mutation_Guard' )
 			&& class_exists( 'BizCity_Twin_Mutation_Store' )
-			&& class_exists( 'BizCity_Video_Client' )
-			&& method_exists( 'BizCity_Video_Client', 'submit' )
-			&& method_exists( 'BizCity_Video_Client', 'get_status' );
+			&& ( ! $video_available || ( class_exists( 'BizCity_Video_Client' )
+				&& method_exists( 'BizCity_Video_Client', 'submit' )
+				&& method_exists( 'BizCity_Video_Client', 'get_status' ) ) );
 		$pagebuilder_rest_file = $root . 'plugins/bizcity-pagebuilder/includes/class-rest-api.php';
 		if ( ! class_exists( 'BZPB_Rest_API', false ) && is_readable( $pagebuilder_rest_file ) ) {
-			require_once $pagebuilder_rest_file;
+			BizCity_Safe_Loader::require_file( $pagebuilder_rest_file, 'diagnostics.pagebuilder_rest' );
 		}
 		$loaded = $loaded && class_exists( 'BZPB_Rest_API', false ) && method_exists( 'BZPB_Rest_API', 'normalize_rest_error' );
 		$steps[] = array(
-			'label'  => 'Loader — PageBuilder boundary, mutation, and video client classes loaded',
+			'label'  => 'Loader — PageBuilder boundary, mutation, and optional video client classes loaded',
 			'status' => $loaded ? 'pass' : 'fail',
 			'detail' => $loaded ? 'Required classes and methods are loaded.' : 'One or more required classes/methods are unavailable.',
 		);
@@ -253,6 +264,14 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 			'detail' => wp_json_encode( array( 'error_contract' => $error_contract_ok, 'mutation_allowed' => $mutation_ok, 'mutation_denied_before_side_effect' => $mutation_denied_ok, 'rest_error_boundary' => $pagebuilder_error_ok, 'mutation_error_mapping' => $pagebuilder_mutation_error_ok, 'missing_upload_envelope' => $pagebuilder_upload_ok, 'invalid_mime_envelope' => $pagebuilder_invalid_upload_ok, 'attachment_failure_envelope' => $pagebuilder_attachment_failure_ok, 'mutation_store_replay_conflict' => $mutation_store_ok ) ),
 		);
 
+		if ( ! $video_available ) {
+			$steps[] = array(
+				'label'  => 'Runtime — optional Video client mock submit/poll',
+				'status' => 'skip',
+				'detail' => 'Video Kling is not deployed; optional feature probe skipped.',
+			);
+			$video_runtime_ok = true;
+		} else {
 		$captured              = array();
 		$submit_attempts       = 0;
 		$provider_submit_count = 0;
@@ -377,6 +396,7 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 				'header_names' => array_keys( $headers ),
 			) ),
 		);
+		}
 
 		$status = $pagebuilder_static && $video_static && $pagebuilder_transport_static && $error_contract_ok && $mutation_ok && $mutation_denied_ok && $pagebuilder_error_ok && $pagebuilder_mutation_error_ok && $video_runtime_ok ? 'pass' : 'fail';
 		return array(

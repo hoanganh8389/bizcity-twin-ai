@@ -171,7 +171,11 @@ class BizCity_Facebook_Bot_Plugin {
 	 */
 	public function maybe_flush_rewrite_rules() {
 		$rules = get_option( 'rewrite_rules', array() );
-		if ( ! isset( $rules['bizfbhook/?$'] ) && ! isset( $rules['^bizfbhook/?$'] ) ) {
+		// [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — recognize the canonical /facehook/ rule as well as the legacy route.
+		if ( ! isset( $rules['facehook/?$'] )
+			&& ! isset( $rules['^facehook/?$'] )
+			&& ! isset( $rules['bizfbhook/?$'] )
+			&& ! isset( $rules['^bizfbhook/?$'] ) ) {
 			flush_rewrite_rules();
 		}
 	}

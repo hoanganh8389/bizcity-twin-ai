@@ -136,7 +136,20 @@ jobs:
           fi
           git diff --name-only "$base" "$HEAD_SHA" -- 'plugins/**' \
             | awk -F/ 'NF >= 2 && $2 != "_archived" { print "plugins/" $2 }' \
-            | sort -u > build/plugin-diagnostics/changed.txt
+            | sort -u > build/plugin-diagnostics/changed-all.txt
+          php -r '
+            $registry = json_decode( file_get_contents( "docs/contracts/PLUGIN-CONTRACT-REGISTRY-v1.json" ), true );
+            foreach ( (array) ( $registry["plugins"] ?? array() ) as $package ) {
+              if ( ( $package["tier"] ?? "" ) !== "optional" && ! empty( $package["path"] ) ) {
+                echo $package["path"] . PHP_EOL;
+              }
+            }
+          ' > build/plugin-diagnostics/contract-paths.txt
+          while IFS= read -r plugin; do
+            if grep -Fqx "$plugin" build/plugin-diagnostics/contract-paths.txt; then
+              echo "$plugin"
+            fi
+          done < build/plugin-diagnostics/changed-all.txt > build/plugin-diagnostics/changed.txt
           printf 'paths<<EOF\n%s\nEOF\n' "$(tr '\n' ' ' < build/plugin-diagnostics/changed.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Run diagnostics for changed plugins
@@ -156,7 +169,7 @@ jobs:
           } >> "$summary"
 
           if [ -z "${CHANGED_PLUGINS// /}" ]; then
-            echo "No active plugins changed in this revision." >> "$summary"
+            echo "No framework-facing contract plugins changed in this revision; optional feature plugins are outside this gate." >> "$summary"
             exit 0
           fi
 

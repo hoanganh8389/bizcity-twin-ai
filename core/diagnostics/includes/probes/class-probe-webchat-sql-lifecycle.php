@@ -94,8 +94,8 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 		}
 
 		$manifest_path = defined( 'BIZCITY_TWIN_AI_DIR' )
-			? BIZCITY_TWIN_AI_DIR . 'extensions/bizcity-webchat/module.json'
-			: dirname( __DIR__, 4 ) . '/extensions/bizcity-webchat/module.json';
+			? BIZCITY_TWIN_AI_DIR . 'modules/webchat/module.json'
+			: dirname( __DIR__, 4 ) . '/modules/webchat/module.json';
 		$manifest = is_readable( $manifest_path ) ? json_decode( (string) file_get_contents( $manifest_path ), true ) : null;
 		$manifest_policy = is_array( $manifest ) && is_array( $manifest['db_table_lifecycles'] ?? null )
 			? $manifest['db_table_lifecycles']

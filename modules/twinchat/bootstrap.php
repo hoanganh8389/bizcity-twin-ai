@@ -46,12 +46,26 @@ if ( ! defined( 'BIZCITY_TWINCHAT_REST_NS' ) ) {
 	define( 'BIZCITY_TWINCHAT_REST_NS', 'bizcity-twinchat/v1' );
 }
 
+// [2026-08-25 Johnny Chu] R-SAFE-LOADER — bootstrap the canonical loader only through a guarded core artifact path.
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+	$_bizcity_safe_loader = defined( 'BIZCITY_TWIN_AI_DIR' )
+		? BIZCITY_TWIN_AI_DIR . 'core/helper/class-bizcity-safe-loader.php'
+		: dirname( dirname( __DIR__ ) ) . '/core/helper/class-bizcity-safe-loader.php';
+	if ( is_file( $_bizcity_safe_loader ) && is_readable( $_bizcity_safe_loader ) ) {
+		require_once $_bizcity_safe_loader;
+	}
+	unset( $_bizcity_safe_loader );
+}
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+	return;
+}
+
 // [2026-08-07 Johnny Chu] R-PERF - the wp-admin TwinChat page renders only a TwinShell iframe; defer the full backend stack to REST/iframe requests.
 $_bizcity_twinchat_admin_shell_only = is_admin()
 	&& isset( $_GET['page'] )
 	&& in_array( sanitize_key( (string) $_GET['page'] ), array( 'bizcity-twinchat', 'bizcity-twinbrain' ), true );
 if ( $_bizcity_twinchat_admin_shell_only ) {
-	require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php';
+	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php', 'twinchat.admin_menu' );
 	add_action( 'admin_menu', static function () {
 		BizCity_TwinChat_Admin_Menu::instance()->register();
 	}, 20 );
@@ -59,70 +73,71 @@ if ( $_bizcity_twinchat_admin_shell_only ) {
 }
 
 // ── Includes ──────────────────────────────────────────────────────────────
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-database.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-database.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-chunker.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-service.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-context-builder.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-stream-handler.php';
+// [2026-08-25 Johnny Chu] R-SAFE-LOADER — optional/deployable TwinChat artifacts fail gracefully when absent or unreadable.
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-database.php', 'twinchat.database' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-database.php', 'twinchat.sources_database' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-chunker.php', 'twinchat.chunker' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-service.php', 'twinchat.sources_service' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-context-builder.php', 'twinchat.context_builder' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-stream-handler.php', 'twinchat.stream_handler' );
 // [2026-07-14 Johnny Chu] PHASE-0.43 — core keyword search engine for notebook/all-notebook document search.
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-search-engine.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-rest-controller.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-search-engine.php', 'twinchat.search_engine' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-rest-controller.php', 'twinchat.rest_controller' );
 // PHASE-0.41 L6 (R-GW) — Entitlement proxy: client FE → this proxy → gateway.
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-entitlement-proxy.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-entitlement-proxy.php', 'twinchat.entitlement_proxy' );
 // PHASE-0.41 L7 (R-GW-8) — Search proxy: wraps search/router/v1/{query,extract}.
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-search-proxy.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-search-proxy.php', 'twinchat.search_proxy' );
 // PHASE-0.42 — LiteParse sidecar health (status pill in AddSourceDialog).
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-liteparse-health.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-liteparse-health.php', 'twinchat.liteparse_health' );
 // Wave 9 — Brain Workspace tabs aggregator (history / integrations / plans).
-require_once BIZCITY_TWINCHAT_INCLUDES . 'workspace/class-twinchat-workspace-rest.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'workspace/class-twinchat-workspace-rest.php', 'twinchat.workspace_rest' );
 // NotebookLM-parity surface (notes / pin / suggestion-click) — see modules/twinchat/notebooklm/README.md
 // Service must load before controller (controller depends on BizCity_TwinChat_Notes_Service).
-require_once BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-notes-service.php';
-require_once BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-notes-controller.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-notes-service.php', 'twinchat.notes_service' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-notes-controller.php', 'twinchat.notes_controller' );
 // PHASE-6.4-KGHub-IMAGE Wave B — context-bundle endpoint feeding embedded Doc/Image Studio tabs.
-require_once BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-context-bundle-controller.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-public-page.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-context-bundle-controller.php', 'twinchat.context_bundle_controller' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-public-page.php', 'twinchat.public_page' );
 
 // Phase 0.7 / Wave D0 — Pro Learning Diagnostic (admin Tools page).
 // Loads in admin context only; safe at all times since the class self-registers
 // its admin_menu hook only when first accessed (singleton).
 if ( is_admin() ) {
-	require_once BIZCITY_TWINCHAT_INCLUDES . 'diagnostics/class-pro-learning-diagnostic.php';
+	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'diagnostics/class-pro-learning-diagnostic.php', 'twinchat.pro_learning_diagnostic' );
 }
 
 // Phase 0.7 — Studio (port of BCN_Studio for TwinChat notebook scope).
-require_once BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-input-builder.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-input-builder.php', 'twinchat.studio_input_builder' );
 // Phase 0.8 — Job Manager: generic async job layer (must load before studio class).
-require_once BIZCITY_TWINCHAT_INCLUDES . 'studio/class-studio-job-manager.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-rest.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-studio-job-manager.php', 'twinchat.studio_job_manager' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio.php', 'twinchat.studio' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-rest.php', 'twinchat.studio_rest' );
 // Wave 0.7.D — built-in Mindmap tool (Graph-RAG markmap output).
-require_once BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-tools-mindmap.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-tools-mindmap.php', 'twinchat.studio_tools_mindmap' );
 
 // Phase 4.9 — backend learning pipeline + SSE.
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-database.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-events.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-quota-cooldown.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-job-queue.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-notifier.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-pipeline.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-stream.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-extractor-bridge.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-aggregator.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-sweep-cron.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-database.php', 'twinchat.learning_database' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-events.php', 'twinchat.learning_events' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-quota-cooldown.php', 'twinchat.quota_cooldown' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-job-queue.php', 'twinchat.learning_job_queue' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-notifier.php', 'twinchat.learning_notifier' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-pipeline.php', 'twinchat.learning_pipeline' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-stream.php', 'twinchat.learning_stream' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-extractor-bridge.php', 'twinchat.learning_extractor_bridge' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-aggregator.php', 'twinchat.learning_aggregator' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-sweep-cron.php', 'twinchat.learning_sweep_cron' );
 // [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK — stateless share-link adapter (public console-log link + automation action block).
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-share-adapter.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-rest-learning.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-share-adapter.php', 'twinchat.learning_share_adapter' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-rest-learning.php', 'twinchat.rest_learning' );
 
 // Sprint 5.1 — AI Welcome Message after Upload.
-require_once BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-database.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-job-queue.php';
-require_once BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-runner.php';
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-database.php', 'twinchat.welcome_database' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-job-queue.php', 'twinchat.welcome_job_queue' );
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-runner.php', 'twinchat.welcome_runner' );
 
 if ( is_admin() ) {
-	require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php';
-	require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-settings-page.php';
+	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php', 'twinchat.admin_menu' );
+	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-settings-page.php', 'twinchat.settings_page' );
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────

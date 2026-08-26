@@ -4,7 +4,7 @@
  *
  * Outbound writes to `wp_bizcity_webchat_messages` so the visitor float widget
  * picks the row up on its next `/wp-json/bizcity-webchat/v1/pull`. Inbound is
- * still handled by `extensions/bizcity-webchat/includes/class-webchat-trigger.php` which
+ * still handled by `modules/webchat/includes/class-webchat-trigger.php` which
  * also emits the canonical `wu_webchat_message_received` action (W1) so
  * Universal_Channel_Listener mirrors it into `_bizcity_channel_messages`.
  *

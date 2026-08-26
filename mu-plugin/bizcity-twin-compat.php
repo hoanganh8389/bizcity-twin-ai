@@ -21,9 +21,14 @@
  *   4. plugins_loaded @11 fires → twin-ai boots → class_exists guard → skip ✓
  *
  * @package BizCity_Intent
- * @version 1.0.0
+ * @version 1.1.0
  */
 defined( 'ABSPATH' ) || exit;
+
+// [2026-08-26 Johnny Chu] R-AUTO-MU — canonical compat version owned by this bundle source.
+if ( ! defined( 'BIZCITY_TWIN_COMPAT_VERSION' ) ) {
+    define( 'BIZCITY_TWIN_COMPAT_VERSION', '1.1.0' );
+}
 
 // Fingerprint — xác nhận file đúng version (bật khi cần debug)
 // error_log( '[BizCity Compat] mu-plugin loaded — v2026.0324b — ' . __FILE__ );
@@ -126,6 +131,16 @@ if ( ! defined( 'BIZCITY_TWIN_AI_URL' ) ) {
     define( 'BIZCITY_TWIN_AI_URL', plugins_url( '/', WP_PLUGIN_DIR . '/' . BIZCITY_TWIN_AI_SLUG . '/bizcity-twin-ai.php' ) );
 }
 
+// [2026-08-26 Johnny Chu] R-SAFE-LOADER — standalone compat loads the
+// canonical loader before optional module artifacts.
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+    $_bc_safe_loader = BIZCITY_TWIN_AI_DIR . 'core/helper/class-bizcity-safe-loader.php';
+    if ( is_file( $_bc_safe_loader ) && is_readable( $_bc_safe_loader ) ) {
+        require_once $_bc_safe_loader;
+    }
+    unset( $_bc_safe_loader );
+}
+
 // [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W2 - share the lightweight
 // observe-only ownership registry with the main plugin loader.
 $_bc_loader_registry = BIZCITY_TWIN_AI_DIR . 'core/runtime/class-loader-ownership-registry.php';
@@ -192,6 +207,8 @@ $_bc_llm_context = is_admin()
     || ( defined( 'WP_CLI' ) && WP_CLI )
     || false !== strpos( $_bc_llm_uri, '/wp-json/' )
     || false !== strpos( $_bc_llm_uri, '/bizhook/' )
+    // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — load the gateway client for the canonical central Facebook endpoint.
+    || false !== strpos( $_bc_llm_uri, '/facehook/' )
     // [2026-08-13 Johnny Chu] HOTFIX-ZALO-LLM-LOADER — load the gateway client for the Zalo Bot /zalohook/ rewrite.
     || false !== strpos( $_bc_llm_uri, '/zalohook/' )
     || false !== strpos( $_bc_llm_uri, '/tool-' )
@@ -222,6 +239,8 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
                 false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
+                // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — keep the canonical /facehook/ request inside the backend gate.
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/facehook/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
                 || preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
@@ -257,6 +276,8 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
                 false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
+                // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — load Knowledge for the canonical central Facebook webhook.
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/facehook/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
                 || preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
@@ -364,114 +385,45 @@ unset( $_bc_market );
 // ── WebChat (BizCity_Intent_Provider phải có trước khi regular plugins load) ─
 // Cần thiết vì page-aiagent-home.php dùng BizCity_WebChat_Admin_Dashboard
 // và các tool plugins extend BizCity_Intent_Provider ở file scope.
-// [2026-08-25 Johnny Chu] PHASE-1.29-EXTENSIONS — point source compat loader to the moved WebChat extension.
-$_bc_webchat = BIZCITY_TWIN_AI_DIR . 'extensions/bizcity-webchat/bootstrap.php';
-if ( ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_webchat ) && ! class_exists( 'BizCity_WebChat_Database', false ) ) {
-    require_once $_bc_webchat;
+// [2026-08-25 Johnny Chu] PHASE-1.29-MODULES — point source compat loader to the canonical WebChat module.
+$_bc_webchat = BIZCITY_TWIN_AI_DIR . 'modules/webchat/bootstrap.php';
+if ( ! $_bc_twinchat_admin_shell_request
+    && is_file( $_bc_webchat )
+    && is_readable( $_bc_webchat )
+    && class_exists( 'BizCity_Safe_Loader', false )
+    && ! class_exists( 'BizCity_WebChat_Database', false ) ) {
+    BizCity_Safe_Loader::require_file( $_bc_webchat, 'compat.webchat.bootstrap' );
 }
 unset( $_bc_webchat );
 
-// ── Bundled Agent Plugins — bizcity-twin-ai/plugins/ ─────────────────────────
-// Mục tiêu: plugins từ 2 nguồn đều load & hiển thị y hệt nhau:
-//   1. wp-content/plugins/{slug}/              ← WordPress default
-//   2. wp-content/plugins/bizcity-twin-ai/plugins/{slug}/  ← bundled
-//
-// Vấn đề: WP core get_plugins() chỉ scan 1 cấp trong WP_PLUGIN_DIR.
-// Giải pháp: inject bundled plugins vào MỌI điểm mà WP dùng để biết plugin:
-//   ① get_plugins() cache   — để sync_agent_plugins(), marketplace đều thấy
-//   ② all_plugins filter    — để plugins.php hiển thị
-//   ③ active_plugins KHÔNG cần patch — WP lưu relative path, file_exists() resolve đúng
-
-/**
- * Scan bundled plugins trong bizcity-twin-ai/plugins/
- * @return array [ 'bizcity-twin-ai/plugins/{slug}/{slug}.php' => [ ...plugin_data... ] ]
- */
-function bizcity_get_bundled_plugins_data() {
-    static $cache = null;
-    if ( null !== $cache ) {
-        return $cache;
-    }
-
-    $cache = array();
-    $base  = BIZCITY_TWIN_AI_DIR . 'plugins/';
-
-    if ( ! is_dir( $base ) ) {
-        return $cache;
-    }
-
-    $dirs = glob( $base . '*', GLOB_ONLYDIR );
-
-    if ( empty( $dirs ) ) {
-        return $cache;
-    }
-
-    if ( ! function_exists( 'get_plugin_data' ) ) {
-        require_once ABSPATH . 'wp-admin/includes/plugin.php';
-    }
-
-    foreach ( $dirs as $plugin_dir ) {
-        $slug      = basename( $plugin_dir );
-        $main_file = $plugin_dir . '/' . $slug . '.php';
-        $rel_path  = BIZCITY_TWIN_AI_SLUG . '/plugins/' . $slug . '/' . $slug . '.php';
-
-        if ( ! file_exists( $main_file ) ) {
-            continue;
+// [2026-08-26 Johnny Chu] HOTFIX-BUNDLED-ACTIVATION — bundled files are
+// loaded by bizcity-twin-ai.php and must not be injected into WordPress's
+// independent plugin catalog/activation list.
+if ( ! function_exists( 'bizcity_twin_cleanup_bundled_activation_entries' ) ) {
+    function bizcity_twin_cleanup_bundled_activation_entries() {
+        $prefix = BIZCITY_TWIN_AI_SLUG . '/plugins/';
+        $active = (array) get_option( 'active_plugins', array() );
+        $clean  = array_values( array_filter( $active, static function ( $plugin ) use ( $prefix ) {
+            return ! is_string( $plugin ) || 0 !== strpos( $plugin, $prefix );
+        } ) );
+        if ( count( $clean ) !== count( $active ) ) {
+            update_option( 'active_plugins', $clean );
         }
-
-        $data = get_plugin_data( $main_file, false, false );
-        if ( ! empty( $data['Name'] ) ) {
-            $cache[ $rel_path ] = $data;
+        if ( is_multisite() ) {
+            $network = (array) get_site_option( 'active_sitewide_plugins', array() );
+            $changed  = false;
+            foreach ( array_keys( $network ) as $plugin ) {
+                if ( is_string( $plugin ) && 0 === strpos( $plugin, $prefix ) ) {
+                    unset( $network[ $plugin ] );
+                    $changed = true;
+                }
+            }
+            if ( $changed ) {
+                update_site_option( 'active_sitewide_plugins', $network );
+            }
         }
     }
-
-    return $cache;
 }
-
-// ① Inject vào get_plugins() cache — ĐÂY LÀ THEN CHỐT
-// get_plugins() lưu kết quả vào wp_cache_get('plugins', 'plugins')
-// Sau khi WP build cache xong, ta inject bundled plugins vào.
-// Dùng 'plugins_loaded' priority 0 (trước mọi thứ khác) để đảm bảo
-// bất kỳ code nào gọi get_plugins() đều thấy bundled plugins.
-if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request ) {
-add_action( 'plugins_loaded', function () {
-    $bundled = bizcity_get_bundled_plugins_data();
-    if ( empty( $bundled ) ) {
-        return;
-    }
-
-    if ( ! function_exists( 'get_plugins' ) ) {
-        require_once ABSPATH . 'wp-admin/includes/plugin.php';
-    }
-
-    // Gọi get_plugins() để nó build cache nếu chưa có
-    $all = get_plugins();
-
-    // Merge bundled plugins vào
-    $merged = false;
-    foreach ( $bundled as $rel_path => $data ) {
-        if ( ! isset( $all[ $rel_path ] ) ) {
-            $all[ $rel_path ] = $data;
-            $merged = true;
-        }
-    }
-
-    // Ghi đè cache nếu có thay đổi
-    if ( $merged ) {
-        wp_cache_set( 'plugins', array( '' => $all ), 'plugins' );
-    }
-}, 0 );
-}
-
-// ② all_plugins filter — cho plugins.php admin page
-if ( is_admin() && ! $_bc_twinchat_admin_shell_request ) {
-add_filter( 'all_plugins', function ( $plugins ) {
-    foreach ( bizcity_get_bundled_plugins_data() as $rel_path => $data ) {
-        if ( ! isset( $plugins[ $rel_path ] ) ) {
-            $plugins[ $rel_path ] = $data;
-        }
-    }
-    return $plugins;
-} );
-}
+add_action( 'admin_init', 'bizcity_twin_cleanup_bundled_activation_entries', 1 );
 
 unset( $_bc_twinchat_admin_shell_request );

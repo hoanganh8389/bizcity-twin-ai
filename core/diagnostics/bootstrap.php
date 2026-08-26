@@ -29,6 +29,18 @@
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
+// [2026-08-26 Johnny Chu] R-SAFE-LOADER — Diagnostics bootstraps its own guarded core loader before loading optional probe artifacts.
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+	$_bizcity_diagnostics_safe_loader = dirname( __DIR__ ) . '/helper/class-bizcity-safe-loader.php';
+	if ( is_file( $_bizcity_diagnostics_safe_loader ) && is_readable( $_bizcity_diagnostics_safe_loader ) ) {
+		require_once $_bizcity_diagnostics_safe_loader;
+	}
+	unset( $_bizcity_diagnostics_safe_loader );
+}
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+	return;
+}
+
 if ( defined( 'BIZCITY_DIAGNOSTICS_LOADED' ) ) {
 	return;
 }
@@ -73,7 +85,7 @@ if ( ! function_exists( 'bizcity_diagnostics_load_probes_once' ) ) {
 				continue;
 			}
 			$probe_path = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/' . $probe_file;
-			if ( file_exists( $probe_path ) ) {
+			if ( is_file( $probe_path ) && is_readable( $probe_path ) ) {
 				// [2026-08-16 Johnny Chu] R-DDV-PROBE-LOAD — stale/renamed probe paths must not redeclare a class already loaded by another active path.
 				$source = is_readable( $probe_path ) ? (string) file_get_contents( $probe_path ) : '';
 				$declared_class = '';
@@ -83,36 +95,36 @@ if ( ! function_exists( 'bizcity_diagnostics_load_probes_once' ) ) {
 				if ( $declared_class !== '' && class_exists( $declared_class, false ) ) {
 					continue;
 				}
-				require_once $probe_path;
+				BizCity_Safe_Loader::require_file( $probe_path, 'diagnostics.probe.' . basename( $probe_path, '.php' ) );
 			}
 		}
 	}
 }
 
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-table-registry.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-table-inspector.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-column-inspector.php';
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-table-registry.php', 'diagnostics.table_registry' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-table-inspector.php', 'diagnostics.table_inspector' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-column-inspector.php', 'diagnostics.column_inspector' );
 // [2026-08-25 Johnny Chu] PHASE-1.24 — load the canonical R-DCL schema owner before installers or probes can request additive repair.
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-changelog-loader.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-auto-create.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-installer-resolver.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-notices.php';
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-changelog-loader.php', 'diagnostics.changelog_loader' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-auto-create.php', 'diagnostics.auto_create' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-installer-resolver.php', 'diagnostics.installer_resolver' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-notices.php', 'diagnostics.notices' );
 // [2026-08-25 Johnny Chu] PHASE-1.28-LOG-RETENTION — queue the shared retention probe with the diagnostics catalog.
 bizcity_diagnostics_require_probe( 'class-probe-log-retention.php' );
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-rest.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-orphan-cleaner.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-site-provisioner.php';
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-rest.php', 'diagnostics.rest' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-orphan-cleaner.php', 'diagnostics.orphan_cleaner' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-site-provisioner.php', 'diagnostics.site_provisioner' );
 // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — verify retained core messages and blocked legacy projection writes.
 bizcity_diagnostics_require_probe( 'class-probe-webchat-sql-lifecycle.php' );
 // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-SURFACE — verify moved extension shortcodes and REST surface without chat writes.
 bizcity_diagnostics_require_probe( 'class-probe-webchat-surface.php' );
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/installer-registry.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-error-reporter.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/trait-rest-error.php';
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/installer-registry.php', 'diagnostics.installer_registry' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-error-reporter.php', 'diagnostics.error_reporter' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/trait-rest-error.php', 'diagnostics.rest_error_trait' );
 
 // Phase 0.41 L9.a — Smoke-Test Wizard runtime.
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/interface-diagnostics-probe.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-smoke-runner.php';
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/interface-diagnostics-probe.php', 'diagnostics.probe_interface' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-smoke-runner.php', 'diagnostics.smoke_runner' );
 
 // [2026-08-09 Johnny Chu] R-PERF-LOADER-HOOK - hook telemetry is opt-in to
 // Diagnostics/REST/CLI contexts; ordinary admin pages do not retain snapshots.
@@ -121,7 +133,7 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-smoke-runner.
 // complete before later probe registrations are added.
 if ( function_exists( 'bizcity_diagnostics_should_load_probes' )
 	&& bizcity_diagnostics_should_load_probes() ) {
-	require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-loader-hook-panel.php';
+	BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-loader-hook-panel.php', 'diagnostics.loader_hook_panel' );
 	BizCity_Diagnostics_Loader_Hook_Panel::init();
 }
 // [2026-08-16 Johnny Chu] DIAGNOSTICS-PROBE-QUEUE-FIX - queue the observe-only
@@ -335,8 +347,8 @@ bizcity_diagnostics_require_probe( 'class-probe-memory-unified-recall-parity.php
 bizcity_diagnostics_require_probe( 'class-probe-zalobot-memory-unify.php' );
 
 // Phase 0.41 L9.b — Schema Changelog Ledger + Auto-Create.
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-changelog-loader.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-auto-create.php';
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-changelog-loader.php', 'diagnostics.changelog_loader.legacy' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-auto-create.php', 'diagnostics.auto_create.legacy' );
 
 // Phase 0.99.3 (2026-06-01) — Module registry probe — surfaces 3rd-party
 // modules registered via the `bizcity_register_module` filter.
@@ -365,8 +377,8 @@ bizcity_diagnostics_require_probe( 'class-probe-twinchat-learning-payload-redact
 // File is gitignored (private addon, deployed via scp to Linux VPS) — guard
 // with file_exists() so absence on dev clones is a no-op, never fatal.
 $bizcity_liteparse_probe = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-liteparse.php';
-if ( file_exists( $bizcity_liteparse_probe ) ) {
-	require_once $bizcity_liteparse_probe;
+if ( is_file( $bizcity_liteparse_probe ) && is_readable( $bizcity_liteparse_probe ) ) {
+	BizCity_Safe_Loader::require_file( $bizcity_liteparse_probe, 'diagnostics.probe.liteparse' );
 }
 unset( $bizcity_liteparse_probe );
 
@@ -691,14 +703,14 @@ bizcity_diagnostics_require_probe( 'class-probe-zalo-personal.php' );
 // 3-layer: tables (bizcity_crm_broadcasts, recipients), lead_score/segment cols, REST routes.
 // DISABLED 2026-06-01 — feature chưa được dùng / test; tránh wizard báo FAIL gây nhiễu.
 // Re-enable bằng cách bỏ comment khi M-CRM.M4 gắn vào roadmap active.
-// require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-broadcast.php';
+// Disabled probe registration; re-enable only with an explicit roadmap entry.
 
 // Phase 0.41 L9.e — Dashboard widget + external monitoring REST.
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-dashboard-widget.php';
-require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-external-monitor.php';
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-dashboard-widget.php', 'diagnostics.dashboard_widget' );
+BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-external-monitor.php', 'diagnostics.external_monitor' );
 
 if ( is_admin() ) {
-	require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-admin-page.php';
+	BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-admin-page.php', 'diagnostics.admin_page' );
 	BizCity_Diagnostics_Admin_Page::instance();
 	BizCity_Diagnostics_Dashboard_Widget::instance();
 }

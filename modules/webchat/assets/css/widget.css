@@ -1,0 +1,740 @@
+/**!
+ * Bizcity Twin AI — Personalized AI Companion Platform
+ * WebChat Widget — Float Styles (Ported từ bizgpt-agent)
+ * (c) 2024-2026 BizCity by Johnny Chu (Chu Hoàng Anh) — Made in Vietnam 🇻🇳
+ * @package    Bizcity_Twin_AI
+ * @subpackage Module\Webchat\Assets
+ * @license    GPL-2.0-or-later | https://bizcity.vn
+ */
+
+:root {
+    --bizchat-primary: #1976e7;
+    --bizchat-primary-hover: #1565d8;
+    --bizchat-primary-light: #dbeafe;
+    --bizchat-bg-primary: #ffffff;
+    --bizchat-bg-secondary: #f6f7fb;
+    --bizchat-bg-tertiary: #e4e6eb;
+    --bizchat-text-primary: #1b1b23;
+    --bizchat-text-secondary: #6b7280;
+    --bizchat-text-tertiary: #9ca3af;
+    --bizchat-border: #ececec;
+    --bizchat-success: #10b981;
+    --bizchat-error: #d02828;
+    --bizchat-warning: #f59e0b;
+    --bizchat-shadow: 0 5px 32px rgba(36,54,117,0.13), 0 2px 10px rgba(0,0,0,0.04);
+    --bizchat-radius-full: 50%;
+    --bizchat-kb: 0px; /* JS set for keyboard */
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ========================= 
+   Float Button 
+   ========================= */
+#bizchat-float-btn {
+    position: fixed;
+    right: 28px;
+    bottom: 24px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: var(--bizchat-primary);
+    box-shadow: 0 8px 38px 0 #215bf142, 0 2px 14px #215bfa22;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 99999;
+    border: none;
+    animation: bizchat-bounce 1.9s cubic-bezier(.22,1,.36,1) infinite alternate;
+    transition: box-shadow 0.32s, transform 0.20s;
+}
+
+#bizchat-float-btn img {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: block;
+    box-shadow: 0 2px 8px #215bfa13;
+    pointer-events: none;
+    margin: 0 auto;
+}
+
+#bizchat-float-btn span {
+    font-size: 28px;
+}
+
+#bizchat-float-btn:hover {
+    box-shadow: 0 0 44px 10px #1976e799, 0 8px 30px #215bfa22;
+    transform: scale(1.085) rotate(-4deg);
+    animation-play-state: paused;
+}
+
+#bizchat-float-btn::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%,-50%);
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: radial-gradient(rgba(45,116,255,0.17) 40%, rgba(40,110,255,0.02) 92%);
+    animation: bizchat-pulse 2.6s cubic-bezier(.4,0,.4,1) infinite;
+    z-index: -1;
+}
+
+@keyframes bizchat-bounce {
+    0% { transform: translateY(0px) scale(1); }
+    70% { transform: translateY(-10px) scale(1.05); }
+    80% { transform: translateY(-14px) scale(1.07); }
+    100% { transform: translateY(-7px) scale(0.97); }
+}
+
+@keyframes bizchat-pulse {
+    0% { opacity: .48; transform: translate(-50%,-50%) scale(1); }
+    65% { opacity: .26; }
+    100% { opacity: .18; transform: translate(-50%,-50%) scale(1.18); }
+}
+
+/* ========================= 
+   Chat Window 
+   ========================= */
+#bizchat-window {
+    position: fixed;
+    right: 30px;
+    bottom: 120px;
+    width: 370px;
+    max-width: 100vw;
+    min-width: 260px;
+    max-height: 70vh;
+    background: #fff;
+    z-index: 99999;
+    border-radius: 18px;
+    box-shadow: var(--bizchat-shadow);
+    font-family: "Segoe UI", "Arial", sans-serif;
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+    transition: width .35s, height .35s, left .35s, top .35s;
+}
+
+#bizchat-window.active {
+    display: flex !important;
+}
+
+#bizchat-window.bizchat-hidden {
+    display: none !important;
+}
+
+#bizchat-window.bizchat-maximized {
+    width: 85vw !important;
+    max-width: 960px !important;
+    height: 80vh !important;
+    max-height: 740px !important;
+    left: 50% !important;
+    top: 50% !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: translate(-50%,-50%) !important;
+    border-radius: 20px;
+}
+
+/* ========================= 
+   Header 
+   ========================= */
+.bizchat-header {
+    background: #1859ab;
+    color: #fff;
+    font-size: 15px;
+    padding: 0px 10px 0px 12px;
+    font-weight: 700;
+    border-radius: 18px 18px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 55px;
+}
+
+.bizchat-header > span {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    line-height: 1.2;
+}
+
+.bizchat-header-actions {
+    align-items: center;
+    gap: 6px;
+    height:65px;
+}
+
+.bizchat-header-btn {
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 22px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 6px;
+    transition: opacity .18s;
+}
+
+.bizchat-header-btn:hover {
+    opacity: .85;
+}
+
+/* ========================= 
+   Messages Area 
+   ========================= */
+.bizchat-messages {
+    flex: 1;
+    width: 100%;
+    background: #ffffff;
+    overflow-y: auto;
+    padding: 24px 14px 14px 18px;
+    min-height: 66px;
+    box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ========================= 
+   Message Bubbles 
+   ========================= */
+.bizchat-message {
+    display: flex;
+    align-items: flex-end;
+    margin-bottom: 13px;
+    max-width: 98%;
+}
+
+.bizchat-message.user {
+    flex-direction: row-reverse;
+}
+
+.bizchat-message.bot {
+    justify-content: flex-start;
+    flex-direction: row;
+}
+
+.bizchat-message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bizchat-primary-light);
+    color: #357;
+    font-size: 21px;
+    font-weight: 700;
+    margin: 0 7px;
+    box-shadow: 0 1.5px 5px rgba(36,54,117,.08);
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.bizchat-message.bot .bizchat-message-avatar {
+    background: #e3e8f7;
+}
+
+.bizchat-message.user .bizchat-message-avatar {
+    background: var(--bizchat-primary);
+    color: #fff;
+    margin-left: 12px;
+    margin-right: 0;
+}
+
+.bizchat-message-content {
+    max-width: 70vw;
+}
+
+.bizchat-message-bubble {
+    padding: 12px 18px;
+    border-radius: 21px;
+    background: #e4e6eb;
+    color: #222;
+    font-size: 16px;
+    font-weight: 500;
+    max-width: 100%;
+    min-width: 32px;
+    word-break: break-word;
+    line-height: 1.62;
+    box-shadow: 0 2px 9px rgba(30,70,130,0.03);
+    white-space: pre-line;
+}
+
+.bizchat-message.user .bizchat-message-bubble {
+    background: var(--bizchat-primary);
+    color: #fff;
+    border-bottom-right-radius: 8px;
+    border-bottom-left-radius: 21px;
+    margin-right: 2px;
+    text-align: left;
+}
+
+.bizchat-message.bot .bizchat-message-bubble {
+    background: #e5eefd;
+    color: #184;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 21px;
+    margin-left: 1.5px;
+    text-align: left;
+}
+
+.bizchat-message-time {
+    font-size: 11px;
+    color: var(--bizchat-text-tertiary);
+    margin-top: 4px;
+    padding: 0 4px;
+}
+
+/* Typing indicator */
+.bizchat-typing {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 12px 18px;
+    background: #e5eefd;
+    border-radius: 21px;
+    border-bottom-left-radius: 8px;
+}
+
+.bizchat-typing-dot {
+    width: 8px;
+    height: 8px;
+    background: #999;
+    border-radius: 50%;
+    animation: bizchat-typing-bounce 1.4s ease-in-out infinite;
+}
+
+.bizchat-typing-dot:nth-child(1) { animation-delay: 0s; }
+.bizchat-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.bizchat-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bizchat-typing-bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-6px); }
+}
+
+/* ========================= 
+   Input Area 
+   ========================= */
+.bizchat-input-area {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 6px calc(8px + var(--safe-bottom)) 6px;
+    border-top: 1px solid var(--bizchat-border);
+    background: #fff;
+}
+
+.bizchat-input-wrapper {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 5px;
+}
+
+.bizchat-input {
+    flex: 1;
+    padding: 12px 16px;
+    font-size: 16px;
+    background: #f5f5f5;
+    border: none;
+    border-radius: 20px;
+    outline: none;
+    min-height: 44px;
+    max-height: 90px;
+    resize: none;
+    margin-right: 8px;
+    font-family: inherit;
+    color: #222;
+    margin-bottom: 0px;;
+}
+
+.bizchat-input:focus {
+    background: #fff;
+}
+
+.bizchat-send-btn {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    font-size: 15px;
+    background: var(--bizchat-primary);
+    color: #fff;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-bottom: 0px;;
+}
+
+.bizchat-send-btn:hover {
+    background: var(--bizchat-primary-hover);
+}
+
+.bizchat-send-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Icon row */
+.bizchat-icon-row {
+    display: flex;
+    justify-content: flex-start;
+    gap: 10px;
+    padding-left: 2px;
+    height: 29px;;
+}
+
+.bizchat-bar-btn {
+    background: #e8eaed;
+    border: none;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background .2s ease, color .2s ease;
+    padding-top: 0px;
+}
+
+.bizchat-bar-btn:hover {
+    background: var(--bizchat-primary);
+    color: #fff;
+}
+
+.bizchat-bar-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Recording state for voice button */
+#bizchat-voice-btn.recording {
+    background: var(--bizchat-error);
+    animation: bizchat-mic-pulse 1.2s infinite;
+    color: #fff;
+}
+
+@keyframes bizchat-mic-pulse {
+    0% { box-shadow: 0 0 0 0 #fd8080aa; }
+    70% { box-shadow: 0 0 0 8px #fd808000; }
+    100% { box-shadow: 0 0 0 0 #fd8080aa; }
+}
+
+/* ========================= 
+   Notification Effects 
+   ========================= */
+.bizchat-highlight {
+    box-shadow: 0 0 20px 5px #ff9800;
+    animation: bizchat-pop .5s;
+}
+
+@keyframes bizchat-pop {
+    0% { transform: scale(.9); }
+    60% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.bizchat-notify {
+    animation: bizchat-shake .4s;
+}
+
+@keyframes bizchat-shake {
+    0% { transform: translate(0); }
+    20% { transform: translate(-3px); }
+    40% { transform: translate(3px); }
+    60% { transform: translate(-3px); }
+    80% { transform: translate(3px); }
+    100% { transform: translate(0); }
+}
+
+@keyframes bizchat-fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========================= 
+   Media Elements 
+   ========================= */
+.bizchat-photo-msg {
+    max-width: 200px;
+    border-radius: 8px;
+    display: block;
+}
+
+.bizchat-audio-msg {
+    max-width: 200px;
+}
+
+/* ========================= 
+   Mobile Responsive 
+   ========================= */
+@media (max-width: 700px) {
+    /* Hide float button when chat is open on mobile */
+    #bizchat-window.active ~ #bizchat-float-btn,
+    body.bizchat-open #bizchat-float-btn {
+        display: none !important;
+    }
+
+    /* Full-screen layout ONLY when actively opened */
+    #bizchat-window.active,
+    #bizchat-window.active.bizchat-maximized {
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        border-radius: 0 !important;
+        transform: translateY(calc(-1 * var(--bizchat-kb))) !important;
+        overflow: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    /* Hidden by default on mobile — only float button is visible */
+    #bizchat-window:not(.active) {
+        display: none !important;
+    }
+    
+    .bizchat-messages {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+    }
+    
+    .bizchat-input-area {
+        position: sticky !important;
+        bottom: 0 !important;
+        z-index: 10 !important;
+    }
+    
+    .bizchat-message-bubble {
+        font-size: 13.4px;
+        padding: 10px 11px;
+    }
+    
+    .bizchat-message-avatar {
+        width: 26px;
+        height: 26px;
+        font-size: 14px;
+    }
+    
+    .bizchat-input {
+        font-size: 13.5px;
+    }
+}
+
+@media (max-width: 500px) {
+    #bizchat-float-btn {
+        width: 54px;
+        height: 54px;
+        right: 12px;
+        bottom: 12px;
+    }
+    
+    #bizchat-float-btn img {
+        width: 34px;
+        height: 34px;
+    }
+}
+
+/* ========================= 
+   Quick Replies 
+   ========================= */
+.bizchat-quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bizchat-bg-secondary);
+}
+
+.bizchat-quick-btn {
+    background: #fff;
+    border: 1px solid var(--bizchat-border);
+    border-radius: 16px;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: var(--bizchat-text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.bizchat-quick-btn:hover {
+    background: var(--bizchat-primary);
+    color: #fff;
+    border-color: var(--bizchat-primary);
+}
+
+/* ========================= 
+   Dark Mode Support 
+   ========================= */
+/* Disabled - always use light theme for chat widget
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bizchat-bg-primary: #1a1a1a;
+        --bizchat-bg-secondary: #2d2d2d;
+        --bizchat-bg-tertiary: #3d3d3d;
+        --bizchat-text-primary: #ffffff;
+        --bizchat-text-secondary: #a0a0a0;
+        --bizchat-border: #404040;
+    }
+    
+    #bizchat-window {
+        background: var(--bizchat-bg-primary);
+    }
+    
+    .bizchat-header {
+        background: #1859ab;
+    }
+    
+    .bizchat-message-bubble {
+        background: var(--bizchat-bg-tertiary);
+        color: var(--bizchat-text-primary);
+    }
+    
+    .bizchat-message.bot .bizchat-message-bubble {
+        background: #2a3f5f;
+        color: #e0e0e0;
+    }
+    
+    .bizchat-input {
+        background: var(--bizchat-bg-tertiary);
+        color: var(--bizchat-text-primary);
+    }
+    
+    .bizchat-bar-btn {
+        background: var(--bizchat-bg-tertiary);
+        color: var(--bizchat-text-primary);
+    }
+}
+*/
+
+/* ========================= 
+   Image Preview Area 
+   ========================= */
+#bizchat-image-preview {
+    margin-bottom: 8px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.bizchat-preview-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.bizchat-preview-item {
+    position: relative;
+    display: inline-block;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.bizchat-preview-item img {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    display: block;
+}
+
+.bizchat-remove-image {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #dc2626;
+    color: white;
+    border: none;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transition: background-color 0.2s;
+}
+
+.bizchat-remove-image:hover {
+    background: #b91c1c;
+}
+
+/* File input styling */
+.bizchat-file-input {
+    display: none;
+}
+
+/* =============================================
+   Markdown rendered content in chat bubbles
+   ============================================= */
+.bizchat-md {
+    white-space: normal;
+}
+.bizchat-md h2, .bizchat-md h3, .bizchat-md h4 {
+    line-height: 1.3;
+}
+.bizchat-md h2:first-child, .bizchat-md h3:first-child, .bizchat-md h4:first-child {
+    margin-top: 0;
+}
+.bizchat-md strong {
+    font-weight: 700;
+}
+.bizchat-md em {
+    font-style: italic;
+}
+.bizchat-md ul, .bizchat-md ol {
+    line-height: 1.6;
+}
+.bizchat-md li {
+    margin-bottom: 2px;
+}
+.bizchat-md pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.bizchat-md pre code {
+    background: none;
+    padding: 0;
+}
+.bizchat-md code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+.bizchat-md a {
+    color: var(--bizchat-primary, #1976e7);
+    text-decoration: underline;
+}
+.bizchat-md img {
+    max-width: 100%;
+    border-radius: 8px;
+}
+.bizchat-md table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 6px 0;
+    font-size: 13px;
+}
+.bizchat-md th, .bizchat-md td {
+    border: 1px solid rgba(0,0,0,0.1);
+    padding: 6px 10px;
+    text-align: left;
+}
+.bizchat-md th {
+    background: rgba(0,0,0,0.04);
+    font-weight: 600;
+}

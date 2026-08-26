@@ -124,7 +124,11 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		
 		$this->log_info( 'Verify attempt', array( 'mode' => $mode, 'token' => $token ) );
 		
-		$verify_token = get_option( 'bztfb_verify_token', 'bizfbhook' );
+		// [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — legacy ?fbhook=1 must share the Network Admin token used by Facebook Central.
+		$verify_token = get_site_option( 'bizcity_fb_verify_token', '' );
+		if ( $verify_token === '' ) {
+			$verify_token = get_option( 'bztfb_verify_token', self::DEFAULT_VERIFY_TOKEN );
+		}
 		if ( $mode === 'subscribe' && hash_equals( $verify_token, $token ) && $challenge !== '' ) {
 			while ( ob_get_level() ) ob_end_clean();
 			
