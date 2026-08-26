@@ -173,6 +173,24 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 				}
 				$oauth_evidence_reasons = array_values( array_unique( $oauth_evidence_reasons ) );
 				$oauth_evidence_ok = ! empty( $oauth_evidence_reasons );
+				if ( ! $oauth_evidence_ok ) {
+					// [2026-08-26 Johnny Chu] MCP-DDV-OAUTH-EVIDENCE — headless REST dispatch can stop before the callback on some WP versions; invoke the same harmless invalid-grant handler directly as a bounded fallback, never an OAuth success path.
+					BizCity_MCP_OAuth::token( $oauth_probe_request );
+					$oauth_evidence = BizCity_MCP_File_Logger::read_recent( 0, 0, '', 500 );
+					foreach ( (array) $oauth_evidence as $oauth_row ) {
+						if ( ! is_array( $oauth_row ) || (string) ( $oauth_row['tool_name'] ?? '' ) !== 'oauth.token' ) {
+							continue;
+						}
+						$reason = is_array( $oauth_row['evaluation'] ?? null )
+							? sanitize_key( (string) ( $oauth_row['evaluation']['reason'] ?? '' ) )
+							: '';
+						if ( $reason !== '' ) {
+							$oauth_evidence_reasons[] = $reason;
+						}
+					}
+					$oauth_evidence_reasons = array_values( array_unique( $oauth_evidence_reasons ) );
+					$oauth_evidence_ok = ! empty( $oauth_evidence_reasons );
+				}
 			}
 		}
 		$steps[] = array(

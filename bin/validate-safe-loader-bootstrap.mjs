@@ -59,8 +59,7 @@ function scanFile(file) {
 }
 
 function gitDiffAddedLines(base, head) {
-  try {
-    const diff = execFileSync('git', ['diff', '--no-ext-diff', '--unified=0', base, head, '--', 'plugins', 'core', 'modules'], { encoding: 'utf8' });
+  const parseDiff = (diff) => {
     const added = new Map();
     let current = '';
     for (const line of diff.split(/\r?\n/)) {
@@ -74,8 +73,35 @@ function gitDiffAddedLines(base, head) {
       }
     }
     return added;
+  };
+
+  try {
+    const diff = execFileSync('git', ['diff', '--no-ext-diff', '--unified=0', base, head, '--', 'plugins', 'core', 'modules'], {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return { added: parseDiff(diff) };
   } catch (error) {
-    return { error: `git diff unavailable: ${error.message}` };
+    try {
+      const files = execFileSync('git', ['diff', '--name-only', base, head, '--', 'plugins', 'core', 'modules'], {
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      const added = new Map();
+      for (const file of files.split(/\r?\n/)) {
+        if (!file.endsWith('/bootstrap.php') || excluded(path.join(root, file))) continue;
+        const fileDiff = execFileSync('git', ['diff', '--no-ext-diff', '--unified=0', base, head, '--', file], {
+          encoding: 'utf8',
+          maxBuffer: 8 * 1024 * 1024,
+        });
+        for (const [changedFile, lines] of parseDiff(fileDiff).entries()) {
+          added.set(changedFile, lines);
+        }
+      }
+      return { added, fallback: `git diff was parsed per bootstrap file after a large aggregate diff: ${error.message}` };
+    } catch (fallbackError) {
+      return { error: `git diff unavailable: ${fallbackError.message}` };
+    }
   }
 }
 
@@ -88,13 +114,15 @@ for (const arg of process.argv.slice(2)) {
 }
 
 let newViolations = [];
+let diffFallbackNote = '';
 if (args.has('base') && args.has('head')) {
-  const added = gitDiffAddedLines(args.get('base'), args.get('head'));
-  if (added.error) {
-    process.stderr.write(`${added.error}\n`);
+  const diffResult = gitDiffAddedLines(args.get('base'), args.get('head'));
+  if (diffResult.error) {
+    process.stderr.write(`${diffResult.error}\n`);
     process.exitCode = 1;
   } else {
-    for (const [file, lines] of added.entries()) {
+    diffFallbackNote = diffResult.fallback || '';
+    for (const [file, lines] of diffResult.added.entries()) {
       if (!file.endsWith('/bootstrap.php') || excluded(file)) continue;
       lines.forEach((line, index) => {
         if (rawRequire.test(line) && !safeLoad.test(line) && !isLoaderBootstrap(path.join(root, file), line)) {
@@ -118,5 +146,6 @@ const report = {
   mode: args.has('strict') ? 'strict' : (args.has('base') && args.has('head') ? 'changed' : 'inventory'),
   status: newViolations.length === 0 ? 'PASS' : 'FAIL',
 };
+if (diffFallbackNote) report.note = diffFallbackNote;
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 if (newViolations.length > 0) process.exitCode = 1;

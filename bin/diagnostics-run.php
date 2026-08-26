@@ -216,6 +216,17 @@ printf(
     "\nResult: %d pass · %d fail · %d skip · total %dms\n",
     $total_pass, $total_fail, $total_skip, $dur_all
 );
+if ( $total_fail > 0 ) {
+    // [2026-08-26 Johnny Chu] DIAGNOSTICS-CLI-EVIDENCE — list failed probe IDs and bounded errors directly in CI output.
+    echo "Failed probes:\n";
+    foreach ( $results as $failed_id => $failed_result ) {
+        if ( (string) ( $failed_result['status'] ?? '' ) !== 'fail' ) {
+            continue;
+        }
+        $failed_detail = (string) ( $failed_result['error'] ?? $failed_result['summary'] ?? 'no detail' );
+        echo ' - ' . $failed_id . ': ' . substr( $failed_detail, 0, 500 ) . "\n";
+    }
+}
 
 /* ── JUnit XML ─────────────────────────────────────────────────────── */
 if ( $opts['junit'] !== '' ) {
@@ -237,10 +248,26 @@ if ( $opts['junit'] !== '' ) {
         );
         $st = (string) ( $res['status'] ?? 'fail' );
         if ( $st === 'fail' ) {
+            // [2026-08-26 Johnny Chu] DIAGNOSTICS-JUNIT-EVIDENCE — preserve failed sub-step labels/details in CI artifacts, not only the aggregate summary.
+            $failed_steps = array();
+            foreach ( (array) ( $res['steps'] ?? array() ) as $step ) {
+                if ( ! is_array( $step ) || strtolower( (string) ( $step['status'] ?? '' ) ) !== 'fail' ) {
+                    continue;
+                }
+                $failed_steps[] = (string) ( $step['label'] ?? 'failed_step' )
+                    . ( isset( $step['detail'] ) ? ': ' . (string) $step['detail'] : '' );
+                if ( count( $failed_steps ) >= 12 ) {
+                    break;
+                }
+            }
+            $failure_body = (string) ( $res['summary'] ?? '' );
+            if ( ! empty( $failed_steps ) ) {
+                $failure_body .= ' | Failed steps: ' . implode( ' || ', $failed_steps );
+            }
             $xml .= sprintf(
                 '      <failure message="%s">%s</failure>' . "\n",
                 htmlspecialchars( substr( (string) ( $res['error'] ?? 'fail' ), 0, 500 ), ENT_XML1 | ENT_COMPAT, 'UTF-8' ),
-                htmlspecialchars( (string) ( $res['summary'] ?? '' ), ENT_XML1 | ENT_COMPAT, 'UTF-8' )
+                htmlspecialchars( substr( $failure_body, 0, 4000 ), ENT_XML1 | ENT_COMPAT, 'UTF-8' )
             );
         } elseif ( $st === 'precheck-fail' ) {
             $xml .= sprintf(
