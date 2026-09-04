@@ -71,6 +71,18 @@ if ( class_exists( 'BizCity_Context_Bank_Ledger', false ) ) {
 }
 unset( $_context_bank_ledger );
 
+// [2026-09-04 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CB4.2 — load the channel archive admission owner after the pointer ledger and attach its archive-written hook.
+$_context_bank_channel_archive_adapter = __DIR__ . '/includes/class-context-bank-channel-archive-adapter.php';
+if ( class_exists( 'BizCity_Safe_Loader', false )
+	&& is_file( $_context_bank_channel_archive_adapter )
+	&& is_readable( $_context_bank_channel_archive_adapter ) ) {
+	BizCity_Safe_Loader::require_file( $_context_bank_channel_archive_adapter, 'context_bank.channel_archive_adapter' );
+}
+if ( class_exists( 'BizCity_Context_Bank_Channel_Archive_Adapter' ) ) {
+	BizCity_Context_Bank_Channel_Archive_Adapter::boot();
+}
+unset( $_context_bank_channel_archive_adapter );
+
 // [2026-09-01 Johnny Chu] PHASE-CB6.1 — load the bounded search owner after the ledger and before REST consumers.
 $_context_bank_search = __DIR__ . '/includes/class-context-bank-search.php';
 if ( class_exists( 'BizCity_Safe_Loader', false )
@@ -171,6 +183,10 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	&& is_file( $_context_bank_kg_bridge )
 	&& is_readable( $_context_bank_kg_bridge ) ) {
 	BizCity_Safe_Loader::require_file( $_context_bank_kg_bridge, 'context_bank.kg_bridge' );
+}
+if ( class_exists( 'BizCity_Context_Bank_KG_Bridge', false ) ) {
+	// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-CB6.4 — attach the bounded KG recheck dispatcher without scheduling work at bootstrap.
+	add_action( BizCity_Context_Bank_KG_Bridge::RECHECK_HOOK, array( 'BizCity_Context_Bank_KG_Bridge', 'run_recheck' ), 10, 1 );
 }
 unset( $_context_bank_kg_bridge );
 
