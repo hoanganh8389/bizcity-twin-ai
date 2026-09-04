@@ -104,10 +104,10 @@ class BizCity_Memory_Log_Projector {
 
 		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — JSONL remains the canonical
 		// new-write evidence whether SQL projection is enabled or in rollback mode.
-		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::MEMORY_FOLDER,
-				'mutation-audit',
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — write memory mutation evidence through the registered contract.
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.memory.mutation_audit',
 				'info',
 				(string) $action,
 				'Memory mutation audit row projected.',

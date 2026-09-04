@@ -29,8 +29,8 @@ class BizCity_KG_Skeleton_Prompt {
 	const MAX_ENTITIES    = 12;
 
 	/** Primary system prompt (single-pass + map step). */
-	public static function system(): string {
-		return <<<'TXT'
+	public static function system( bool $has_pinned_notes = false ): string {
+		$base = <<<'TXT'
 Bạn là **Notebook Skeleton Architect** — một AI chuyên trích xuất “bộ khung ý đồ” từ kho tài liệu mà người dùng đã nạp vào một notebook.
 
 NHIỆM VỤ
@@ -64,6 +64,25 @@ QUY TẮC BẮT BUỘC:
 6. Key_points là dữ kiện đáng cite (số liệu, định nghĩa, ngày, tên), KHÔNG phải tóm tắt chung.
 7. Entities là tên riêng / khái niệm độc lập có thể tra cứu.
 TXT;
+
+		if ( ! $has_pinned_notes ) {
+			return $base;
+		}
+
+		// v1.1 — prepend a priority directive when the trigger reason is
+		// `notes_pinned`. The pinned notes block is materialised in the USER
+		// message; here we only tell the model how to weight it.
+		$priority = <<<'TXT'
+
+⚡ ƯU TIÊN TỪ NGƯỜI DÙNG (NOTES PINNED)
+Người dùng đã ghim một số ghi chú cho notebook này (khối “NOTES PINNED BY USER” ở cuối nội dung). Hãy coi những ghi chú đó là tín hiệu ý đồ có trọng số cao nhất:
+ - Nucleus phải phản ánh đúng những ý được ghim (không bỏ qua).
+ - Các mục cha trong "skeleton" ưu tiên bao trùm các chủ đề mà user pin.
+ - Key_points nên kéo thêm dữ kiện từ pinned notes khi chúng là con số / mốc / quyết định.
+ - KHÔNG bịa thêm: nếu một ghi chú không khớp với bất kỳ chunk nào, vẫn coi nó như tuyên bố ý đồ của user và cân nhắc đưa vào nucleus/skeleton/key_points.
+TXT;
+
+		return $base . $priority;
 	}
 
 	/** REDUCE prompt — merge mini-skeletons in map-reduce pipeline. */

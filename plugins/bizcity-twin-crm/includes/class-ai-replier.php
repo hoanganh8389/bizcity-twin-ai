@@ -1100,7 +1100,7 @@ class BizCity_CRM_AI_Replier {
 				$channel = BizCity_Channel_File_Logger::CH_MESSENGER;
 			} elseif ( strpos( $p, 'zalo_oa' ) !== false ) {
 				$channel = BizCity_Channel_File_Logger::CH_ZALO_OA;
-			} elseif ( strpos( $p, 'zalo' ) !== false ) {
+			} elseif ( $p === 'zalo_bot' ) {
 				$channel = BizCity_Channel_File_Logger::CH_ZALO_BOT;
 			} elseif ( strpos( $p, 'telegram' ) !== false ) {
 				$channel = BizCity_Channel_File_Logger::CH_TELEGRAM;
@@ -1138,7 +1138,9 @@ class BizCity_CRM_AI_Replier {
 		$t = strtolower( $channel_type );
 		if ( strpos( $t, 'messenger' ) !== false ) { return BizCity_Channel_File_Logger::CH_MESSENGER; }
 		if ( strpos( $t, 'zalo_oa' ) !== false ) { return BizCity_Channel_File_Logger::CH_ZALO_OA; }
-		if ( strpos( $t, 'zalo' ) !== false ) { return BizCity_Channel_File_Logger::CH_ZALO_BOT; }
+		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - keep Personal diagnostics out of the Bot log folder.
+		if ( $t === 'zalo_personal' ) { return BizCity_Channel_File_Logger::CH_ZALO_PERSONAL; }
+		if ( $t === 'zalo_bot' ) { return BizCity_Channel_File_Logger::CH_ZALO_BOT; }
 		// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — CRM facebook inbox events are
 		// Messenger customer events; raw transport evidence remains in facebook/.
 		if ( strpos( $t, 'facebook' ) !== false ) { return BizCity_Channel_File_Logger::CH_MESSENGER; }

@@ -113,6 +113,10 @@ final class BizCity_TwinBrain_Memory_Writer {
 				'account_id'       => (string) ( $ctx['account_id'] ?? '' ),
 				'external_user_id' => (string) ( $ctx['external_user_id'] ?? '' ),
 				'chat_id'          => (string) ( $ctx['chat_id'] ?? '' ),
+				// [2026-09-01 Johnny Chu] PHASE-0.45-W4 — preserve group delivery provenance for fail-closed linker fallback.
+				'conversation_chat_id' => (string) ( $ctx['conversation_chat_id'] ?? $ctx['chat_id'] ?? '' ),
+				'provider_chat_id' => (string) ( $ctx['provider_chat_id'] ?? '' ),
+				'chat_kind'        => (string) ( $ctx['chat_kind'] ?? 'private' ),
 			) );
 			if ( class_exists( 'BizCity_CG_Debug_Logger' ) ) {
 				BizCity_CG_Debug_Logger::log( 'twinbrain', 'memory_no_owner', array(

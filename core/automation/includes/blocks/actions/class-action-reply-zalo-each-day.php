@@ -148,7 +148,7 @@ final class BizCity_Automation_Action_Reply_Zalo_Each_Day extends BizCity_Automa
 			$bot_id  = (string) ( $trigger['account_id'] ?? $trigger['bot_id'] ?? '' );
 			$user_id = (string) ( $trigger['user_id'] ?? $trigger['sender_id'] ?? '' );
 			if ( $bot_id !== '' && $user_id !== '' ) {
-				$chat_id = 'zalobot_' . $bot_id . '_' . $user_id;
+				$chat_id = 'zalobot_' . $bot_id . '_private_' . $user_id; // [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - use canonical private Bot target.
 			}
 		}
 

@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/extension-manifest.schema.json",
+  "title": "BizCity Twin Extension Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x_[a-z][a-z0-9._-]{1,63}$": {}
+  },
+  "required": [
+    "contract",
+    "version",
+    "extension_id",
+    "extension_version",
+    "requires_framework",
+    "capabilities",
+    "channels",
+    "diagnostics"
+  ],
+  "properties": {
+    "contract": { "const": "extension-manifest" },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "extension_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{2,63}$"
+    },
+    "extension_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "requires_framework": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9._-]{2,80}$"
+      }
+    },
+    "channels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slug",
+          "platform",
+          "zone",
+          "identity_policy",
+          "account_scope",
+          "crm_policy",
+          "brain_policy",
+          "context_policy",
+          "surface_policy"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{2,63}$"
+          },
+          "platform": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{1,31}$"
+          },
+          "zone": { "enum": ["customer", "admin"] },
+          "identity_policy": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{2,80}$"
+          },
+          "account_scope": { "enum": ["single", "multiple"] },
+          "crm_policy": { "enum": ["enabled", "disabled", "not_applicable"] },
+          "brain_policy": { "enum": ["guest_channel", "user_bound", "not_applicable"] },
+          "context_policy": {
+            "enum": ["none", "reference", "message", "conversation_summary", "lifecycle"]
+          },
+          "surface_policy": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["admin", "gpt_member", "gpt_guest"] }
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["probe_owner", "requires"],
+      "properties": {
+        "probe_owner": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{2,100}$"
+        },
+        "requires": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["disk", "loader", "runtime"] }
+        }
+      }
+    }
+  }
+}

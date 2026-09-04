@@ -24,6 +24,7 @@ final class BizCity_Probe_Channel_Identity_Memory implements BizCity_Diagnostics
 	private $memory_keys = array();
 	private $identity_bindings = array();
 	private $identity_probe_uuids = array();
+	private $identity_merge_event = array();
 
 	public function id(): string          { return 'core.channel.identity_memory'; }
 	public function label(): string       { return 'Channel · Identity and Memory Ownership'; }
@@ -103,6 +104,7 @@ final class BizCity_Probe_Channel_Identity_Memory implements BizCity_Diagnostics
 			'Compatibility resolver exposes identity context' => strpos( $resolver_src, 'resolve_identity' ) !== false && strpos( $resolver_src, 'identity_state' ) !== false,
 			'Site Provisioner registers tenant identity installers' => strpos( $installer_src, "'channel_identity_hub'" ) !== false && strpos( $installer_src, "'channel_user_linker'" ) !== false,
 			'Identity tables use Schema Registry' => strpos( $gateway_bootstrap_src, 'bizcity_identity_contacts' ) !== false && strpos( $gateway_bootstrap_src, 'bizcity_identity_bindings' ) !== false && strpos( $gateway_bootstrap_src, 'BizCity_Schema_Registry::register' ) !== false,
+			'Identity merge has operator guard and Context Bank consumer' => strpos( $identity_src, 'identity_merge_forbidden' ) !== false && strpos( $identity_src, 'bizcity_identity_merged' ) !== false && class_exists( 'BizCity_Context_Bank_Identity_Merge_Adapter' ) && false !== has_action( 'bizcity_identity_merged', array( 'BizCity_Context_Bank_Identity_Merge_Adapter', 'on_merged' ) ),
 			'Identity installers use tenant prefix and options' => strpos( $identity_src, '$wpdb->prefix' ) !== false && strpos( $identity_src, 'get_option( self::OPTION_VERSION' ) !== false && strpos( $linker_src, '$wpdb->prefix' ) !== false && strpos( $linker_src, 'get_option( self::OPTION_VERSION' ) !== false,
 			'Facebook command uses canonical linker' => strpos( $listener_src, 'BizCity_Channel_User_Linker::resolve_wp_user' ) !== false,
 			'Linker exposes FB_MESS resolution and issue path' => strpos( $linker_src, 'resolve_wp_user' ) !== false && strpos( $linker_src, 'issue_link' ) !== false,
@@ -309,6 +311,60 @@ final class BizCity_Probe_Channel_Identity_Memory implements BizCity_Diagnostics
 			'label'  => 'Runtime (d): durable UUID continuity and fail-closed identity boundaries',
 			'status' => $identity_ok ? 'pass' : 'fail',
 			'detail' => $identity_detail,
+		);
+
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB5 — exercise the canonical Identity Hub merge mutation and verify its post-commit rebuild event.
+		$merge_ok = false;
+		$merge_detail = 'Identity merge fixture was not executed.';
+		$merge_source_uuid = '';
+		$merge_target_uuid = '';
+		$merge_source_account = '__healthtest_merge_source_' . $blog_id . '_' . wp_rand( 1000, 9999 );
+		$merge_target_account = '__healthtest_merge_target_' . $blog_id . '_' . wp_rand( 1000, 9999 );
+		$merge_source_external = $merge_source_account . '_user';
+		$merge_target_external = $merge_target_account . '_user';
+		$this->identity_bindings[] = array( 'platform' => 'WEBCHAT', 'account_id' => $merge_source_account, 'external_ref' => $merge_source_external );
+		$this->identity_bindings[] = array( 'platform' => 'WEBCHAT', 'account_id' => $merge_target_account, 'external_ref' => $merge_target_external );
+		try {
+			$merge_source = BizCity_Identity_Hub::bind( 'WEBCHAT', $merge_source_account, $merge_source_external, 0, $blog_id, true );
+			$merge_target = BizCity_Identity_Hub::bind( 'WEBCHAT', $merge_target_account, $merge_target_external, 0, $blog_id, true );
+			$merge_source_uuid = is_array( $merge_source ) ? (string) ( $merge_source['identity_uuid'] ?? '' ) : '';
+			$merge_target_uuid = is_array( $merge_target ) ? (string) ( $merge_target['identity_uuid'] ?? '' ) : '';
+			$this->identity_probe_uuids = array_values( array_unique( array_filter( array_merge( $this->identity_probe_uuids, array( $merge_source_uuid, $merge_target_uuid ) ) ) ) );
+			$merge_events = 0;
+			$merge_listener = static function ( $source_uuid, $target_uuid, $event ) use ( &$merge_events, &$merge_source_uuid, &$merge_target_uuid ) {
+				if ( (string) $source_uuid === $merge_source_uuid && (string) $target_uuid === $merge_target_uuid && is_array( $event ) && (string) ( $event['event_uuid'] ?? '' ) !== '' ) {
+					$merge_events++;
+				}
+			};
+			add_action( 'bizcity_identity_merged', $merge_listener, 99, 3 );
+			$merge_result = ( $merge_source_uuid !== '' && $merge_target_uuid !== '' ) ? BizCity_Identity_Hub::merge( $merge_source_uuid, $merge_target_uuid, 'diagnostic_probe' ) : new WP_Error( 'identity_merge_fixture_create_failed', 'Identity fixture creation failed.' );
+			remove_action( 'bizcity_identity_merged', $merge_listener, 99 );
+			$resolved_source = $merge_source_uuid !== '' ? BizCity_Identity_Hub::resolve( $merge_source_uuid ) : null;
+			$resolved_binding = BizCity_Identity_Hub::resolve_binding( 'WEBCHAT', $merge_source_account, $merge_source_external, $blog_id );
+			$merge_ok = is_array( $merge_result ) && ! empty( $merge_result['ok'] ) && ! empty( $merge_result['merged'] ) && $merge_events === 1 && is_array( $resolved_source ) && (string) ( $resolved_source['identity_uuid'] ?? '' ) === $merge_target_uuid && is_array( $resolved_binding ) && (string) ( $resolved_binding['identity_uuid'] ?? '' ) === $merge_target_uuid;
+			$merge_detail = $merge_ok ? 'Identity Hub atomically merged the source into the target, moved the source binding, emitted one post-commit event and resolved both identities to the target.' : 'Identity merge did not prove atomic post-commit event, binding transfer or canonical resolution.';
+		} catch ( Throwable $e ) {
+			$merge_detail = 'Identity merge fixture threw: ' . sanitize_key( (string) $e->getMessage() );
+		}
+		if ( ! $merge_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'Runtime (e): canonical identity merge and rebuild event',
+			'status' => $merge_ok ? 'pass' : 'fail',
+			'detail' => $merge_detail,
+		);
+		$merge_event_guard_ok = false;
+		if ( class_exists( 'BizCity_Context_Bank_Identity_Merge_Adapter' ) ) {
+			// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB5 — reject cross-tenant and UUID-less merge events before any rollup dirty mutation.
+			$invalid_tenant = BizCity_Context_Bank_Identity_Merge_Adapter::on_merged( $merge_source_uuid, $merge_target_uuid, array( 'blog_id' => (int) get_current_blog_id() + 1, 'event_uuid' => 'probe-invalid-tenant' ) );
+			$missing_event = BizCity_Context_Bank_Identity_Merge_Adapter::on_merged( $merge_source_uuid, $merge_target_uuid, array( 'blog_id' => (int) get_current_blog_id() ) );
+			$merge_event_guard_ok = is_array( $invalid_tenant ) && (string) ( $invalid_tenant['reason'] ?? '' ) === 'identity_merge_tenant_mismatch'
+				&& is_array( $missing_event ) && (string) ( $missing_event['reason'] ?? '' ) === 'identity_merge_event_uuid_missing';
+		}
+		if ( ! $merge_event_guard_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'Runtime (f): identity merge event tenant and UUID guards',
+			'status' => $merge_event_guard_ok ? 'pass' : 'fail',
+			'detail' => $merge_event_guard_ok ? 'Cross-tenant and UUID-less merge events were refused before rollup dirty handling.' : 'Identity merge event validation did not fail closed.',
 		);
 
 		return array(

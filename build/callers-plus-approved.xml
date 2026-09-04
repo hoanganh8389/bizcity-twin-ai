@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="2" failures="0" skipped="0" time="9.046">
+  <testsuite name="diagnostics" tests="2" failures="0" skipped="0" time="9.046">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.callers" time="7.563">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.approved_drop" time="0.911">
+    </testcase>
+  </testsuite>
+</testsuites>

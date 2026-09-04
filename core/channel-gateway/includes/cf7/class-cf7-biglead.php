@@ -751,9 +751,10 @@ class BizCity_CF7_BigLead {
 		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
 			$context['form_id'] = $form_id;
 			BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CF7, $level, $event, $message, $context );
-		} elseif ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+		} elseif ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			$context['form_id'] = $form_id;
-			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', $level, $event, $message, $context );
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — BigLead fallback uses the CF7 channel contract.
+			BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.cf7_audit', $level, $event, $message, $context );
 		}
 	}
 

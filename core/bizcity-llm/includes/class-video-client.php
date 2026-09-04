@@ -131,13 +131,14 @@ class BizCity_Video_Client {
 		$response = $this->request( 'gateway.video.submit', $endpoint, array(
 			'method'  => 'POST',
 			'timeout' => 30,
-			'headers' => array(
+			// [2026-09-01 Johnny Chu] B2C-G7.1 — send the canonical site signal on video submission.
+			'headers' => array_merge( array(
 				'Content-Type'  => 'application/json',
 				'Authorization' => 'Bearer ' . $this->get_api_key(),
 				'X-Site-URL'    => home_url(),
 				'X-Trace-Id'    => $trace_id,
 				'X-Idempotency-Key' => $idempotency_key,
-			),
+			), class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->get_client_domain_headers() : array() ),
 			'body' => wp_json_encode( $body ),
 		), array( 'trace_id' => $trace_id, 'idempotency_key' => $idempotency_key ) );
 
@@ -193,11 +194,12 @@ class BizCity_Video_Client {
 		$response = $this->request( 'gateway.video.poll', $endpoint, array(
 			'method'  => 'GET',
 			'timeout' => 20,
-			'headers' => array(
+			// [2026-09-01 Johnny Chu] B2C-G7.1 — send the canonical site signal on video polling.
+			'headers' => array_merge( array(
 				'Authorization' => 'Bearer ' . $this->get_api_key(),
 				'X-Site-URL'    => home_url(),
 				'X-Trace-Id'    => $trace_id,
-			),
+			), class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->get_client_domain_headers() : array() ),
 		), array( 'trace_id' => $trace_id ) );
 
 		return $this->parse_response( $response, $base );
@@ -217,10 +219,12 @@ class BizCity_Video_Client {
 		$response = $this->request( 'gateway.video.models', $endpoint, array(
 			'method'  => 'GET',
 			'timeout' => 15,
-			'headers' => array(
+			// [2026-09-01 Johnny Chu] B2C-G7.1 — send the canonical site signal on video model discovery.
+			'headers' => array_merge( array(
 				'Authorization' => 'Bearer ' . $this->get_api_key(),
+				'X-Site-URL'    => home_url(),
 				'X-Trace-Id'    => $trace_id,
-			),
+			), class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->get_client_domain_headers() : array() ),
 		), array( 'trace_id' => $trace_id ) );
 		return $this->parse_response( $response, $base );
 	}

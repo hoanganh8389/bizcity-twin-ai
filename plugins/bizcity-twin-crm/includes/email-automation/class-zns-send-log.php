@@ -86,10 +86,10 @@ class BizCity_CRM_ZNS_Send_Log {
 		$ok = $wpdb->insert( $tbl, $row );
 		if ( false === $ok ) {
 			// [2026-08-01 Johnny Chu] PHASE-CRM-LOG-SPLIT — keep ZNS log-write failures in CRM JSONL.
-			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-				BizCity_JSONL_File_Logger::write(
-					BizCity_JSONL_File_Logger::CRM_FOLDER,
-					'zns',
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+				// [2026-08-27 Johnny Chu] R-LOG-HYBRID — ZNS send-log failures use the channel audit contract.
+				BizCity_JSONL_File_Logger::write_contract(
+					'core.channel_gateway.zns_audit',
 					'error',
 					'zns_send_log_insert_failed',
 					'ZNS send-log database write failed.',

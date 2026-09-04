@@ -131,6 +131,10 @@ final class BizCity_CG_Flow_Installer {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+		// [2026-09-02 Johnny Chu] R-METADATA-CACHE — clear a cached missing-table result before verifying the table created by dbDelta().
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $tbl );
+		}
 
 		return self::table_exists( $tbl );
 	}
@@ -191,6 +195,9 @@ final class BizCity_CG_Flow_Installer {
 		$dst          = self::table();
 		$interim      = self::interim_table();
 		$src          = self::legacy_table();
+		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — the interim cg_flows projection is retired; migrate only from the still-owned legacy source.
+		$interim_allowed = ! class_exists( 'BizCity_Legacy_Table_Policy' )
+			|| BizCity_Legacy_Table_Policy::allow_sql( $interim, 'read' );
 
 		if ( ! self::table_exists( $dst ) ) {
 			self::ensure_table();
@@ -201,7 +208,7 @@ final class BizCity_CG_Flow_Installer {
 		}
 
 		$dst_count     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$dst}" );
-		$interim_exist = self::table_exists( $interim );
+		$interim_exist = $interim_allowed && self::table_exists( $interim );
 		$interim_count = $interim_exist ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$interim}" ) : 0;
 
 		$result = array( 'ok' => true, 'copied' => 0, 'reason' => 'noop', 'from' => $from_version, 'to' => self::DB_VERSION );

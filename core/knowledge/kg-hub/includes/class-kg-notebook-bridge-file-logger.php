@@ -26,6 +26,8 @@ if ( class_exists( 'BizCity_KG_Notebook_Bridge_File_Logger', false ) ) {
 final class BizCity_KG_Notebook_Bridge_File_Logger {
 
 	const BASE_FOLDER = 'bizcity_notebook_bridge_logs';
+	const JSONL_FOLDER = 'bizcity-notebook-bridge-logs';
+	const JSONL_MODULE = 'capture-lifecycle';
 	const KEEP_DAYS   = 14;
 
 	/** @var array<int,string> keyed by blog_id — see R-MSDB.7 cache isolation. */
@@ -63,29 +65,17 @@ final class BizCity_KG_Notebook_Bridge_File_Logger {
 	 */
 	public static function log( string $event, array $data = array(), string $level = 'info' ): bool {
 		try {
-			$dir = self::get_log_dir();
-			if ( $dir === '' ) {
+			if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 				return false;
 			}
-
-			$entry = array(
-				'ts'      => gmdate( 'c' ),
+			$event = sanitize_key( $event );
+			$ctx = array(
 				'ts_unix' => microtime( true ),
-				'blog_id' => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
-				'level'   => sanitize_key( $level ),
-				'event'   => sanitize_key( $event ),
 				'pid'     => function_exists( 'getmypid' ) ? (int) getmypid() : 0,
 				'data'    => self::sanitize_context( $data ),
 			);
-
-			$line = wp_json_encode( $entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-			if ( ! is_string( $line ) || $line === '' ) {
-				return false;
-			}
-
-			$file = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . gmdate( 'Y-m-d' ) . '.jsonl';
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			return false !== @file_put_contents( $file, $line . "\n", FILE_APPEND | LOCK_EX );
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — bridge events resolve their framework contract before writing sanitized payloads.
+			return (bool) BizCity_JSONL_File_Logger::write_contract( 'core.knowledge.notebook_bridge', sanitize_key( $level ), $event !== '' ? $event : 'bridge_event', $event, $ctx );
 		} catch ( \Throwable $e ) {
 			// Logger must never throw.
 			if ( function_exists( 'error_log' ) ) {
@@ -99,70 +89,11 @@ final class BizCity_KG_Notebook_Bridge_File_Logger {
 	 * Keep only the latest KEEP_DAYS files.
 	 */
 	public static function gc_old_logs(): void {
-		try {
-			$dir = self::get_log_dir();
-			if ( $dir === '' || ! is_dir( $dir ) ) {
-				return;
-			}
-			$files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
-			if ( ! is_array( $files ) || count( $files ) <= self::KEEP_DAYS ) {
-				return;
-			}
-			sort( $files, SORT_STRING );
-			$delete = array_slice( $files, 0, max( 0, count( $files ) - self::KEEP_DAYS ) );
-			foreach ( $delete as $file ) {
-				if ( is_string( $file ) && file_exists( $file ) ) {
-					// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
-					@unlink( $file );
-				}
-			}
-		} catch ( \Throwable $e ) {
-			// Silent by design.
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			return;
 		}
-	}
-
-	/**
-	 * Resolve and create base log directory.
-	 *
-	 * [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX-8 (R-MSDB.7) — cache key
-	 * MUST include blog_id. A bare static string here would, on any
-	 * persistent PHP worker that serves multiple blogs without restarting
-	 * (or after any switch_to_blog() earlier in the same process), silently
-	 * keep writing every subsequent blog's bridge events into the FIRST
-	 * blog's uploads dir — no error, just events vanishing from the site the
-	 * user actually expects to see them in.
-	 */
-	private static function get_log_dir(): string {
-		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
-		if ( isset( self::$dir_cache[ $blog_id ] ) && self::$dir_cache[ $blog_id ] !== '' ) {
-			return self::$dir_cache[ $blog_id ];
-		}
-
-		$uploads = wp_upload_dir();
-		if ( ! is_array( $uploads ) || empty( $uploads['basedir'] ) ) {
-			return '';
-		}
-
-		$base = wp_normalize_path( (string) $uploads['basedir'] );
-		$dir  = trailingslashit( $base ) . self::BASE_FOLDER;
-		if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) {
-			return '';
-		}
-
-		$index_file = trailingslashit( $dir ) . 'index.php';
-		if ( ! file_exists( $index_file ) ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			@file_put_contents( $index_file, "<?php // Silence is golden.\n" );
-		}
-
-		$htaccess = trailingslashit( $dir ) . '.htaccess';
-		if ( ! file_exists( $htaccess ) ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			@file_put_contents( $htaccess, "Order Deny,Allow\nDeny from all\n" );
-		}
-
-		self::$dir_cache[ $blog_id ] = $dir;
-		return $dir;
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — bridge retention uses the shared whole-file purge primitive.
+		BizCity_JSONL_File_Logger::purge_older_than( self::JSONL_FOLDER, self::JSONL_MODULE, self::KEEP_DAYS );
 	}
 
 	/**

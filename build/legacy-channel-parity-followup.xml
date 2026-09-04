@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="2" failures="0" skipped="0" time="19.333">
+  <testsuite name="diagnostics" tests="2" failures="0" skipped="0" time="19.333">
+    <testcase classname="bizcity.diagnostics" name="channel-gateway.flows" time="19.134">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="modules.zalobot.memory_unify" time="0.089">
+    </testcase>
+  </testsuite>
+</testsuites>

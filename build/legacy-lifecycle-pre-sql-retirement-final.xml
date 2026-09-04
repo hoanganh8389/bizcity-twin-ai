@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="8" failures="0" skipped="0" time="6.264">
+  <testsuite name="diagnostics" tests="8" failures="0" skipped="0" time="6.264">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.lifecycle" time="0.028">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.callers" time="5.383">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.multisite_scope" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.owner_parity" time="0.009">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.helper.log_index" time="0.105">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.helper.jsonl_search_query_index_parity" time="0.082">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.intent_filestore_parity" time="0.265">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.webchat.tool_registry_parity" time="0.065">
+    </testcase>
+  </testsuite>
+</testsuites>

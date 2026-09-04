@@ -18,7 +18,8 @@
  *   Tier 1 (extracted)  — LLM-analyzed memories from conversation history
  *   Tier 2 (explicit)   — User explicitly asked bot to remember something
  *
- * Storage: bizcity_memory_users table
+ * Storage: encrypted business filestore; bizcity_memory_users is legacy
+ * read/migration state only.
  *
  * Integration:
  *   - Chat Gateway injects memories into system prompt (all channels)
@@ -34,55 +35,39 @@ class BizCity_User_Memory {
 
     /** @var self|null */
     private static $instance = null;
-
-    /** Tier constants */
-    const TIER_EXTRACTED = 'extracted';  // LLM-analyzed from chat history
-    const TIER_EXPLICIT  = 'explicit';   // User asked bot to remember
-
-    /** Memory types */
-    const TYPE_IDENTITY     = 'identity';
-    const TYPE_PREFERENCE   = 'preference';
-    const TYPE_GOAL         = 'goal';
-    const TYPE_PAIN         = 'pain';
-    const TYPE_CONSTRAINT   = 'constraint';
-    const TYPE_HABIT        = 'habit';
-    const TYPE_RELATIONSHIP = 'relationship';
-    const TYPE_FACT         = 'fact';
-    const TYPE_REQUEST      = 'request';  // explicit user requests
-
-    /** Max memories per user */
-    const MAX_PER_USER = 500;
-
-    /** @var bool Flag to prevent double injection (direct + filter) */
+    private static $last_upsert_failure = array();
+    private static $current_log_session_id = '';
     private $already_injected = false;
 
-    // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — canonical per-request upsert failure payload for probes/tools.
-    /** @var array<string,mixed> Last upsert failure payload for diagnostics and probes */
-    private static $last_upsert_failure = array();
-
-    /**
-     * Get the most recent upsert failure payload.
-     *
-     * @return array{code?:string,message?:string,db_error?:string,context?:array,at?:string}
-     */
-    public static function get_last_upsert_failure() {
-        return is_array( self::$last_upsert_failure ) ? self::$last_upsert_failure : array();
-    }
+    const BUSINESS_CONTRACT_ID = 'core.knowledge.user_memory';
+    const TIER_EXTRACTED = 'extracted';
+    const TIER_EXPLICIT  = 'explicit';
+    const TYPE_IDENTITY = 'identity';
+    const TYPE_PREFERENCE = 'preference';
+    const TYPE_GOAL = 'goal';
+    const TYPE_PAIN = 'pain';
+    const TYPE_CONSTRAINT = 'constraint';
+    const TYPE_HABIT = 'habit';
+    const TYPE_RELATIONSHIP = 'relationship';
+    const TYPE_FACT = 'fact';
+    const TYPE_REQUEST = 'request';
+    const MAX_PER_USER = 500;
 
     private static function clear_last_upsert_failure() {
         self::$last_upsert_failure = array();
     }
 
-    private static function set_last_upsert_failure( $code, $message, $db_error = '', $context = array() ) {
-        self::$last_upsert_failure = array(
-            'code'     => (string) $code,
-            'message'  => (string) $message,
-            'db_error' => (string) $db_error,
-            'context'  => is_array( $context ) ? $context : array(),
-            'at'       => gmdate( 'c' ),
-        );
-        // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — emit canonical upsert failure evidence so probes can report UUID/DB failures explicitly.
+    private static function set_last_upsert_failure( $code, $message, $db_error = '', array $context = array() ) {
+        self::$last_upsert_failure = array_merge( array(
+            'code' => sanitize_key( (string) $code ),
+            'message' => sanitize_text_field( (string) $message ),
+            'db_error' => sanitize_text_field( (string) $db_error ),
+        ), $context );
         do_action( 'bizcity_user_memory_upsert_failed', self::$last_upsert_failure );
+    }
+
+    public static function get_last_upsert_failure() {
+        return self::$last_upsert_failure;
     }
 
     /**
@@ -90,12 +75,12 @@ class BizCity_User_Memory {
      * an early cron/clone load path has not loaded the shared JSONL logger yet.
      */
     private static function write_memory_log( $module, $level, $event, $message, array $context = array() ) {
-        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
             return false;
         }
-        return BizCity_JSONL_File_Logger::write(
-            BizCity_JSONL_File_Logger::MEMORY_FOLDER,
-            (string) $module,
+        // [2026-08-27 Johnny Chu] R-LOG-HYBRID — user memory diagnostics resolve the canonical contract instead of a dynamic module path.
+        return BizCity_JSONL_File_Logger::write_contract(
+            'core.knowledge.user_memory_trace',
             $level,
             $event,
             $message,
@@ -150,6 +135,18 @@ class BizCity_User_Memory {
             return;
         }
         $checked = true;
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — fail closed before any legacy SQL metadata/DDL; filestore is the sole runtime owner.
+        return;
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — retired user-memory SQL is never installed or repaired by fallback loaders.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::install_blocked( self::table() ) ) {
+			return;
+		}
+
+        // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — once the business contract is loaded, do not recreate or migrate the quarantined SQL table.
+        if ( class_exists( 'BizCity_File_Contract_Registry' )
+            && BizCity_File_Contract_Registry::has( self::BUSINESS_CONTRACT_ID ) ) {
+            return;
+        }
 
         global $wpdb;
         $table = self::table();
@@ -544,6 +541,37 @@ class BizCity_User_Memory {
             'blog_id'     => get_current_blog_id(),
         ] );
 
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — Context Bank is the only user-memory read boundary after SQL retirement.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
+        }
+        if ( class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) {
+            $memory_filters = array(
+                'blog_id' => (int) $args['blog_id'],
+                'user_id' => (int) $args['user_id'],
+                'identity_uuid' => (string) $args['identity_uuid'],
+                'limit' => (int) $args['limit'],
+                'filter' => function ( $record ) use ( $args ) {
+                    if ( (string) $args['session_id'] !== '' && (string) ( $record['session_id'] ?? '' ) !== (string) $args['session_id'] ) {
+                        return false;
+                    }
+                    if ( (string) $args['memory_tier'] !== '' && (string) ( $record['memory_tier'] ?? '' ) !== (string) $args['memory_tier'] ) {
+                        return false;
+                    }
+                    if ( (string) $args['memory_type'] !== '' && (string) ( $record['memory_type'] ?? '' ) !== (string) $args['memory_type'] ) {
+                        return false;
+                    }
+                    return true;
+                },
+            );
+            $records = BizCity_Context_Bank_Memory_Adapter::query( self::BUSINESS_CONTRACT_ID, $memory_filters );
+            $order_by = in_array( $args['order_by'], [ 'score', 'times_seen', 'created_at', 'updated_at' ], true ) ? $args['order_by'] : 'score';
+            usort( $records, function ( $left, $right ) use ( $order_by ) {
+                return ( $right[ $order_by ] ?? '' ) <=> ( $left[ $order_by ] ?? '' );
+            } );
+            return array_map( function ( $record ) { return (object) $record; }, array_slice( $records, 0, (int) $args['limit'] ) );
+        }
+
         $table  = self::table();
         $where  = [ 'blog_id = %d' ];
         $params = [ (int) $args['blog_id'] ];
@@ -577,14 +605,15 @@ class BizCity_User_Memory {
             $params[] = $args['memory_type'];
         }
 
-        $where_sql = implode( ' AND ', $where );
-        $order_by  = in_array( $args['order_by'], [ 'score', 'times_seen', 'created_at', 'updated_at' ] )
-            ? $args['order_by'] : 'score';
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — user-memory reads are filestore-only; the legacy SQL projection is never reopened.
+        $file_rows = $this->query_filestore_memories( $scope, $args );
+        if ( ! empty( $file_rows ) ) {
+            return array_map( function ( $record ) {
+                return (object) $record;
+            }, $file_rows );
+        }
 
-        $sql = "SELECT * FROM {$table} WHERE {$where_sql} ORDER BY {$order_by} DESC LIMIT %d";
-        $params[] = (int) $args['limit'];
-
-        return $wpdb->get_results( $wpdb->prepare( $sql, ...$params ) );
+        return [];
     }
 
     /* ================================================================
@@ -897,13 +926,9 @@ class BizCity_User_Memory {
      * @return string|false  'insert', 'update', or false
      * ================================================================ */
     private function upsert( $data ) {
-        global $wpdb;
-
         // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — ensure each upsert run reports only its own failure reason.
         self::clear_last_upsert_failure();
 
-        $table   = self::table();
-        $now     = current_time( 'mysql' );
         $blog_id = get_current_blog_id();
 
         $data = wp_parse_args( $data, [
@@ -952,163 +977,31 @@ class BizCity_User_Memory {
             return false;
         }
 
-        // Check existing by unique key
-        // [2026-07-28 Johnny Chu] HOTFIX — reset wpdb last_error before guarded existence query.
-        $wpdb->last_error = '';
-        $exists_id = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT id FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s AND memory_key = %s LIMIT 1",
-            $blog_id,
-            (int) $data['user_id'],
-            (string) $data['session_id'],
-            (string) $data['identity_uuid'],
-            (string) $data['memory_key']
-        ) );
-        if ( ! empty( $wpdb->last_error ) ) {
-            $db_error = (string) $wpdb->last_error;
-            // [2026-07-28 Johnny Chu] PHASE-0.52 W8.4 — one-shot schema self-heal + retry when legacy tenant table is stale.
-            if ( self::maybe_repair_schema( $table, 'upsert_select_existing' ) ) {
-                $wpdb->last_error = '';
-                $exists_id = (int) $wpdb->get_var( $wpdb->prepare(
-                    "SELECT id FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s AND memory_key = %s LIMIT 1",
-                    $blog_id,
-                    (int) $data['user_id'],
-                    (string) $data['session_id'],
-                    (string) $data['identity_uuid'],
-                    (string) $data['memory_key']
-                ) );
+        // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — persist user-memory rows in encrypted JSONL first; SQL below is bounded fallback.
+        $file_result = $this->write_filestore_memory( $data, $blog_id );
+        if ( is_array( $file_result ) && ! empty( $file_result['op'] ) ) {
+            $mirror_payload = array_merge( $data, [ 'blog_id' => $blog_id ] );
+            if ( ! empty( $file_result['legacy_id'] ) ) {
+                $mirror_payload['id'] = (int) $file_result['legacy_id'];
             }
-            if ( ! empty( $wpdb->last_error ) ) {
-                self::set_last_upsert_failure( 'db_select_existing_failed', 'Failed to read existing memory row before upsert.', (string) $wpdb->last_error );
-                return false;
+            if ( ! empty( $file_result['receipt'] ) && is_array( $file_result['receipt'] ) ) {
+                $mirror_payload['filestore_receipt'] = $file_result['receipt'];
             }
-            if ( $exists_id < 1 && $db_error !== '' ) {
-                do_action( 'bizcity_user_memory_schema_repaired', array( 'table' => $table, 'reason' => 'upsert_select_existing', 'db_error' => $db_error ) );
-            }
+            // [2026-09-01 Johnny Chu] PHASE-CB2.3 — retain the lock-captured filestore receipt for the Context Bank memory-reference adapter.
+            do_action( 'bizcity_memory_mirror_write', 'user', $mirror_payload, $file_result['op'] );
+            return (string) $file_result['op'];
         }
 
-        if ( $exists_id > 0 ) {
-            // Update — merge score, bump times_seen
-            $updated = $wpdb->query( $wpdb->prepare(
-                "UPDATE {$table} SET
-                    memory_text = %s,
-                    score = GREATEST(score, %d),
-                    times_seen = times_seen + 1,
-                    source_log_ids = %s,
-                    last_seen = %s,
-                    updated_at = %s
-                 WHERE id = %d",
-                $data['memory_text'],
-                (int) $data['score'],
-                $data['source_log_ids'],
-                $now,
-                $now,
-                $exists_id
-            ) );
-            if ( false === $updated ) {
-                self::set_last_upsert_failure( 'db_update_failed', 'Failed to update existing memory row.', (string) $wpdb->last_error, array( 'id' => (int) $exists_id ) );
-                return false;
-            }
-            /**
-             * Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
-             * NO-OP unless filter `bizcity_memory_unified_enabled` returns TRUE.
-             */
-            do_action( 'bizcity_memory_mirror_write', 'user', array_merge( $data, [ 'blog_id' => $blog_id ] ), 'update' );
-            return 'update';
-        }
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — Context Bank filestore is the only new user-memory payload writer; never fall back to SQL.
+        self::set_last_upsert_failure( 'context_bank_filestore_required', 'User memory filestore is unavailable; SQL payload fallback is disabled.' );
+        return false;
 
-        // Enforce limit
-        // [2026-07-28 Johnny Chu] HOTFIX — reset wpdb last_error before eviction-count query.
-        $wpdb->last_error = '';
-        $count = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s",
-            $blog_id,
-            (int) $data['user_id'],
-            (string) $data['session_id'],
-            (string) $data['identity_uuid']
-        ) );
-        if ( ! empty( $wpdb->last_error ) ) {
-            $db_error = (string) $wpdb->last_error;
-            // [2026-07-28 Johnny Chu] HOTFIX — one-shot schema repair + retry for stale tenants that fail at count stage.
-            if ( self::maybe_repair_schema( $table, 'upsert_count_before_eviction' ) ) {
-                $wpdb->last_error = '';
-                $count = (int) $wpdb->get_var( $wpdb->prepare(
-                    "SELECT COUNT(*) FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s",
-                    $blog_id,
-                    (int) $data['user_id'],
-                    (string) $data['session_id'],
-                    (string) $data['identity_uuid']
-                ) );
-            }
-            if ( ! empty( $wpdb->last_error ) ) {
-                self::set_last_upsert_failure( 'db_count_failed', 'Failed to count memory rows before eviction.', (string) $wpdb->last_error );
-                return false;
-            }
-            if ( $count >= 0 && $db_error !== '' ) {
-                do_action( 'bizcity_user_memory_schema_repaired', array( 'table' => $table, 'reason' => 'upsert_count_before_eviction', 'db_error' => $db_error ) );
-            }
-        }
-
-        if ( $count >= self::MAX_PER_USER ) {
-            // Delete lowest score
-            // [2026-07-28 Johnny Chu] R-CH-IDMEM — evict only within the same durable identity scope.
-            $evicted = $wpdb->query( $wpdb->prepare(
-                "DELETE FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s ORDER BY score ASC, updated_at ASC LIMIT 1",
-                $blog_id,
-                (int) $data['user_id'],
-                (string) $data['session_id'],
-                (string) $data['identity_uuid']
-            ) );
-            if ( false === $evicted ) {
-                self::set_last_upsert_failure( 'db_evict_failed', 'Failed to evict the lowest-priority memory row.', (string) $wpdb->last_error );
-                return false;
-            }
-        }
-
-        // Insert
-        $inserted = $wpdb->insert( $table, [
-            'blog_id'        => $blog_id,
-            'user_id'        => (int) $data['user_id'],
-            'session_id'     => (string) $data['session_id'],
-            'identity_uuid'  => (string) $data['identity_uuid'],
-            'memory_tier'    => $data['memory_tier'],
-            'memory_type'    => $data['memory_type'],
-            'memory_key'     => $data['memory_key'],
-            'memory_text'    => $data['memory_text'],
-            'score'          => (int) $data['score'],
-            'times_seen'     => 1,
-            'source_log_ids' => $data['source_log_ids'],
-            'metadata'       => $data['metadata'] ?: '',
-            'last_seen'      => $now,
-            'created_at'     => $now,
-            'updated_at'     => $now,
-        ] );
-        if ( false === $inserted ) {
-            self::set_last_upsert_failure( 'db_insert_failed', 'Failed to insert a new memory row.', (string) $wpdb->last_error );
-            return false;
-        }
-
-        $inserted_id = (int) $wpdb->insert_id;
-        if ( $inserted_id > 0 ) {
-            /**
-             * Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
-             * NO-OP unless filter `bizcity_memory_unified_enabled` returns TRUE.
-             */
-            do_action( 'bizcity_memory_mirror_write', 'user', array_merge( $data, [
-                'blog_id' => $blog_id,
-                'id'      => $inserted_id,
-            ] ), 'insert' );
-        } else {
-            self::set_last_upsert_failure( 'db_insert_no_id', 'Insert reported success but no insert_id was returned.', (string) $wpdb->last_error );
-            return false;
-        }
-
-        return $inserted_id ? 'insert' : false;
     }
 
     /* ================================================================
      * LLM: Extract memories from conversation messages
      *
-     * Mirrors the logic from BizCity_Zalo_Bot_Memory::extract_memories_llm()
+    * Uses the canonical TwinBrain extraction contract.
      * but uses bizcity_openrouter_chat() (unified LLM interface).
      *
      * @param array $conversation  [ { role, text, id }, ... ]
@@ -1281,16 +1174,43 @@ Yêu cầu output:
         if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Forbidden' );
 
         $memory_id = intval( $_POST['memory_id'] ?? 0 );
-        if ( ! $memory_id ) wp_send_json_error( 'Invalid ID' );
+        $record_id = sanitize_text_field( $_POST['record_id'] ?? '' );
+        if ( ! $memory_id && $record_id === '' ) wp_send_json_error( 'Invalid ID' );
 
-        global $wpdb;
-        $deleted = $wpdb->delete( self::table(), [ 'id' => $memory_id ] );
-        if ( $deleted ) {
-            // [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — legacy admin delete must remove the matching unified user row.
-            do_action( 'bizcity_memory_mirror_delete', 'user', $memory_id, array( 'blog_id' => get_current_blog_id() ) );
+        // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — admin delete supports direct record_id tombstones for filestore-owned rows.
+        if ( $record_id !== '' && $this->is_filestore_available() ) {
+            $deleted_file = BizCity_Business_JSONL_File_Store::delete_with_receipt(
+                self::BUSINESS_CONTRACT_ID,
+                $record_id,
+                array( 'blog_id' => get_current_blog_id() )
+            );
+            if ( is_array( $deleted_file ) ) {
+                do_action( 'bizcity_memory_mirror_delete', 'user', (int) $memory_id, array( 'blog_id' => get_current_blog_id(), 'record_id' => $record_id, 'filestore_receipt' => $deleted_file ) );
+                wp_send_json_success( [ 'deleted' => true ] );
+            }
+        }
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — resolve virtual filestore IDs before refusing legacy SQL deletion.
+        if ( $memory_id && $this->is_filestore_available() ) {
+            $file_rows = $this->query_filestore_memories( array(), array(
+                'blog_id' => get_current_blog_id(),
+                'limit'   => 1000,
+            ) );
+            foreach ( $file_rows as $file_row ) {
+                if ( (int) ( $file_row['id'] ?? 0 ) === $memory_id || (int) ( $file_row['legacy_id'] ?? 0 ) === $memory_id ) {
+                    $record_id = (string) ( $file_row['record_id'] ?? '' );
+                    break;
+                }
+            }
+            $delete_receipt = $record_id === '' ? false : BizCity_Business_JSONL_File_Store::delete_with_receipt( self::BUSINESS_CONTRACT_ID, $record_id, array( 'blog_id' => get_current_blog_id() ) );
+            if ( is_array( $delete_receipt ) ) {
+                do_action( 'bizcity_memory_mirror_delete', 'user', $memory_id, array( 'blog_id' => get_current_blog_id(), 'record_id' => $record_id, 'filestore_receipt' => $delete_receipt ) );
+                wp_send_json_success( [ 'deleted' => true ] );
+            }
+            wp_send_json_success( [ 'deleted' => false ] );
         }
 
-        wp_send_json_success( [ 'deleted' => (bool) $deleted ] );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — legacy SQL memory payloads are read/migration-only and cannot be deleted through this writer.
+        wp_send_json_success( [ 'deleted' => false ] );
     }
 
     /* ================================================================
@@ -1384,8 +1304,6 @@ Yêu cầu output:
      * Chat API, OpenRouter) that don't have $session_id in scope
      * still write to the same transient key as the Intent Engine.
      */
-    private static $current_log_session_id = '';
-
     /* ================================================================
      * STATIC: Log router event (called by Intent Engine & pipeline)
      *
@@ -1431,31 +1349,54 @@ Yêu cầu output:
         $table  = self::table();
         $blog_id = get_current_blog_id();
 
-        $total = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE blog_id = %d",
-            $blog_id
+        // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — admin stats aggregate from folded business records before SQL fallback.
+        $all_records = $this->query_filestore_memories( array(), array(
+            'blog_id'  => $blog_id,
+            'limit'    => 5000,
+            'order_by' => 'updated_at',
         ) );
-
-        $by_tier = $wpdb->get_results( $wpdb->prepare(
-            "SELECT memory_tier, COUNT(*) as count FROM {$table} WHERE blog_id = %d GROUP BY memory_tier",
-            $blog_id
-        ), ARRAY_A );
-
-        $by_type = $wpdb->get_results( $wpdb->prepare(
-            "SELECT memory_type, COUNT(*) as count, AVG(score) as avg_score FROM {$table} WHERE blog_id = %d GROUP BY memory_type ORDER BY count DESC",
-            $blog_id
-        ), ARRAY_A );
-
-        $unique_users = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(DISTINCT CONCAT(user_id, '|', session_id)) FROM {$table} WHERE blog_id = %d",
-            $blog_id
-        ) );
+        if ( ! empty( $all_records ) ) {
+            $by_tier_map = array();
+            $by_type_map = array();
+            $owners = array();
+            foreach ( $all_records as $row ) {
+                $tier = (string) ( $row['memory_tier'] ?? '' );
+                $type = (string) ( $row['memory_type'] ?? '' );
+                $score = (int) ( $row['score'] ?? 0 );
+                if ( ! isset( $by_tier_map[ $tier ] ) ) {
+                    $by_tier_map[ $tier ] = 0;
+                }
+                $by_tier_map[ $tier ]++;
+                if ( ! isset( $by_type_map[ $type ] ) ) {
+                    $by_type_map[ $type ] = array( 'count' => 0, 'score_sum' => 0 );
+                }
+                $by_type_map[ $type ]['count']++;
+                $by_type_map[ $type ]['score_sum'] += $score;
+                $owner_key = (int) ( $row['user_id'] ?? 0 ) . '|' . (string) ( $row['session_id'] ?? '' ) . '|' . (string) ( $row['identity_uuid'] ?? '' );
+                $owners[ $owner_key ] = true;
+            }
+            $by_tier = array();
+            foreach ( $by_tier_map as $tier => $count ) {
+                $by_tier[] = array( 'memory_tier' => $tier, 'count' => $count );
+            }
+            $by_type = array();
+            foreach ( $by_type_map as $type => $meta ) {
+                $avg_score = $meta['count'] > 0 ? ( $meta['score_sum'] / $meta['count'] ) : 0;
+                $by_type[] = array( 'memory_type' => $type, 'count' => $meta['count'], 'avg_score' => $avg_score );
+            }
+            return [
+                'total'        => count( $all_records ),
+                'by_tier'      => $by_tier,
+                'by_type'      => $by_type,
+                'unique_users' => count( $owners ),
+            ];
+        }
 
         return [
-            'total'        => $total,
-            'by_tier'      => $by_tier,
-            'by_type'      => $by_type,
-            'unique_users' => $unique_users,
+            'total'        => 0,
+            'by_tier'      => array(),
+            'by_type'      => array(),
+            'unique_users' => 0,
         ];
     }
 
@@ -1603,59 +1544,253 @@ Yêu cầu output:
         $where  = [ 'blog_id = %d' ];
         $params = [ (int) $args['blog_id'] ];
 
-        if ( ! empty( $args['memory_tier'] ) ) {
-            $where[]  = 'memory_tier = %s';
-            $params[] = $args['memory_tier'];
-        }
-
-        if ( ! empty( $args['memory_type'] ) ) {
-            $where[]  = 'memory_type = %s';
-            $params[] = $args['memory_type'];
-        }
-
-        if ( ! empty( $args['search'] ) ) {
-            $where[]  = 'memory_text LIKE %s';
-            $params[] = '%' . $wpdb->esc_like( $args['search'] ) . '%';
-        }
-
-        if ( ! empty( $args['source'] ) ) {
-            switch ( $args['source'] ) {
-                case 'file':
-                    $where[] = "metadata LIKE '%source_file%'";
-                    break;
-                case 'url':
-                    $where[] = "metadata LIKE '%source_url%'";
-                    break;
-                case 'text':
-                    $where[] = "metadata NOT LIKE '%source_file%' AND metadata NOT LIKE '%source_url%'";
-                    break;
-            }
-        }
-
-        $where_sql = implode( ' AND ', $where );
-        $allowed   = [ 'created_at', 'updated_at', 'score', 'times_seen', 'memory_type' ];
-        $order_by  = in_array( $args['order_by'], $allowed, true ) ? $args['order_by'] : 'created_at';
-        $order     = strtoupper( $args['order'] ) === 'ASC' ? 'ASC' : 'DESC';
-
-        // Total count
-        $total = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE {$where_sql}",
-            ...$params
+        // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — request tracker list uses folded file records first.
+        $file_rows = $this->query_filestore_memories( array(), array(
+            'blog_id'  => (int) $args['blog_id'],
+            'limit'    => max( 300, ( (int) $args['page'] * (int) $args['per_page'] * 8 ) ),
+            'order_by' => (string) $args['order_by'],
+            'order'    => (string) $args['order'],
         ) );
-
-        // Paginated results
-        $offset   = max( 0, ( (int) $args['page'] - 1 ) * (int) $args['per_page'] );
-        $sql      = "SELECT * FROM {$table} WHERE {$where_sql} ORDER BY {$order_by} {$order} LIMIT %d OFFSET %d";
-        $params[] = (int) $args['per_page'];
-        $params[] = $offset;
-
-        $items = $wpdb->get_results( $wpdb->prepare( $sql, ...$params ) );
+        if ( ! empty( $file_rows ) ) {
+            $filtered = array_values( array_filter( $file_rows, function ( $row ) use ( $args, $wpdb ) {
+                if ( ! empty( $args['memory_tier'] ) && (string) ( $row['memory_tier'] ?? '' ) !== (string) $args['memory_tier'] ) {
+                    return false;
+                }
+                if ( ! empty( $args['memory_type'] ) && (string) ( $row['memory_type'] ?? '' ) !== (string) $args['memory_type'] ) {
+                    return false;
+                }
+                if ( ! empty( $args['search'] ) ) {
+                    $needle = mb_strtolower( (string) $args['search'], 'UTF-8' );
+                    $hay = mb_strtolower( (string) ( $row['memory_text'] ?? '' ), 'UTF-8' );
+                    if ( mb_strpos( $hay, $needle ) === false ) {
+                        return false;
+                    }
+                }
+                if ( ! empty( $args['source'] ) ) {
+                    $metadata = (string) ( $row['metadata'] ?? '' );
+                    if ( 'file' === $args['source'] && strpos( $metadata, 'source_file' ) === false ) {
+                        return false;
+                    }
+                    if ( 'url' === $args['source'] && strpos( $metadata, 'source_url' ) === false ) {
+                        return false;
+                    }
+                    if ( 'text' === $args['source'] && ( strpos( $metadata, 'source_file' ) !== false || strpos( $metadata, 'source_url' ) !== false ) ) {
+                        return false;
+                    }
+                }
+                return true;
+            } ) );
+            $total = count( $filtered );
+            $offset = max( 0, ( (int) $args['page'] - 1 ) * (int) $args['per_page'] );
+            $items = array_slice( $filtered, $offset, (int) $args['per_page'] );
+            return [
+                'items' => array_map( function ( $row ) { return (object) $row; }, $items ),
+                'total' => $total,
+                'pages' => (int) ceil( $total / max( 1, (int) $args['per_page'] ) ),
+                'page'  => (int) $args['page'],
+            ];
+        }
 
         return [
-            'items' => $items ?: [],
-            'total' => $total,
-            'pages' => (int) ceil( $total / max( 1, (int) $args['per_page'] ) ),
+            'items' => [],
+            'total' => 0,
+            'pages' => 0,
             'page'  => (int) $args['page'],
         ];
     }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — user-memory migration uses contract-backed encrypted business rows.
+    private function is_filestore_available() {
+        return class_exists( 'BizCity_File_Contract_Registry' )
+            && class_exists( 'BizCity_Business_JSONL_File_Store' )
+            && BizCity_File_Contract_Registry::has( self::BUSINESS_CONTRACT_ID );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — stable owner-scoped record key for folded user-memory reads.
+    private function filestore_record_id( array $data ) {
+        $scope = (int) ( $data['blog_id'] ?? get_current_blog_id() ) . '|'
+            . (int) ( $data['user_id'] ?? 0 ) . '|'
+            . (string) ( $data['session_id'] ?? '' ) . '|'
+            . (string) ( $data['identity_uuid'] ?? '' ) . '|'
+            . (string) ( $data['memory_key'] ?? '' );
+        $key = function_exists( 'wp_salt' ) ? wp_salt( 'auth' ) : '';
+        if ( class_exists( 'BizCity_Codec' ) && $key !== '' ) {
+            return 'um_' . BizCity_Codec::hmac_sha256( $scope, $key, false );
+        }
+        return 'um_' . hash( 'sha256', $scope );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — normalize folded memory records to keep downstream object shape stable.
+    private function normalize_filestore_memory( array $row ) {
+        $defaults = array(
+            'id'             => 0,
+            'legacy_id'      => 0,
+            'blog_id'        => get_current_blog_id(),
+            'user_id'        => 0,
+            'session_id'     => '',
+            'identity_uuid'  => '',
+            'memory_tier'    => self::TIER_EXTRACTED,
+            'memory_type'    => self::TYPE_FACT,
+            'memory_key'     => '',
+            'memory_text'    => '',
+            'score'          => 50,
+            'times_seen'     => 1,
+            'source_log_ids' => '',
+            'metadata'       => '',
+            'last_seen'      => '',
+            'created_at'     => '',
+            'updated_at'     => '',
+            'record_id'      => '',
+        );
+        $row = wp_parse_args( $row, $defaults );
+        $row['id']         = (int) ( $row['legacy_id'] ?? $row['id'] ?? 0 );
+        $row['blog_id']    = (int) $row['blog_id'];
+        $row['user_id']    = (int) $row['user_id'];
+        $row['score']      = (int) $row['score'];
+        $row['times_seen'] = max( 1, (int) $row['times_seen'] );
+        return $row;
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — write helper that preserves upsert semantics (insert/update) for legacy callers.
+    private function write_filestore_memory( array $data, $blog_id ) {
+        if ( ! $this->is_filestore_available() ) {
+            return false;
+        }
+
+        $now = current_time( 'mysql' );
+        $normalized = $this->normalize_filestore_memory( array_merge( $data, array(
+            'blog_id'    => (int) $blog_id,
+            'last_seen'  => $now,
+            'updated_at' => $now,
+        ) ) );
+        if ( $normalized['memory_key'] === '' || trim( (string) $normalized['memory_text'] ) === '' ) {
+            return false;
+        }
+
+        $normalized['record_id'] = $this->filestore_record_id( $normalized );
+        $existing = BizCity_Business_JSONL_File_Store::find( self::BUSINESS_CONTRACT_ID, $normalized['record_id'], array(
+            'blog_id' => (int) $blog_id,
+        ) );
+
+        $op = 'insert';
+        if ( ! empty( $existing ) ) {
+            $op = 'update';
+            $normalized = array_merge( $existing, $normalized );
+            $normalized['score'] = max( (int) ( $existing['score'] ?? 0 ), (int) $normalized['score'] );
+            $normalized['times_seen'] = max( 1, (int) ( $existing['times_seen'] ?? 1 ) + 1 );
+            if ( $normalized['source_log_ids'] === '' ) {
+                $normalized['source_log_ids'] = (string) ( $existing['source_log_ids'] ?? '' );
+            }
+            if ( $normalized['metadata'] === '' ) {
+                $normalized['metadata'] = (string) ( $existing['metadata'] ?? '' );
+            }
+            $normalized['created_at'] = (string) ( $existing['created_at'] ?? $now );
+            $normalized['legacy_id']  = (int) ( $existing['legacy_id'] ?? 0 );
+        } else {
+            $normalized['times_seen'] = 1;
+            $normalized['created_at'] = $now;
+        }
+
+        // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — preserve MAX_PER_USER by tombstoning the lowest-score record in the same owner scope.
+        if ( $op === 'insert' ) {
+            $owner_rows = BizCity_Business_JSONL_File_Store::query( self::BUSINESS_CONTRACT_ID, array(
+                'blog_id'       => (int) $blog_id,
+                'user_id'       => (int) $normalized['user_id'],
+                'identity_uuid' => (string) $normalized['identity_uuid'],
+                'limit'         => self::MAX_PER_USER + 25,
+                'days'          => 365,
+            ) );
+            if ( count( $owner_rows ) >= self::MAX_PER_USER ) {
+                usort( $owner_rows, function ( $a, $b ) {
+                    $score_cmp = (int) ( $a['score'] ?? 0 ) - (int) ( $b['score'] ?? 0 );
+                    if ( 0 !== $score_cmp ) {
+                        return $score_cmp;
+                    }
+                    return strcmp( (string) ( $a['updated_at'] ?? '' ), (string) ( $b['updated_at'] ?? '' ) );
+                } );
+                $evict = $owner_rows[0] ?? array();
+                $evict_record_id = (string) ( $evict['record_id'] ?? '' );
+                if ( $evict_record_id !== '' ) {
+                    BizCity_Business_JSONL_File_Store::delete( self::BUSINESS_CONTRACT_ID, $evict_record_id, array( 'blog_id' => (int) $blog_id ) );
+                }
+            }
+        }
+
+        // [2026-09-01 Johnny Chu] PHASE-CB2.3 — use the receipt-returning owner so the memory record can be linked without guessing its file location.
+        $receipt = BizCity_Business_JSONL_File_Store::write_with_receipt( self::BUSINESS_CONTRACT_ID, $normalized, 'upsert' );
+        if ( ! is_array( $receipt ) ) {
+            return false;
+        }
+        return array(
+            'op'        => $op,
+            'legacy_id' => (int) ( $normalized['legacy_id'] ?? 0 ),
+            'receipt'   => $receipt,
+        );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — shared file reader for injection/admin endpoints.
+    private function query_filestore_memories( array $scope, array $args = array() ) {
+        if ( ! $this->is_filestore_available() ) {
+            return array();
+        }
+
+        $blog_id = (int) ( $args['blog_id'] ?? get_current_blog_id() );
+        $limit = max( 1, (int) ( $args['limit'] ?? 30 ) );
+        $order_by = in_array( (string) ( $args['order_by'] ?? 'score' ), array( 'score', 'times_seen', 'created_at', 'updated_at' ), true )
+            ? (string) $args['order_by']
+            : 'score';
+        $order = strtoupper( (string) ( $args['order'] ?? 'DESC' ) ) === 'ASC' ? 'ASC' : 'DESC';
+
+        $query = array(
+            'blog_id' => $blog_id,
+            'limit'   => $limit * 8,
+            'days'    => 365,
+        );
+        if ( ! empty( $scope['identity_uuid'] ) ) {
+            $query['identity_uuid'] = (string) $scope['identity_uuid'];
+        }
+        if ( ! empty( $scope['user_id'] ) ) {
+            $query['user_id'] = (int) $scope['user_id'];
+        }
+
+        $session_id = (string) ( $args['session_id'] ?? '' );
+        $memory_tier = (string) ( $args['memory_tier'] ?? '' );
+        $memory_type = (string) ( $args['memory_type'] ?? '' );
+        $query['filter'] = function ( $row ) use ( $session_id, $memory_tier, $memory_type ) {
+            if ( $session_id !== '' && (string) ( $row['session_id'] ?? '' ) !== $session_id ) {
+                return false;
+            }
+            if ( $memory_tier !== '' && (string) ( $row['memory_tier'] ?? '' ) !== $memory_tier ) {
+                return false;
+            }
+            if ( $memory_type !== '' && (string) ( $row['memory_type'] ?? '' ) !== $memory_type ) {
+                return false;
+            }
+            return true;
+        };
+
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — user memory reads follow verified Context Bank pointers instead of scanning filestore files directly.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
+        }
+        $records = class_exists( 'BizCity_Context_Bank_Memory_Adapter' )
+            ? BizCity_Context_Bank_Memory_Adapter::query( self::BUSINESS_CONTRACT_ID, $query )
+            : array();
+        if ( empty( $records ) ) {
+            return array();
+        }
+        $records = array_map( array( $this, 'normalize_filestore_memory' ), $records );
+        usort( $records, function ( $a, $b ) use ( $order_by, $order ) {
+            $left = $a[ $order_by ] ?? '';
+            $right = $b[ $order_by ] ?? '';
+            if ( is_numeric( $left ) && is_numeric( $right ) ) {
+                $cmp = (float) $left <=> (float) $right;
+            } else {
+                $cmp = strcmp( (string) $left, (string) $right );
+            }
+            return $order === 'ASC' ? $cmp : ( 0 - $cmp );
+        } );
+        return array_slice( $records, 0, $limit );
+    }
+
 }

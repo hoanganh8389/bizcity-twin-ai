@@ -25,6 +25,65 @@ class BizCity_CRM_Adapter_ZaloOA extends BizCity_CRM_Adapter_Zalo {
 	public function code(): string  { return 'zalo_oa'; }
 	public function label(): string { return 'Zalo OA (Kênh khách)'; }
 
+	public function normalize_inbound( array $raw ): ?array {
+		// [2026-08-28 Johnny Chu] PHASE-0.39F-GROUP-INBOX — keep every Zalo OA event on the configured OA identity so ref aliases cannot create duplicate CRM inboxes.
+		$oa_id = self::canonical_oa_id( $raw );
+		if ( $oa_id === '' ) {
+			return null;
+		}
+		$raw['conversation_id'] = $oa_id;
+		$raw['account_id']      = $oa_id;
+		$normalized = parent::normalize_inbound( $raw );
+		if ( ! is_array( $normalized ) ) {
+			return null;
+		}
+		$normalized['inbox_ref'] = $oa_id;
+		return $normalized;
+	}
+
+	private static function canonical_oa_id( array $raw ): string {
+		$provider_payload = is_array( $raw['raw'] ?? null ) ? $raw['raw'] : array();
+		$candidates = array(
+			$raw['oa_id'] ?? '',
+			$raw['recipient_id'] ?? '',
+			$provider_payload['recipient']['id'] ?? '',
+			$provider_payload['oa_id'] ?? '',
+			$raw['conversation_id'] ?? '',
+			$raw['account_id'] ?? '',
+			$raw['instance_id'] ?? '',
+		);
+		$fallback = '';
+		foreach ( $candidates as $candidate ) {
+			$candidate = trim( (string) $candidate );
+			if ( $candidate === '' ) {
+				continue;
+			}
+			if ( ctype_digit( $candidate ) ) {
+				return $candidate;
+			}
+			if ( $fallback === '' ) {
+				$fallback = sanitize_key( $candidate );
+			}
+		}
+		if ( class_exists( 'BizCity_Integration_Registry' ) ) {
+			$registry = BizCity_Integration_Registry::instance();
+			foreach ( (array) $registry->get_accounts( 'zalo_oa' ) as $account ) {
+				$account_uid = (string) ( $account['_uid'] ?? $account['uid'] ?? '' );
+				$configured  = trim( (string) ( $account['oa_id'] ?? '' ) );
+				if ( $configured === '' ) {
+					continue;
+				}
+				foreach ( $candidates as $candidate ) {
+					$candidate = trim( (string) $candidate );
+					if ( $candidate !== '' && ( $candidate === $account_uid || $candidate === $configured ) ) {
+						return $configured;
+					}
+				}
+			}
+		}
+		return $fallback;
+	}
+
 	/**
 	 * Send outbound reply via ZALO_OA.
 	 *
@@ -56,6 +115,23 @@ class BizCity_CRM_Adapter_ZaloOA extends BizCity_CRM_Adapter_Zalo {
 		if ( $uid === '' ) {
 			error_log( '[bizcity-crm-trace] P12 ZaloOA send FAIL: cannot resolve uid conv=' . ( $conversation['id'] ?? 'NULL' ) );
 			return array( 'success' => false, 'external_source_id' => null, 'error' => 'cannot resolve Zalo user_id from conversation' );
+		}
+
+		// [2026-08-28 Johnny Chu] PHASE-0.44-ZALO-OA-DUAL-MODE — managed OA sends use the exact Hub account projection and never fall back to self-managed credentials.
+		if ( class_exists( 'BizCity_Integration_Registry' ) && class_exists( 'BizCity_Zalo_OA_Hub_Client' ) ) {
+			foreach ( BizCity_Integration_Registry::instance()->get_accounts( 'zalo_oa' ) as $managed_account ) {
+				$is_managed = (string) ( $managed_account['connection_mode'] ?? '' ) === 'managed_1api';
+				$matches_oa  = (string) ( $managed_account['managed_oa_id'] ?? $managed_account['oa_id'] ?? '' ) === $ref;
+				$hub_id     = (int) ( $managed_account['managed_hub_account_id'] ?? 0 );
+				if ( $is_managed && $matches_oa && $hub_id > 0 && (string) ( $managed_account['managed_status'] ?? 'active' ) === 'active' ) {
+					$result = BizCity_Zalo_OA_Hub_Client::instance()->send( $hub_id, $uid, $message );
+					return array(
+						'success'            => ! empty( $result['success'] ) && empty( $result['_degraded'] ),
+						'external_source_id' => (string) ( $result['external_source_id'] ?? '' ),
+						'error'              => ! empty( $result['success'] ) ? null : (string) ( $result['message'] ?? 'zalo_oa_managed_send_failed' ),
+					);
+				}
+			}
 		}
 
 		$text         = (string) ( $message['content'] ?? '' );

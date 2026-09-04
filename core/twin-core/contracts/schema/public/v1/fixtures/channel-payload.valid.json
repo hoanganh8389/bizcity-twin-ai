@@ -1,8 +1,9 @@
 {
   "contract": "channel-payload",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "direction": "outbound",
   "platform": "zalo_bot",
+  "zone": "admin",
   "identity": {
     "account_id": "bot_88",
     "user_id": "user_991",

@@ -103,11 +103,41 @@ class BizCity_Channel_REST_API {
 				'args'                => [
 					'platform'      => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
 					'instance_id'   => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'channel'       => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'account_id'    => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'date'          => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
 					'days'          => [ 'default' => 3,  'sanitize_callback' => 'absint' ],
 					'limit'         => [ 'default' => 100,'sanitize_callback' => 'absint' ],
 					'verify_status' => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
 					'http_min'      => [ 'default' => 0,  'sanitize_callback' => 'absint' ],
 					'http_max'      => [ 'default' => 0,  'sanitize_callback' => 'absint' ],
+					'level'         => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'event'         => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'stage'         => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'trace_id'      => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'q'             => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'operational_logged' => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'context_captured'   => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'ledger_indexed'     => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'kg_candidate'       => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+				],
+			],
+		] );
+
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W10 — unified connected-user read model; source data remains channel-owned.
+		register_rest_route( self::NS, '/connected-users', [
+			[
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => [ $instance, 'list_connected_users' ],
+				'permission_callback' => [ $instance, 'require_manage_options' ],
+				'args'                => [
+					'channel'           => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'account_id'        => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'wp_user_id'        => [ 'default' => 0, 'sanitize_callback' => 'absint' ],
+					'provider_user_id'  => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'chat_id'           => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'status'            => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'limit'             => [ 'default' => 100, 'sanitize_callback' => 'absint' ],
 				],
 			],
 		] );
@@ -120,10 +150,19 @@ class BizCity_Channel_REST_API {
 				'callback'            => [ $instance, 'get_channel_file_logs' ],
 				'permission_callback' => [ $instance, 'require_manage_options' ],
 				'args'                => [
+					// [2026-09-01 Johnny Chu] R-CH-10 — expose exact account and pipeline-status filters through the shared channel log route.
 					'channel' => [ 'required' => true, 'sanitize_callback' => 'sanitize_key' ],
 					'date'    => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
 					'limit'   => [ 'default' => 200, 'sanitize_callback' => 'absint' ],
 					'level'   => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'account_id' => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'event'   => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'stage'   => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'trace_id' => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'operational_logged' => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'context_captured' => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'ledger_indexed' => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
+					'kg_candidate' => [ 'default' => '', 'sanitize_callback' => 'sanitize_key' ],
 				],
 			],
 			[
@@ -133,6 +172,7 @@ class BizCity_Channel_REST_API {
 				'args'                => [
 					'channel' => [ 'required' => true, 'sanitize_callback' => 'sanitize_key' ],
 					'date'    => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
+					'account_id' => [ 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ],
 				],
 			],
 		] );
@@ -547,6 +587,9 @@ class BizCity_Channel_REST_API {
 			);
 		}
 		// email / telegram / twinchat_be → no pre-configured accounts to enumerate; fallback to manual.
+		// [2026-09-01 Johnny Chu] CB-CH.3 — allow channel owners to extend the server-owned account catalog without trusting browser IDs.
+		$accounts = apply_filters( 'bizcity_channel_authorized_accounts', $accounts, $platform, (int) get_current_blog_id(), (int) get_current_user_id() );
+		$accounts = is_array( $accounts ) ? $accounts : array();
 
 		return new WP_REST_Response( array(
 			'success'  => true,
@@ -555,23 +598,201 @@ class BizCity_Channel_REST_API {
 		), 200 );
 	}
 
+	/**
+	 * Check an exact log account against the server-owned account catalog.
+	 *
+	 * @param string $channel Canonical channel code.
+	 * @param string $account_id Exact account identifier from the request.
+	 * @return array<string,mixed>
+	 */
+	private function authorize_log_account( $channel, $account_id ) {
+		$channel = sanitize_key( (string) $channel );
+		$account_id = sanitize_text_field( (string) $account_id );
+		if ( $account_id === '' ) {
+			return array( 'ok' => true, 'scope' => 'tenant' );
+		}
+		if ( $channel === 'webchat' && $account_id === '*' ) {
+			return array( 'ok' => true, 'scope' => 'tenant_wildcard' );
+		}
+
+		$platform = $channel === 'messenger' ? 'facebook' : $channel;
+		$accounts = array();
+		if ( class_exists( 'WP_REST_Request' ) ) {
+			$catalog_request = new WP_REST_Request( 'GET', '/platform-accounts' );
+			$catalog_request->set_param( 'platform', $platform );
+			$catalog_response = $this->get_platform_accounts( $catalog_request );
+			$catalog_data = is_object( $catalog_response ) && method_exists( $catalog_response, 'get_data' ) ? $catalog_response->get_data() : array();
+			$accounts = is_array( $catalog_data['accounts'] ?? null ) ? $catalog_data['accounts'] : array();
+		}
+
+		// Channel bindings are a tenant-local fallback for adapters whose external
+		// connection registry is not available in this request (notably Personal).
+		if ( class_exists( 'BizCity_Channel_Binding' ) && method_exists( 'BizCity_Channel_Binding', 'all' ) ) {
+			try {
+				foreach ( (array) BizCity_Channel_Binding::all() as $binding ) {
+					if ( ! is_array( $binding ) || empty( $binding['status'] ) || (string) ( $binding['account_id'] ?? '' ) === '*' ) {
+						continue;
+					}
+					$binding_platform = strtolower( (string) ( $binding['platform'] ?? '' ) );
+					$binding_platform = preg_replace( '/^zalo_/', 'zalo_', $binding_platform );
+					if ( $binding_platform === $platform ) {
+						$accounts[] = array( 'account_id' => (string) $binding['account_id'], 'label' => '', 'meta' => array( 'source' => 'channel_binding' ) );
+					}
+				}
+			} catch ( \Throwable $e ) {
+				return array( 'ok' => false, 'reason' => 'account_catalog_unavailable' );
+			}
+		}
+
+		foreach ( $accounts as $account ) {
+			if ( is_array( $account ) && (string) ( $account['account_id'] ?? '' ) === $account_id ) {
+				return array( 'ok' => true, 'scope' => 'exact' );
+			}
+		}
+		return array( 'ok' => false, 'reason' => 'account_scope_denied' );
+	}
+
+	/** Return the canonical four-field error payload for an unauthorized account filter. */
+	private function account_scope_error( $channel ) {
+		if ( class_exists( 'BizCity_Error_Payload' ) ) {
+			return BizCity_Error_Payload::make(
+				'permission_denied',
+				'Tài khoản channel nằm ngoài phạm vi được phép.',
+				'Chọn tài khoản đã được cấu hình trong Channel Gateway.',
+				'permission_denied',
+				array( 'channel' => sanitize_key( (string) $channel ) )
+			);
+		}
+		return array(
+			'success' => false,
+			'_degraded' => true,
+			'code' => 'permission_denied',
+			'message' => 'Tài khoản channel nằm ngoài phạm vi được phép.',
+			'hint' => 'Chọn tài khoản đã được cấu hình trong Channel Gateway.',
+			'help_code' => 'permission_denied',
+		);
+	}
+
 	/* ═══════════════════════════════════════════
 	 *  GET /logs — webhook logs (T-CG-SPA.3)
 	 *  See: core/channel-gateway/PHASE-CG-SPA-WORKSPACE.md §3
 	 * ═══════════════════════════════════════════ */
 
-	public function list_logs( WP_REST_Request $request ): WP_REST_Response {
-		if ( ! class_exists( 'BizCity_Webhook_Log' ) ) {
-			return new WP_REST_Response( [
-				'success' => false,
-				'error'   => 'BizCity_Webhook_Log class not loaded',
-				'logs'    => [],
-				'count'   => 0,
-			], 200 );
+	public function list_connected_users( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W10 — bounded admin read model across channel-owned connection sources; no parallel storage is introduced.
+		$channel          = sanitize_key( (string) $request->get_param( 'channel' ) );
+		$account_id       = sanitize_text_field( (string) $request->get_param( 'account_id' ) );
+		$wp_user_id       = absint( $request->get_param( 'wp_user_id' ) );
+		$provider_user_id = sanitize_text_field( (string) $request->get_param( 'provider_user_id' ) );
+		$chat_id          = sanitize_text_field( (string) $request->get_param( 'chat_id' ) );
+		$status            = sanitize_key( (string) $request->get_param( 'status' ) );
+		$limit             = max( 1, min( 200, absint( $request->get_param( 'limit' ) ) ?: 100 ) );
+		$allowed_channels  = array( '', 'zalo_bot', 'facebook' );
+		if ( ! in_array( $channel, $allowed_channels, true ) ) {
+			return new WP_REST_Response( array( 'success' => true, 'items' => array(), 'total' => 0, 'filters' => array( 'channel' => $channel ), '_degraded' => false ), 200 );
 		}
+
+		global $wpdb;
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$items   = array();
+		$degraded = array();
+		$table_exists = static function ( $table ) {
+			return function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $table );
+		};
+
+		if ( $channel === '' || $channel === 'zalo_bot' ) {
+			$link_table = $wpdb->base_prefix . 'bizcity_zalobot_user_links';
+			$bot_table  = $wpdb->prefix . 'bizcity_zalo_bots';
+			if ( ! $table_exists( $link_table ) ) {
+				$degraded[] = 'zalo_link_table_missing';
+			} else {
+				$where  = array( 'l.blog_id = %d' );
+				$params = array( $blog_id );
+				if ( $account_id !== '' && ctype_digit( $account_id ) ) { $where[] = 'l.bot_id = %d'; $params[] = (int) $account_id; }
+				if ( $wp_user_id > 0 ) { $where[] = 'l.wp_user_id = %d'; $params[] = $wp_user_id; }
+				if ( $provider_user_id !== '' ) { $where[] = 'l.zalo_user_id = %s'; $params[] = $provider_user_id; }
+				if ( $status !== '' ) { $where[] = 'l.status = %s'; $params[] = $status; }
+				if ( $chat_id !== '' ) {
+					$chat_where = array( 'l.zalo_user_id = %s', "CONCAT('zalobot_', l.bot_id, '_private_', l.zalo_user_id) = %s" );
+					$chat_params = array( $chat_id, $chat_id );
+					$where[] = '(' . implode( ' OR ', $chat_where ) . ')';
+					$params = array_merge( $params, $chat_params );
+				}
+				$bot_join = $table_exists( $bot_table ) ? ' LEFT JOIN ' . $bot_table . ' b ON b.id = l.bot_id' : '';
+				$bot_name = $table_exists( $bot_table ) ? ', b.bot_name' : ", '' AS bot_name";
+				$sql = 'SELECT l.id, l.bot_id, l.zalo_user_id, l.wp_user_id, l.status, l.display_name, l.updated_at' . $bot_name . ' FROM ' . $link_table . ' l' . $bot_join . ' WHERE ' . implode( ' AND ', $where ) . ' ORDER BY l.updated_at DESC, l.id DESC LIMIT %d';
+				$params[] = $limit;
+				$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+				foreach ( (array) $rows as $row ) {
+					$bot_id = (int) ( $row['bot_id'] ?? 0 );
+					$provider = sanitize_text_field( (string) ( $row['zalo_user_id'] ?? '' ) );
+					$last_chat = '';
+					$resolved_user = (int) ( $row['wp_user_id'] ?? 0 );
+					$user = $resolved_user > 0 ? get_userdata( $resolved_user ) : false;
+					$items[] = array(
+						'channel' => 'zalo_bot', 'account_id' => (string) $bot_id, 'account_label' => sanitize_text_field( (string) ( $row['bot_name'] ?? '' ) ),
+						'wp_user_id' => $resolved_user, 'display_name' => sanitize_text_field( (string) ( $row['display_name'] ?? ( $user ? $user->display_name : '' ) ) ),
+						'provider_user_id' => $provider, 'chat_id' => $last_chat !== '' ? $last_chat : 'zalobot_' . $bot_id . '_private_' . $provider,
+						'chat_kind' => strpos( $last_chat, '_group_' ) !== false ? 'group' : 'private', 'status' => sanitize_key( (string) ( $row['status'] ?? '' ) ),
+						'canonical_identity_key' => 'zalo_bot:' . $bot_id . ':' . $provider,
+						'log_scope' => array( 'channel' => 'zalo_bot', 'account_id' => (string) $bot_id, 'provider_user_id' => $provider, 'chat_id' => $last_chat ),
+						'updated_at' => (string) ( $row['updated_at'] ?? '' ),
+					);
+				}
+			}
+		}
+
+		if ( $channel === '' || $channel === 'facebook' ) {
+			$fb_table = $wpdb->prefix . 'bizcity_facebook_bots';
+			if ( ! $table_exists( $fb_table ) ) {
+				$degraded[] = 'facebook_connection_table_missing';
+			} else {
+				$where = array( '1=1' );
+				$params = array();
+				if ( $account_id !== '' ) { $where[] = 'f.page_id = %s'; $params[] = $account_id; }
+				if ( $wp_user_id > 0 ) { $where[] = 'f.user_id = %d'; $params[] = $wp_user_id; }
+				if ( $provider_user_id !== '' ) { $where[] = 'f.page_id = %s'; $params[] = $provider_user_id; }
+				if ( $chat_id !== '' ) { $where[] = "CONCAT('fb_', f.page_id) = %s"; $params[] = $chat_id; }
+				if ( $status !== '' ) { $where[] = 'f.status = %s'; $params[] = $status; }
+				$sql = 'SELECT f.id, f.page_id, f.bot_name, f.user_id, f.status, f.updated_at FROM ' . $fb_table . ' f WHERE ' . implode( ' AND ', $where ) . ' ORDER BY f.updated_at DESC, f.id DESC LIMIT %d';
+				$params[] = $limit;
+				$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+				foreach ( (array) $rows as $row ) {
+					$page_id = sanitize_text_field( (string) ( $row['page_id'] ?? '' ) );
+					$owner = (int) ( $row['user_id'] ?? 0 );
+					$user = $owner > 0 ? get_userdata( $owner ) : false;
+					$items[] = array(
+						'channel' => 'facebook', 'account_id' => $page_id, 'account_label' => sanitize_text_field( (string) ( $row['bot_name'] ?? '' ) ),
+						'wp_user_id' => $owner, 'display_name' => $user ? sanitize_text_field( (string) $user->display_name ) : '',
+						'provider_user_id' => $page_id, 'chat_id' => 'fb_' . $page_id, 'chat_kind' => 'private', 'status' => sanitize_key( (string) ( $row['status'] ?? '' ) ),
+						'canonical_identity_key' => 'facebook:' . $page_id . ':' . $owner,
+						'log_scope' => array( 'channel' => 'facebook', 'account_id' => $page_id, 'chat_id' => 'fb_' . $page_id ),
+						'updated_at' => (string) ( $row['updated_at'] ?? '' ),
+					);
+				}
+			}
+		}
+
+		usort( $items, function ( $left, $right ) { return strcmp( (string) ( $right['updated_at'] ?? '' ), (string) ( $left['updated_at'] ?? '' ) ); } );
+		return new WP_REST_Response( array(
+			'success' => true,
+			'items' => array_slice( $items, 0, $limit ),
+			'total' => count( $items ),
+			'filters' => array( 'channel' => $channel, 'account_id' => $account_id, 'wp_user_id' => $wp_user_id, 'provider_user_id' => $provider_user_id, 'chat_id' => $chat_id, 'status' => $status ),
+			'_degraded' => ! empty( $degraded ),
+			'degraded_reasons' => array_values( array_unique( $degraded ) ),
+		), 200 );
+	}
+
+	public function list_logs( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-09-01 Johnny Chu] R-CH-10 — legacy webhook-log absence must not block the canonical structured diagnostics rows.
 
 		$platform    = (string) $request->get_param( 'platform' );
 		$instance_id = (string) $request->get_param( 'instance_id' );
+		$channel     = sanitize_key( (string) $request->get_param( 'channel' ) );
+		$account_id  = sanitize_text_field( (string) $request->get_param( 'account_id' ) );
+		// [2026-09-01 Johnny Chu] R-CH-10 — forward the canonical date filter to structured diagnostics queries.
+		$date        = sanitize_text_field( (string) $request->get_param( 'date' ) );
 		$days        = (int) $request->get_param( 'days' );
 		$limit       = (int) $request->get_param( 'limit' );
 		$verify      = (string) $request->get_param( 'verify_status' );
@@ -595,7 +816,9 @@ class BizCity_Channel_REST_API {
 			$filters['http_max'] = $http_max;
 		}
 
-		$logs = BizCity_Webhook_Log::query( $filters );
+		$logs = class_exists( 'BizCity_Webhook_Log' )
+			? BizCity_Webhook_Log::query( $filters )
+			: array();
 
 		// Optional client-side instance_id filter (endpoint contains /{platform}/{instance_id}).
 		if ( $instance_id !== '' ) {
@@ -605,12 +828,89 @@ class BizCity_Channel_REST_API {
 			} ) );
 		}
 
+		// [2026-09-01 Johnny Chu] R-CH-10 — expose structured channel diagnostics through the canonical /logs surface without breaking legacy webhook-log consumers.
+		$diagnostic_channel = $channel !== '' ? self::canonical_log_channel( $channel ) : self::canonical_log_channel( $platform );
+		if ( $account_id === '' ) {
+			$account_id = $instance_id;
+		}
+		$account_auth = $this->authorize_log_account( $diagnostic_channel, $account_id );
+		if ( empty( $account_auth['ok'] ) ) {
+			return new WP_REST_Response( $this->account_scope_error( $diagnostic_channel ), 200 );
+		}
+		// [2026-09-02 Johnny Chu] PHASE-1.30-G1 — legacy webhook rows have no verified account dimension, so never mix them into an exact-account response.
+		if ( $account_id !== '' ) {
+			$logs = array();
+		}
+		$diagnostic_args = array(
+			'channel'             => $diagnostic_channel,
+			'days'                => $filters['days'],
+			'limit'               => $filters['limit'],
+			'level'               => sanitize_key( (string) $request->get_param( 'level' ) ),
+			'account_id'          => $account_id,
+			'event'              => sanitize_key( (string) $request->get_param( 'event' ) ),
+			'stage'              => sanitize_key( (string) $request->get_param( 'stage' ) ),
+			'trace_id'           => sanitize_text_field( (string) $request->get_param( 'trace_id' ) ),
+			'q'                  => sanitize_text_field( (string) $request->get_param( 'q' ) ),
+			'date'               => $date,
+			'operational_logged' => sanitize_key( (string) $request->get_param( 'operational_logged' ) ),
+			'context_captured'   => sanitize_key( (string) $request->get_param( 'context_captured' ) ),
+			'ledger_indexed'     => sanitize_key( (string) $request->get_param( 'ledger_indexed' ) ),
+			'kg_candidate'       => sanitize_key( (string) $request->get_param( 'kg_candidate' ) ),
+		);
+		$diagnostic_rows = class_exists( 'BizCity_Channel_File_Logger' )
+			? BizCity_Channel_File_Logger::query_records( $diagnostic_args )
+			: array();
+
 		return new WP_REST_Response( [
 			'success' => true,
-			'filters' => $filters + [ 'instance_id' => $instance_id ],
+			'filters' => $filters + [ 'instance_id' => $instance_id, 'channel' => $diagnostic_channel, 'account_id' => $account_id ],
 			'count'   => count( $logs ),
 			'logs'    => $logs,
+			'rows'    => $diagnostic_rows,
+			'diagnostics_count' => count( $diagnostic_rows ),
 		], 200 );
+	}
+
+	/** Resolve a public platform label to one canonical diagnostics channel. */
+	private static function canonical_log_channel( $platform ) {
+		// [2026-09-01 Johnny Chu] R-CH-10 — prevent legacy platform labels from collapsing distinct Zalo channels.
+		$platform = sanitize_key( (string) $platform );
+		$legacy = array(
+			'twf_flow.zalo' => 'zalo_bot',
+			'zalo_webhook_raw' => 'zalo_bot',
+			'zalo_bot_event' => 'zalo_bot',
+			'fb_webhook_raw' => 'facebook',
+			'fb_referral' => 'facebook',
+			'twf_flow.facebook' => 'facebook',
+			'bizhook' => 'zalo_oa',
+			'twinchat' => 'webchat',
+			'webhook' => 'channel_gateway',
+			'twf_flow' => 'channel_gateway',
+			'message_in' => 'channel_gateway',
+			'message_out' => 'channel_gateway',
+			'campaign_visit' => 'channel_gateway',
+			'scenario_dispatch' => 'channel_gateway',
+			'scheduler' => 'channel_gateway',
+			'reminder' => 'channel_gateway',
+		);
+		if ( isset( $legacy[ $platform ] ) ) {
+			return $legacy[ $platform ];
+		}
+		$platform = strtoupper( $platform );
+		$map = array(
+			'ZALO_BOT'      => 'zalo_bot',
+			'ZALO_OA'       => 'zalo_oa',
+			'ZALO_PERSONAL' => 'zalo_personal',
+			'ZALO_ZNS'      => 'zalo_zns',
+			'FB_MESS'       => 'messenger',
+			'FACEBOOK'      => 'facebook',
+			'MESSENGER'     => 'messenger',
+			'TELEGRAM'      => 'telegram',
+			'WEBCHAT'       => 'webchat',
+			'EMAIL'         => 'email',
+			'CF7'           => 'cf7',
+		);
+		return isset( $map[ $platform ] ) ? $map[ $platform ] : '';
 	}
 
 	/* ═══════════════════════════════════════════
@@ -621,8 +921,9 @@ class BizCity_Channel_REST_API {
 
 	/** Allowed channel names — whitelist to prevent path traversal. */
 	private static $allowed_file_log_channels = array(
+		// [2026-09-01 Johnny Chu] R-CH-10 — keep all three Zalo channel products addressable by the shared reader.
 		'email', 'facebook', 'messenger', 'zalo_oa', 'zalo_bot',
-		'telegram', 'webchat', 'cf7', 'channel_gateway',
+		'zalo_personal', 'zalo_zns', 'telegram', 'webchat', 'cf7', 'channel_gateway',
 	);
 
 	/**
@@ -634,9 +935,21 @@ class BizCity_Channel_REST_API {
 		$date    = (string) $request->get_param( 'date' );
 		$limit   = (int)    $request->get_param( 'limit' );
 		$level   = (string) $request->get_param( 'level' );
+		$account_id = (string) $request->get_param( 'account_id' );
+		$event   = (string) $request->get_param( 'event' );
+		$stage   = (string) $request->get_param( 'stage' );
+		$trace_id = (string) $request->get_param( 'trace_id' );
+		$operational_logged = (string) $request->get_param( 'operational_logged' );
+		$context_captured = (string) $request->get_param( 'context_captured' );
+		$ledger_indexed = (string) $request->get_param( 'ledger_indexed' );
+		$kg_candidate = (string) $request->get_param( 'kg_candidate' );
 
 		if ( ! in_array( $channel, self::$allowed_file_log_channels, true ) ) {
 			return new WP_REST_Response( [ 'ok' => false, 'rows' => array(), 'error' => 'Unknown channel' ], 200 );
+		}
+		$account_auth = $this->authorize_log_account( $channel, $account_id );
+		if ( empty( $account_auth['ok'] ) ) {
+			return new WP_REST_Response( $this->account_scope_error( $channel ), 200 );
 		}
 		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
 			return new WP_REST_Response( [ 'ok' => false, 'rows' => array(), 'error' => 'BizCity_Channel_File_Logger not loaded' ], 200 );
@@ -645,12 +958,28 @@ class BizCity_Channel_REST_API {
 		$today = function_exists( 'wp_date' ) ? wp_date( 'Y-m-d' ) : gmdate( 'Y-m-d' );
 		$date  = $date !== '' ? $date : $today;
 		$limit = $limit > 0 ? min( 500, $limit ) : 200;
-		$rows  = BizCity_Channel_File_Logger::read( $channel, $date, $limit, $level );
+		// [2026-09-01 Johnny Chu] R-CH-10 — route all channel diagnostics reads through the shared account-scoped facade.
+		$rows = BizCity_Channel_File_Logger::query_records( array(
+			'channel' => $channel,
+			'days' => 31,
+			'limit' => $limit,
+			'level' => $level,
+			'account_id' => $account_id,
+			'event' => $event,
+			'stage' => $stage,
+			'trace_id' => $trace_id,
+			'operational_logged' => $operational_logged,
+			'context_captured' => $context_captured,
+			'ledger_indexed' => $ledger_indexed,
+			'kg_candidate' => $kg_candidate,
+			'date' => $date,
+		) );
 
 		return new WP_REST_Response( array(
 			'ok'      => true,
 			'channel' => $channel,
 			'date'    => $date,
+			'account_id' => $account_id,
 			'total'   => count( $rows ),
 			'rows'    => $rows,
 		), 200 );
@@ -663,13 +992,22 @@ class BizCity_Channel_REST_API {
 	public function clear_channel_file_logs( WP_REST_Request $request ): WP_REST_Response {
 		$channel = (string) $request->get_param( 'channel' );
 		$date    = (string) $request->get_param( 'date' );
+		$account_id = sanitize_text_field( (string) $request->get_param( 'account_id' ) );
 
 		if ( ! in_array( $channel, self::$allowed_file_log_channels, true ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'error' => 'Unknown channel' ), 200 );
 		}
+		// [2026-09-02 Johnny Chu] PHASE-1.30-G1 — deletion must use the same exact account authorization as channel-log reads.
+		$account_auth = $this->authorize_log_account( $channel, $account_id );
+		if ( empty( $account_auth['ok'] ) ) {
+			return new WP_REST_Response( $this->account_scope_error( $channel ), 200 );
+		}
 
 		$today = function_exists( 'wp_date' ) ? wp_date( 'Y-m-d' ) : gmdate( 'Y-m-d' );
 		$date  = $date !== '' ? $date : $today;
+		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'Invalid date' ), 200 );
+		}
 
 		$upload        = wp_upload_dir();
 		$basedir       = (string) ( $upload['basedir'] ?? '' );

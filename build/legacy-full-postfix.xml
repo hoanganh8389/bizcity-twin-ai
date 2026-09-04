@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="24" failures="0" skipped="1" time="30.910">
+  <testsuite name="diagnostics" tests="24" failures="0" skipped="1" time="30.910">
+    <testcase classname="bizcity.diagnostics" name="0" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="1" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="2" time="8.493">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="3" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="4" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="5" time="0.000">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="6" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="7" time="0.026">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="8" time="3.319">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="9" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="10" time="8.415">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="11" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="12" time="0.002">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="13" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="14" time="1.193">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="15" time="0.961">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="16" time="0.658">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="17" time="0.663">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="18" time="0.318">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="19" time="0.000">
+      <skipped message="Hub-only probe: client runtime uses JSONL for bizcity_llm_usage; canonical billing ledger is bizcity_llm_usage_logs on bizcity-llm-router."/>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="20" time="0.003">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="21" time="0.301">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="22" time="0.007">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="23" time="0.574">
+    </testcase>
+  </testsuite>
+</testsuites>

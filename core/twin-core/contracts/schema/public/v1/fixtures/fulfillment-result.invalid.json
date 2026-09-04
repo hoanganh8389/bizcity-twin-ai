@@ -1,0 +1,10 @@
+{
+  "contract": "fulfillment-result",
+  "version": "1.0.0",
+  "result_id": "ful_01hzy7m9qk",
+  "operation": "create",
+  "order_ref": "order:123",
+  "status": "success",
+  "idempotency_key": "shipping-create:order:123:01",
+  "occurred_at": "not-a-date"
+}

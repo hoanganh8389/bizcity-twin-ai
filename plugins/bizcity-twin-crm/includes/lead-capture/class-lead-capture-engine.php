@@ -176,6 +176,10 @@ class BizCity_CRM_Lead_Capture_Engine {
 	}
 
 	private static function norm_phone( string $p ): string {
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — align CF7/lead phone identity with CRM/Woo/user-points.
+		if ( class_exists( 'BizCity_Phone_Normalizer' ) ) {
+			return BizCity_Phone_Normalizer::normalize_vn( $p );
+		}
 		$p = preg_replace( '/[^\d+]/', '', $p );
 		return (string) $p;
 	}

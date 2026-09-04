@@ -182,12 +182,11 @@ class WaicAction_bc_send_adminchat extends WaicAction {
 		if ( empty( $user_id ) ) {
 			return '';
 		}
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_webchat_sessions';
-		$session_id = $wpdb->get_var( $wpdb->prepare(
-			"SELECT session_id FROM {$table} WHERE user_id = %d AND platform_type = 'ADMINCHAT' ORDER BY last_message_at DESC LIMIT 1",
-			(int) $user_id
-		) );
-		return $session_id ?: '';
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — resolve the latest admin session through encrypted state.
+		if ( ! class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			return '';
+		}
+		$states = BizCity_WebChat_Session_State::instance()->list_for_user( (int) $user_id, 'ADMINCHAT', 1, null, 'active' );
+		return ! empty( $states ) ? (string) $states[0]->session_id : '';
 	}
 }

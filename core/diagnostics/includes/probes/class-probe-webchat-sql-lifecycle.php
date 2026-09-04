@@ -32,7 +32,7 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 	}
 
 	public function description(): string {
-		return 'Checks retained core message ownership, active Twin state tables, and safe quarantine boundaries for legacy WebChat projections.';
+		return 'Checks retained core message ownership, active Twin state tables, and retired boundaries for legacy WebChat projections.';
 	}
 
 	public function severity(): string {
@@ -82,7 +82,7 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 		$add_step(
 			'Disk/Loader - WebChat lifecycle policy API',
 			$policy_api_ok,
-			$policy_api_ok ? 'WebChat database exposes core-active, observe-active, and write-blocked policy methods.' : 'WebChat lifecycle policy API is incomplete.'
+			$policy_api_ok ? 'WebChat database exposes core-active, retired, and policy-aware compatibility methods.' : 'WebChat lifecycle policy API is incomplete.'
 		);
 
 		if ( ! $policy_api_ok ) {
@@ -102,10 +102,12 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 			: array();
 		$expected_policy = array(
 			'bizcity_webchat_messages'   => 'core_active',
-			'bizcity_webchat_projects'   => 'observe_active',
-			'bizcity_webchat_tasks'      => 'quarantine_write_block',
-			'bizcity_webchat_task_steps' => 'quarantine_write_block',
-			'bizcity_memory_session'     => 'quarantine_write_block',
+			'bizcity_webchat_sessions'   => 'quarantine',
+			'bizcity_webchat_conversations' => 'quarantine',
+			'bizcity_webchat_projects'   => 'retired',
+			'bizcity_webchat_tasks'      => 'retired',
+			'bizcity_webchat_task_steps' => 'retired',
+			'bizcity_memory_session'     => 'retired',
 		);
 		$manifest_policy_ok = $manifest_policy === $expected_policy;
 		$add_step(
@@ -115,13 +117,13 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 		);
 
 		$core_message = BizCity_WebChat_Database::table_policy( 'bizcity_webchat_messages' ) === 'core_active';
-		$projects_observe = BizCity_WebChat_Database::table_policy( 'bizcity_webchat_projects' ) === 'observe_active';
-		$tasks_blocked = BizCity_WebChat_Database::table_write_blocked( 'bizcity_webchat_tasks' );
-		$steps_blocked = BizCity_WebChat_Database::table_write_blocked( 'bizcity_webchat_task_steps' );
+		$projects_retired = BizCity_WebChat_Database::table_policy( 'bizcity_webchat_projects' ) === 'retired';
+		$tasks_retired = BizCity_WebChat_Database::table_policy( 'bizcity_webchat_tasks' ) === 'retired';
+		$steps_retired = BizCity_WebChat_Database::table_policy( 'bizcity_webchat_task_steps' ) === 'retired';
 		$memory_blocked = BizCity_WebChat_Database::table_write_blocked( 'bizcity_memory_session' );
 		$add_step(
-			'Runtime - retained message and staged projection policy',
-			$core_message && $projects_observe && $tasks_blocked && $steps_blocked && $memory_blocked,
+			'Runtime - retained message and retired projection policy',
+			$core_message && $projects_retired && $tasks_retired && $steps_retired && $memory_blocked,
 			wp_json_encode( array(
 				'messages'    => BizCity_WebChat_Database::table_policy( 'bizcity_webchat_messages' ),
 				'projects'    => BizCity_WebChat_Database::table_policy( 'bizcity_webchat_projects' ),
@@ -156,7 +158,7 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 		$step_result = $db->add_task_step( array( 'step_id' => 'diag_quarantine_step' ) );
 		$blocked_api_ok = $task_result === '' && $step_result === '';
 		$add_step(
-			'Runtime - quarantined task writes are blocked',
+			'Runtime - retired task writes are blocked',
 			$blocked_api_ok,
 			$blocked_api_ok ? 'create_task/add_task_step returned safe empty IDs without a write.' : 'A quarantined task API did not return its safe blocked value.'
 		);
@@ -164,15 +166,21 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 		$memory_ok = true;
 		$memory_detail = 'Legacy session memory class is not loaded; no legacy write path was exercised.';
 		if ( class_exists( 'BizCity_WebChat_Memory' ) && method_exists( 'BizCity_WebChat_Memory', 'build_from_messages' ) ) {
+			// [2026-08-29 Johnny Chu] PHASE-1.30-DDV — WebChat session memory is filestore-first; quarantine evidence must prove the canonical contract is available instead of requiring the obsolete hard-block response.
+			$memory_reflection = new ReflectionMethod( 'BizCity_WebChat_Memory', 'is_filestore_available' );
+			$memory_reflection->setAccessible( true );
+			$filestore_available = (bool) $memory_reflection->invoke( null );
 			$memory_result = BizCity_WebChat_Memory::build_from_messages( array( 'session_id' => 'diag_quarantine_session' ) );
-			$memory_ok = is_array( $memory_result ) && ( $memory_result['reason'] ?? '' ) === 'legacy_memory_quarantined';
-			$memory_detail = $memory_ok ? 'Legacy memory extraction returned the quarantine reason without a write.' : 'Legacy memory extraction did not return the quarantine contract.';
+			$memory_ok = $filestore_available && is_array( $memory_result ) && ( ( $memory_result['ok'] ?? false ) || ( $memory_result['reason'] ?? '' ) === 'legacy_memory_quarantined' );
+			$memory_detail = $memory_ok
+				? 'Canonical encrypted session-memory filestore is available; no legacy SQL write is required for an empty diagnostic input.'
+				: 'Session-memory filestore contract is unavailable or builder returned an invalid safe contract.';
 		}
-		$add_step( 'Runtime - quarantined legacy memory is blocked', $memory_ok, $memory_detail );
+		$add_step( 'Runtime - session memory uses canonical filestore path', $memory_ok, $memory_detail );
 
 		return array(
 			'status'  => $pass ? 'pass' : 'fail',
-			'summary' => $pass ? 'WebChat message retention and staged legacy projection quarantine contract passed.' : 'WebChat SQL lifecycle contract failed.',
+			'summary' => $pass ? 'WebChat message retention and retired projection contract passed.' : 'WebChat SQL lifecycle contract failed.',
 			'steps'   => $steps,
 		);
 	}

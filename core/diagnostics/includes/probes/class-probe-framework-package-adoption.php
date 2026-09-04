@@ -63,6 +63,8 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 		);
 		$pagebuilder_transport_files = array(
 			'plugins/bizcity-pagebuilder/app/src/api.ts',
+		);
+		$pagebuilder_runtime_files = array(
 			'plugins/bizcity-pagebuilder/assets/dist/pagebuilder-app.js',
 		);
 		$video_plugin_files = array(
@@ -71,7 +73,7 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 		);
 		$video_available = is_dir( $root . 'plugins/bizcity-video-kling' );
 		$missing = array();
-		foreach ( array_merge( $pagebuilder_files, $pagebuilder_transport_files ) as $relative ) {
+		foreach ( array_merge( $pagebuilder_files, $pagebuilder_runtime_files ) as $relative ) {
 			if ( ! is_readable( $root . $relative ) ) {
 				$missing[] = $relative;
 			}
@@ -85,8 +87,24 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 			return array( 'status' => 'fail', 'summary' => 'PageBuilder adoption files are missing.', 'steps' => $steps );
 		}
 
+		// [2026-08-26 Johnny Chu] R-DDV-FE — development source may be absent from a dist-only deployment; built PageBuilder runtime remains the required artifact.
+		$missing_transport_source = array();
+		foreach ( $pagebuilder_transport_files as $relative ) {
+			if ( ! is_readable( $root . $relative ) ) {
+				$missing_transport_source[] = $relative;
+			}
+		}
+		$steps[] = array(
+			'label'  => 'Disk — PageBuilder development transport source',
+			'status' => empty( $missing_transport_source ) ? 'pass' : 'skip',
+			'detail' => empty( $missing_transport_source )
+				? 'Development transport source is readable.'
+				: 'Development source is absent; built PageBuilder dist is authoritative: ' . implode( ', ', $missing_transport_source ),
+		);
+
 		$pagebuilder_source = $this->read_sources( $root, $pagebuilder_files );
 		$pagebuilder_transport_source = $this->read_sources( $root, $pagebuilder_transport_files );
+		$pagebuilder_runtime_source = $this->read_sources( $root, $pagebuilder_runtime_files );
 		$video_source = $video_available ? $this->read_sources( $root, $video_plugin_files ) : '';
 		$pagebuilder_static = false !== strpos( $pagebuilder_source, 'BizCity_Error_Payload' )
 			&& false !== strpos( $pagebuilder_source, 'send_submission_error' )
@@ -97,10 +115,13 @@ final class BizCity_Probe_Framework_Package_Adoption implements BizCity_Diagnost
 			&& false === strpos( $video_source, 'api.piapi.ai' )
 			&& false === strpos( $video_source, 'api.openai.com' )
 			&& false !== strpos( $video_source, 'BizCity_Video_Client' ) );
-		$pagebuilder_transport_static = false !== strpos( $pagebuilder_transport_source, 'saveProject' )
-			&& false !== strpos( $pagebuilder_transport_source, 'deleteProject' )
-			&& false !== strpos( $pagebuilder_transport_source, 'publishProject' )
-			&& false !== strpos( $pagebuilder_transport_source, 'X-Idempotency-Key' );
+		$transport_evidence_source = empty( $missing_transport_source )
+			? $pagebuilder_transport_source
+			: $pagebuilder_runtime_source;
+		$pagebuilder_transport_static = false !== strpos( $transport_evidence_source, 'saveProject' )
+			&& false !== strpos( $transport_evidence_source, 'deleteProject' )
+			&& false !== strpos( $transport_evidence_source, 'publishProject' )
+			&& false !== strpos( $transport_evidence_source, 'X-Idempotency-Key' );
 		$steps[] = array(
 			'label'  => 'Disk — PageBuilder boundary markers and optional Video provider quarantine',
 			'status' => $pagebuilder_static && $pagebuilder_transport_static ? 'pass' : 'fail',

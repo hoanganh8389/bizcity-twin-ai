@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="11" failures="4" skipped="0" time="9.937">
+  <testsuite name="diagnostics" tests="11" failures="4" skipped="0" time="9.937">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.lifecycle" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.callers" time="6.977">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.multisite_scope" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.owner_parity" time="0.012">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.jsonl_source_parity" time="0.212">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.helper.log_index" time="0.021">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.helper.jsonl_search_query_index_parity" time="0.000">
+      <failure message="fail">Pointer index is unavailable; SQL retirement cannot proceed. | Failed steps: Loader - tenant pointer index is physically available: The pointer index is unavailable on the current blog/shard.</failure>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.contract_scoreboard" time="0.000">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.filestore_parity" time="0.043">
+      <failure message="fail">Unified table is missing for dual-write evidence. | Failed steps: Loader - unified table for mirror evidence: Unified table is missing; dual-write evidence cannot be proven.</failure>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.notes_filestore_parity" time="0.000">
+      <failure message="fail">Unified table is missing for notes mirror evidence. | Failed steps: Loader - unified table for notes mirror evidence: Unified table is missing; notes mirror evidence cannot be proven.</failure>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.intent_filestore_parity" time="1.480">
+    </testcase>
+  </testsuite>
+</testsuites>

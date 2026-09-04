@@ -31,32 +31,21 @@ class BizCity_Membership_Usage_Report {
 	 * @return array  [ { user_id, display_name, email, calls, tokens } ]
 	 */
 	public function top_users( $period = '7d', $limit = 20 ) {
-		$days = $this->period_days( $period );
-		global $wpdb;
-		$t = $wpdb->prefix . 'bizcity_llm_usage';
-
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT user_id,
-				COUNT(*) AS calls,
-				COALESCE(SUM(tokens_prompt + tokens_completion),0) AS tokens
-			 FROM {$t}
-			 WHERE created_at >= DATE_SUB(NOW(), INTERVAL %d DAY)
-			 GROUP BY user_id
-			 ORDER BY calls DESC
-			 LIMIT %d",
-			$days, (int) $limit
-		), ARRAY_A );
+		$rows = class_exists( 'BizCity_LLM_Usage_File_Log' )
+			? BizCity_LLM_Usage_File_Log::get_stats_by_user( (string) $period, array( 'blog_id' => (int) get_current_blog_id() ) )
+			: array();
+		$rows = array_slice( $rows, 0, max( 1, (int) $limit ) );
 
 		$out = array();
 		foreach ( (array) $rows as $r ) {
-			$uid  = (int) $r['user_id'];
+			$uid  = (int) ( $r['user_id'] ?? 0 );
 			$user = get_userdata( $uid );
 			$out[] = array(
 				'user_id'      => $uid,
 				'display_name' => $user ? $user->display_name : '#' . $uid,
 				'email'        => $user ? $user->user_email    : '',
-				'calls'        => (int) $r['calls'],
-				'tokens'       => (int) $r['tokens'],
+				'calls'        => (int) ( $r['total_calls'] ?? 0 ),
+				'tokens'       => (int) ( $r['total_tokens'] ?? 0 ),
 			);
 		}
 		return $out;
@@ -81,47 +70,42 @@ class BizCity_Membership_Usage_Report {
 		);
 
 		global $wpdb;
-		$llm_t = $wpdb->prefix . 'bizcity_llm_usage';
 		$kg_t  = $wpdb->prefix . 'bizcity_kg_usage_log';
 
-		// By service
-		$svc_rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT service,
-				COUNT(*) AS calls,
-				COALESCE(SUM(tokens_prompt + tokens_completion),0) AS tokens
-			 FROM {$llm_t}
-			 WHERE user_id = %d AND created_at >= DATE_SUB(NOW(), INTERVAL %d DAY)
-			 GROUP BY service
-			 ORDER BY calls DESC",
-			$uid, $days
-		), ARRAY_A );
+		// [2026-09-01 Johnny Chu] R-LLM-USAGE-FILESTORE — user detail reads the tenant-scoped JSONL usage contract.
+		$usage_filters = array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => $uid );
+		$svc_rows = class_exists( 'BizCity_LLM_Usage_File_Log' )
+			? BizCity_LLM_Usage_File_Log::get_stats_by_service( (string) $period, $usage_filters )
+			: array();
 
 		$by_service = array();
 		foreach ( (array) $svc_rows as $r ) {
+			if ( (int) ( $r['total_calls'] ?? 0 ) <= 0 ) { continue; }
 			$by_service[] = array(
-				'service' => (string) $r['service'],
-				'calls'   => (int)    $r['calls'],
-				'tokens'  => (int)    $r['tokens'],
+				'service' => (string) ( $r['service'] ?? '' ),
+				'calls'   => (int) ( $r['total_calls'] ?? 0 ),
+				'tokens'  => (int) ( $r['total_tokens'] ?? 0 ),
 			);
 		}
 
-		// Token totals
-		$tok = $wpdb->get_row( $wpdb->prepare(
-			"SELECT
-				COALESCE(SUM(tokens_prompt),0)     AS prompt,
-				COALESCE(SUM(tokens_completion),0) AS completion
-			 FROM {$llm_t}
-			 WHERE user_id = %d AND created_at >= DATE_SUB(NOW(), INTERVAL %d DAY)",
-			$uid, $days
-		), ARRAY_A );
-		$prompt     = isset( $tok['prompt'] )     ? (int) $tok['prompt']     : 0;
-		$completion = isset( $tok['completion'] ) ? (int) $tok['completion'] : 0;
+		$usage_stats = class_exists( 'BizCity_LLM_Usage_File_Log' )
+			? BizCity_LLM_Usage_File_Log::get_stats( (string) $period, $usage_filters )
+			: array();
+		$prompt     = (int) ( $usage_stats['total_prompt_tokens'] ?? 0 );
+		$completion = (int) ( $usage_stats['total_completion_tokens'] ?? 0 );
 
-		// KG cost
-		$kg_cost = (float) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COALESCE(SUM(cost_usd),0) FROM {$kg_t} WHERE user_id = %d AND day >= DATE_SUB(CURDATE(), INTERVAL %d DAY)",
-			$uid, $days
-		) );
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — keep admin report stable when the SQL structural KG ledger is blocked/missing.
+		$kg_cost = 0.0;
+		$kg_allowed = true;
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			$kg_allowed = BizCity_Legacy_Table_Policy::allow_sql( $kg_t, 'read' );
+		}
+		if ( $kg_allowed && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $kg_t ) ) ) {
+			$kg_cost = (float) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COALESCE(SUM(cost_usd),0) FROM {$kg_t} WHERE user_id = %d AND day >= DATE_SUB(CURDATE(), INTERVAL %d DAY)",
+				$uid, $days
+			) );
+		}
 
 		// Feature snapshot (today, from membership usage)
 		$feat = array();

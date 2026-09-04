@@ -66,6 +66,12 @@ $_bizcity_twinchat_admin_shell_only = is_admin()
 	&& in_array( sanitize_key( (string) $_GET['page'] ), array( 'bizcity-twinchat', 'bizcity-twinbrain' ), true );
 if ( $_bizcity_twinchat_admin_shell_only ) {
 	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php', 'twinchat.admin_menu' );
+	// [2026-08-27 Johnny Chu] PHASE-TWINSHELL-SINGLE-FRAME — register the
+	// compatibility redirect before admin_menu, because admin_init has already
+	// passed by the time the menu callback registers its own hooks.
+	if ( class_exists( 'BizCity_TwinChat_Admin_Menu' ) ) {
+		add_action( 'admin_init', [ BizCity_TwinChat_Admin_Menu::instance(), 'redirect_legacy_admin_shell' ], 0 );
+	}
 	add_action( 'admin_menu', static function () {
 		BizCity_TwinChat_Admin_Menu::instance()->register();
 	}, 20 );

@@ -15,6 +15,20 @@ Schema source: core/twin-core/contracts/schema/public/v1/runtime-execution-polic
 - Distributed trace id is propagated end-to-end.
 - SLO targets are declared for reliability and quality.
 
+## Traceability Before Side Effects
+
+Every cross-domain mutation or external side effect must be traceable through:
+
+```text
+surface/domain → blog_id/shard → key_id/tier/capability
+	→ tenant owner → canonical row → downstream call → response/reason
+```
+
+The trace keeps `domain`, `blog_id`, `key_id`, route, owner, idempotency key,
+trace id, outcome, and reason bucket. It must not contain raw credentials,
+full tokens, or unnecessary PII. HTTP 200 or an empty collection alone is not
+operational success; the canonical row and downstream outcome must be verified.
+
 ## Standard Error Buckets for Retry
 
 1. transient

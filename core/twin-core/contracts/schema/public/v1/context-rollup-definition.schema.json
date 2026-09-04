@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/context-rollup-definition.schema.json",
+  "title": "BizCity Twin Context Rollup Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "rollup_id",
+    "owner",
+    "input_contracts",
+    "dimensions",
+    "window",
+    "measures",
+    "evidence_policy",
+    "correction_policy",
+    "rebuild_policy",
+    "retention_days",
+    "kg_candidate_policy"
+  ],
+  "properties": {
+    "contract": { "const": "context-rollup-definition" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "rollup_id": { "type": "string", "minLength": 3, "maxLength": 120 },
+    "owner": { "type": "string", "minLength": 3, "maxLength": 191 },
+    "input_contracts": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 3, "maxLength": 191 } },
+    "dimensions": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "string", "minLength": 2, "maxLength": 80 } },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "duration"],
+      "properties": {
+        "type": { "enum": ["sliding", "calendar", "lifetime"] },
+        "duration": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "measures": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 2, "maxLength": 80 } },
+    "evidence_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retain_source_refs", "sample_limit"],
+      "properties": {
+        "retain_source_refs": { "type": "boolean" },
+        "sample_limit": { "type": "integer", "minimum": 0, "maximum": 1000 }
+      }
+    },
+    "correction_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["late_event", "supersession"],
+      "properties": {
+        "late_event": { "enum": ["reopen_window", "ignore", "manual_review"] },
+        "supersession": { "enum": ["version", "tombstone", "manual_review"] }
+      }
+    },
+    "rebuild_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "batch_limit"],
+      "properties": {
+        "mode": { "enum": ["checkpointed_batch", "manual", "disabled"] },
+        "batch_limit": { "type": "integer", "minimum": 1, "maximum": 100000 }
+      }
+    },
+    "retention_days": { "type": "integer", "minimum": 1, "maximum": 36500 },
+    "kg_candidate_policy": { "enum": ["none", "summary_only", "stable_facts", "manual_review"] }
+  }
+}

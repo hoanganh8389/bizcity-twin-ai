@@ -349,20 +349,23 @@ final class BizCity_TwinBrain_Memory_Recall {
 		if ( $text === '' ) return '';
 		$type = (string) ( $row->memory_type ?? 'fact' );
 		$id   = (int)    ( $row->id          ?? 0 );
+		$record_id = (string) ( $row->record_id ?? '' );
 		// Cap individual lines so a single noisy memory can't blow budget.
 		if ( mb_strlen( $text ) > 220 ) {
 			$text = mb_substr( $text, 0, 219 ) . '…';
 		}
-		$cite = $id > 0 ? sprintf( ' [mem:U#%d]', $id ) : '';
+		$cite = $record_id !== '' ? ' [mem:U#' . $record_id . ']' : ( $id > 0 ? sprintf( ' [mem:U#%d]', $id ) : '' );
 		return sprintf( '- [%s] %s%s', $type, $text, $cite );
 	}
 
 	private function cite( $row ): array {
 		$id = (int) ( $row->id ?? 0 );
-		if ( $id <= 0 ) return [];
+		$record_id = (string) ( $row->record_id ?? '' );
+		if ( $id <= 0 && $record_id === '' ) return [];
 		return [
-			'token' => sprintf( '[mem:U#%d]', $id ),
+			'token' => $record_id !== '' ? '[mem:U#' . $record_id . ']' : sprintf( '[mem:U#%d]', $id ),
 			'id'    => $id,
+			'record_id' => $record_id,
 			'type'  => (string) ( $row->memory_type ?? 'fact' ),
 			'tier'  => (string) ( $row->memory_tier ?? 'extracted' ),
 		];
@@ -386,147 +389,39 @@ final class BizCity_TwinBrain_Memory_Recall {
 	}
 
 	private function collect_episodic( int $user_id, string $session_id, string $identity_uuid, array $tokens, array &$citations, string $memory_scope = '', string $case_id = '', string $subject_key = '', string $goal_id = '' ): array {
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_memory_episodic';
-		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-			return [];
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — recall episodic memory through verified Context Bank pointers only.
+		if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+			bizcity_context_bank_load_memory_runtime();
 		}
-		// [2026-07-28 Johnny Chu] HOTFIX P1 — runtime schema guard: a tenant whose episodic table
-		// hasn't finished the identity_uuid migration yet must not be filtered on that column —
-		// this previously threw "Unknown column identity_uuid" in the WHERE clause.
-		$cols = (array) $wpdb->get_col( "SHOW COLUMNS FROM {$table}", 0 );
-		$cols = array_map( 'strtolower', $cols );
-		$has_identity = in_array( 'identity_uuid', $cols, true );
-
-		$where  = array( 'blog_id = %d' );
-		$params = array( get_current_blog_id() );
-		if ( $has_identity ) {
-			$scope = array( 'user_id' => $user_id, 'identity_uuid' => $identity_uuid );
-			if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
-				if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
-					return [];
-				}
-			} elseif ( $user_id > 0 ) {
-				$where[]  = 'identity_uuid = %s AND user_id = %d';
-				$params[] = '';
-				$params[] = $user_id;
-			} else {
-				return [];
-			}
-		} elseif ( $user_id > 0 ) {
-			$where[]  = 'user_id = %d';
-			$params[] = $user_id;
-		} else {
-			return [];
+		if ( ! class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) {
+			return array();
 		}
-		$params[] = self::TIER_C_CAP * 3;
-		$sql = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where )
-			. " ORDER BY created_at DESC LIMIT %d";
-		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ) );
-		$rows = $this->filter_scope_rows( $rows, $memory_scope, $case_id, $subject_key, $goal_id );
-		if ( empty( $rows ) ) return [];
-
-		$lines = [];
-		foreach ( $rows as $r ) {
-			$text = (string) ( $r->summary ?? $r->content ?? $r->memory_text ?? '' );
-			if ( $text === '' ) continue;
-			if ( ! empty( $tokens ) && $this->keyword_overlap( $text, $tokens ) === 0 ) continue;
-			if ( mb_strlen( $text ) > 200 ) $text = mb_substr( $text, 0, 199 ) . '…';
-			$id   = (int) ( $r->id ?? 0 );
-			$cite = $id > 0 ? sprintf( ' [mem:E#%d]', $id ) : '';
-			$lines[] = '- ' . $text . $cite;
-			if ( $id > 0 ) {
-				$citations[] = [
-					'token' => sprintf( '[mem:E#%d]', $id ),
-					'id'    => $id,
-					'type'  => 'episodic',
-					'tier'  => 'episodic',
-				];
-			}
+		$records = BizCity_Context_Bank_Memory_Adapter::query( 'core.intent.episodic_memory', array( 'blog_id' => get_current_blog_id(), 'user_id' => $user_id, 'identity_uuid' => $identity_uuid, 'limit' => self::TIER_C_CAP * 3 ) );
+		$lines = array();
+		foreach ( $records as $record ) {
+			$text = (string) ( $record['event_text'] ?? $record['memory_text'] ?? $record['content'] ?? '' );
+			if ( $text === '' || ( ! empty( $tokens ) && $this->keyword_overlap( $text, $tokens ) === 0 ) ) continue;
+			$record_id = (string) ( $record['record_id'] ?? '' );
+			$lines[] = '- ' . ( mb_strlen( $text ) > 200 ? mb_substr( $text, 0, 199 ) . '…' : $text ) . ( $record_id !== '' ? ' [mem:E#' . $record_id . ']' : '' );
+			if ( $record_id !== '' ) $citations[] = array( 'token' => '[mem:E#' . $record_id . ']', 'record_id' => $record_id, 'type' => 'episodic', 'tier' => 'episodic' );
 			if ( count( $lines ) >= self::TIER_C_CAP ) break;
 		}
 		return $lines;
 	}
 
 	private function collect_rolling( int $user_id, string $session_id, string $identity_uuid, array &$citations, string $memory_scope = '', string $case_id = '', string $subject_key = '', string $goal_id = '' ): array {
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_memory_rolling';
-		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-			return [];
-		}
-		/* Wave 2.8d D6.9g (2026-05-24) — schema-tolerant recall.
-		 * `bizcity_memory_rolling` upstream schema (class-rolling-memory.php)
-		 * KHÔNG có column blog_id; field summary tên là `window_summary`.
-		 * Production trước đây query `WHERE blog_id = %d` → SQL error +
-		 * Tier D rỗng. Detect cột thật trước khi build WHERE/SELECT. */
-		$cols = (array) $wpdb->get_col( "SHOW COLUMNS FROM {$table}", 0 );
-		$cols = array_map( 'strtolower', $cols );
-		$has_blog    = in_array( 'blog_id', $cols, true );
-		$has_summary = in_array( 'summary', $cols, true );
-		$has_window  = in_array( 'window_summary', $cols, true );
-		$has_content = in_array( 'content', $cols, true );
-		// [2026-07-28 Johnny Chu] HOTFIX P1 — runtime schema guard: a tenant whose rolling table
-		// hasn't finished the identity_uuid migration yet must not be filtered on that column —
-		// this previously threw "Unknown column identity_uuid" in the WHERE clause.
-		$has_identity = in_array( 'identity_uuid', $cols, true );
-
-		$where  = array();
-		$params = array();
-		if ( $has_blog ) {
-			$where[]  = 'blog_id = %d';
-			$params[] = get_current_blog_id();
-		}
-		if ( $has_identity ) {
-			$scope = array( 'user_id' => $user_id, 'identity_uuid' => $identity_uuid );
-			if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
-				if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
-					return [];
-				}
-			} elseif ( $user_id > 0 ) {
-				$where[]  = 'identity_uuid = %s AND user_id = %d';
-				$params[] = '';
-				$params[] = $user_id;
-			} else {
-				return [];
-			}
-		} elseif ( $user_id > 0 ) {
-			$where[]  = 'user_id = %d';
-			$params[] = $user_id;
-		} else {
-			return [];
-		}
-		$params[] = self::TIER_D_CAP;
-
-		$sql  = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where ) . " ORDER BY updated_at DESC LIMIT %d";
-		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ) );
-		$rows = $this->filter_scope_rows( $rows, $memory_scope, $case_id, $subject_key, $goal_id );
-		if ( empty( $rows ) ) return [];
-
-		$lines = [];
-		foreach ( $rows as $r ) {
-			$text = '';
-			if ( $has_window && ! empty( $r->window_summary ) ) {
-				$text = (string) $r->window_summary;
-			} elseif ( $has_summary && ! empty( $r->summary ) ) {
-				$text = (string) $r->summary;
-			} elseif ( $has_content && ! empty( $r->content ) ) {
-				$text = (string) $r->content;
-			} else {
-				$text = (string) ( $r->window_summary ?? $r->summary ?? $r->content ?? '' );
-			}
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — recall rolling memory through verified Context Bank pointers only.
+		if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) bizcity_context_bank_load_memory_runtime();
+		if ( ! class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) return array();
+		$records = BizCity_Context_Bank_Memory_Adapter::query( 'core.intent.rolling_memory', array( 'blog_id' => get_current_blog_id(), 'user_id' => $user_id, 'identity_uuid' => $identity_uuid, 'limit' => self::TIER_D_CAP * 3 ) );
+		$lines = array();
+		foreach ( $records as $record ) {
+			$text = (string) ( $record['window_summary'] ?? $record['summary'] ?? $record['content'] ?? '' );
 			if ( $text === '' ) continue;
-			if ( mb_strlen( $text ) > 240 ) $text = mb_substr( $text, 0, 239 ) . '…';
-			$id   = (int) ( $r->id ?? 0 );
-			$cite = $id > 0 ? sprintf( ' [mem:R#%d]', $id ) : '';
-			$lines[] = '- ' . $text . $cite;
-			if ( $id > 0 ) {
-				$citations[] = [
-					'token' => sprintf( '[mem:R#%d]', $id ),
-					'id'    => $id,
-					'type'  => 'rolling',
-					'tier'  => 'rolling',
-				];
-			}
+			$record_id = (string) ( $record['record_id'] ?? '' );
+			$lines[] = '- ' . ( mb_strlen( $text ) > 240 ? mb_substr( $text, 0, 239 ) . '…' : $text ) . ( $record_id !== '' ? ' [mem:R#' . $record_id . ']' : '' );
+			if ( $record_id !== '' ) $citations[] = array( 'token' => '[mem:R#' . $record_id . ']', 'record_id' => $record_id, 'type' => 'rolling', 'tier' => 'rolling' );
+			if ( count( $lines ) >= self::TIER_D_CAP ) break;
 		}
 		return $lines;
 	}

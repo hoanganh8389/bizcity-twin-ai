@@ -16,16 +16,18 @@
         "BizCity_WebChat_Widget",
         "BizCity_Admin_Dashboard"
     ],
-    "db_tables":   ["bizcity_webchat_sessions", "bizcity_webchat_messages"],
+    "db_tables":   ["bizcity_webchat_messages"],
     "db_table_owners": {
         "bizcity_webchat_messages": "core/twin-core",
-        "bizcity_webchat_sessions": "modules/webchat"
+        "bizcity_webchat_sessions": "modules/webchat (quarantine/migration debt)"
     },
     "db_table_lifecycles": {
         "bizcity_webchat_messages": "core_active",
-        "bizcity_webchat_projects": "observe_active",
-        "bizcity_webchat_tasks": "quarantine_write_block",
-        "bizcity_webchat_task_steps": "quarantine_write_block",
-        "bizcity_memory_session": "quarantine_write_block"
+        "bizcity_webchat_sessions": "quarantine",
+        "bizcity_webchat_conversations": "quarantine",
+        "bizcity_webchat_projects": "retired",
+        "bizcity_webchat_tasks": "retired",
+        "bizcity_webchat_task_steps": "retired",
+        "bizcity_memory_session": "retired"
     }
 }

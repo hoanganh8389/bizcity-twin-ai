@@ -1,0 +1,12 @@
+{
+  "contract": "extension-manifest",
+  "version": "1.0.0",
+  "extension_version": "1.0",
+  "requires_framework": ">=1.3 <2.0",
+  "capabilities": ["channel.inbound"],
+  "channels": [],
+  "diagnostics": {
+    "probe_owner": "core.channel.zalo_bot.contract",
+    "requires": ["runtime"]
+  }
+}

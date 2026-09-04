@@ -21,35 +21,47 @@ $td = 'bizcity-twin-ai';
 // Pre-load User Memory so the table is available immediately (no AJAX timing gap)
 global $wpdb;
 $_uid    = get_current_user_id();
-$_um_tbl = $wpdb->prefix . 'bizcity_memory_users';
 $_mems   = [];
-if ( bizcity_tbl_exists( $_um_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-	$_mems = $wpdb->get_results( $wpdb->prepare(
-		"SELECT id, memory_type, memory_key, memory_text AS content,
-		        score AS importance, times_seen, updated_at
-		 FROM {$_um_tbl} WHERE user_id = %d
-		 ORDER BY updated_at DESC LIMIT 200",
-		$_uid
-	), ARRAY_A ) ?: [];
+// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — Memory Hub reads canonical filestore owners instead of legacy SQL projections.
+if ( class_exists( 'BizCity_User_Memory' ) ) {
+	$_user_memory_rows = BizCity_User_Memory::instance()->get_memories( [ 'user_id' => $_uid, 'limit' => 200, 'order_by' => 'updated_at' ] );
+	foreach ( (array) $_user_memory_rows as $_memory_row ) {
+		$_memory_row = (array) $_memory_row;
+		$_mems[] = [
+			'id'         => (int) ( $_memory_row['id'] ?? 0 ),
+			'memory_type'=> (string) ( $_memory_row['memory_type'] ?? 'fact' ),
+			'memory_key' => (string) ( $_memory_row['memory_key'] ?? '' ),
+			'content'    => (string) ( $_memory_row['memory_text'] ?? '' ),
+			'importance' => (int) ( $_memory_row['score'] ?? 50 ),
+			'times_seen' => (int) ( $_memory_row['times_seen'] ?? 1 ),
+			'updated_at' => (string) ( $_memory_row['updated_at'] ?? '' ),
+		];
+	}
 }
 $_mem_types = [ 'fact', 'preference', 'identity', 'goal', 'pain', 'constraint', 'habit', 'relationship', 'request' ];
 
 // Pre-load counts for Episodic, Rolling, and Research zones
-$_ep_tbl   = $wpdb->prefix . 'bizcity_memory_episodic';
-$_rl_tbl   = $wpdb->prefix . 'bizcity_memory_rolling';
-$_nt_tbl   = $wpdb->prefix . 'bizcity_memory_notes';
 $_ep_count = 0;
 $_rl_count = 0;
 $_nt_count = 0;
-
-if ( bizcity_tbl_exists( $_ep_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-	$_ep_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$_ep_tbl} WHERE user_id = %d", $_uid ) );
-}
-if ( bizcity_tbl_exists( $_rl_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-	$_rl_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$_rl_tbl} WHERE user_id = %d", $_uid ) );
-}
-if ( bizcity_tbl_exists( $_nt_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-	$_nt_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$_nt_tbl} WHERE user_id = %d", $_uid ) );
+$_memory_file_count = static function ( $contract_id, $user_id ) {
+	if ( ! class_exists( 'BizCity_File_Contract_Registry' )
+		|| ! class_exists( 'BizCity_Business_JSONL_File_Store' )
+		|| ! BizCity_File_Contract_Registry::has( $contract_id ) ) {
+		return 0;
+	}
+	$rows = BizCity_Business_JSONL_File_Store::query( $contract_id, [
+		'blog_id' => get_current_blog_id(),
+		'user_id' => (int) $user_id,
+		'limit'   => 2000,
+		'days'    => 3650,
+	] );
+	return is_array( $rows ) ? count( $rows ) : 0;
+};
+$_ep_count = $_memory_file_count( 'core.intent.episodic_memory', $_uid );
+$_rl_count = $_memory_file_count( 'core.intent.rolling_memory', $_uid );
+if ( class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+	$_nt_count = count( (array) ( new BizCity_TwinChat_Notes_Service() )->get_all_by_user( $_uid, 200 ) );
 }
 
 // Pre-load Files count (bzdoc_documents — tài liệu Doc/Slide/Sheet sinh từ AI)

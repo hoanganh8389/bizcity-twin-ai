@@ -1,0 +1,25 @@
+{
+  "contract": "extension-manifest",
+  "version": "1.0.0",
+  "extension_id": "vendor.invalid-range",
+  "extension_version": "1.0.0",
+  "requires_framework": ">=latest",
+  "capabilities": ["channel.inbound"],
+  "channels": [
+    {
+      "slug": "invalid_range_channel",
+      "platform": "INVALID_RANGE",
+      "zone": "admin",
+      "identity_policy": "account_user",
+      "account_scope": "multiple",
+      "crm_policy": "disabled",
+      "brain_policy": "user_bound",
+      "context_policy": "none",
+      "surface_policy": ["admin"]
+    }
+  ],
+  "diagnostics": {
+    "probe_owner": "vendor.invalid_range.contract",
+    "requires": ["disk", "loader", "runtime"]
+  }
+}

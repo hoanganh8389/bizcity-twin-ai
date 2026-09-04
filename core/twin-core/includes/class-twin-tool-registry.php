@@ -17,6 +17,55 @@ if ( ! interface_exists( 'BizCity_Twin_Tool' ) ) {
 	require_once __DIR__ . '/interface-twin-tool.php';
 }
 
+if ( ! class_exists( 'BizCity_Typed_Tool_Adapter' ) ) {
+	final class BizCity_Typed_Tool_Adapter implements BizCity_Twin_Tool {
+		/** @var object */
+		private $tool;
+
+		public function __construct( $tool ) {
+			$this->tool = $tool;
+		}
+
+		public function name(): string {
+			return (string) $this->tool->id();
+		}
+
+		public function description(): string {
+			$schema = $this->tool->schema();
+			return isset( $schema['description'] ) ? (string) $schema['description'] : (string) $this->tool->label();
+		}
+
+		public function parameters_schema(): array {
+			$schema = $this->tool->schema();
+			return isset( $schema['parameters'] ) && is_array( $schema['parameters'] ) ? $schema['parameters'] : array();
+		}
+
+		public function execute( array $args, array $context ): array {
+			$result = $this->tool->run( $args, $context );
+			if ( ! is_array( $result ) ) {
+				return array(
+					'ok'      => false,
+					'error'   => 'Typed tool returned an invalid result.',
+					'summary' => 'Invalid typed tool result.',
+				);
+			}
+
+			$ok = isset( $result['success'] ) ? (bool) $result['success'] : ( isset( $result['ok'] ) && (bool) $result['ok'] );
+			$mapped = array(
+				'ok'      => $ok,
+				'result'  => isset( $result['result'] ) ? $result['result'] : $result,
+				'summary' => isset( $result['summary'] ) ? (string) $result['summary'] : (string) $this->tool->label(),
+			);
+			foreach ( array( 'sources', 'citation_ids', 'error', 'code', 'hint', 'help_code' ) as $field ) {
+				if ( array_key_exists( $field, $result ) ) {
+					$mapped[ $field ] = $result[ $field ];
+				}
+			}
+			return $mapped;
+		}
+	}
+}
+
 class BizCity_Twin_Tool_Registry {
 
 	/** @var BizCity_Twin_Tool_Registry|null */
@@ -61,11 +110,39 @@ class BizCity_Twin_Tool_Registry {
 		$external = apply_filters( 'bizcity_twin_register_tool', [] );
 		if ( is_array( $external ) ) {
 			foreach ( $external as $name => $tool ) {
-				if ( $tool instanceof BizCity_Twin_Tool ) {
-					$this->tools[ (string) $tool->name() ] = $tool;
+				$normalized = $this->normalize_tool( $tool );
+				if ( $normalized instanceof BizCity_Twin_Tool ) {
+					$this->tools[ (string) $normalized->name() ] = $normalized;
 				}
 			}
 		}
+	}
+
+	/**
+	 * Normalize the public typed SDK contract into the legacy runtime contract.
+	 *
+	 * @param mixed $tool
+	 * @return BizCity_Twin_Tool|null
+	 */
+	private function normalize_tool( $tool ) {
+		if ( $tool instanceof BizCity_Twin_Tool ) {
+			return $tool;
+		}
+		if ( interface_exists( 'BizCity_Tool_Interface' ) && $tool instanceof BizCity_Tool_Interface ) {
+			return new BizCity_Typed_Tool_Adapter( $tool );
+		}
+		if ( interface_exists( 'BizCity\\Twin\\Contracts\\ToolInterface' ) && $tool instanceof \BizCity\Twin\Contracts\ToolInterface ) {
+			return new BizCity_Typed_Tool_Adapter( $tool );
+		}
+		return null;
+	}
+
+	/**
+	 * Register a public typed SDK tool without introducing another registry.
+	 */
+	public function register_typed( BizCity_Tool_Interface $tool ): void {
+		$this->ensure_loaded();
+		$this->tools[ (string) $tool->id() ] = new BizCity_Typed_Tool_Adapter( $tool );
 	}
 
 	/**

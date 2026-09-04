@@ -236,6 +236,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 
 		$bot_id       = $parsed['bot_id'];
 		$zalo_user_id = $parsed['zalo_user_id']; // [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W3 — provider chat id; can be user or group id.
+		$this->log_group_reply_event( 'group_reply_attempt', $parsed, $text );
 
 		// Resolve blog_id from bot assignment và switch context
 		$target_blog_id = $this->resolve_bot_blog_id( $bot_id );
@@ -250,6 +251,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		// MUST use Bot Platform API (send_message), NOT OA API (send_text_message)
 		$api = bizcity_get_zalo_bot_api( $bot_id );
 		if ( ! $api ) {
+			$this->log_group_reply_event( 'group_reply_failed', $parsed, '', 'bot_unavailable' );
 			error_log( '[Zalo Bot Gateway] ❌ Bot #' . $bot_id . ' not found in blog #' . get_current_blog_id() );
 			if ( $switched ) {
 				restore_current_blog();
@@ -269,10 +271,12 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		}
 
 		if ( is_wp_error( $result ) ) {
+			$this->log_group_reply_event( 'group_reply_failed', $parsed, '', $result->get_error_code() );
 			error_log( '[Zalo Bot Gateway] ❌ Send failed: ' . $result->get_error_message() );
 			return false;
 		}
 
+		$this->log_group_reply_event( 'group_reply_ok', $parsed, $text );
 		error_log( sprintf( '[Zalo Bot Gateway] ✅ Sent text to bot #%d %s %s', $bot_id, $parsed['chat_kind'], $zalo_user_id ) );
 		return true;
 	}
@@ -292,6 +296,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 
 		$bot_id       = $parsed['bot_id'];
 		$zalo_user_id = $parsed['zalo_user_id']; // [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W3 — provider chat id; can be user or group id.
+		$this->log_group_reply_event( 'group_reply_attempt', $parsed, $caption );
 
 		// Resolve blog_id from bot assignment và switch context
 		$target_blog_id = $this->resolve_bot_blog_id( $bot_id );
@@ -305,6 +310,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		// MUST use Bot Platform API (send_photo), NOT OA API
 		$api = bizcity_get_zalo_bot_api( $bot_id );
 		if ( ! $api ) {
+			$this->log_group_reply_event( 'group_reply_failed', $parsed, '', 'bot_unavailable' );
 			error_log( '[Zalo Bot Gateway] ❌ Bot #' . $bot_id . ' not found for photo send in blog #' . get_current_blog_id() );
 			if ( $switched ) {
 				restore_current_blog();
@@ -319,10 +325,12 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		}
 
 		if ( is_wp_error( $result ) ) {
+			$this->log_group_reply_event( 'group_reply_failed', $parsed, '', $result->get_error_code() );
 			error_log( '[Zalo Bot Gateway] ❌ Send photo failed: ' . $result->get_error_message() );
 			return false;
 		}
 
+		$this->log_group_reply_event( 'group_reply_ok', $parsed, $caption );
 		error_log( sprintf( '[Zalo Bot Gateway] ✅ Sent photo to bot #%d %s %s', $bot_id, $parsed['chat_kind'], $zalo_user_id ) );
 		return true;
 	}
@@ -475,6 +483,30 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 			'bot_id'       => $bot_id,
 			'zalo_user_id' => $zalo_user_id,
 			'chat_kind'    => $chat_kind,
+		);
+	}
+
+	private function log_group_reply_event( $event_name, array $parsed, $text = '', $error_code = '' ) {
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W3 — log group delivery lifecycle through the canonical channel logger with redacted identifiers.
+		if ( ( $parsed['chat_kind'] ?? '' ) !== 'group' || ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return;
+		}
+		$provider_chat_id = (string) ( $parsed['zalo_user_id'] ?? '' );
+		$context = array(
+			'bot_id'                => (int) ( $parsed['bot_id'] ?? 0 ),
+			'chat_kind'             => 'group',
+			'provider_chat_id_hash' => substr( hash( 'sha256', $provider_chat_id ), 0, 16 ),
+			'text_length'           => function_exists( 'mb_strlen' ) ? mb_strlen( (string) $text ) : strlen( (string) $text ),
+		);
+		if ( (string) $error_code !== '' ) {
+			$context['error_code'] = sanitize_key( (string) $error_code );
+		}
+		BizCity_Channel_File_Logger::write(
+			BizCity_Channel_File_Logger::CH_ZALO_BOT,
+			BizCity_Channel_File_Logger::LEVEL_INFO,
+			(string) $event_name,
+			'Zalo Bot group reply lifecycle event',
+			$context
 		);
 	}
 }

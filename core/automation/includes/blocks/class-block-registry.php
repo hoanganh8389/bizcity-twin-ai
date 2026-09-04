@@ -93,6 +93,16 @@ final class BizCity_Automation_Block_Registry {
 		if ( class_exists( 'BizCity_Automation_Action_Ask_Guru' ) ) {
 			$this->register( new BizCity_Automation_Action_Ask_Guru() );
 		}
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W4/W5 — register canonical identity and AskBrain parity actions.
+		if ( class_exists( 'BizCity_Automation_Action_Ensure_Linked_User' ) ) {
+			$this->register( new BizCity_Automation_Action_Ensure_Linked_User() );
+		}
+		if ( class_exists( 'BizCity_Automation_Action_Issue_Login_Link' ) ) {
+			$this->register( new BizCity_Automation_Action_Issue_Login_Link() );
+		}
+		if ( class_exists( 'BizCity_Automation_Action_TwinBrain_Deep_Research' ) ) {
+			$this->register( new BizCity_Automation_Action_TwinBrain_Deep_Research() );
+		}
 		// [2026-06-07 Johnny Chu] PHASE-0.38.W1.5 — action.create_woo_order (Order Fulfillment Hub).
 		$this->register( new BizCity_Automation_Action_Create_Woo_Order() );
 		// [2026-06-07 Johnny Chu] PHASE-0.40 G7.2 — action.notify_discord (Discord webhook notification).

@@ -62,11 +62,11 @@ class BizCity_CRM_Lead_Source_CF7 {
 		) );
 
 		$res = BizCity_CRM_Lead_Capture_Engine::capture( $payload, $source );
-		if ( is_wp_error( $res ) && class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+		if ( is_wp_error( $res ) && class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			// [2026-08-01 Johnny Chu] PHASE-CRM-LOG-SPLIT — keep CF7 capture failures in CRM JSONL.
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'cf7',
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — CF7 capture failures use the channel audit contract.
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.cf7_audit',
 				'error',
 				'cf7_capture_failed',
 				'CF7 lead capture failed.',

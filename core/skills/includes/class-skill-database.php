@@ -44,6 +44,7 @@ class BizCity_Skill_Database {
 	 *           (dbDelta failed silently, option was already saved as 1.4.0).
 	 */
 	const SCHEMA_VERSION = '1.4.3';
+	const RETENTION_DAYS = 7; // [2026-08-28 Johnny Chu] R-LOG-HYBRID — skill usage audit follows the shared seven-day retention contract.
 
 	/** @var string wp_options key */
 	const SCHEMA_VERSION_KEY = 'bizcity_skills_db_version';
@@ -238,6 +239,8 @@ class BizCity_Skill_Database {
 				error_log( '[BizCity Skills] upsert() UPDATE failed for skill_key=' . $skill_key . ' — ' . $wpdb->last_error );
 				return false;
 			}
+			// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — emit the canonical Skill save event after an active-owner update.
+			do_action( 'bizcity_skill_saved', (int) $existing_id, (string) $data['content'], (string) ( $data['title'] ?? '' ) );
 			return (int) $existing_id;
 		}
 
@@ -246,6 +249,8 @@ class BizCity_Skill_Database {
 			error_log( '[BizCity Skills] upsert() INSERT failed for skill_key=' . $skill_key . ' — ' . $wpdb->last_error );
 			return false;
 		}
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — emit the canonical Skill save event after an active-owner insert.
+		do_action( 'bizcity_skill_saved', (int) $wpdb->insert_id, (string) $data['content'], (string) ( $data['title'] ?? '' ) );
 		return $wpdb->insert_id ?: false;
 	}
 
@@ -329,7 +334,14 @@ class BizCity_Skill_Database {
 	 */
 	public function delete( int $id ): bool {
 		global $wpdb;
-		return (bool) $wpdb->delete( $this->table, [ 'id' => $id ] );
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — snapshot the canonical Skill before deletion so the reference adapter can tombstone its exact version.
+		$before = $this->get( $id );
+		$result = (bool) $wpdb->delete( $this->table, [ 'id' => $id ] );
+		if ( $result ) {
+			// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — emit the pre-delete Skill snapshot without making Context Bank the content owner.
+			do_action( 'bizcity_skill_deleted', is_array( $before ) ? $before : array( 'id' => $id ) );
+		}
+		return $result;
 	}
 
 	/**
@@ -377,6 +389,59 @@ class BizCity_Skill_Database {
 		$params[] = $offset;
 
 		return $wpdb->get_results( $wpdb->prepare( $sql, ...$params ), ARRAY_A ) ?: [];
+	}
+
+	// [2026-08-28 Johnny Chu] R-LOG-HYBRID — the active core/skills class owns skill usage audit writes through the canonical JSONL contract.
+	public function log_usage( int $skill_id, array $ctx = [] ): void {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			return;
+		}
+		BizCity_JSONL_File_Logger::write_contract(
+			'core.skills.usage_audit',
+			'info',
+			'skill_usage',
+			'Skill usage event',
+			array(
+				'skill_id'    => (int) $skill_id,
+				'user_id'     => (int) ( $ctx['user_id'] ?? get_current_user_id() ),
+				'session_id'  => (string) ( $ctx['session_id'] ?? '' ),
+				'goal'        => (string) ( $ctx['goal'] ?? '' ),
+				'mode'        => (string) ( $ctx['mode'] ?? '' ),
+				'matched_by'  => (string) ( $ctx['matched_by'] ?? '' ),
+				'created_at'  => current_time( 'mysql' ),
+			)
+		);
+	}
+
+	// [2026-08-28 Johnny Chu] R-LOG-HYBRID — expose JSONL-backed skill usage stats on the active class owner.
+	public function get_usage_stats( int $skill_id, int $days = 30 ): array {
+		$rows = array();
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+			$rows = BizCity_JSONL_File_Logger::query_contract( 'core.skills.usage_audit', array(
+				'days'   => max( 1, $days ),
+				'limit'  => 5000,
+				'filter' => static function ( $row ) use ( $skill_id ) {
+					$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+					return (int) ( $ctx['skill_id'] ?? 0 ) === (int) $skill_id;
+				},
+			) );
+		}
+		$by_mode = array();
+		foreach ( (array) $rows as $row ) {
+			$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+			$mode = trim( (string) ( $ctx['mode'] ?? '' ) ) ?: 'unknown';
+			$by_mode[ $mode ] = (int) ( $by_mode[ $mode ] ?? 0 ) + 1;
+		}
+		arsort( $by_mode );
+		$grouped = array();
+		foreach ( $by_mode as $mode => $count ) {
+			$grouped[] = array( 'mode' => (string) $mode, 'cnt' => (int) $count );
+		}
+		return array(
+			'total_last_n_days' => count( (array) $rows ),
+			'days'              => max( 1, $days ),
+			'by_mode'           => $grouped,
+		);
 	}
 
 	/* ================================================================

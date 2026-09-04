@@ -63,6 +63,7 @@ $checks[] = bizcity_plugin_diagnostics_api_contract( $manifest, $php_text );
 $checks[] = bizcity_plugin_diagnostics_sdk( $root, $manifest );
 $checks[] = bizcity_plugin_diagnostics_schema( $root, $plugin_path, $manifest );
 $checks[] = bizcity_plugin_diagnostics_documentation( $plugin_path );
+$checks = array_merge( $checks, bizcity_plugin_diagnostics_quality( $manifest, $php_text, $plugin_path ) );
 if ( $smoke ) {
 	$checks[] = bizcity_plugin_diagnostics_smoke( $plugin_path );
 }
@@ -94,6 +95,9 @@ $payload = array(
 		'fail' => $failures,
 		'skip' => $skips,
 	),
+	'pass'     => array_values( array_map( 'bizcity_plugin_diagnostics_check_id', array_filter( $checks, function ( $check ) { return 'pass' === $check['status']; } ) ) ),
+	'warn'     => array_values( array_map( 'bizcity_plugin_diagnostics_check_id', array_filter( $checks, function ( $check ) { return 'warn' === $check['status']; } ) ) ),
+	'fail'     => array_values( array_map( 'bizcity_plugin_diagnostics_check_id', array_filter( $checks, function ( $check ) { return 'fail' === $check['status']; } ) ) ),
 	'exit_code' => $exit_code,
 	'strict'    => $strict,
 );
@@ -115,6 +119,9 @@ exit( $payload['exit_code'] );
 
 function bizcity_plugin_diagnostics_check( $id, $label, $status, $evidence, $fix_hint = '', $file = '' ) {
 	$severity = 'pass' === $status || 'skip' === $status ? 'info' : ( 'warn' === $status ? 'warning' : 'error' );
+	$code = 'pass' === $status ? 'ok' : ( 'warn' === $status ? 'invalid_param' : 'module_not_loaded' );
+	$message = 'pass' === $status ? '' : ( 'warn' === $status ? "Kiểm tra {$label} cần bổ sung." : "Kiểm tra {$label} chưa đạt." );
+	$hint = '' !== $fix_hint ? $fix_hint : ( 'pass' === $status ? '' : 'Xem bằng chứng và sửa contract tương ứng.' );
 	return array(
 		'id'       => $id,
 		'label'    => $label,
@@ -123,7 +130,15 @@ function bizcity_plugin_diagnostics_check( $id, $label, $status, $evidence, $fix
 		'evidence' => $evidence,
 		'fix_hint' => $fix_hint,
 		'file'     => $file,
+		'code'     => $code,
+		'message'  => $message,
+		'hint'     => $hint,
+		'help_code'=> 'module_not_loaded',
 	);
+}
+
+function bizcity_plugin_diagnostics_check_id( $check ) {
+	return (string) ( $check['id'] ?? '' );
 }
 
 function bizcity_plugin_diagnostics_resolve_path( $root, $argument ) {
@@ -336,6 +351,52 @@ function bizcity_plugin_diagnostics_documentation( $plugin_path ) {
 		return bizcity_plugin_diagnostics_check( 'documentation', 'Documentation', 'fail', 'README.md is missing or unreadable.', 'Add README.md with installation, capabilities, permissions, and runtime requirements.', $readme );
 	}
 	return bizcity_plugin_diagnostics_check( 'documentation', 'Documentation', 'pass', 'README.md is present.', '', $readme );
+}
+
+function bizcity_plugin_diagnostics_quality( $manifest, $php_text, $plugin_path ) {
+	$checks = array();
+	$tools = is_array( $manifest ) && isset( $manifest['capabilities']['tools'] ) && is_array( $manifest['capabilities']['tools'] ) ? $manifest['capabilities']['tools'] : array();
+	$missing_description = array();
+	$missing_idempotency = array();
+	foreach ( $tools as $tool ) {
+		if ( ! is_array( $tool ) ) {
+			continue;
+		}
+		$tool_id = isset( $tool['id'] ) ? (string) $tool['id'] : '(unknown)';
+		$schema = isset( $tool['schema'] ) && is_array( $tool['schema'] ) ? $tool['schema'] : array();
+		if ( '' === trim( (string) ( $schema['description'] ?? '' ) ) ) {
+			$missing_description[] = $tool_id;
+		}
+		if ( ! array_key_exists( 'idempotency', $tool ) && ! array_key_exists( 'idempotent', $tool ) && ! array_key_exists( 'idempotent', $schema ) ) {
+			$missing_idempotency[] = $tool_id;
+		}
+	}
+	$checks[] = empty( $missing_description )
+		? bizcity_plugin_diagnostics_check( 'tool_description', 'Tool Intent description', 'pass', 'Every declared tool has schema.description.' )
+		: bizcity_plugin_diagnostics_check( 'tool_description', 'Tool Intent description', 'warn', 'Missing schema.description: ' . implode( ', ', $missing_description ), 'Thêm schema.description mô tả rõ khi Intent Router nên dùng Tool.' );
+	$checks[] = empty( $missing_idempotency )
+		? bizcity_plugin_diagnostics_check( 'idempotency_declaration', 'Idempotency declaration', 'pass', 'Every declared tool has an idempotency declaration.' )
+		: bizcity_plugin_diagnostics_check( 'idempotency_declaration', 'Idempotency declaration', 'warn', 'Missing idempotency declaration: ' . implode( ', ', $missing_idempotency ), 'Khai báo idempotency là true hoặc false trong capability tool.' );
+
+	$declared_events = is_array( $manifest ) && isset( $manifest['events'] ) && is_array( $manifest['events'] ) ? $manifest['events'] : array();
+	$missing_events = array();
+	foreach ( $declared_events as $event_type ) {
+		$event_type = is_array( $event_type ) ? (string) ( $event_type['type'] ?? $event_type['name'] ?? '' ) : (string) $event_type;
+		if ( '' === $event_type || false === strpos( $php_text, 'register_event' ) || false === strpos( $php_text, $event_type ) ) {
+			$missing_events[] = $event_type;
+		}
+	}
+	$checks[] = empty( $declared_events )
+		? bizcity_plugin_diagnostics_check( 'event_registration', 'Event registration', 'pass', 'No event declarations require registration evidence.' )
+		: ( empty( $missing_events )
+			? bizcity_plugin_diagnostics_check( 'event_registration', 'Event registration', 'pass', 'Every declared event has SDK registration evidence.' )
+			: bizcity_plugin_diagnostics_check( 'event_registration', 'Event registration', 'fail', 'Registration evidence missing: ' . implode( ', ', $missing_events ), 'Đăng ký từng event qua BizCity_Twin_Plugin_SDK::register_event() và canonical taxonomy.' ) );
+
+	$uninstall = $plugin_path . DIRECTORY_SEPARATOR . 'uninstall.php';
+	$checks[] = is_readable( $uninstall )
+		? bizcity_plugin_diagnostics_check( 'uninstall_safety', 'Uninstall safety', 'pass', 'uninstall.php is present and readable.', '', $uninstall )
+		: bizcity_plugin_diagnostics_check( 'uninstall_safety', 'Uninstall safety', 'fail', 'uninstall.php is missing or unreadable.', 'Thêm uninstall.php có guard WP_UNINSTALL_PLUGIN và teardown chỉ dữ liệu do plugin sở hữu.', $uninstall );
+	return array_merge( $checks );
 }
 
 function bizcity_plugin_diagnostics_smoke( $plugin_path ) {

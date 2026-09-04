@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="7" failures="0" skipped="0" time="10.824">
+  <testsuite name="diagnostics" tests="7" failures="0" skipped="0" time="10.824">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.install_prevention" time="0.102">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.lifecycle" time="0.002">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.callers" time="8.162">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.state_machine" time="0.002">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.uninstall_matrix" time="0.002">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.drop_zero_row_guard" time="0.000">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.approved_drop" time="0.796">
+    </testcase>
+  </testsuite>
+</testsuites>

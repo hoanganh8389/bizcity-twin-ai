@@ -132,10 +132,36 @@ class BizCity_Zalo_Bridge_REST {
 			'permission_callback' => array( __CLASS__, 'can_manage' ),
 		) );
 
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — expose explicit session reset; this route never deletes the account or CRM mapping.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/accounts/(?P<id>[^/]+)/qr/reset', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'handle_reset_qr' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
+
 		// Personal QR poll status.
 		register_rest_route( self::NS, '/' . self::PREFIX . '/accounts/(?P<id>[^/]+)/qr-status', array(
 			'methods'             => 'GET',
 			'callback'            => array( __CLASS__, 'handle_qr_status' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
+
+		// [2026-09-03 02:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H1-GROUP — expose bounded group history only to tenant operators; no CRM import is performed here.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/accounts/(?P<id>[^/]+)/history/group', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'handle_group_history' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+			'args'                => array(
+				'thread_ref' => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+				'cursor'    => array( 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ),
+				'count'    => array( 'required' => false, 'sanitize_callback' => 'absint' ),
+			),
+		) );
+
+		// [2026-09-03 03:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H3-GROUP — expose hash-only group discovery through the server-side bridge client only.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/accounts/(?P<id>[^/]+)/history/groups', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'handle_group_history_candidates' ),
 			'permission_callback' => array( __CLASS__, 'can_manage' ),
 		) );
 
@@ -183,6 +209,7 @@ class BizCity_Zalo_Bridge_REST {
 					'kind'              => sanitize_key( (string) ( $probe_body['kind'] ?? 'personal' ) ),
 					'account_id_hash'   => substr( hash( 'sha256', (string) ( $probe_body['account_id'] ?? '' ) ), 0, 16 ),
 					'provider_id_hash'  => substr( hash( 'sha256', (string) ( $probe_body['message_id'] ?? '' ) ), 0, 16 ),
+					'trace_id'          => sanitize_text_field( (string) ( $probe_body['trace_id'] ?? '' ) ),
 				)
 			);
 		}
@@ -203,6 +230,12 @@ class BizCity_Zalo_Bridge_REST {
 		}
 
 		$body = $request->get_json_params();
+		// [2026-08-24 Johnny Chu] PHASE-0.39E-D1 — retain the opaque sidecar trace for CRM/archive correlation only.
+		$trace_id = sanitize_text_field( (string) ( is_array( $body ) ? ( $body['trace_id'] ?? $request->get_header( 'x-correlation-id' ) ) : $request->get_header( 'x-correlation-id' ) ) );
+		$trace_id = substr( $trace_id, 0, 128 );
+		if ( is_array( $body ) && $trace_id !== '' ) {
+			$body['trace_id'] = $trace_id;
+		}
 		if ( ! is_array( $body ) || empty( $body['from_user_id'] ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'error' => 'invalid_payload' ), 400 );
 		}
@@ -637,13 +670,15 @@ class BizCity_Zalo_Bridge_REST {
 	// ── QR ───────────────────────────────────────────────────────────────
 
 	public static function handle_start_qr( WP_REST_Request $request ): WP_REST_Response {
-		$id     = (string) $request->get_param( 'id' );
-		$client = BizCity_Zalo_Bridge_Client::instance();
-		$result = $client->start_qr( $id );
-		if ( ! empty( $result['_degraded'] ) ) {
-			return new WP_REST_Response( array( 'ok' => false, '_degraded' => true, 'message' => $result['message'] ?? '' ) );
-		}
-		return new WP_REST_Response( array( 'ok' => true, 'qr_base64' => $result['qr_base64'] ?? '' ) );
+		$id = (string) $request->get_param( 'id' );
+		return self::start_qr_response( $id );
+	}
+
+	/** Reset the sidecar session and start QR again without deleting the account. */
+	public static function handle_reset_qr( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — keep the account ID, mapping and CRM history while resetting only the bridge session.
+		$id = (string) $request->get_param( 'id' );
+		return self::reset_qr_response( $id );
 	}
 
 	/** Start QR for an account already resolved inside the current tenant owner scope. */
@@ -653,11 +688,161 @@ class BizCity_Zalo_Bridge_REST {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
 		}
 		$id = (string) ( $account['bridge_account_id'] ?? '' );
-		$result = $id !== '' ? BizCity_Zalo_Bridge_Client::instance()->start_qr( $id ) : array( 'success' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy tài khoản Zalo.', 'hint' => 'Tải lại danh sách Kênh của tôi rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' );
-		if ( ! empty( $result['_degraded'] ) || empty( $result['success'] ) ) {
-			return new WP_REST_Response( array_merge( array( 'ok' => false ), $result ), 200 );
+		return self::start_qr_response( $id );
+	}
+
+	/** Start QR through one normalized operation/result boundary. */
+	private static function start_qr_response( string $account_id ): WP_REST_Response {
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — preserve QR operation correlation and normalize every managed/custom result before returning to the UI.
+		$operation_id = 'qr_' . str_replace( '-', '', wp_generate_uuid4() );
+		$request_id   = 'wp_' . str_replace( '-', '', wp_generate_uuid4() );
+		$account_hash = $account_id !== '' ? substr( hash( 'sha256', $account_id ), 0, 16 ) : '';
+		self::trace_qr_step( 'qr_operation_attempt', array( 'operation_id' => $operation_id, 'request_id' => $request_id, 'account_id_hash' => $account_hash, 'stage' => 'qr_generation' ) );
+		try {
+			$result = $account_id !== ''
+				? BizCity_Zalo_Bridge_Client::instance()->start_qr( $account_id )
+				: array( 'success' => false, 'code' => 'account_not_found' );
+		} catch ( \Throwable $e ) {
+			$result = array( 'success' => false, 'code' => 'qr_session_start_failed', 'exception_class' => get_class( $e ) );
 		}
-		return new WP_REST_Response( array( 'ok' => true, 'success' => true, 'qr_base64' => $result['qr_base64'] ?? '' ), 200 );
+		$normalized = self::normalize_qr_result( $result, $operation_id, $request_id );
+		self::trace_qr_step( ! empty( $normalized['ok'] ) ? 'qr_operation_success' : 'qr_operation_failed', array(
+			'operation_id' => $operation_id,
+			'request_id' => $request_id,
+			'account_id_hash' => $account_hash,
+			'stage' => $normalized['stage'],
+			'reason' => $normalized['reason_bucket'],
+		) );
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — do not open an outage incident for an account that already has an active session.
+		if ( class_exists( 'BizCity_Notify_Dispatcher' ) && (string) ( $normalized['operation_status'] ?? '' ) !== 'blocked' ) {
+			BizCity_Notify_Dispatcher::on_qr_operation_result( array(
+				'state' => ! empty( $normalized['ok'] ) ? 'qr_operation_success' : 'qr_operation_failed',
+				'account_id_hash' => $account_hash,
+				'operation_id' => $operation_id,
+				'request_id' => $request_id,
+				'stage' => $normalized['stage'],
+				'reason' => $normalized['reason_bucket'],
+				'status_code' => 200,
+			) );
+		}
+		return new WP_REST_Response( $normalized, 200 );
+	}
+
+	/** Execute the explicit reset operation through the same normalized QR boundary. */
+	private static function reset_qr_response( string $account_id ): WP_REST_Response {
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — reset session runtime first, then reuse the canonical QR response normalizer.
+		$operation_id = 'qr_reset_' . str_replace( '-', '', wp_generate_uuid4() );
+		$request_id   = 'wp_' . str_replace( '-', '', wp_generate_uuid4() );
+		$account_hash = $account_id !== '' ? substr( hash( 'sha256', $account_id ), 0, 16 ) : '';
+		self::trace_qr_step( 'qr_reset_attempt', array( 'operation_id' => $operation_id, 'request_id' => $request_id, 'account_id_hash' => $account_hash, 'stage' => 'session' ) );
+		try {
+			$result = $account_id !== ''
+				? BizCity_Zalo_Bridge_Client::instance()->reset_qr( $account_id )
+				: array( 'success' => false, 'code' => 'account_not_found' );
+		} catch ( \Throwable $e ) {
+			$result = array( 'success' => false, 'code' => 'qr_session_start_failed' );
+		}
+		$normalized = self::normalize_qr_result( $result, $operation_id, $request_id );
+		if ( ! empty( $normalized['ok'] ) ) {
+			$normalized['reset'] = true;
+		}
+		self::trace_qr_step( ! empty( $normalized['ok'] ) ? 'qr_reset_success' : 'qr_reset_failed', array(
+			'operation_id' => $operation_id,
+			'request_id' => $request_id,
+			'account_id_hash' => $account_hash,
+			'stage' => $normalized['stage'],
+			'reason' => $normalized['reason_bucket'],
+		) );
+		if ( class_exists( 'BizCity_Notify_Dispatcher' ) && (string) ( $normalized['operation_status'] ?? '' ) !== 'blocked' ) {
+			BizCity_Notify_Dispatcher::on_qr_operation_result( array(
+				'state' => ! empty( $normalized['ok'] ) ? 'qr_operation_success' : 'qr_operation_failed',
+				'account_id_hash' => $account_hash,
+				'operation_id' => $operation_id,
+				'request_id' => $request_id,
+				'stage' => $normalized['stage'],
+				'reason' => $normalized['reason_bucket'],
+				'status_code' => 200,
+			) );
+		}
+		return new WP_REST_Response( $normalized, 200 );
+	}
+
+	/** Normalize a QR result without exposing the upstream response body. */
+	public static function normalize_qr_result( $result, string $operation_id, string $request_id ): array {
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — convert empty/ambiguous QR responses into an explicit R-ERROR-UX operation envelope.
+		$result = is_array( $result ) ? $result : array();
+		$qr_base64 = '';
+		foreach ( array( 'qr_base64', 'qrImageBase64', 'qr_image_base64' ) as $key ) {
+			if ( ! empty( $result[ $key ] ) && is_string( $result[ $key ] ) ) {
+				$qr_base64 = trim( $result[ $key ] );
+				break;
+			}
+		}
+		$transport_ok = ! empty( $result['success'] ) || ! empty( $result['ok'] );
+		$degraded = ! empty( $result['_degraded'] ) || ! empty( $result['degraded'] );
+		$ok = $transport_ok && ! $degraded && $qr_base64 !== '';
+		if ( $ok ) {
+			return array(
+				'ok' => true,
+				'success' => true,
+				'operation_status' => 'ready',
+				'qr_base64' => $qr_base64,
+				'operation_id' => sanitize_text_field( $operation_id ),
+				'request_id' => sanitize_text_field( $request_id ),
+				'stage' => 'qr_generation',
+				'reason_bucket' => 'qr_generated',
+			);
+		}
+		$stage = sanitize_key( (string) ( $result['stage'] ?? '' ) );
+		$allowed_stages = array( 'account_scope', 'mapping', 'relay', 'session', 'qr_generation', 'payload', 'presentation' );
+		if ( ! in_array( $stage, $allowed_stages, true ) ) {
+			$stage = 'qr_generation';
+		}
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — accept the sidecar's `error` field so already-connected sessions are not misclassified as empty QR responses.
+		$reason = sanitize_key( (string) ( $result['reason_bucket'] ?? $result['code'] ?? $result['error'] ?? '' ) );
+		$allowed_reasons = array( 'account_not_found', 'personal_accounts_only', 'already_connected', 'qr_in_progress', 'qr_expired', 'qr_declined', 'qr_failed', 'mapping_failed', 'mapping_missing', 'relay_auth_failed', 'relay_timeout', 'sidecar_session_failed', 'qr_session_start_failed', 'invalid_json', 'qr_response_invalid', 'qr_response_empty', 'unauthorized', 'managed_bridge_upstream_error' );
+		if ( ! in_array( $reason, $allowed_reasons, true ) ) {
+			$reason = 'qr_response_empty';
+		}
+		if ( $reason === 'already_connected' ) {
+			return array(
+				'ok' => false,
+				'success' => false,
+				'operation_status' => 'blocked',
+				'code' => 'invalid_param',
+				'message' => 'Tài khoản Zalo đã kết nối, không cần tạo mã QR mới.',
+				'hint' => 'Mở trạng thái tài khoản hoặc ngắt kết nối trước khi tạo mã QR mới.',
+				'help_code' => 'invalid_param_generic',
+				'stage' => $stage,
+				'reason_bucket' => $reason,
+				'operation_id' => sanitize_text_field( $operation_id ),
+				'request_id' => sanitize_text_field( $request_id ),
+			);
+		}
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — never reflect upstream message/hint fields because they may contain response bodies, credentials or provider identity.
+		return array(
+			'ok' => false,
+			'success' => false,
+			'_degraded' => true,
+			'operation_status' => 'degraded',
+			'code' => 'qr_operation_failed',
+			'message' => 'Chưa tạo được mã QR đăng nhập Zalo Cá nhân.',
+			'hint' => 'Kiểm tra trạng thái bridge và thử tạo mã QR lại sau ít phút.',
+			'help_code' => 'zalo_qr_generation_failed',
+			'stage' => $stage,
+			'reason_bucket' => $reason,
+			'operation_id' => sanitize_text_field( $operation_id ),
+			'request_id' => sanitize_text_field( $request_id ),
+		);
+	}
+
+	/** Write only bounded QR operation evidence to the channel log. */
+	private static function trace_qr_step( string $event, array $context = array() ): void {
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — record QR stage/reason correlation without account IDs, credentials or upstream bodies.
+		$context['blog_id'] = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_ZALO_PERSONAL, BizCity_Channel_File_Logger::LEVEL_INFO, sanitize_key( $event ), 'Zalo Personal QR operation trace.', $context );
+		}
 	}
 
 	public static function handle_qr_status( WP_REST_Request $request ): WP_REST_Response {
@@ -679,6 +864,33 @@ class BizCity_Zalo_Bridge_REST {
 			}
 		}
 		return new WP_REST_Response( array( 'ok' => true, 'status' => $status, 'success' => true ) );
+	}
+
+	/** Read one bounded experimental group-history page for an admin-scoped account. */
+	public static function handle_group_history( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-09-03 02:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H1-GROUP — expose group history only through the server-side bridge client; do not ingest CRM rows in this experimental route.
+		$id = (string) $request->get_param( 'id' );
+		$thread_ref = sanitize_text_field( (string) $request->get_param( 'thread_ref' ) );
+		$cursor = sanitize_text_field( (string) $request->get_param( 'cursor' ) );
+		$count = max( 1, min( 50, absint( $request->get_param( 'count' ) ?: 20 ) ) );
+		if ( $thread_ref === '' ) {
+			// [2026-09-03 04:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H4-GROUP — keep invalid history requests explicitly dry-run and non-resumable at the WordPress boundary.
+			return new WP_REST_Response( array( 'ok' => false, 'success' => false, '_degraded' => true, 'experimental' => true, 'import_mode' => 'dry_run', 'side_effects_allowed' => false, 'resume_supported' => false, 'storage_target' => 'context_bank_filestore', 'duplicate_policy' => 'record_id_before_write', 'write_enabled' => false, 'code' => 'invalid_param', 'message' => 'Thiếu tham chiếu nhóm Zalo cần đọc lịch sử thử nghiệm.', 'hint' => 'Chọn một nhóm từ danh sách lịch sử thử nghiệm rồi thử lại.', 'help_code' => 'invalid_param_generic' ), 200 );
+		}
+		if ( $cursor !== '' ) {
+			// [2026-09-03 04:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H4-GROUP — reject unsupported cursor replay before any managed/custom bridge transport.
+			return new WP_REST_Response( array( 'ok' => false, 'success' => false, '_degraded' => true, 'experimental' => true, 'import_mode' => 'dry_run', 'side_effects_allowed' => false, 'resume_supported' => false, 'storage_target' => 'context_bank_filestore', 'duplicate_policy' => 'record_id_before_write', 'write_enabled' => false, 'code' => 'history_pagination_unavailable', 'message' => 'Lịch sử nhóm thử nghiệm chưa hỗ trợ tiếp tục bằng cursor.', 'hint' => 'Đọc lại trang thử nghiệm từ đầu khi public API hỗ trợ cursor ổn định.', 'help_code' => 'gateway_degraded', 'reason_bucket' => 'history_pagination_unavailable' ), 200 );
+		}
+		$result = BizCity_Zalo_Bridge_Client::instance()->get_group_history( $id, $thread_ref, $count );
+		return new WP_REST_Response( is_array( $result ) ? $result : array( 'ok' => false, 'success' => false, '_degraded' => true, 'experimental' => true, 'import_mode' => 'dry_run', 'side_effects_allowed' => false, 'resume_supported' => false, 'storage_target' => 'context_bank_filestore', 'duplicate_policy' => 'record_id_before_write', 'write_enabled' => false, 'code' => 'history_unavailable', 'message' => 'Chưa đọc được lịch sử nhóm Zalo.', 'hint' => 'Kiểm tra session Zalo Personal và thử lại.', 'help_code' => 'gateway_degraded' ), 200 );
+	}
+
+	/** Read hash-only experimental group candidates for an admin-scoped account. */
+	public static function handle_group_history_candidates( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-09-03 03:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H3-GROUP — keep discovery read-only and avoid CRM/archive ingestion at the WordPress boundary.
+		$id = (string) $request->get_param( 'id' );
+		$result = BizCity_Zalo_Bridge_Client::instance()->get_group_candidates( $id );
+		return new WP_REST_Response( is_array( $result ) ? $result : array( 'ok' => false, 'success' => false, '_degraded' => true, 'experimental' => true, 'import_mode' => 'dry_run', 'side_effects_allowed' => false, 'resume_supported' => false, 'storage_target' => 'context_bank_filestore', 'duplicate_policy' => 'record_id_before_write', 'write_enabled' => false, 'code' => 'history_unavailable', 'message' => 'Chưa lấy được danh sách nhóm Zalo.', 'hint' => 'Kiểm tra session Zalo Personal rồi thử lại.', 'help_code' => 'gateway_degraded' ), 200 );
 	}
 
 	/** Poll QR status for an account already resolved inside the current tenant owner scope. */

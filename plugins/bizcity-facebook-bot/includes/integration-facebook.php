@@ -72,7 +72,8 @@ add_action( 'admin_footer', function () {
 			if (t.indexOf('Đăng nhập Facebook') !== -1 || t.indexOf('Login Facebook') !== -1) {
 				e.preventDefault();
 				e.stopPropagation();
-				window.open(FB_OAUTH_URL, '_blank', 'noopener,noreferrer');
+				// [2026-06-12 Johnny Chu] HOTFIX — dùng location.href thay popup bị trình duyệt chặn
+				window.location.href = FB_OAUTH_URL;
 				return false;
 			}
 		});
@@ -94,7 +95,8 @@ add_action( 'admin_footer', function () {
 				$a.on('click', function(e){
 					e.preventDefault();
 					var n = $(this).attr('data-num') || 0;
-					window.open(FB_OAUTH_URL + '&num=' + encodeURIComponent(n), '_blank', 'noopener,noreferrer');
+					// [2026-06-12 Johnny Chu] HOTFIX — redirect trực tiếp thay popup bị chặn
+					window.location.href = FB_OAUTH_URL + '&num=' + encodeURIComponent(n);
 				});
 				$nameCell.after($a);
 			});

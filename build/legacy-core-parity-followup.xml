@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="5" failures="0" skipped="0" time="1.468">
+  <testsuite name="diagnostics" tests="5" failures="0" skipped="0" time="1.468">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.jsonl_source_parity" time="0.536">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.filestore_parity" time="0.362">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.notes_filestore_parity" time="0.095">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.intent_filestore_parity" time="0.255">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.skills.usage_parity" time="0.028">
+    </testcase>
+  </testsuite>
+</testsuites>

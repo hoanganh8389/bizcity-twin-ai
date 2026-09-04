@@ -312,16 +312,17 @@ final class BizCity_Probe_TwinWeb_App_Catalog implements BizCity_Diagnostics_Pro
 	private function apps_have_gpt_deeplinks( $apps ) {
 		// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — enforce parent/iframe URL split for shortcut apps.
 		$legacy_paths = array(
-			'twinchat' => '/twinchat/',
-			'astro'    => '/astro/',
-			'creator'  => '/creator/',
-			'doc'      => '/tool-doc/',
-			'image'    => '/tool-image/',
+			'twinchat' => array( 'parent' => '/gpt/twinchat/', 'legacy' => '/twinchat/' ),
+			'astro'    => array( 'parent' => '/gpt/astro/', 'legacy' => '/astro/' ),
+			'creator'  => array( 'parent' => '/gpt/creator/', 'legacy' => '/creator/' ),
+			'doc'      => array( 'parent' => '/gpt/doc/', 'legacy' => '/tool-doc/' ),
+			'image'    => array( 'parent' => '/gpt/image/', 'legacy' => '/tool-image/' ),
 			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Profile now owns /profile/; /profile-studio/ belongs to the image tool.
-			'profile'  => '/profile/',
+			// [2026-09-01 Johnny Chu] PHASE-PROFILE-QR-DDV — profile app owns the /profile-care/ legacy workspace route.
+			'profile'  => array( 'parent' => '/gpt/profile-care/', 'legacy' => '/profile-care/' ),
 		);
 
-		foreach ( $legacy_paths as $id => $legacy_path ) {
+		foreach ( $legacy_paths as $id => $paths ) {
 			$app = $this->find_app( $apps, $id );
 			if ( ! is_array( $app ) || (string) ( $app['state'] ?? '' ) !== 'available' ) {
 				continue;
@@ -332,10 +333,10 @@ final class BizCity_Probe_TwinWeb_App_Catalog implements BizCity_Diagnostics_Pro
 			$href_path   = (string) parse_url( $href, PHP_URL_PATH );
 			$iframe_path = (string) parse_url( $iframe_href, PHP_URL_PATH );
 
-			if ( '/' . trim( $href_path, '/' ) . '/' !== '/gpt/' . $id . '/' ) {
+			if ( '/' . trim( $href_path, '/' ) . '/' !== $paths['parent'] ) {
 				return false;
 			}
-			if ( '/' . trim( $iframe_path, '/' ) . '/' !== $legacy_path ) {
+			if ( '/' . trim( $iframe_path, '/' ) . '/' !== $paths['legacy'] ) {
 				return false;
 			}
 		}

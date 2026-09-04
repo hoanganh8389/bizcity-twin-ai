@@ -66,7 +66,10 @@ class BizCity_KG_Source_Progress_Log {
 	public static function maybe_install() {
 		// [2026-07-27 Johnny Chu] PHASE-0.49-KG-PROGRESS-FILELOG — filelog
 		// mode: ensure dir, queue one-time SQL cleanup, and keep version marker.
-		self::get_base_log_dir( true );
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — directory creation and JSONL storage belong to the shared helper.
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			BizCity_JSONL_File_Logger::location( self::BASE_FOLDER, self::SUB_FOLDER );
+		}
 		self::maybe_schedule_cleanup_for_current_blog();
 		self::maybe_purge_once_per_day();
 		if ( get_option( self::OPTION_VERSION ) !== self::SCHEMA_VERSION ) {
@@ -120,7 +123,8 @@ class BizCity_KG_Source_Progress_Log {
 				$entry['event'] = 'log';
 			}
 
-			self::append_line( $entry );
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — preserve the public event schema inside the canonical logger context.
+			self::write_jsonl_entry( $entry );
 		} catch ( \Throwable $e ) {
 			error_log( '[KG Source Progress Log] record failed: ' . $e->getMessage() );
 		}
@@ -210,6 +214,18 @@ class BizCity_KG_Source_Progress_Log {
 	private static function hydrate( $row ) {
 		if ( ! is_array( $row ) ) {
 			return [];
+		}
+		$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+		if ( ! empty( $ctx ) ) {
+			$row = array_merge( $ctx, array(
+				'ts' => (string) ( $row['ts'] ?? '' ),
+				'level' => (string) ( $row['level'] ?? '' ),
+				'event' => (string) ( $row['event'] ?? ( $ctx['event'] ?? '' ) ),
+			) );
+			$row['id'] = isset( $ctx['legacy_id'] ) ? (int) $ctx['legacy_id'] : (int) ( $row['id'] ?? 0 );
+			if ( ! isset( $row['created_at'] ) || (string) $row['created_at'] === '' ) {
+				$row['created_at'] = (string) ( $row['ts'] ?? '' );
+			}
 		}
 		if ( isset( $row['payload'] ) && is_string( $row['payload'] ) && $row['payload'] !== '' ) {
 			$decoded = json_decode( (string) $row['payload'], true );
@@ -357,74 +373,19 @@ class BizCity_KG_Source_Progress_Log {
 	 * Callback must return true to continue, false to stop early.
 	 */
 	private static function scan_recent_days( int $max_days, callable $cb ): void {
-		$dates = self::list_dates( $max_days );
-		if ( empty( $dates ) ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return;
 		}
-
-		foreach ( $dates as $date ) {
-			$dir = self::get_base_log_dir( false );
-			if ( $dir === '' ) {
-				continue;
-			}
-			$file = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $date . '.jsonl';
-			$continue = self::scan_file_newest_first( $file, static function ( string $raw ) use ( $cb ) {
-				$decoded = json_decode( $raw, true );
-				if ( ! is_array( $decoded ) ) {
-					return true;
-				}
-				return $cb( $decoded );
-			} );
-			if ( ! $continue ) {
+		$rows = BizCity_JSONL_File_Logger::query_contract( 'core.knowledge.kg_source_progress', array(
+			'days'  => max( 1, (int) $max_days ),
+			'limit' => 5000,
+		) );
+		foreach ( (array) $rows as $row ) {
+			$row = self::hydrate( $row );
+			if ( ! is_array( $row ) || ! $cb( $row ) ) {
 				return;
 			}
 		}
-	}
-
-	private static function scan_file_newest_first( string $file, callable $cb ): bool {
-		// [2026-07-27 Johnny Chu] PHASE-0.49-KG-PROGRESS-FILELOG — stream
-		// reverse chunks so daily JSONL size does not determine query memory.
-		if ( ! is_file( $file ) ) {
-			return true;
-		}
-		$handle = @fopen( $file, 'rb' );
-		if ( false === $handle ) {
-			return true;
-		}
-		$size     = filesize( $file );
-		$position = false === $size ? 0 : (int) $size;
-		$partial  = '';
-		$chunk_size = 8192;
-		while ( $position > 0 ) {
-			$read_size = min( $chunk_size, $position );
-			$position -= $read_size;
-			if ( 0 !== fseek( $handle, $position ) ) {
-				fclose( $handle );
-				return true;
-			}
-			$chunk = fread( $handle, $read_size );
-			if ( false === $chunk || $chunk === '' ) {
-				break;
-			}
-			$parts   = explode( "\n", $chunk . $partial );
-			$partial = array_shift( $parts );
-			for ( $i = count( $parts ) - 1; $i >= 0; $i-- ) {
-				$line = trim( (string) $parts[ $i ] );
-				if ( $line !== '' && ! $cb( $line ) ) {
-					fclose( $handle );
-					return false;
-				}
-			}
-		}
-		$partial = trim( $partial );
-		if ( $partial !== '' ) {
-			if ( ! $cb( $partial ) ) {
-				fclose( $handle );
-				return false;
-			}
-		}
-		fclose( $handle );
-		return true;
 	}
 
 	private static function maybe_schedule_cleanup_for_current_blog(): void {
@@ -461,6 +422,15 @@ class BizCity_KG_Source_Progress_Log {
 		try {
 			global $wpdb;
 			$table = self::table();
+			// [2026-08-26 Johnny Chu] PHASE-1.30 — evaluate the legacy cleanup state after switching to the target blog/shard.
+			// [2026-08-26 Johnny Chu] PHASE-1.30-FAIL-CLOSED — cleanup needs the policy after blog/shard switch.
+			if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+				return;
+			}
+			$legacy_state = BizCity_Legacy_Table_Policy::get_state( $table );
+			if ( ! in_array( $legacy_state, array( BizCity_Legacy_Table_Policy::STATE_DRAINING, BizCity_Legacy_Table_Policy::STATE_READY ), true ) ) {
+				return;
+			}
 			if ( ! self::legacy_table_exists( $table ) ) {
 				delete_option( self::MIGRATION_LAST_ID_OPT );
 				update_option( self::CLEANUP_VER_OPT, self::CLEANUP_VER, false );
@@ -488,7 +458,7 @@ class BizCity_KG_Source_Progress_Log {
 						continue;
 					}
 					$entry = self::normalise_legacy_row( $row, $blog_id );
-					if ( ! self::append_line( $entry ) ) {
+					if ( ! self::write_jsonl_entry( $entry ) ) {
 						return;
 					}
 					$last_id = $legacy_id;
@@ -497,15 +467,19 @@ class BizCity_KG_Source_Progress_Log {
 			} while ( count( $rows ) === 500 );
 
 			// [2026-07-27 Johnny Chu] PHASE-0.49-KG-PROGRESS-FILELOG —
-			// only drop after every legacy row has been persisted successfully.
-			$drop_result = $wpdb->query( "DROP TABLE IF EXISTS `{$table}`" );
-			if ( false === $drop_result ) {
+			// only drain/drop after every legacy row has been persisted successfully.
+			if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::can_drop( $table ) ) {
+				return;
+			}
+			if ( ! BizCity_Legacy_Table_Policy::purge_approved_migrated( $table ) ) {
+				return;
+			}
+			if ( ! BizCity_Legacy_Table_Policy::drop_approved_empty( $table ) ) {
 				return;
 			}
 
 			delete_option( self::OPTION_VERSION );
 			delete_option( self::MIGRATION_LAST_ID_OPT );
-			wp_cache_delete( 'bz_tbl_' . $blog_id . '_' . crc32( $table ), 'bizcity_tbl' );
 			update_option( self::CLEANUP_VER_OPT, self::CLEANUP_VER, false );
 		} finally {
 			if ( $did_switch && function_exists( 'restore_current_blog' ) ) {
@@ -525,33 +499,11 @@ class BizCity_KG_Source_Progress_Log {
 	}
 
 	public static function purge( int $days = self::RETENTION_DAYS ): int {
-		$days = max( 1, $days );
-		$dir  = self::get_base_log_dir( false );
-		if ( $dir === '' || ! is_dir( $dir ) ) {
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — retention is owned by the shared JSONL CRUD class.
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return 0;
 		}
-
-		// [2026-07-27 Johnny Chu] PHASE-0.49-KG-PROGRESS-FILELOG — compare
-		// validated UTC date names lexically to avoid server-timezone drift.
-		$threshold_date = gmdate( 'Y-m-d', time() - ( $days * DAY_IN_SECONDS ) );
-
-		$deleted = 0;
-		$files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
-		if ( ! is_array( $files ) ) {
-			return 0;
-		}
-
-		foreach ( $files as $file ) {
-			$date = basename( $file, '.jsonl' );
-			if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) || $date >= $threshold_date ) {
-				continue;
-			}
-			if ( @unlink( $file ) ) {
-				$deleted++;
-			}
-		}
-
-		return $deleted;
+		return (int) BizCity_JSONL_File_Logger::purge_older_than( self::BASE_FOLDER, self::SUB_FOLDER, max( 1, $days ) );
 	}
 
 	private static function legacy_table_exists( string $table ): bool {
@@ -603,83 +555,20 @@ class BizCity_KG_Source_Progress_Log {
 		return $next;
 	}
 
-	private static function append_line( array $entry ): bool {
-		$dir = self::get_base_log_dir( true );
-		if ( $dir === '' ) {
+
+	private static function write_jsonl_entry( array $entry ): bool {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return false;
 		}
-
-		$date = isset( $entry['created_at'] ) ? substr( (string) $entry['created_at'], 0, 10 ) : '';
-		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
-			$date = gmdate( 'Y-m-d' );
-		}
-
-		$file = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $date . '.jsonl';
-		$line = wp_json_encode( $entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-		if ( ! is_string( $line ) || $line === '' ) {
-			return false;
-		}
-
-		return false !== @file_put_contents( $file, $line . "\n", FILE_APPEND | LOCK_EX );
-	}
-
-	/**
-	 * @return string[]
-	 */
-	private static function list_dates( int $max = 90 ): array {
-		$dir = self::get_base_log_dir( false );
-		if ( $dir === '' || ! is_dir( $dir ) ) {
-			return array();
-		}
-
-		$files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
-		if ( ! is_array( $files ) ) {
-			return array();
-		}
-
-		$dates = array();
-		foreach ( $files as $file ) {
-			$dates[] = basename( $file, '.jsonl' );
-		}
-
-		rsort( $dates, SORT_STRING );
-		return array_slice( $dates, 0, max( 1, $max ) );
-	}
-
-	private static function get_base_log_dir( bool $ensure ): string {
-		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
-		$cache_k = (string) $blog_id;
-		if ( isset( self::$dir_cache[ $cache_k ] ) ) {
-			return self::$dir_cache[ $cache_k ];
-		}
-
-		$upload = wp_upload_dir();
-		$base   = isset( $upload['basedir'] ) ? (string) $upload['basedir'] : '';
-		if ( $base === '' ) {
-			return '';
-		}
-
-		$dir = $base . DIRECTORY_SEPARATOR . self::BASE_FOLDER . DIRECTORY_SEPARATOR . self::SUB_FOLDER;
-		if ( $ensure && ! is_dir( $dir ) ) {
-			@wp_mkdir_p( $dir );
-		}
-
-		if ( is_dir( $dir ) ) {
-			$htaccess = $dir . DIRECTORY_SEPARATOR . '.htaccess';
-			if ( ! file_exists( $htaccess ) ) {
-				@file_put_contents( $htaccess, "Deny from all\nOptions -Indexes\n" );
-			}
-			$index = $dir . DIRECTORY_SEPARATOR . 'index.php';
-			if ( ! file_exists( $index ) ) {
-				@file_put_contents( $index, "<?php // Silence is golden.\n" );
-			}
-		}
-
-		if ( ! is_dir( $dir ) || ! is_writable( $dir ) ) {
-			return '';
-		}
-
-		self::$dir_cache[ $cache_k ] = $dir;
-		return $dir;
+		$event = sanitize_key( (string) ( $entry['event'] ?? 'log' ) );
+		$ctx = $entry;
+		unset( $ctx['event'], $ctx['created_at'] );
+		return (bool) BizCity_JSONL_File_Logger::write_contract(
+			'core.knowledge.kg_source_progress',
+			( $event === 'passage_error' || $event === 'error' ) ? 'error' : 'info',
+			$event !== '' ? $event : 'log',
+			$event !== '' ? $event : 'source_progress',
+			$ctx
+		);
 	}
 }

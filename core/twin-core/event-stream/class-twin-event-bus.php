@@ -211,6 +211,11 @@ class BizCity_Twin_Event_Bus {
 		global $wpdb;
 		$table = BizCity_Twin_State_Schema::context_logs_table();
 
+		// [2026-08-28 Johnny Chu] PHASE-1.30-S3 — honor lifecycle write gate before touching legacy context SQL.
+		if ( ! self::allow_context_sql( $table, 'write' ) ) {
+			return 0;
+		}
+
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}
@@ -335,14 +340,15 @@ class BizCity_Twin_Event_Bus {
 		global $wpdb;
 		$table = BizCity_Twin_State_Schema::context_logs_table();
 
-		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-			return [];
+		// [2026-08-28 Johnny Chu] PHASE-1.30-S3 — read from Event Stream projection when context SQL is blocked or absent.
+		if ( self::should_read_context_from_sql( $table ) ) {
+			return $wpdb->get_results( $wpdb->prepare(
+				"SELECT * FROM {$table} WHERE trace_id = %s ORDER BY created_at ASC",
+				$trace_id
+			) ) ?: [];
 		}
 
-		return $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM {$table} WHERE trace_id = %s ORDER BY created_at ASC",
-			$trace_id
-		) ) ?: [];
+		return self::project_context_logs_from_events_by_trace( $trace_id );
 	}
 
 	/**
@@ -357,14 +363,187 @@ class BizCity_Twin_Event_Bus {
 		$table   = BizCity_Twin_State_Schema::context_logs_table();
 		$blog_id = get_current_blog_id();
 
+		// [2026-08-28 Johnny Chu] PHASE-1.30-S3 — read from Event Stream projection when context SQL is blocked or absent.
+		if ( self::should_read_context_from_sql( $table ) ) {
+			return $wpdb->get_results( $wpdb->prepare(
+				"SELECT * FROM {$table} WHERE user_id = %d AND blog_id = %d ORDER BY created_at DESC LIMIT %d",
+				$user_id, $blog_id, $limit
+			) ) ?: [];
+		}
+
+		return self::project_context_logs_from_events_by_user( $user_id, $limit );
+	}
+
+	/**
+	 * Check whether SQL access is allowed for context logs under lifecycle policy.
+	 */
+	private static function allow_context_sql( string $table, string $operation ): bool {
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			return true;
+		}
+		if ( ! BizCity_Legacy_Table_Policy::allow_sql( $table, $operation ) ) {
+			return false;
+		}
+		// [2026-08-28 Johnny Chu] PHASE-1.30-S3 — when write is blocked, force reads to projection so legacy SQL can drain cleanly.
+		if ( $operation === 'read' && ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'write' ) ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * True when context SQL is both policy-allowed and physically present.
+	 */
+	private static function should_read_context_from_sql( string $table ): bool {
+		if ( ! self::allow_context_sql( $table, 'read' ) ) {
+			return false;
+		}
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Resolve event types that represent context decisions.
+	 *
+	 * @return string[]
+	 */
+	private static function context_decision_event_types(): array {
+		$types = [];
+		$taxonomy = BizCity_Twin_Data_Contract::event_taxonomy();
+		foreach ( $taxonomy as $event_type => $definition ) {
+			$impacts = isset( $definition['state_impact'] ) && is_array( $definition['state_impact'] )
+				? $definition['state_impact']
+				: [];
+			if ( in_array( 'context_logs', $impacts, true ) ) {
+				$types[] = (string) $event_type;
+			}
+		}
+		if ( empty( $types ) ) {
+			$types = [ 'tool_recommended', 'tool_done' ];
+		}
+		return array_values( array_unique( $types ) );
+	}
+
+	/**
+	 * Determine whether an Event Stream row should project into context timeline.
+	 */
+	private static function is_context_event_row( array $event, array $context_types ): bool {
+		$event_type = (string) ( $event['event_type'] ?? '' );
+		if ( in_array( $event_type, $context_types, true ) ) {
+			return true;
+		}
+		$payload = isset( $event['payload'] ) && is_array( $event['payload'] ) ? $event['payload'] : [];
+		return isset( $payload['decision_type'] ) || isset( $payload['path'] ) || isset( $payload['mode'] );
+	}
+
+	/**
+	 * Project one Event Stream row to legacy context-log row shape.
+	 */
+	private static function project_event_row_to_context_log( array $event ) {
+		$payload = isset( $event['payload'] ) && is_array( $event['payload'] ) ? $event['payload'] : [];
+
+		$decision_type = (string) ( $event['event_type'] ?? 'unknown' );
+		if ( isset( $payload['decision_type'] ) && is_string( $payload['decision_type'] ) && $payload['decision_type'] !== '' ) {
+			$decision_type = $payload['decision_type'];
+		}
+
+		$decision_label = null;
+		if ( isset( $payload['decision_label'] ) && is_string( $payload['decision_label'] ) && $payload['decision_label'] !== '' ) {
+			$decision_label = $payload['decision_label'];
+		} elseif ( isset( $payload['tool_name'] ) && is_string( $payload['tool_name'] ) && $payload['tool_name'] !== '' ) {
+			$decision_label = $payload['tool_name'];
+		} elseif ( isset( $payload['reason'] ) && is_string( $payload['reason'] ) && $payload['reason'] !== '' ) {
+			$decision_label = $payload['reason'];
+		}
+
+		$decision_score = null;
+		if ( isset( $payload['decision_score'] ) && is_numeric( $payload['decision_score'] ) ) {
+			$decision_score = (float) $payload['decision_score'];
+		} elseif ( isset( $payload['score'] ) && is_numeric( $payload['score'] ) ) {
+			$decision_score = (float) $payload['score'];
+		}
+
+		$row = array(
+			'log_id'         => isset( $event['id'] ) ? (int) $event['id'] : 0,
+			'trace_id'       => (string) ( $event['trace_id'] ?? '' ),
+			'user_id'        => (int) ( $event['user_id'] ?? 0 ),
+			'blog_id'        => (int) ( $event['blog_id'] ?? get_current_blog_id() ),
+			'path'           => isset( $payload['path'] ) && is_string( $payload['path'] ) && $payload['path'] !== ''
+				? $payload['path']
+				: 'system',
+			'mode'           => isset( $payload['mode'] ) && is_string( $payload['mode'] ) && $payload['mode'] !== ''
+				? $payload['mode']
+				: null,
+			'decision_type'  => $decision_type,
+			'decision_label' => $decision_label,
+			'decision_score' => $decision_score,
+			'payload_json'   => wp_json_encode( $payload ),
+			'created_at'     => isset( $event['created_at'] ) && is_string( $event['created_at'] )
+				? $event['created_at']
+				: current_time( 'mysql' ),
+		);
+
+		return (object) $row;
+	}
+
+	/**
+	 * Build context timeline for one trace from canonical Event Stream rows.
+	 */
+	private static function project_context_logs_from_events_by_trace( string $trace_id ): array {
+		if ( ! class_exists( 'BizCity_Twin_Event_Store' ) ) {
+			return [];
+		}
+		$events = BizCity_Twin_Event_Store::fetch_for_trace( $trace_id, [
+			'limit' => 5000,
+		] );
+		if ( ! is_array( $events ) || empty( $events ) ) {
 			return [];
 		}
 
-		return $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM {$table} WHERE user_id = %d AND blog_id = %d ORDER BY created_at DESC LIMIT %d",
-			$user_id, $blog_id, $limit
-		) ) ?: [];
+		$rows = [];
+		$context_types = self::context_decision_event_types();
+		foreach ( $events as $event ) {
+			if ( ! is_array( $event ) || ! self::is_context_event_row( $event, $context_types ) ) {
+				continue;
+			}
+			$rows[] = self::project_event_row_to_context_log( $event );
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Build recent context timeline for one user from canonical Event Stream rows.
+	 */
+	private static function project_context_logs_from_events_by_user( int $user_id, int $limit ): array {
+		if ( ! class_exists( 'BizCity_Twin_Event_Store' ) ) {
+			return [];
+		}
+		$limit = max( 1, min( 500, $limit ) );
+		$events = BizCity_Twin_Event_Store::fetch_for_user_activity( $user_id, (int) get_current_blog_id(), [
+			'limit'      => max( 200, $limit * 8 ),
+			'before_id'  => 0,
+			'event_type' => '',
+		] );
+		if ( ! is_array( $events ) || empty( $events ) ) {
+			return [];
+		}
+
+		$rows = [];
+		$context_types = self::context_decision_event_types();
+		foreach ( $events as $event ) {
+			if ( ! is_array( $event ) || ! self::is_context_event_row( $event, $context_types ) ) {
+				continue;
+			}
+			$rows[] = self::project_event_row_to_context_log( $event );
+			if ( count( $rows ) >= $limit ) {
+				break;
+			}
+		}
+
+		return $rows;
 	}
 
 	/* ================================================================

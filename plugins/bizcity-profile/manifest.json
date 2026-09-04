@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.profile",
+  "name": "BizCity Personal",
+  "version": "1.5.0",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.0"
+  },
+  "capabilities": {
+    "tools": [
+      {
+        "id": "profile.assistant",
+        "label": "Personal assistant workspace",
+        "description": "Per-user calendar, tasks, budget, documents, journal, and chat surface bound to identity/profile ownership.",
+        "primary": true
+      }
+    ]
+  }
+}

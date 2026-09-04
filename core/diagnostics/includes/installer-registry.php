@@ -34,6 +34,18 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 	function bizcity_default_installers_filter( $list ): array {
 		$list = is_array( $list ) ? $list : [];
 
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — provision the single rebuildable log pointer index through Site Provisioner only.
+		if ( class_exists( 'BizCity_Log_Index' ) ) {
+			BizCity_Log_Index::register_schema();
+			$list[] = [
+				'id'           => 'log_index',
+				'label'        => 'Framework JSONL log pointer index',
+				'callback'     => [ 'BizCity_Log_Index', 'ensure' ],
+				'version_opt'  => BizCity_Log_Index::DB_VERSION_OPTION,
+				'expected_ver' => BizCity_Log_Index::DB_VERSION,
+			];
+		}
+
 		// ── Knowledge (sources/chunks/embeddings) ─────────────────────
 		if ( class_exists( 'BizCity_Knowledge_Database' ) ) {
 			$list[] = [
@@ -56,10 +68,11 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 
 		// ── Intent (NLU shadow) ───────────────────────────────────────
 		if ( class_exists( 'BizCity_Intent_Database' ) ) {
+			// [2026-09-02 Johnny Chu] PHASE-1.30-PROVISION — maybe_create_tables() is an instance method and must not be invoked as a static callback.
 			$list[] = [
 				'id'           => 'intent',
 				'label'        => 'Intent (NLU registry)',
-				'callback'     => [ 'BizCity_Intent_Database', 'maybe_create_tables' ],
+				'callback'     => [ BizCity_Intent_Database::instance(), 'maybe_create_tables' ],
 				'version_opt'  => 'bizcity_intent_db_version',
 			];
 		}
@@ -81,19 +94,35 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 
 			];
 		}
-		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-REGISTRY — expose the feature-flagged unified memory installer to Site Provisioner when the flag is enabled.
-		if ( class_exists( 'BizCity_Memory_Unified_Installer' ) ) {
+		// [2026-09-01 Johnny Chu] CB3.1 — provision the tenant pointer ledger only through Site Provisioner after R-DCL/Schema Registry registration.
+		if ( class_exists( 'BizCity_Context_Bank_Ledger' ) ) {
 			$list[] = [
-				'id'           => 'memory_unified',
-				'label'        => 'Memory — unified table',
-				'callback'     => static function () {
-					if ( class_exists( 'BizCity_Memory_Unified_Installer' )
-						&& BizCity_Memory_Unified_Installer::is_enabled() ) {
-						BizCity_Memory_Unified_Installer::instance()->maybe_install();
-					}
-				},
-				'version_opt'  => BizCity_Memory_Unified_Installer::DB_VERSION_OPTION,
-				'expected_ver' => BizCity_Memory_Unified_Installer::DB_VERSION,
+				'id'           => 'context_bank',
+				'label'        => 'Context Bank pointer ledger',
+				'callback'     => [ 'BizCity_Context_Bank_Ledger', 'ensure_schema' ],
+				'version_opt'  => BizCity_Context_Bank_Ledger::DB_VERSION_OPTION,
+				'expected_ver' => BizCity_Context_Bank_Ledger::DB_VERSION,
+			];
+		}
+		// [2026-09-02 Johnny Chu] PHASE-CB5.1 — provision rollup lease/checkpoint state through the central Site Provisioner.
+		if ( class_exists( 'BizCity_Context_Bank_Rollup_Worker' ) ) {
+			$list[] = [
+				'id'           => 'context_bank_rollup_state',
+				'label'        => 'Context Bank rollup worker state',
+				'callback'     => [ 'BizCity_Context_Bank_Rollup_Worker', 'ensure_schema' ],
+				'version_opt'  => BizCity_Context_Bank_Rollup_Worker::DB_VERSION_OPTION,
+				'expected_ver' => BizCity_Context_Bank_Rollup_Worker::DB_VERSION,
+			];
+		}
+
+		// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — include MCP tenant schema in Site Provisioner so diagnostics CLI can self-heal missing MCP tables on cloned shards.
+		if ( class_exists( 'BizCity_MCP_Installer' ) ) {
+			$list[] = [
+				'id'           => 'mcp',
+				'label'        => 'MCP (api keys/retrieval/context packs)',
+				'callback'     => [ 'BizCity_MCP_Installer', 'ensure' ],
+				'version_opt'  => BizCity_MCP_Installer::DB_VERSION_OPTION,
+				'expected_ver' => BizCity_MCP_Installer::DB_VERSION,
 			];
 		}
 
@@ -154,6 +183,17 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 				},
 				'version_opt'  => BizCity_Scheduler_Manager::SCHEMA_VERSION_KEY,
 				'expected_ver' => (string) BizCity_Scheduler_Manager::SCHEMA_VERSION,
+			];
+		}
+
+		// [2026-08-26 Johnny Chu] R-DCL — provision native Automation tables from the central Site Provisioner before automation probes run.
+		if ( class_exists( 'BizCity_Automation_Installer' ) ) {
+			$list[] = [
+				'id'           => 'automation',
+				'label'        => 'Automation (workflows/runs/logs/templates)',
+				'callback'     => [ 'BizCity_Automation_Installer', 'ensure' ],
+				'version_opt'  => BizCity_Automation_Installer::DB_VERSION_OPTION,
+				'expected_ver' => BizCity_Automation_Installer::DB_VERSION,
 			];
 		}
 
@@ -415,6 +455,17 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 				'callback'     => [ 'BizCity_Studio_Job_Manager', 'maybe_install' ],
 				'version_opt'  => BizCity_Studio_Job_Manager::OPTION_VERSION_KEY,
 				'expected_ver' => BizCity_Studio_Job_Manager::SCHEMA_VERSION,
+			];
+		}
+
+		// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — include TwinWeb schema owner in Site Provisioner so diagnostics CLI can repair missing thread/artifact tables without relying only on version options.
+		if ( class_exists( 'BizCity_TwinWeb_Installer' ) ) {
+			$list[] = [
+				'id'           => 'twinweb',
+				'label'        => 'TwinWeb (threads/artifact jobs)',
+				'callback'     => [ 'BizCity_TwinWeb_Installer', 'maybe_install' ],
+				'version_opt'  => BizCity_TwinWeb_Installer::VERSION_OPTION,
+				'expected_ver' => BizCity_TwinWeb_Installer::VERSION,
 			];
 		}
 

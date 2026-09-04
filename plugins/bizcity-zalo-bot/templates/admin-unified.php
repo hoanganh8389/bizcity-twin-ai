@@ -99,7 +99,7 @@ if ( ! in_array( $active_tab, array( 'bots', 'assign', 'test', 'logs' ), true ) 
 		<a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-zalo-bot-dashboard&tab=bots' ) ); ?>" class="bzz-tab <?php echo $active_tab === 'bots' ? 'active' : ''; ?>">🤖 Bots OA</a>
 		<a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-zalo-bot-dashboard&tab=assign' ) ); ?>" class="bzz-tab <?php echo $active_tab === 'assign' ? 'active' : ''; ?>">👤 Gán &amp; Kết nối</a>
 		<a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-zalo-bot-dashboard&tab=test' ) ); ?>" class="bzz-tab <?php echo $active_tab === 'test' ? 'active' : ''; ?>">📡 Listener &amp; Test</a>
-		<a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-zalo-bot-dashboard&tab=logs' ) ); ?>" class="bzz-tab <?php echo $active_tab === 'logs' ? 'active' : ''; ?>">📋 Logs &amp; Memory</a>
+		<a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-zalo-bot-dashboard&tab=logs' ) ); ?>" class="bzz-tab <?php echo $active_tab === 'logs' ? 'active' : ''; ?>">📋 Logs</a>
 	</div>
 
 	<!-- ─────────────── TAB 1: BOTS OA ─────────────── -->
@@ -482,32 +482,9 @@ if ( ! in_array( $active_tab, array( 'bots', 'assign', 'test', 'logs' ), true ) 
 	</div>
 	<?php endif; ?>
 
-	<!-- ─────────────── TAB 4: LOGS & MEMORY ─────────────── -->
+	<!-- ─────────────── TAB 4: LOGS ─────────────── -->
 	<?php if ( $active_tab === 'logs' ) : ?>
 	<div class="bzz-scroll">
-
-		<!-- Memory builder -->
-		<div class="bzz-section">
-			<h3>🧠 Xây dựng Ký ức (AI)</h3>
-			<p style="font-size:13px;color:#65676b;margin:0 0 12px">Phân tích logs bằng LLM để trích xuất ký ức dài hạn về người dùng (sở thích, vấn đề, mục tiêu).</p>
-			<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-				<div class="bzz-field">
-					<label class="bzz-label" for="memory-bot-select">Bot</label>
-					<select id="memory-bot-select" class="bzz-select" style="width:200px">
-						<option value="0">Tất cả Bot</option>
-						<?php foreach ( $all_bots as $bot ) : ?>
-							<option value="<?php echo esc_attr( $bot->id ); ?>"><?php echo esc_html( $bot->bot_name ); ?></option>
-						<?php endforeach; ?>
-					</select>
-				</div>
-				<div class="bzz-field">
-					<label class="bzz-label" for="memory-limit">Số logs</label>
-					<input type="number" id="memory-limit" class="bzz-input" value="100" min="10" max="500" style="width:90px" />
-				</div>
-				<button type="button" class="bzz-btn bzz-btn-primary" id="btn-build-memory">🔍 Phân tích</button>
-			</div>
-			<div id="memory-build-result" style="margin-top:10px"></div>
-		</div>
 
 		<!-- Log filter -->
 		<div class="bzz-section" style="margin-bottom:10px">

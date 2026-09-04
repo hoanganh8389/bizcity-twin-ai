@@ -51,6 +51,8 @@ final class BizCity_CRM_Plugin {
 		//  exit() after firing waic_twf_process_flow, so init@5 never reaches us
 		//  and the CRM ingestor’s adapter lookup returns null.)
 		$this->register_built_in_adapters();
+		// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — register current channel manifests after adapter wiring; descriptor migration remains compatibility-safe.
+		$this->register_built_in_manifests();
 
 		// v1.16.0 — register built-in Customer Sources (Sales Pipeline auto-fill).
 		// Hooked at priority 5 so 3rd-party plugins can override via priority 10.
@@ -189,6 +191,15 @@ final class BizCity_CRM_Plugin {
 		if ( class_exists( 'BizCity_Channel_Conversation_Archive' ) && method_exists( 'BizCity_Channel_Conversation_Archive', 'register' ) ) {
 			BizCity_Channel_Conversation_Archive::register();
 		}
+		// [2026-09-01 Johnny Chu] PHASE-CB4.2 — load the receipt-only Context Bank archive adapter through Safe Loader after archive hooks are registered.
+		$context_bank_archive_adapter = dirname( dirname( BIZCITY_CRM_DIR ) ) . '/core/context-bank/includes/class-context-bank-channel-archive-adapter.php';
+		if ( class_exists( 'BizCity_Safe_Loader', false ) && is_file( $context_bank_archive_adapter ) && is_readable( $context_bank_archive_adapter ) ) {
+			BizCity_Safe_Loader::require_file( $context_bank_archive_adapter, 'context_bank.channel_archive_adapter' );
+		}
+		if ( class_exists( 'BizCity_Context_Bank_Channel_Archive_Adapter' ) ) {
+			BizCity_Context_Bank_Channel_Archive_Adapter::boot();
+		}
+		unset( $context_bank_archive_adapter );
 
 		// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — the compatibility
 		// mu-plugin can load BizCity_Knowledge_Database first, causing the full
@@ -228,6 +239,11 @@ final class BizCity_CRM_Plugin {
 		require_once $inc . 'class-assignment-manager.php';
 		require_once $inc . 'class-event-emitter.php';
 		require_once $inc . 'class-repository.php';
+		$reconciliation_preview = $inc . 'admin/class-conversation-reconciliation-preview.php';
+		if ( is_file( $reconciliation_preview ) && is_readable( $reconciliation_preview ) && class_exists( 'BizCity_Safe_Loader' ) ) {
+			// [2026-09-01 Johnny Chu] R-CRM-LEGACY-PREVIEW - guarded load for read-only conversation reconciliation preview.
+			BizCity_Safe_Loader::require_file( $reconciliation_preview, 'crm.conversation_reconciliation_preview' );
+		}
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F4-F5 — load tenant-local Teams, Inbox Members and assignment eligibility before REST consumers.
 		require_once $inc . 'class-team-manager.php';
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — load read-only Kanban projections after repository ownership is available.
@@ -262,6 +278,11 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 
 		require_once $inc . 'inbox/adapters/class-adapter-facebook.php';
 		require_once $inc . 'inbox/adapters/class-adapter-zalo.php';
+		$zalo_bot_adapter = $inc . 'inbox/adapters/class-adapter-zalo-bot.php';
+		if ( is_file( $zalo_bot_adapter ) && is_readable( $zalo_bot_adapter ) && class_exists( 'BizCity_Safe_Loader' ) ) {
+			// [2026-08-30 Johnny Chu] R-SAFE-LOADER/R-CRM-ZALOBOT-ADMIN-ZONE - guarded load for the distinct Zone 2 Bot adapter.
+			BizCity_Safe_Loader::require_file( $zalo_bot_adapter, 'crm.adapter.zalo_bot' );
+		}
 		// [2026-07-06 Johnny Chu] PHASE-0.39 GURU-BIND HOTFIX — load Zalo OA adapter so waic_twf_process_flow('bizcity_zalo_oa_message_received') can ingest into CRM.
 		require_once $inc . 'inbox/adapters/class-adapter-zalo-oa.php';
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — load the separate Personal customer-care adapter.
@@ -524,6 +545,9 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 			if ( ! isset( $adapters['zalo'] ) && class_exists( 'BizCity_CRM_Adapter_Zalo' ) ) {
 				$adapters['zalo'] = new BizCity_CRM_Adapter_Zalo();
 			}
+			if ( ! isset( $adapters['zalo_bot'] ) && class_exists( 'BizCity_CRM_Adapter_ZaloBot' ) ) {
+				$adapters['zalo_bot'] = new BizCity_CRM_Adapter_ZaloBot();
+			}
 			// [2026-07-06 Johnny Chu] PHASE-0.39 GURU-BIND HOTFIX — register dedicated Zone-1 Zalo OA adapter (code=zalo_oa).
 			if ( ! isset( $adapters['zalo_oa'] ) && class_exists( 'BizCity_CRM_Adapter_ZaloOA' ) ) {
 				$adapters['zalo_oa'] = new BizCity_CRM_Adapter_ZaloOA();
@@ -551,5 +575,29 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 			}
 			return $adapters;
 		}, 5 );
+	}
+
+	private function register_built_in_manifests(): void {
+		// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — load policy-only manifests without database, provider or route side effects.
+		if ( ! class_exists( 'BizCity_Framework_SDK' ) ) {
+			return;
+		}
+		$manifest_file = __DIR__ . '/manifests/builtin-channel-manifests.json';
+		if ( ! is_file( $manifest_file ) || ! is_readable( $manifest_file ) ) {
+			return;
+		}
+		try {
+			$manifests = json_decode( (string) file_get_contents( $manifest_file ), true, 512, JSON_THROW_ON_ERROR );
+		} catch ( \Throwable $e ) {
+			return;
+		}
+		if ( ! is_array( $manifests ) ) {
+			return;
+		}
+		foreach ( $manifests as $manifest ) {
+			if ( is_array( $manifest ) ) {
+				BizCity_Framework_SDK::register( $manifest, $this );
+			}
+		}
 	}
 }

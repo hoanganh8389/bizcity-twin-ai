@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="" tests="15" assertions="55" errors="0" warnings="0" failures="0" skipped="0" time="0.009833">
+    <testsuite name="unit" tests="15" assertions="55" errors="0" warnings="0" failures="0" skipped="0" time="0.009833">
+      <testsuite name="BizCity\Twin\Tests\DeprecationTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\DeprecationTest.php" tests="4" assertions="4" errors="0" warnings="0" failures="0" skipped="0" time="0.004739">
+        <testcase name="test_class_exists" class="BizCity\Twin\Tests\DeprecationTest" classname="BizCity.Twin.Tests.DeprecationTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\DeprecationTest.php" line="26" assertions="1" time="0.004026"/>
+        <testcase name="test_notify_does_not_throw" class="BizCity\Twin\Tests\DeprecationTest" classname="BizCity.Twin.Tests.DeprecationTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\DeprecationTest.php" line="33" assertions="1" time="0.000356"/>
+        <testcase name="test_notify_dedupes_within_request" class="BizCity\Twin\Tests\DeprecationTest" classname="BizCity.Twin.Tests.DeprecationTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\DeprecationTest.php" line="43" assertions="1" time="0.000215"/>
+        <testcase name="test_notify_filter_signature" class="BizCity\Twin\Tests\DeprecationTest" classname="BizCity.Twin.Tests.DeprecationTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\DeprecationTest.php" line="50" assertions="1" time="0.000143"/>
+      </testsuite>
+      <testsuite name="FrameworkCliTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\FrameworkCliTest.php" tests="6" assertions="18" errors="0" warnings="0" failures="0" skipped="0" time="0.001757">
+        <testcase name="test_json_flags_are_recognized" class="FrameworkCliTest" classname="FrameworkCliTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\FrameworkCliTest.php" line="38" assertions="3" time="0.000358"/>
+        <testcase name="test_strict_promotes_warning_to_failure_exit" class="FrameworkCliTest" classname="FrameworkCliTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\FrameworkCliTest.php" line="45" assertions="3" time="0.000559"/>
+        <testcase name="test_aggregate_normalizes_statuses_and_counts_failures" class="FrameworkCliTest" classname="FrameworkCliTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\FrameworkCliTest.php" line="54" assertions="2" time="0.000142"/>
+        <testcase name="test_all_skipped_results_remain_skip" class="FrameworkCliTest" classname="FrameworkCliTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\FrameworkCliTest.php" line="67" assertions="2" time="0.000182"/>
+        <testcase name="test_actionable_evidence_counts_only_failures_and_warnings" class="FrameworkCliTest" classname="FrameworkCliTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\FrameworkCliTest.php" line="75" assertions="5" time="0.000392"/>
+        <testcase name="test_explicit_blog_switch_restores_original_context" class="FrameworkCliTest" classname="FrameworkCliTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\FrameworkCliTest.php" line="90" assertions="3" time="0.000122"/>
+      </testsuite>
+      <testsuite name="TypedToolAdapterTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\TypedToolAdapterTest.php" tests="5" assertions="33" errors="0" warnings="0" failures="0" skipped="0" time="0.003337">
+        <testcase name="test_public_tool_contract_maps_to_runtime_contract" class="TypedToolAdapterTest" classname="TypedToolAdapterTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\TypedToolAdapterTest.php" line="19" assertions="4" time="0.000128"/>
+        <testcase name="test_namespaced_sdk_tool_contract_maps_to_runtime_contract" class="TypedToolAdapterTest" classname="TypedToolAdapterTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\TypedToolAdapterTest.php" line="37" assertions="3" time="0.000121"/>
+        <testcase name="test_event_registry_accepts_canonical_events_and_rejects_unknown_events" class="TypedToolAdapterTest" classname="TypedToolAdapterTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\TypedToolAdapterTest.php" line="46" assertions="3" time="0.000519"/>
+        <testcase name="test_package_sdk_exposes_all_seven_registration_verbs" class="TypedToolAdapterTest" classname="TypedToolAdapterTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\TypedToolAdapterTest.php" line="53" assertions="7" time="0.000191"/>
+        <testcase name="test_builtin_memory_and_ingest_tools_implement_typed_contract" class="TypedToolAdapterTest" classname="TypedToolAdapterTest" file="D:\OneDrive\Code\huongnguyen.vibeyeu.com.vn\wp-content\plugins\bizcity-twin-ai\tests\unit\TypedToolAdapterTest.php" line="60" assertions="16" time="0.002378"/>
+      </testsuite>
+    </testsuite>
+  </testsuite>
+</testsuites>

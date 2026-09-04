@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/context-admission.schema.json",
+  "title": "BizCity Twin Context Bank Admission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "admission_id",
+    "record_id",
+    "record_kind",
+    "tenant",
+    "source",
+    "identity",
+    "provenance",
+    "receipt",
+    "policy",
+    "status"
+  ],
+  "properties": {
+    "contract": { "const": "context-admission" },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "admission_id": { "type": "string", "minLength": 8, "maxLength": 120 },
+    "record_id": { "type": "string", "minLength": 8, "maxLength": 191 },
+    "record_kind": { "enum": ["event", "rollup", "memory", "rule", "relation"] },
+    "tenant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blog_id"],
+      "properties": {
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "scope": { "enum": ["tenant", "site", "user"] }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_id", "channel", "account_key", "event_uuid"],
+      "properties": {
+        "contract_id": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "channel": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$" },
+        "account_key": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "event_uuid": { "type": "string", "minLength": 8, "maxLength": 128 },
+        "external_id": { "type": "string", "maxLength": 191 }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "identity_key"],
+      "properties": {
+        "scope": { "enum": ["guest_channel", "user_bound", "tenant"] },
+        "identity_key": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "contact_ref": { "type": "string", "maxLength": 191 },
+        "conversation_ref": { "type": "string", "maxLength": 191 }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_record_id", "trace_id"],
+      "properties": {
+        "source_record_id": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "trace_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+        "parent_record_id": { "type": "string", "maxLength": 191 }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_id", "relative_file", "byte_offset", "row_hash", "content_hash", "occurred_at", "operation"],
+      "properties": {
+        "contract_id": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "relative_file": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "byte_offset": { "type": "integer", "minimum": 0 },
+        "row_hash": { "type": "string", "minLength": 16, "maxLength": 128 },
+        "content_hash": { "type": "string", "minLength": 16, "maxLength": 128 },
+        "occurred_at": { "type": "string", "format": "date-time" },
+        "operation": { "enum": ["append", "replace", "tombstone"] }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sensitivity", "retention_days", "kg_candidate"],
+      "properties": {
+        "sensitivity": { "enum": ["public", "internal", "personal", "restricted"] },
+        "retention_days": { "type": "integer", "minimum": 1 },
+        "kg_candidate": { "type": "boolean" },
+        "consent_ref": { "type": "string", "maxLength": 191 }
+      }
+    },
+    "status": { "enum": ["admitted", "not_admitted", "deferred", "rejected"] },
+    "reason_bucket": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,80}$" }
+  }
+}

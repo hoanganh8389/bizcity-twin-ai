@@ -42,27 +42,42 @@ final class BizCity_Probe_TwinWeb_CRM_Member_Scope implements BizCity_Diagnostic
 		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8-DDV — verify member scope, route and response redaction without mutation.
 		$steps = array();
 		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 4 ) . '/';
-		$files = array(
+		$backend_files = array(
 			'modules/twinweb/includes/class-twinweb-crm-projection.php',
 			'modules/twinweb/includes/class-twinweb-rest.php',
 			'modules/twinweb/includes/class-twinweb-identity.php',
 			'plugins/bizcity-twin-crm/includes/class-inbox-access.php',
 			'plugins/bizcity-twin-crm/includes/class-repository.php',
+		);
+		$frontend_files = array(
 			'modules/twinweb/ui/src/pages/MyChannelsPage.tsx',
 		);
-		$missing = array();
-		foreach ( $files as $relative ) {
-			if ( ! is_readable( $root . $relative ) ) { $missing[] = $relative; }
+		$missing_backend = array();
+		foreach ( $backend_files as $relative ) {
+			if ( ! is_readable( $root . $relative ) ) { $missing_backend[] = $relative; }
 		}
 		$steps[] = array(
 			'layer' => 'Disk',
-			'label' => 'F8 member projection artifacts exist',
-			'status' => empty( $missing ) ? 'pass' : 'fail',
-			'detail' => empty( $missing ) ? implode( ', ', $files ) : implode( ', ', $missing ),
+			'label' => 'F8 member projection backend artifacts exist',
+			'status' => empty( $missing_backend ) ? 'pass' : 'fail',
+			'detail' => empty( $missing_backend ) ? implode( ', ', $backend_files ) : implode( ', ', $missing_backend ),
 		);
-		if ( ! empty( $missing ) ) {
+		if ( ! empty( $missing_backend ) ) {
 			return array( 'status' => 'fail', 'summary' => 'F8 member projection artifacts are incomplete.', 'steps' => $steps );
 		}
+
+		$missing_frontend = array();
+		foreach ( $frontend_files as $relative ) {
+			if ( ! is_readable( $root . $relative ) ) { $missing_frontend[] = $relative; }
+		}
+		$steps[] = array(
+			'layer' => 'Disk',
+			'label' => 'F8 member projection frontend source',
+			'status' => empty( $missing_frontend ) ? 'pass' : 'skip',
+			'detail' => empty( $missing_frontend )
+				? 'Development source file is present.'
+				: 'Development source is absent; built Twin GPT dist/runtime remains authoritative: ' . implode( ', ', $missing_frontend ),
+		);
 
 		$loaded = class_exists( 'BizCity_TwinWeb_REST' )
 			&& class_exists( 'BizCity_TwinWeb_CRM_Projection' )

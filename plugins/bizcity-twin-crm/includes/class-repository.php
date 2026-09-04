@@ -5,6 +5,10 @@
  * SOLE entry point for INSERT/UPDATE on CRM tables (R-CRM-1).
  * Every state-change emits a Twin Event Stream event.
  *
+ * Cache Contract (R-CACHE): group `crm_repository`; keys include the current
+ * blog, routed database and hashed `(channel_type, channel_ref_id)` tuple;
+ * inbox writes flush the group; TTL is short for account selection reads.
+ *
  * @package BizCity_Twin_CRM
  */
 
@@ -34,6 +38,14 @@ class BizCity_CRM_Repository {
 		if ( $existing ) {
 			return (int) $existing['id'];
 		}
+		if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
+			return 0;
+		}
+		$descriptor = BizCity_CRM_Channel_Contract::require_crm_enabled( $channel_type );
+		if ( is_wp_error( $descriptor ) ) {
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - do not create an inbox without a CRM-enabled registered channel owner.
+			return 0;
+		}
 
 		$now = current_time( 'mysql' );
 		$row = array(
@@ -61,6 +73,9 @@ class BizCity_CRM_Repository {
 			return 0;
 		}
 		$id = (int) $wpdb->insert_id;
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::flush_group( 'crm_repository' );
+		}
 
 		BizCity_CRM_Event_Emitter::emit( 'crm_inbox_created', array(
 			'inbox_id'       => $id,
@@ -97,6 +112,49 @@ class BizCity_CRM_Repository {
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tbl} WHERE id = %d", $id ), ARRAY_A );
 		return $row ?: null;
+	}
+
+	/**
+	 * Read one active inbox by its exact channel and account reference.
+	 *
+	 * @param string $channel_type Canonical CRM channel code.
+	 * @param string $channel_ref_id Exact provider/account reference.
+	 * @return array|null
+	 */
+	public static function get_inbox_by_ref( string $channel_type, string $channel_ref_id ): ?array {
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — provide the canonical exact-account inbox reader for the future /gpt/crm/ scope without broad inbox scans.
+		$channel_type   = sanitize_key( $channel_type );
+		$channel_ref_id = trim( $channel_ref_id );
+		if ( $channel_type === '' || $channel_ref_id === '' ) {
+			return null;
+		}
+
+		global $wpdb;
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$tuple_hash = md5( $channel_type . '\0' . $channel_ref_id );
+		$cache_key = 'inbox_by_ref_' . $blog_id . '_' . md5( $database ) . '_' . $tuple_hash;
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			$cached = BizCity_Cache::get( 'crm_repository', $cache_key );
+			if ( is_array( $cached ) && ! empty( $cached['_not_found'] ) ) {
+				return null;
+			}
+			if ( false !== $cached && is_array( $cached ) ) {
+				return $cached;
+			}
+		}
+
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$tbl} WHERE channel_type = %s AND channel_ref_id = %s AND is_active = 1 LIMIT 1",
+			$channel_type,
+			$channel_ref_id
+		), ARRAY_A );
+		$row = is_array( $row ) ? $row : null;
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::set( 'crm_repository', $cache_key, $row ?: array( '_not_found' => true ), BizCity_Cache::TTL_SHORT );
+		}
+		return $row;
 	}
 
 	public static function list_inboxes(): array {
@@ -164,19 +222,24 @@ class BizCity_CRM_Repository {
 
 		$conv_ids = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$tbl_conv} WHERE inbox_id = %d", $inbox_id ) );
 		$conv_ids = array_values( array_filter( array_map( 'intval', (array) $conv_ids ) ) );
-		$conv_sql = $conv_ids ? implode( ',', $conv_ids ) : '0';
+		$conv_sql = 'conversation_id IN (0)';
+		if ( $conv_ids ) {
+			$conv_placeholders = implode( ',', array_fill( 0, count( $conv_ids ), '%d' ) );
+			$conv_sql = call_user_func_array( array( $wpdb, 'prepare' ), array_merge( array( 'conversation_id IN (' . $conv_placeholders . ')' ), $conv_ids ) );
+		}
+		$inbox_sql = $wpdb->prepare( 'inbox_id = %d', $inbox_id );
 
 		$wpdb->query( 'START TRANSACTION' );
 		try {
 			$queries = array(
-				"DELETE FROM {$tbl_att} WHERE message_id IN (SELECT id FROM {$tbl_msg} WHERE conversation_id IN ({$conv_sql}))",
-				"DELETE FROM {$tbl_msg} WHERE conversation_id IN ({$conv_sql})",
-				"DELETE FROM {$tbl_sla} WHERE conversation_id IN ({$conv_sql})",
-				"DELETE FROM {$tbl_cl} WHERE conversation_id IN ({$conv_sql})",
-				"DELETE FROM {$tbl_conv} WHERE inbox_id = " . (int) $inbox_id,
-				"DELETE FROM {$tbl_ci} WHERE inbox_id = " . (int) $inbox_id,
-				"DELETE FROM {$tbl_wh} WHERE inbox_id = " . (int) $inbox_id,
-				"UPDATE {$tbl_rule} SET inbox_id = NULL WHERE inbox_id = " . (int) $inbox_id,
+				"DELETE FROM {$tbl_att} WHERE message_id IN (SELECT id FROM {$tbl_msg} WHERE {$conv_sql})",
+				"DELETE FROM {$tbl_msg} WHERE {$conv_sql}",
+				"DELETE FROM {$tbl_sla} WHERE {$conv_sql}",
+				"DELETE FROM {$tbl_cl} WHERE {$conv_sql}",
+				"DELETE FROM {$tbl_conv} WHERE {$inbox_sql}",
+				"DELETE FROM {$tbl_ci} WHERE {$inbox_sql}",
+				"DELETE FROM {$tbl_wh} WHERE {$inbox_sql}",
+				"UPDATE {$tbl_rule} SET inbox_id = NULL WHERE {$inbox_sql}",
 				"DELETE FROM {$tbl_ibx} WHERE id = " . (int) $inbox_id,
 			);
 			foreach ( $queries as $query ) {
@@ -580,8 +643,9 @@ class BizCity_CRM_Repository {
 		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — expose only assigned or own-contact tasks to the C surface.
 		if ( $wp_user_id <= 0 ) { return array(); }
 		global $wpdb;
-		$tasks = self::tbl_crm_tasks();
-		$contacts = self::tbl_contacts();
+		// [2026-09-01 Johnny Chu] PHASE-0.39F-F8-DDV — resolve table names through the canonical installer owner.
+		$tasks = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+		$contacts = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 		$limit = max( 1, min( 100, $limit ) );
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT t.id, t.title, t.status, t.priority, t.due_date, t.assignee_id, t.related_entity_type, t.related_entity_id, t.updated_at FROM `{$tasks}` t WHERE t.deleted_at IS NULL AND (t.assignee_id = %d OR (t.related_entity_type = 'contact' AND EXISTS (SELECT 1 FROM `{$contacts}` c WHERE c.id = t.related_entity_id AND c.wp_user_id = %d AND c.deleted_at IS NULL))) ORDER BY t.due_date IS NULL ASC, t.due_date ASC, t.id DESC LIMIT %d", $wp_user_id, $wp_user_id, $limit ), ARRAY_A );
 		return is_array( $rows ) ? $rows : array();
@@ -592,7 +656,8 @@ class BizCity_CRM_Repository {
 		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — resolve order subjects from tenant CRM contacts, never posted contact IDs.
 		if ( $wp_user_id <= 0 ) { return array(); }
 		global $wpdb;
-		$table = self::tbl_contacts();
+		// [2026-09-01 Johnny Chu] PHASE-0.39F-F8-DDV — resolve contact table through the canonical installer owner.
+		$table = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 		$limit = max( 1, min( 20, $limit ) );
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM `{$table}` WHERE wp_user_id = %d AND deleted_at IS NULL ORDER BY id DESC LIMIT %d", $wp_user_id, $limit ), ARRAY_A );
 		return is_array( $rows ) ? $rows : array();
@@ -605,15 +670,17 @@ class BizCity_CRM_Repository {
 		if ( user_can( $user_id, 'manage_options' ) ) { return true; }
 		global $wpdb;
 		if ( 'task' === $object_type ) {
-			$tasks = self::tbl_crm_tasks();
-			$contacts = self::tbl_contacts();
+			// [2026-09-01 Johnny Chu] PHASE-0.39F-F8-DDV — keep order-care authorization on the canonical table-name owner.
+			$tasks = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+			$contacts = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 			$row = $wpdb->get_row( $wpdb->prepare( "SELECT assignee_id, related_entity_type, related_entity_id FROM `{$tasks}` WHERE id = %d AND deleted_at IS NULL LIMIT 1", $object_id ), ARRAY_A );
 			if ( ! is_array( $row ) ) { return false; }
 			if ( (int) ( $row['assignee_id'] ?? 0 ) === $user_id ) { return true; }
 			return 'contact' === (string) ( $row['related_entity_type'] ?? '' ) && (bool) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$contacts}` WHERE id = %d AND wp_user_id = %d AND deleted_at IS NULL LIMIT 1", (int) $row['related_entity_id'], $user_id ) );
 		}
 		if ( 'opportunity' === $object_type ) {
-			$opportunities = self::tbl_crm_opportunities();
+			// [2026-09-01 Johnny Chu] PHASE-0.39F-F8-DDV — resolve opportunity table through the canonical installer owner.
+			$opportunities = BizCity_CRM_DB_Installer_V2::tbl_crm_opportunities();
 			return (bool) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$opportunities}` WHERE id = %d AND owner_id = %d AND deleted_at IS NULL LIMIT 1", $object_id, $user_id ) );
 		}
 		return false;
@@ -631,7 +698,8 @@ class BizCity_CRM_Repository {
 			return array( 'success' => false, 'outcome' => 'permanent_failed', 'code' => 'order_care_scope_denied', 'retryable' => false, 'contract_version' => '1.0.0' );
 		}
 		global $wpdb;
-		$table = 'task' === $object_type ? self::tbl_crm_tasks() : self::tbl_crm_opportunities();
+		// [2026-09-01 Johnny Chu] PHASE-0.39F-F8-DDV — use canonical table helpers for order-care mutation after authorization.
+		$table = 'task' === $object_type ? BizCity_CRM_DB_Installer_V2::tbl_crm_tasks() : BizCity_CRM_DB_Installer_V2::tbl_crm_opportunities();
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$table}` WHERE id = %d AND deleted_at IS NULL LIMIT 1", $object_id ), ARRAY_A );
 		if ( ! is_array( $row ) ) {
 			return array( 'success' => false, 'outcome' => 'permanent_failed', 'code' => 'order_care_object_not_found', 'retryable' => false, 'contract_version' => '1.0.0' );
@@ -829,6 +897,21 @@ class BizCity_CRM_Repository {
 		if ( ! $conv_id || ! $inbox_id ) {
 			return 0;
 		}
+		$msg_type = (string) ( $data['message_type'] ?? 'incoming' );
+		if ( in_array( $msg_type, array( 'incoming', 'outgoing' ), true ) ) {
+			if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
+				return 0;
+			}
+			$inbox = self::get_inbox( $inbox_id );
+			if ( ! is_array( $inbox ) ) {
+				return 0;
+			}
+			$descriptor = BizCity_CRM_Channel_Contract::require_crm_enabled( (string) ( $inbox['channel_type'] ?? '' ) );
+			if ( is_wp_error( $descriptor ) ) {
+				// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - block every direct incoming/outgoing writer, including automation and campaign projections, before SQL.
+				return 0;
+			}
+		}
 
 		// Idempotency check.
 		$ext = (string) ( $data['external_source_id'] ?? '' );
@@ -843,7 +926,6 @@ class BizCity_CRM_Repository {
 		}
 
 		$now      = current_time( 'mysql' );
-		$msg_type = (string) ( $data['message_type'] ?? 'incoming' );
 		$sender   = (string) ( $data['sender_type']  ?? 'contact' );
 		$ai_meta  = isset( $data['ai_metadata'] ) && is_array( $data['ai_metadata'] )
 			? wp_json_encode( $data['ai_metadata'] ) : null;
@@ -1060,6 +1142,10 @@ class BizCity_CRM_Repository {
 			case 'ZALO':
 				$platform = 'ZALO_BOT';
 				break;
+			case 'ZALO_BOT':
+				// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - preserve the Bot channel discriminator.
+				$platform = 'ZALO_BOT';
+				break;
 			// [2026-07-06 Johnny Chu] PHASE-0.48 ID-MEM — preserve ZALO_OA discriminator for canonical session key.
 			case 'ZALO_OA':
 				$platform = 'ZALO_OA';
@@ -1071,7 +1157,11 @@ class BizCity_CRM_Repository {
 			case 'FB_FEED':
 				$chat_id = 'fb_' . $account . '_' . $user; break;
 			case 'ZALO_BOT':
-				$chat_id = 'zalobot_' . $account . '_' . $user; break;
+				// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - compose the same private/group chat ID used by the adapter.
+				$chat_id = strpos( $user, 'group:' ) === 0
+					? 'zalobot_' . $account . '_group_' . substr( $user, 6 )
+					: 'zalobot_' . $account . '_private_' . $user;
+				break;
 			// [2026-07-06 Johnny Chu] PHASE-0.48 ID-MEM — canonical session key for Zalo OA customer lane.
 			case 'ZALO_OA':
 				$chat_id = 'zalooa_' . $account . '_' . $user; break;
@@ -1924,4 +2014,10 @@ class BizCity_CRM_Repository {
 		), ARRAY_A );
 		return is_array( $rows ) ? $rows : array();
 	}
+}
+
+if ( class_exists( 'BizCity_Cache_Registry' ) ) {
+	BizCity_Cache_Registry::register( 'crm_repository', 'modules.twin-crm', array(
+		'inbox_by_ref_{blog_id}_{database_hash}_{tuple_hash}' => array( 'ttl' => 60, 'desc' => 'Active CRM inbox by exact channel and account reference' ),
+	) );
 }

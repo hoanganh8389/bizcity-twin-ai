@@ -211,30 +211,17 @@ class BizCity_TwinChat_Learning_Notifier {
 			return 'sys_' . wp_generate_password( 8, false, false );
 		}
 		$db      = BizCity_TwinChat_Database::instance();
-		$ses_tbl = $db->table_sessions();
 		$msg_tbl = $db->table_messages();
 		$ldb     = class_exists( 'BizCity_TwinChat_Learning_Database' )
 			? BizCity_TwinChat_Learning_Database::instance()
 			: null;
 
-		// Try sessions table first (filtered by user when possible).
-		// [2026-07-27 Johnny Chu] R-SHOW-TABLES — avoid SHOW TABLES/DESCRIBE.
-		$ses_exists = $ldb ? $ldb->table_exists( $ses_tbl ) : false;
-		if ( $ses_exists ) {
-			$has_user = $ldb ? $ldb->column_exists( $ses_tbl, 'user_id' ) : false;
-			if ( $has_user && $user_id > 0 ) {
-				$sid = $wpdb->get_var( $wpdb->prepare(
-					"SELECT session_id FROM {$ses_tbl} WHERE project_id=%s AND platform_type='twinchat' AND user_id=%d ORDER BY last_message_at DESC LIMIT 1",
-					(string) $notebook_id,
-					(int) $user_id
-				) );
-				if ( $sid ) { return (string) $sid; }
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — resolve learning sessions from encrypted state before message fallback.
+		if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			$states = BizCity_WebChat_Session_State::instance()->list_for_user( $user_id > 0 ? $user_id : null, 'TWINCHAT', 1, (string) $notebook_id, 'all' );
+			if ( ! empty( $states ) ) {
+				return (string) $states[0]->session_id;
 			}
-			$sid = $wpdb->get_var( $wpdb->prepare(
-				"SELECT session_id FROM {$ses_tbl} WHERE project_id=%s AND platform_type='twinchat' ORDER BY last_message_at DESC LIMIT 1",
-				(string) $notebook_id
-			) );
-			if ( $sid ) { return (string) $sid; }
 		}
 
 		// Fallback: latest session_id from messages table.

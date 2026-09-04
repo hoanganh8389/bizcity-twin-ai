@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="1" failures="0" skipped="1" time="0.067">
+  <testsuite name="diagnostics" tests="1" failures="0" skipped="1" time="0.067">
+    <testcase classname="bizcity.diagnostics" name="core.bizcity_llm.usage_ledger_parity" time="0.000">
+      <skipped message="Hub-only probe: client runtime does not own bizcity_llm_usage; canonical ledger is bizcity_llm_usage_logs on bizcity-llm-router."/>
+    </testcase>
+  </testsuite>
+</testsuites>

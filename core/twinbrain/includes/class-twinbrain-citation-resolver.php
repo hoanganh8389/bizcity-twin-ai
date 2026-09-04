@@ -708,13 +708,14 @@ final class BizCity_Twin_Citation_Resolver {
 	}
 
 	private static function resolve_memory( string $token, string $ref, int $user_id ): array {
-		// `U#42` | `E#7` | `R#3` | `N#9`
-		$kind_letter = ''; $mem_id = 0;
-		if ( preg_match( '/^([UERN])#(\d+)$/i', $ref, $m ) ) {
+		// `U#42` remains compatible; new records use opaque `U#record_id` references.
+		$kind_letter = ''; $mem_id = 0; $record_ref = '';
+		if ( preg_match( '/^([UERN])#([A-Za-z0-9_-]+)$/i', $ref, $m ) ) {
 			$kind_letter = strtoupper( $m[1] );
-			$mem_id      = (int) $m[2];
+			$record_ref  = (string) $m[2];
+			$mem_id      = ctype_digit( $record_ref ) ? (int) $record_ref : 0;
 		}
-		if ( $mem_id <= 0 ) {
+		if ( $mem_id <= 0 && $record_ref === '' ) {
 			return self::error_record( $token, 'mem', 'invalid_ref' );
 		}
 
@@ -733,42 +734,45 @@ final class BizCity_Twin_Citation_Resolver {
 			'N' => 'Note',
 		][ $kind_letter ] ?? 'Memory';
 
-		/* Wave 2.8 TBR.MEM-8 — real DB lookup for U-tier rows (others left as
-		 * stubs until episodic/rolling writers ship in MEM-5). Falls back to
-		 * label-only record when table or row missing. */
+		/* Context Bank lookup returns only after the encrypted receipt is verified. */
 		$excerpt = '';
 		$mem_type = '';
 		$mem_tier = '';
 		$is_owner = false;
-		if ( $kind_letter === 'U' ) {
-			global $wpdb;
-			$table = $wpdb->prefix . 'bizcity_memory_users';
-			$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-			if ( $exists ) {
-				$row = $wpdb->get_row( $wpdb->prepare(
-					"SELECT id, user_id, memory_tier, memory_type, memory_text FROM {$table} WHERE id = %d LIMIT 1",
-					$mem_id
-				) );
-				if ( $row ) {
-					$row_user = (int) $row->user_id;
-					$is_owner = ( $row_user > 0 && $row_user === $user_id );
-					if ( ! $is_owner && ! user_can( $user_id, 'manage_options' ) ) {
-						return self::error_record( $token, 'mem', 'permission_denied' );
+		$contract_by_kind = array( 'U' => 'core.knowledge.user_memory', 'E' => 'core.intent.episodic_memory', 'R' => 'core.intent.rolling_memory', 'N' => 'modules.twinchat.memory_notes' );
+		if ( isset( $contract_by_kind[ $kind_letter ] ) && function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+			bizcity_context_bank_load_memory_runtime();
+		}
+		if ( isset( $contract_by_kind[ $kind_letter ] ) && class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) {
+			$memory_rows = BizCity_Context_Bank_Memory_Adapter::query( $contract_by_kind[ $kind_letter ], array(
+				'blog_id' => get_current_blog_id(),
+				'user_id' => $user_id,
+				'limit' => 20,
+				'filter' => function ( $row ) use ( $record_ref, $mem_id ) {
+					if ( $record_ref !== '' && ! ctype_digit( $record_ref ) ) {
+						return (string) ( $row['record_id'] ?? '' ) === $record_ref;
 					}
-					$txt      = (string) $row->memory_text;
-					$excerpt  = mb_substr( $txt, 0, 240 );
-					$mem_type = (string) $row->memory_type;
-					$mem_tier = (string) $row->memory_tier;
+					return (int) ( $row['legacy_id'] ?? $row['id'] ?? 0 ) === $mem_id;
+				},
+			) );
+			$row = isset( $memory_rows[0] ) && is_array( $memory_rows[0] ) ? $memory_rows[0] : array();
+			if ( ! empty( $row ) ) {
+				$is_owner = (int) ( $row['user_id'] ?? 0 ) === $user_id;
+				if ( ! $is_owner && ! user_can( $user_id, 'manage_options' ) ) {
+					return self::error_record( $token, 'mem', 'permission_denied' );
 				}
+				$excerpt = mb_substr( (string) ( $row['memory_text'] ?? $row['event_text'] ?? $row['content'] ?? '' ), 0, 240 );
+				$mem_type = (string) ( $row['memory_type'] ?? $row['event_key'] ?? $row['note_type'] ?? '' );
+				$mem_tier = (string) ( $row['memory_tier'] ?? $kind_letter );
 			}
 		}
 
 		return [
 			'token'            => $token,
 			'kind'             => 'mem',
-			'label'            => $tier_label . ' #' . $mem_id . ( $mem_type !== '' ? ' · ' . $mem_type : '' ),
+			'label'            => $tier_label . ' #' . ( $record_ref !== '' ? $record_ref : $mem_id ) . ( $mem_type !== '' ? ' · ' . $mem_type : '' ),
 			'ref_url'          => add_query_arg(
-				[ 'tab' => 'memory', 'tier' => strtolower( $kind_letter ), 'id' => $mem_id ],
+				[ 'tab' => 'memory', 'tier' => strtolower( $kind_letter ), 'id' => $record_ref !== '' ? $record_ref : $mem_id ],
 				admin_url( 'admin.php?page=bizcity-twin-memory' )
 			),
 			'evidence_excerpt' => $excerpt,
@@ -962,9 +966,8 @@ final class BizCity_Twin_Citation_Resolver {
 	private static function can_view_memory( string $kind_letter, int $mem_id, int $user_id ): bool {
 		// Admins: always.
 		if ( user_can( $user_id, 'manage_options' ) ) return true;
-		// Stub: trust until Twin_Memory layer enforces owner check.
-		// Deny U# memory if user not logged in.
-		if ( $kind_letter === 'U' && $user_id <= 0 ) return false;
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — all memory references are private Context Bank records; anonymous requests cannot query them.
+		if ( $user_id <= 0 ) return false;
 		return true;
 	}
 

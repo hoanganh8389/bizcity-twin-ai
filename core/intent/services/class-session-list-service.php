@@ -51,10 +51,9 @@ class BizCity_Session_List_Service {
      * @return array { items, total, page, per_page, total_pages }
      */
     public function list_sessions( $user_id, array $args = [] ) {
-        global $wpdb;
-
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — list sessions through the canonical encrypted state owner.
+        $wc_db = $this->get_wc_db();
+        if ( ! $wc_db ) {
             return $this->empty_paged();
         }
 
@@ -66,47 +65,22 @@ class BizCity_Session_List_Service {
         $per_page = min( 100, max( 1, intval( $args['per_page'] ?? 20 ) ) );
         $order    = strtoupper( $args['order'] ?? 'DESC' ) === 'ASC' ? 'ASC' : 'DESC';
 
-        $wheres = [ 'user_id = %d' ];
-        $params = [ $user_id ];
-
-        if ( $platform ) {
-            $wheres[] = 'platform_type = %s';
-            $params[] = $platform;
-        }
-        if ( $status && $status !== 'all' ) {
-            $wheres[] = 'status = %s';
-            $params[] = $status;
-        }
-        if ( $project !== null ) {
-            $wheres[] = 'project_id = %s';
-            $params[] = $project;
-        }
+        $rows = $wc_db->get_sessions_v3_for_user( $user_id, $platform ?: null, 5000, $project, $status );
         if ( $search ) {
-            $like     = '%' . $wpdb->esc_like( $search ) . '%';
-            $wheres[] = '(title LIKE %s OR last_message_preview LIKE %s)';
-            $params[] = $like;
-            $params[] = $like;
+            $rows = array_filter( $rows, function ( $row ) use ( $search ) {
+                return false !== stripos( (string) ( $row->title ?? '' ), $search )
+                    || false !== stripos( (string) ( $row->last_message_preview ?? '' ), $search )
+                    || false !== stripos( (string) ( $row->session_id ?? '' ), $search );
+            } );
         }
-
-        $where_sql = 'WHERE ' . implode( ' AND ', $wheres );
-
-        // Count
-        $total = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} {$where_sql}",
-            ...$params
-        ) );
-
-        // Fetch
-        $offset     = ( $page - 1 ) * $per_page;
-        $all_params = array_merge( $params, [ $per_page, $offset ] );
-
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$table} {$where_sql}
-             ORDER BY COALESCE(last_message_at, started_at) {$order}
-             LIMIT %d OFFSET %d",
-            ...$all_params
-        ) );
-        if ( ! is_array( $rows ) ) $rows = [];
+        usort( $rows, function ( $left, $right ) use ( $order ) {
+            $left_date = (string) ( $left->last_message_at ?? $left->started_at ?? '' );
+            $right_date = (string) ( $right->last_message_at ?? $right->started_at ?? '' );
+            return 'ASC' === $order ? strcmp( $left_date, $right_date ) : strcmp( $right_date, $left_date );
+        } );
+        $total = count( $rows );
+        $offset = ( $page - 1 ) * $per_page;
+        $rows = array_slice( $rows, $offset, $per_page );
 
         $items = [];
         foreach ( $rows as $row ) {
@@ -191,12 +165,9 @@ class BizCity_Session_List_Service {
     public function get_session_messages( $session_id, $user_id = 0, $page = 1, $per_page = 50 ) {
         global $wpdb;
 
-        // Verify ownership via sessions table
-        $sess_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        $session    = $wpdb->get_row( $wpdb->prepare(
-            "SELECT * FROM {$sess_table} WHERE session_id = %s LIMIT 1",
-            $session_id
-        ) );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — verify ownership through the encrypted session-state owner.
+        $wc_db = $this->get_wc_db();
+        $session = $wc_db ? $wc_db->get_session_v3_by_session_id( $session_id ) : null;
 
         if ( ! $session ) {
             return new WP_Error( 'not_found', 'Session not found', [ 'status' => 404 ] );
@@ -269,25 +240,13 @@ class BizCity_Session_List_Service {
      * @return array  e.g. { active: 5, closed: 20, archived: 3 }
      */
     public function get_status_counts( $user_id, $platform_type = 'ADMINCHAT' ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-        if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-            return [];
-        }
-
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT status, COUNT(*) AS cnt
-             FROM {$table}
-             WHERE user_id = %d AND platform_type = %s
-             GROUP BY status",
-            $user_id,
-            $platform_type
-        ) );
-
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — aggregate status counts from folded session records.
+        $wc_db = $this->get_wc_db();
+        $rows = $wc_db ? $wc_db->get_sessions_v3_for_user( $user_id, $platform_type, 5000, null ) : array();
         $counts = [];
         foreach ( $rows as $row ) {
-            $counts[ $row->status ] = (int) $row->cnt;
+            $status = (string) ( $row->status ?? 'active' );
+            $counts[ $status ] = isset( $counts[ $status ] ) ? $counts[ $status ] + 1 : 1;
         }
         return $counts;
     }
@@ -320,7 +279,7 @@ class BizCity_Session_List_Service {
         $base = $this->format_session( $row );
         $base['rolling_summary'] = $row->rolling_summary ?? '';
         $base['character_id']    = (int) ( $row->character_id ?? 0 );
-        $base['meta']            = isset( $row->meta ) ? json_decode( $row->meta, true ) : [];
+        $base['meta']            = is_array( $row->meta ?? null ) ? $row->meta : ( isset( $row->meta ) ? ( json_decode( $row->meta, true ) ?: [] ) : [] );
         return $base;
     }
 

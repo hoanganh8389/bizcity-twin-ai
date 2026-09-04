@@ -1,6 +1,6 @@
 <?php
 /**
- * BizCity Twin AI — Deprecation helper (Phase 0.99.3).
+ * BizCity Twin Brain — Deprecation helper (Phase 0.99.3).
  *
  * Lightweight notifier for renamed / removed public APIs. Designed to
  * help 3rd-party sub-plugin authors detect framework drift early without

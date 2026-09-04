@@ -2654,11 +2654,24 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error( [ 'message' => 'Invalid ID' ] );
         }
 
-        global $wpdb;
-        $deleted = $wpdb->delete( BizCity_User_Memory::table(), [ 'id' => $memory_id ] );
-        if ( $deleted ) {
-            // [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — Memory Hub admin delete must remove the matching unified user row.
-            do_action( 'bizcity_memory_mirror_delete', 'user', $memory_id, array( 'blog_id' => get_current_blog_id() ) );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — admin memory deletion uses the canonical filestore tombstone, never a legacy SQL payload delete.
+        $deleted = false;
+        if ( class_exists( 'BizCity_User_Memory' ) && class_exists( 'BizCity_Business_JSONL_File_Store' ) ) {
+            $request_page = BizCity_User_Memory::instance()->get_all_requests( array(
+                'blog_id'    => get_current_blog_id(),
+                'per_page'   => 500,
+                'page'       => 1,
+            ) );
+            foreach ( (array) ( $request_page['items'] ?? array() ) as $memory ) {
+                if ( (int) ( $memory->id ?? 0 ) === $memory_id && ! empty( $memory->record_id ) ) {
+                    $deleted = BizCity_Business_JSONL_File_Store::delete(
+                        BizCity_User_Memory::BUSINESS_CONTRACT_ID,
+                        (string) $memory->record_id,
+                        array( 'blog_id' => get_current_blog_id() )
+                    );
+                    break;
+                }
+            }
         }
         wp_send_json_success( [ 'deleted' => (bool) $deleted ] );
     }
@@ -3490,38 +3503,39 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error( [ 'message' => 'empty_content' ] );
         }
 
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_memory_users';
-
-        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-        if ( ! class_exists( 'BizCity_User_Memory' ) || ! bizcity_tbl_exists( $table ) ) {
-            wp_send_json_error( [ 'message' => 'table_unavailable' ] );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — Memory Hub user CRUD is filestore-owned; SQL payload writes are disabled.
+        if ( ! class_exists( 'BizCity_User_Memory' ) ) {
+            wp_send_json_error( [ 'message' => 'memory_service_unavailable' ] );
         }
-
+        $memory = null;
         if ( $memory_id > 0 ) {
-            $r = $wpdb->update(
-                $table,
-                [ 'memory_type' => $memory_type, 'memory_key' => $memory_key, 'memory_text' => $content, 'score' => $importance, 'updated_at' => current_time( 'mysql' ) ],
-                [ 'id' => $memory_id, 'user_id' => $uid ],
-                [ '%s', '%s', '%s', '%d', '%s' ],
-                [ '%d', '%d' ]
-            );
-            if ( false === $r ) {
-                wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'update_failed' ] );
+            foreach ( (array) BizCity_User_Memory::instance()->get_memories( array( 'user_id' => $uid, 'limit' => 200 ) ) as $candidate ) {
+                if ( (int) ( $candidate->id ?? 0 ) === $memory_id && ! empty( $candidate->record_id ) ) {
+                    $memory = $candidate;
+                    break;
+                }
             }
-            wp_send_json_success( [ 'id' => $memory_id, 'op' => 'updated' ] );
+            if ( ! $memory ) {
+                wp_send_json_error( [ 'message' => 'memory_not_found' ] );
+            }
         }
-
-        $blog_id = get_current_blog_id();
-        $r = $wpdb->insert(
-            $table,
-            [ 'blog_id' => $blog_id, 'user_id' => $uid, 'session_id' => '', 'memory_tier' => 'explicit', 'memory_type' => $memory_type, 'memory_key' => $memory_key, 'memory_text' => $content, 'score' => $importance, 'times_seen' => 1, 'last_seen' => current_time( 'mysql' ), 'created_at' => current_time( 'mysql' ), 'updated_at' => current_time( 'mysql' ) ],
-            [ '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s' ]
-        );
-        if ( ! $r ) {
-            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'insert_failed' ] );
+        $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::for_write( array( 'user_id' => $uid ) )
+            : null;
+        $result = BizCity_User_Memory::instance()->upsert_public( array(
+            'user_id'       => $uid,
+            'identity_uuid'  => (string) ( $memory->identity_uuid ?? $scope['identity_uuid'] ?? '' ),
+            'session_id'    => (string) ( $memory->session_id ?? '' ),
+            'memory_tier'   => (string) ( $memory->memory_tier ?? 'explicit' ),
+            'memory_type'   => $memory_type,
+            'memory_key'    => $memory_key !== '' ? $memory_key : (string) ( $memory->memory_key ?? '' ),
+            'memory_text'   => $content,
+            'score'         => $importance,
+        ) );
+        if ( false === $result ) {
+            wp_send_json_error( [ 'message' => 'memory_write_failed' ] );
         }
-        wp_send_json_success( [ 'id' => (int) $wpdb->insert_id, 'op' => 'created' ] );
+        wp_send_json_success( [ 'op' => (string) $result ] );
     }
 
     /**
@@ -3533,28 +3547,23 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
-        global $wpdb;
         $uid   = get_current_user_id();
-        $table = $wpdb->prefix . 'bizcity_memory_episodic';
-        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-        if ( ! bizcity_tbl_exists( $table ) ) {
-            wp_send_json_success( [ 'rows' => [] ] );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — load the canonical memory pointer reader for the Memory Hub admin surface.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
         }
 
         $page     = max( 1, intval( $_POST['page'] ?? 1 ) );
         $per_page = min( 100, max( 10, intval( $_POST['per_page'] ?? 50 ) ) );
         $offset   = ( $page - 1 ) * $per_page;
 
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, event_type, event_key, event_text, importance, source_goal, last_seen, updated_at
-             FROM {$table}
-             WHERE user_id = %d
-             ORDER BY updated_at DESC
-             LIMIT %d OFFSET %d",
-            $uid, $per_page, $offset
-        ), ARRAY_A ) ?: [];
-
-        $total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id = %d", $uid ) );
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — Memory Hub reads verified episodic pointers through the Context Bank adapter.
+		$all_rows = class_exists( 'BizCity_Context_Bank_Memory_Adapter' )
+			? BizCity_Context_Bank_Memory_Adapter::query( BizCity_Episodic_Memory::BUSINESS_CONTRACT_ID, array( 'blog_id' => get_current_blog_id(), 'user_id' => $uid, 'limit' => 500 ) )
+			: array();
+		$rows = array_slice( $all_rows, $offset, $per_page );
+		$rows = array_map( function ( $row ) { return array( 'id' => (int) ( $row['legacy_id'] ?? 0 ), 'record_id' => (string) ( $row['record_id'] ?? '' ), 'event_type' => (string) ( $row['event_type'] ?? $row['memory_type'] ?? '' ), 'event_key' => (string) ( $row['event_key'] ?? $row['memory_key'] ?? '' ), 'event_text' => (string) ( $row['event_text'] ?? $row['memory_text'] ?? '' ), 'importance' => (int) ( $row['importance'] ?? $row['score'] ?? 0 ), 'source_goal' => (string) ( $row['source_goal'] ?? $row['goal'] ?? '' ), 'last_seen' => (string) ( $row['last_seen'] ?? '' ), 'updated_at' => (string) ( $row['updated_at'] ?? '' ) ); }, $rows );
+		$total = count( $all_rows );
 
         wp_send_json_success( [ 'rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $per_page ] );
     }
@@ -3569,19 +3578,37 @@ class BizCity_Knowledge_Admin_Menu {
         }
 
         $uid = get_current_user_id();
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — use the same Context Bank reader for owner-scoped delete lookup.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
+        }
         $id  = intval( $_POST['id'] ?? 0 );
         if ( $id <= 0 ) {
             wp_send_json_error( [ 'message' => 'invalid_id' ] );
         }
 
-        global $wpdb;
-        $r = $wpdb->delete(
-            $wpdb->prefix . 'bizcity_memory_episodic',
-            [ 'id' => $id, 'user_id' => $uid ],
-            [ '%d', '%d' ]
-        );
-        if ( false === $r ) {
-            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — delete episodic records through Context Bank-backed receipt tombstones.
+        $deleted = false;
+        if ( class_exists( 'BizCity_Episodic_Memory' ) && class_exists( 'BizCity_Business_JSONL_File_Store' ) ) {
+            $rows = class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ? BizCity_Context_Bank_Memory_Adapter::query( BizCity_Episodic_Memory::BUSINESS_CONTRACT_ID, array(
+                'blog_id' => get_current_blog_id(),
+                'user_id' => $uid,
+                'limit'   => 1000,
+                'days'    => 3650,
+                'filter'  => function ( $row ) use ( $id ) {
+                    return (int) ( $row['legacy_id'] ?? 0 ) === $id;
+                },
+            ) ) : array();
+            foreach ( $rows as $row ) {
+                if ( ! empty( $row['record_id'] ) ) {
+                    $delete_receipt = BizCity_Business_JSONL_File_Store::delete_with_receipt( BizCity_Episodic_Memory::BUSINESS_CONTRACT_ID, (string) $row['record_id'], array( 'blog_id' => get_current_blog_id(), 'user_id' => $uid ) );
+                    $deleted = is_array( $delete_receipt );
+                    if ( $deleted ) { do_action( 'bizcity_memory_mirror_delete', 'episodic', $id, array( 'blog_id' => get_current_blog_id(), 'user_id' => $uid, 'record_id' => (string) $row['record_id'], 'filestore_receipt' => $delete_receipt ) ); }
+                }
+            }
+        }
+        if ( ! $deleted ) {
+            wp_send_json_error( [ 'message' => 'delete_failed' ] );
         }
         wp_send_json_success( [ 'id' => $id ] );
     }
@@ -3595,28 +3622,23 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
-        global $wpdb;
         $uid   = get_current_user_id();
-        $table = $wpdb->prefix . 'bizcity_memory_rolling';
-        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-        if ( ! bizcity_tbl_exists( $table ) ) {
-            wp_send_json_success( [ 'rows' => [] ] );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — load the canonical rolling pointer reader for the Memory Hub admin surface.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
         }
 
         $page     = max( 1, intval( $_POST['page'] ?? 1 ) );
         $per_page = min( 100, max( 10, intval( $_POST['per_page'] ?? 50 ) ) );
         $offset   = ( $page - 1 ) * $per_page;
 
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, goal, goal_label, window_summary, status, user_goal_score, bot_satisfaction_score, total_turns, updated_at
-             FROM {$table}
-             WHERE user_id = %d
-             ORDER BY updated_at DESC
-             LIMIT %d OFFSET %d",
-            $uid, $per_page, $offset
-        ), ARRAY_A ) ?: [];
-
-        $total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id = %d", $uid ) );
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — Memory Hub reads verified rolling pointers through the Context Bank adapter.
+		$all_rows = class_exists( 'BizCity_Context_Bank_Memory_Adapter' )
+			? BizCity_Context_Bank_Memory_Adapter::query( BizCity_Rolling_Memory::BUSINESS_CONTRACT_ID, array( 'blog_id' => get_current_blog_id(), 'user_id' => $uid, 'limit' => 500 ) )
+			: array();
+		$rows = array_slice( $all_rows, $offset, $per_page );
+		$rows = array_map( function ( $row ) { return array( 'id' => (int) ( $row['legacy_id'] ?? 0 ), 'record_id' => (string) ( $row['record_id'] ?? '' ), 'goal' => (string) ( $row['goal'] ?? '' ), 'goal_label' => (string) ( $row['goal_label'] ?? '' ), 'window_summary' => (string) ( $row['window_summary'] ?? '' ), 'status' => (string) ( $row['status'] ?? '' ), 'user_goal_score' => (int) ( $row['user_goal_score'] ?? 0 ), 'bot_satisfaction_score' => (int) ( $row['bot_satisfaction_score'] ?? 0 ), 'total_turns' => (int) ( $row['total_turns'] ?? 0 ), 'updated_at' => (string) ( $row['updated_at'] ?? '' ) ); }, $rows );
+		$total = count( $all_rows );
 
         wp_send_json_success( [ 'rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $per_page ] );
     }
@@ -3631,19 +3653,37 @@ class BizCity_Knowledge_Admin_Menu {
         }
 
         $uid = get_current_user_id();
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — use the same Context Bank reader for owner-scoped delete lookup.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
+        }
         $id  = intval( $_POST['id'] ?? 0 );
         if ( $id <= 0 ) {
             wp_send_json_error( [ 'message' => 'invalid_id' ] );
         }
 
-        global $wpdb;
-        $r = $wpdb->delete(
-            $wpdb->prefix . 'bizcity_memory_rolling',
-            [ 'id' => $id, 'user_id' => $uid ],
-            [ '%d', '%d' ]
-        );
-        if ( false === $r ) {
-            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — delete rolling records through Context Bank-backed receipt tombstones.
+        $deleted = false;
+        if ( class_exists( 'BizCity_Rolling_Memory' ) && class_exists( 'BizCity_Business_JSONL_File_Store' ) ) {
+            $rows = class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ? BizCity_Context_Bank_Memory_Adapter::query( BizCity_Rolling_Memory::BUSINESS_CONTRACT_ID, array(
+                'blog_id' => get_current_blog_id(),
+                'user_id' => $uid,
+                'limit'   => 1000,
+                'days'    => 3650,
+                'filter'  => function ( $row ) use ( $id ) {
+                    return (int) ( $row['legacy_id'] ?? 0 ) === $id;
+                },
+            ) ) : array();
+            foreach ( $rows as $row ) {
+                if ( ! empty( $row['record_id'] ) ) {
+                    $delete_receipt = BizCity_Business_JSONL_File_Store::delete_with_receipt( BizCity_Rolling_Memory::BUSINESS_CONTRACT_ID, (string) $row['record_id'], array( 'blog_id' => get_current_blog_id(), 'user_id' => $uid ) );
+                    $deleted = is_array( $delete_receipt );
+                    if ( $deleted ) { do_action( 'bizcity_memory_mirror_delete', 'rolling', $id, array( 'blog_id' => get_current_blog_id(), 'user_id' => $uid, 'record_id' => (string) $row['record_id'], 'filestore_receipt' => $delete_receipt ) ); }
+                }
+            }
+        }
+        if ( ! $deleted ) {
+            wp_send_json_error( [ 'message' => 'delete_failed' ] );
         }
         wp_send_json_success( [ 'id' => $id ] );
     }
@@ -3657,28 +3697,20 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
-        global $wpdb;
         $uid   = get_current_user_id();
-        $table = $wpdb->prefix . 'bizcity_memory_notes';
-        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-        if ( ! bizcity_tbl_exists( $table ) ) {
-            wp_send_json_success( [ 'rows' => [] ] );
-        }
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — notes list is served by the Context Bank-backed Notes service.
+		$service = class_exists( 'BizCity_TwinChat_Notes_Service' ) ? new BizCity_TwinChat_Notes_Service() : null;
+		if ( ! $service ) {
+			wp_send_json_success( [ 'rows' => [], 'total' => 0 ] );
+		}
 
         $page     = max( 1, intval( $_POST['page'] ?? 1 ) );
         $per_page = min( 100, max( 10, intval( $_POST['per_page'] ?? 50 ) ) );
         $offset   = ( $page - 1 ) * $per_page;
 
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, title, content, tags, note_type, is_starred, created_at, updated_at
-             FROM {$table}
-             WHERE user_id = %d
-             ORDER BY updated_at DESC
-             LIMIT %d OFFSET %d",
-            $uid, $per_page, $offset
-        ), ARRAY_A ) ?: [];
-
-        $total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id = %d", $uid ) );
+		$all_rows = $service->get_all_by_user( $uid, 500 );
+		$rows = array_slice( array_map( function ( $row ) { return (array) $row; }, $all_rows ), $offset, $per_page );
+		$total = count( $all_rows );
 
         wp_send_json_success( [ 'rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $per_page ] );
     }
@@ -3702,32 +3734,30 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error( [ 'message' => 'empty_note' ] );
         }
 
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_memory_notes';
-
-        if ( $note_id > 0 ) {
-            $r = $wpdb->update(
-                $table,
-                [ 'title' => $title, 'content' => $content, 'tags' => $tags, 'updated_at' => current_time( 'mysql' ) ],
-                [ 'id' => $note_id, 'user_id' => $uid ],
-                [ '%s', '%s', '%s', '%s' ],
-                [ '%d', '%d' ]
-            );
-            if ( false === $r ) {
-                wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'update_failed' ] );
-            }
-            wp_send_json_success( [ 'id' => $note_id, 'op' => 'updated' ] );
-        }
-
-        $r = $wpdb->insert(
-            $table,
-            [ 'user_id' => $uid, 'title' => $title, 'content' => $content, 'tags' => $tags, 'note_type' => 'manual', 'created_by' => 'user', 'created_at' => current_time( 'mysql' ), 'updated_at' => current_time( 'mysql' ) ],
-            [ '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
-        );
-        if ( ! $r ) {
-            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'insert_failed' ] );
-        }
-        wp_send_json_success( [ 'id' => (int) $wpdb->insert_id, 'op' => 'created' ] );
+		// [2026-09-01 Johnny Chu] PHASE-CB4.4 — Memory Hub notes CRUD is filestore-owned; SQL payload writes are disabled.
+		if ( ! class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+			wp_send_json_error( [ 'message' => 'notes_service_unavailable' ] );
+		}
+		$service = new BizCity_TwinChat_Notes_Service();
+		if ( $note_id > 0 ) {
+			$updated = $service->update( $note_id, array( 'title' => $title, 'content' => $content ) );
+			if ( ! $updated ) {
+				wp_send_json_error( [ 'message' => 'note_update_failed' ] );
+			}
+			wp_send_json_success( [ 'id' => $note_id, 'op' => 'updated' ] );
+		}
+		$created = $service->create( array(
+			'user_id'    => $uid,
+			'title'      => $title,
+			'content'    => $content,
+			'tags'       => $tags,
+			'note_type'  => 'manual',
+			'created_by' => 'user',
+		) );
+		if ( is_wp_error( $created ) ) {
+			wp_send_json_error( [ 'message' => $created->get_error_message() ] );
+		}
+		wp_send_json_success( [ 'id' => (int) $created, 'op' => 'created' ] );
     }
 
     /**
@@ -3745,16 +3775,13 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error( [ 'message' => 'invalid_id' ] );
         }
 
-        global $wpdb;
-        $r = $wpdb->delete(
-            $wpdb->prefix . 'bizcity_memory_notes',
-            [ 'id' => $note_id, 'user_id' => $uid ],
-            [ '%d', '%d' ]
-        );
-        if ( false === $r ) {
-            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
-        }
-        wp_send_json_success( [ 'id' => $note_id ] );
+		// [2026-09-01 Johnny Chu] PHASE-CB4.4 — delete notes through the canonical filestore tombstone.
+		$deleted = class_exists( 'BizCity_TwinChat_Notes_Service' )
+			&& ( new BizCity_TwinChat_Notes_Service() )->delete( $note_id );
+		if ( ! $deleted ) {
+			wp_send_json_error( [ 'message' => 'note_delete_failed' ] );
+		}
+		wp_send_json_success( [ 'id' => $note_id ] );
     }
 
     /**

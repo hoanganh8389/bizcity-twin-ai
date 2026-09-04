@@ -1,0 +1,34 @@
+{
+  "contract": "business-action",
+  "version": "1.0.0",
+  "action_id": "act_01hzy7m9qk",
+  "action": "order.draft",
+  "resource": {
+    "type": "conversation",
+    "id": "conversation:8821",
+    "scope": "assigned_resource"
+  },
+  "actor": {
+    "user_id": 42,
+    "surface": "gpt_member"
+  },
+  "idempotency_key": "order-draft:conversation:8821:01",
+  "authorization": {
+    "decision": "allowed",
+    "scope": "crm.inbox.assigned",
+    "policy_version": "1.0.0"
+  },
+  "confirmation": {
+    "required": false,
+    "status": "not_required"
+  },
+  "arguments": {
+    "product_refs": ["product:bosch_gsb550"],
+    "quantity": 1
+  },
+  "status": "applied",
+  "result": {
+    "draft_ref": "draft:01hzy7m9qk"
+  },
+  "occurred_at": "2026-08-30T12:00:00Z"
+}

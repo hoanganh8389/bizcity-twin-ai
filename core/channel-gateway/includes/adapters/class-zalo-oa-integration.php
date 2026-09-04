@@ -51,6 +51,13 @@ class BizCity_CG_Zalo_OA_Integration extends BizCity_Channel_Integration {
 	const ZALO_SEND_TIMEOUT = 15;
 
 	protected array $settings = array(
+		'connection_mode' => array(
+			'type'     => 'select',
+			'label'    => 'Cách kết nối',
+			'desc'     => 'Chọn Developer App riêng hoặc BizCity Managed qua 1API.',
+			'options'  => array( 'self_managed' => 'Tự khai báo Developer App', 'managed_1api' => 'BizCity Managed (1API)' ),
+			'default'  => 'self_managed',
+		),
 		'oa_id'            => array(
 			'type'     => 'text',
 			'label'    => 'OA ID',
@@ -62,6 +69,34 @@ class BizCity_CG_Zalo_OA_Integration extends BizCity_Channel_Integration {
 			'type'     => 'text',
 			'label'    => 'Tên OA',
 			'desc'     => 'Tự điền sau khi kết nối thành công.',
+			'default'  => '',
+			'readonly' => true,
+		),
+		'managed_hub_account_id' => array(
+			'type'     => 'text',
+			'label'    => 'Managed Hub account ID',
+			'desc'     => 'Chỉ đọc, được đồng bộ từ BizCity Hub.',
+			'default'  => '',
+			'readonly' => true,
+		),
+		'managed_oa_id' => array(
+			'type'     => 'text',
+			'label'    => 'Managed OA ID',
+			'desc'     => 'Chỉ đọc, được xác nhận bởi BizCity Hub.',
+			'default'  => '',
+			'readonly' => true,
+		),
+		'managed_oa_name' => array(
+			'type'     => 'text',
+			'label'    => 'Managed OA name',
+			'desc'     => 'Chỉ đọc, được xác nhận bởi BizCity Hub.',
+			'default'  => '',
+			'readonly' => true,
+		),
+		'managed_status' => array(
+			'type'     => 'text',
+			'label'    => 'Managed status',
+			'desc'     => 'pending | active | revoked.',
 			'default'  => '',
 			'readonly' => true,
 		),

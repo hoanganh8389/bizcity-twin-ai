@@ -56,17 +56,58 @@ final class BizCity_Log_Explorer {
 		$date     = isset( $_GET['date'] ) ? sanitize_text_field( wp_unslash( $_GET['date'] ) ) : '';
 		$level    = isset( $_GET['level'] ) ? sanitize_key( wp_unslash( $_GET['level'] ) ) : '';
 		$search   = isset( $_GET['search'] ) ? sanitize_text_field( wp_unslash( $_GET['search'] ) ) : '';
+		$view_all  = isset( $_GET['view'] ) && sanitize_key( wp_unslash( $_GET['view'] ) ) === 'all';
+		$index_event = isset( $_GET['index_event'] ) ? sanitize_key( wp_unslash( $_GET['index_event'] ) ) : '';
+		$index_ref_id = isset( $_GET['index_ref_id'] ) ? sanitize_text_field( wp_unslash( $_GET['index_ref_id'] ) ) : '';
 		$page     = isset( $_GET['log_page'] ) ? max( 1, (int) $_GET['log_page'] ) : 1;
 		$per_page = 50;
-		$rows     = $contract ? self::query_rows( $contract, $date, $level, $search ) : array();
+		$rows     = $contract ? self::query_rows( $contract_id, $contract, $date, $level, $search ) : array();
 		$total    = count( $rows );
 		$rows     = array_slice( $rows, ( $page - 1 ) * $per_page, $per_page );
+		$index_rows = $view_all && class_exists( 'BizCity_Log_Index' )
+			? BizCity_Log_Index::search( array( 'event' => $index_event, 'ref_id' => $index_ref_id, 'limit' => 200 ) )
+			: array();
 		?>
 		<div class="wrap">
 			<h1><?php esc_html_e( 'BizCity Logs', 'bizcity-twin-ai' ); ?></h1>
 			<?php if ( empty( $contracts ) ) : ?>
 				<div class="notice notice-info"><p><?php esc_html_e( 'Chưa có log contract nào được đăng ký.', 'bizcity-twin-ai' ); ?></p></div>
 			<?php return; endif; ?>
+			<p>
+				<a class="button <?php echo $view_all ? 'button-primary' : 'button-secondary'; ?>" href="<?php echo esc_url( add_query_arg( array( 'page' => self::PAGE_SLUG, 'view' => 'all' ), admin_url( 'tools.php' ) ) ); ?>"><?php esc_html_e( 'Search across all logs', 'bizcity-twin-ai' ); ?></a>
+				<a class="button button-secondary" href="<?php echo esc_url( add_query_arg( array( 'page' => self::PAGE_SLUG ), admin_url( 'tools.php' ) ) ); ?>"><?php esc_html_e( 'Contract view', 'bizcity-twin-ai' ); ?></a>
+			</p>
+			<?php if ( $view_all ) : ?>
+				<form method="get">
+					<input type="hidden" name="page" value="<?php echo esc_attr( self::PAGE_SLUG ); ?>">
+					<input type="hidden" name="view" value="all">
+					<label for="bizcity-index-event"><?php esc_html_e( 'Event', 'bizcity-twin-ai' ); ?></label>
+					<input id="bizcity-index-event" type="search" name="index_event" value="<?php echo esc_attr( $index_event ); ?>">
+					<label for="bizcity-index-ref"><?php esc_html_e( 'Correlation ID', 'bizcity-twin-ai' ); ?></label>
+					<input id="bizcity-index-ref" type="search" name="index_ref_id" value="<?php echo esc_attr( $index_ref_id ); ?>">
+					<?php submit_button( __( 'Search index', 'bizcity-twin-ai' ), 'secondary', '', false ); ?>
+				</form>
+				<table class="widefat striped">
+					<thead><tr><th><?php esc_html_e( 'Time', 'bizcity-twin-ai' ); ?></th><th><?php esc_html_e( 'Contract', 'bizcity-twin-ai' ); ?></th><th><?php esc_html_e( 'Event', 'bizcity-twin-ai' ); ?></th><th><?php esc_html_e( 'Correlation', 'bizcity-twin-ai' ); ?></th><th><?php esc_html_e( 'Pointer', 'bizcity-twin-ai' ); ?></th></tr></thead>
+					<tbody>
+					<?php foreach ( $index_rows as $index_row ) : ?>
+						<?php
+						$pointer_check = class_exists( 'BizCity_JSONL_File_Logger' )
+							? BizCity_JSONL_File_Logger::verify_pointer( $index_row['jsonl_folder'], $index_row['jsonl_module'], $index_row['relative_file'], $index_row['byte_offset'], $index_row['row_hash'] )
+							: array( 'valid' => false );
+						?>
+						<tr>
+							<td><?php echo esc_html( (string) ( $index_row['ts'] ?? '' ) ); ?></td>
+							<td><code><?php echo esc_html( (string) ( $index_row['contract_id'] ?? '' ) ); ?></code></td>
+							<td><?php echo esc_html( (string) ( $index_row['event'] ?? '' ) ); ?></td>
+							<td><?php echo esc_html( (string) ( $index_row['ref_id'] ?? '' ) ); ?></td>
+							<td><code><?php echo esc_html( (string) ( $index_row['relative_file'] ?? '' ) ); ?></code><br><?php if ( ! empty( $pointer_check['valid'] ) ) : ?><strong style="color:#00674e">&#10003; verified</strong><?php else : ?><strong style="color:#b32d2e">&#10007; pointer mismatch</strong><?php endif; ?><br><a href="<?php echo esc_url( add_query_arg( array( 'page' => self::PAGE_SLUG, 'contract' => (string) ( $index_row['contract_id'] ?? '' ), 'date' => (string) ( $index_row['log_date'] ?? '' ) ), admin_url( 'tools.php' ) ) ); ?>"><?php esc_html_e( 'Open source', 'bizcity-twin-ai' ); ?></a></td>
+						</tr>
+					<?php endforeach; ?>
+					<?php if ( empty( $index_rows ) ) : ?><tr><td colspan="5"><?php esc_html_e( 'No indexed pointer matched.', 'bizcity-twin-ai' ); ?></td></tr><?php endif; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
 			<form method="get">
 				<input type="hidden" name="page" value="<?php echo esc_attr( self::PAGE_SLUG ); ?>">
 				<label for="bizcity-log-contract"><?php esc_html_e( 'Nguồn log', 'bizcity-twin-ai' ); ?></label>
@@ -120,16 +161,16 @@ final class BizCity_Log_Explorer {
 		<?php
 	}
 
-	private static function query_rows( array $contract, $date, $level, $search ) {
+	private static function query_rows( $contract_id, array $contract, $date, $level, $search ) {
 		// [2026-08-25 Johnny Chu] PHASE-1.29-LOG-EXPLORER — keep reads bounded and use the shared logger only.
 		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return array();
 		}
 		$args = array( 'days' => 30, 'limit' => 5000, 'level' => $level );
 		if ( $date !== '' && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
-			$rows = BizCity_JSONL_File_Logger::read( $contract['jsonl_folder'], $contract['jsonl_module'], $date, 5000, $level );
+			$rows = BizCity_JSONL_File_Logger::read_contract( $contract_id, $date, 5000, $level );
 		} else {
-			$rows = BizCity_JSONL_File_Logger::query( $contract['jsonl_folder'], $contract['jsonl_module'], $args );
+			$rows = BizCity_JSONL_File_Logger::query_contract( $contract_id, $args );
 		}
 		if ( $search === '' ) {
 			return (array) $rows;
@@ -179,7 +220,7 @@ final class BizCity_Log_Explorer {
 		$date   = isset( $_GET['date'] ) ? sanitize_text_field( wp_unslash( $_GET['date'] ) ) : '';
 		$level  = isset( $_GET['level'] ) ? sanitize_key( wp_unslash( $_GET['level'] ) ) : '';
 		$search = isset( $_GET['search'] ) ? sanitize_text_field( wp_unslash( $_GET['search'] ) ) : '';
-		$rows   = self::query_rows( $contracts[ $id ], $date, $level, $search );
+		$rows   = self::query_rows( $id, $contracts[ $id ], $date, $level, $search );
 		$format = isset( $_GET['format'] ) && sanitize_key( wp_unslash( $_GET['format'] ) ) === 'csv' ? 'csv' : 'jsonl';
 		header( 'Content-Disposition: attachment; filename=bizcity-log-' . sanitize_key( $id ) . '.' . $format );
 		header( 'Content-Type: ' . ( $format === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson; charset=utf-8' ) );

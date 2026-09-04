@@ -26,12 +26,12 @@ class BizCity_WebChat_Database {
      */
     private static $table_policy = array(
         'bizcity_webchat_messages'    => 'core_active',
-        'bizcity_webchat_projects'    => 'observe_active',
-        'bizcity_webchat_sessions'    => 'observe_active',
-        'bizcity_webchat_conversations' => 'observe_active',
-        'bizcity_webchat_tasks'       => 'quarantine_write_block',
-        'bizcity_webchat_task_steps'  => 'quarantine_write_block',
-        'bizcity_memory_session'      => 'quarantine_write_block',
+        'bizcity_webchat_projects'    => 'retired',
+        'bizcity_webchat_sessions'    => 'quarantine',
+        'bizcity_webchat_conversations' => 'quarantine',
+        'bizcity_webchat_tasks'       => 'retired',
+        'bizcity_webchat_task_steps'  => 'retired',
+        'bizcity_memory_session'      => 'retired',
     );
 
     /**
@@ -47,6 +47,14 @@ class BizCity_WebChat_Database {
      * Check whether a table is currently blocked for new writes.
      */
     public static function table_write_blocked( $bare_name ) {
+        // [2026-08-26 Johnny Chu] PHASE-1.30-CENTRAL-POLICY — WebChat write gates follow the central lifecycle state when available.
+        // [2026-08-27 Johnny Chu] PHASE-1.30-WEBCHAT-FREEZE — preserve the stricter local write-freeze for staged projections in quarantine.
+        if ( self::table_policy( $bare_name ) === 'quarantine_write_block' ) {
+            return true;
+        }
+        if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::is_legacy( $bare_name ) ) {
+            return ! BizCity_Legacy_Table_Policy::allow_sql( $bare_name, 'write' );
+        }
         return self::table_policy( $bare_name ) === 'quarantine_write_block';
     }
 
@@ -55,6 +63,9 @@ class BizCity_WebChat_Database {
      */
     public static function table_exists_for_policy( $bare_name ) {
         // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — expose a safe existence check for compatibility readers.
+        if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::allow_sql( $bare_name, 'read' ) ) {
+            return false;
+        }
         return self::physical_table_exists( $bare_name );
     }
 
@@ -62,6 +73,7 @@ class BizCity_WebChat_Database {
      * Check physical existence without issuing a missing-table query.
      */
     private static function physical_table_exists( $bare_name ) {
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — resolve only the requested table; retired callers are gated before this helper.
         global $wpdb;
         $table = $wpdb->prefix . $bare_name;
         return function_exists( 'bizcity_tbl_exists' )
@@ -131,77 +143,11 @@ class BizCity_WebChat_Database {
             INDEX idx_sort (user_id, sort_order)
         ) {$charset_collate};";
         
-        // Table: webchat_sessions - Chat sessions with auto-title & rolling summary
-        $table_sessions = $wpdb->prefix . 'bizcity_webchat_sessions';
-        $sql_sessions = "CREATE TABLE IF NOT EXISTS {$table_sessions} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            session_id VARCHAR(128) NOT NULL,
-            user_id BIGINT UNSIGNED DEFAULT 0,
-            project_id VARCHAR(50) DEFAULT '',
-            character_id BIGINT UNSIGNED DEFAULT 0,
-            
-            title VARCHAR(255) DEFAULT '',
-            title_generated TINYINT(1) DEFAULT 0,
-            
-            client_name VARCHAR(255),
-            platform_type VARCHAR(32) DEFAULT 'WEBCHAT',
-            status ENUM('active', 'closed', 'archived') DEFAULT 'active',
-            
-            rolling_summary TEXT,
-            summary_updated_at DATETIME,
-            context_tokens INT DEFAULT 0,
-            
-            message_count INT DEFAULT 0,
-            last_message_at DATETIME,
-            last_message_preview VARCHAR(255),
-            
-            meta LONGTEXT,
-
-            kci_ratio TINYINT UNSIGNED DEFAULT 80,
-
-            session_memory_mode VARCHAR(20) DEFAULT 'off',
-            session_memory_spec LONGTEXT,
-            session_focus_summary TEXT,
-            session_open_loops TEXT,
-            session_next_actions TEXT,
-            session_memory_updated_at DATETIME NULL,
-            context_layers_snapshot LONGTEXT,
-            
-            started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            ended_at DATETIME NULL,
-            
-            UNIQUE KEY uniq_session_id (session_id),
-            INDEX idx_user (user_id),
-            INDEX idx_project (project_id),
-            INDEX idx_status (status),
-            INDEX idx_platform (platform_type),
-            INDEX idx_activity (user_id, last_message_at)
-        ) {$charset_collate};";
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — session metadata/state is owned by modules.webchat.session_state; no session SQL DDL is emitted.
         
         // ============================================
         // EXISTING TABLES (kept for backward compat)
         // ============================================
-        
-        // Table: webchat_conversations (legacy - migrate to sessions)
-        $table_conversations = $wpdb->prefix . 'bizcity_webchat_conversations';
-        $sql_conversations = "CREATE TABLE IF NOT EXISTS {$table_conversations} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            session_id VARCHAR(128) NOT NULL,
-            user_id BIGINT UNSIGNED DEFAULT 0,
-            client_name VARCHAR(255),
-            coachee_id BIGINT UNSIGNED DEFAULT NULL,
-            title VARCHAR(255) DEFAULT '',
-            platform_type VARCHAR(32) DEFAULT 'WEBCHAT',
-            status VARCHAR(32) DEFAULT 'active',
-            project_id VARCHAR(36) DEFAULT '',
-            started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            ended_at DATETIME NULL,
-            meta LONGTEXT,
-            INDEX idx_session (session_id),
-            INDEX idx_user (user_id),
-            INDEX idx_status (status),
-            INDEX idx_project (user_id, project_id)
-        ) {$charset_collate};";
         
         // Table: webchat_messages (updated with session support + plugin_slug for @ mentions)
         $table_messages = $wpdb->prefix . 'bizcity_webchat_messages';
@@ -242,73 +188,6 @@ class BizCity_WebChat_Database {
             INDEX idx_status (status)
         ) {$charset_collate};";
         
-        // Table: webchat_tasks (Timeline/Task tracking giống Relevance AI)
-        $table_tasks = $wpdb->prefix . 'bizcity_webchat_tasks';
-        $sql_tasks = "CREATE TABLE IF NOT EXISTS {$table_tasks} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            task_id VARCHAR(64) NOT NULL,
-            session_id VARCHAR(128) NOT NULL,
-            user_id BIGINT UNSIGNED DEFAULT 0,
-            triggered_by VARCHAR(255),
-            task_name VARCHAR(255),
-            task_status ENUM('pending', 'running', 'paused', 'completed', 'failed') DEFAULT 'pending',
-            workflow_id BIGINT UNSIGNED DEFAULT 0,
-            actions_used INT DEFAULT 0,
-            credits_used DECIMAL(10,2) DEFAULT 0,
-            run_time_seconds INT DEFAULT 0,
-            started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            completed_at DATETIME NULL,
-            meta LONGTEXT,
-            UNIQUE KEY uniq_task (task_id),
-            INDEX idx_session (session_id),
-            INDEX idx_status (task_status),
-            INDEX idx_workflow (workflow_id)
-        ) {$charset_collate};";
-        
-        // Table: webchat_task_steps (Timeline steps)
-        $table_steps = $wpdb->prefix . 'bizcity_webchat_task_steps';
-        $sql_steps = "CREATE TABLE IF NOT EXISTS {$table_steps} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            step_id VARCHAR(64) NOT NULL,
-            task_id VARCHAR(64) NOT NULL,
-            step_type ENUM('trigger', 'action', 'response', 'tool', 'hil') DEFAULT 'action',
-            step_name VARCHAR(255),
-            step_status ENUM('pending', 'running', 'completed', 'failed', 'skipped') DEFAULT 'pending',
-            input_data LONGTEXT,
-            output_data LONGTEXT,
-            duration_ms INT DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            completed_at DATETIME NULL,
-            meta LONGTEXT,
-            UNIQUE KEY uniq_step (step_id),
-            INDEX idx_task (task_id),
-            INDEX idx_type (step_type),
-            INDEX idx_status (step_status)
-        ) {$charset_collate};";
-        
-        // Table: webchat_memory (User memory/profile from LLM)
-        $table_memory = $wpdb->prefix . 'bizcity_memory_session';
-        $sql_memory = "CREATE TABLE IF NOT EXISTS {$table_memory} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            session_id VARCHAR(128) NOT NULL,
-            user_id BIGINT UNSIGNED DEFAULT 0,
-            client_name VARCHAR(255),
-            memory_type VARCHAR(32) NOT NULL COMMENT 'identity, preference, goal, pain, constraint, habit, relationship, fact',
-            memory_key VARCHAR(128) NOT NULL COMMENT 'Slug key, e.g. likes:milk_tea',
-            memory_text TEXT NOT NULL COMMENT 'Normalized description',
-            score TINYINT UNSIGNED DEFAULT 50 COMMENT 'Importance score 0-100',
-            times_seen INT UNSIGNED DEFAULT 1 COMMENT 'How many times seen',
-            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-            source_message_ids TEXT COMMENT 'Comma-separated message IDs',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_memory (session_id, user_id, memory_key),
-            INDEX idx_session (session_id),
-            INDEX idx_user (user_id),
-            INDEX idx_type (memory_type),
-            INDEX idx_score (score)
-        ) {$charset_collate};";
-        
         // [2026-08-25 Johnny Chu] PHASE-1.29-SAFE-LOADER — load dbDelta only through the guarded Core helper.
         if ( ! class_exists( 'BizCity_Safe_Loader', false )
             || ! BizCity_Safe_Loader::require_file( ABSPATH . 'wp-admin/includes/upgrade.php', 'wordpress.dbdelta' )
@@ -322,48 +201,25 @@ class BizCity_WebChat_Database {
         }
         
         // V3.0 new tables first
-        dbDelta($sql_projects);
-        dbDelta($sql_sessions);
-        
-        // Legacy + updated tables
-        dbDelta($sql_conversations);
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — projects are owned by the notebook repository; never recreate the retired SQL projection.
+        if ( ! self::table_write_blocked( 'bizcity_webchat_projects' ) ) {
+            dbDelta($sql_projects);
+        }
+        // Canonical message projection; conversation metadata is represented by marker rows in this table.
         dbDelta($sql_messages);
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — do not provision legacy task/memory projections after write freeze.
-        if ( ! self::table_write_blocked( 'bizcity_webchat_tasks' ) ) {
-            dbDelta($sql_tasks);
-        }
-        if ( ! self::table_write_blocked( 'bizcity_webchat_task_steps' ) ) {
-            dbDelta($sql_steps);
-        }
-        if ( ! self::table_write_blocked( 'bizcity_memory_session' ) ) {
-            dbDelta($sql_memory);
-        }
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — no conversation-table installer remains.
 
-        // Migration: add columns + migrate data
+        // Migration: add message columns and retain existing non-conversation support tables.
         $this->maybe_upgrade_conversations();
-        $this->maybe_upgrade_sessions();
-        $this->maybe_migrate_conversations_to_sessions();
     }
 
     /**
-     * Migration: add title + project_id columns to webchat_conversations if missing.
-     * Also add plugin_slug column to webchat_messages for @ mention support.
+     * Migration: add message/support columns for the active WebChat projection.
      * Public so it can be called from ensure_tables_exist().
      */
     public function maybe_upgrade_conversations() {
         global $wpdb;
-        $table_conversations = $wpdb->prefix . 'bizcity_webchat_conversations';
         $table_messages = $wpdb->prefix . 'bizcity_webchat_messages';
-
-        // Migration 1: Add title + project_id to conversations table
-        $cols_conv = $wpdb->get_col( "DESCRIBE {$table_conversations}", 0 );
-        if ( ! in_array( 'title', $cols_conv, true ) ) {
-            $wpdb->query( "ALTER TABLE {$table_conversations} ADD COLUMN title VARCHAR(255) DEFAULT '' AFTER client_name" );
-        }
-        if ( ! in_array( 'project_id', $cols_conv, true ) ) {
-            $wpdb->query( "ALTER TABLE {$table_conversations} ADD COLUMN project_id VARCHAR(36) DEFAULT '' AFTER status" );
-            $wpdb->query( "ALTER TABLE {$table_conversations} ADD INDEX idx_project (user_id, project_id)" );
-        }
 
         // Migration 2: Add plugin_slug to messages table for @ mention support
         $cols_msg = $wpdb->get_col( "DESCRIBE {$table_messages}", 0 );
@@ -394,12 +250,6 @@ class BizCity_WebChat_Database {
         if ( ! in_array( 'project_id', $cols_msg, true ) ) {
             $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN project_id VARCHAR(50) DEFAULT '' AFTER platform_type" );
             $wpdb->query( "ALTER TABLE {$table_messages} ADD INDEX idx_project_id (project_id)" );
-        }
-
-        // Migration 7 (v3.8.0): Add coachee_id to conversations table for BizCoach profile linking
-        if ( ! in_array( 'coachee_id', $cols_conv, true ) ) {
-            $wpdb->query( "ALTER TABLE {$table_conversations} ADD COLUMN coachee_id BIGINT UNSIGNED DEFAULT NULL AFTER user_id" );
-            $wpdb->query( "ALTER TABLE {$table_conversations} ADD INDEX idx_coachee (coachee_id)" );
         }
 
         // Migration 8 (v3.9.1): Add todo_id to messages table for pipeline todo tracking
@@ -526,83 +376,17 @@ class BizCity_WebChat_Database {
      * KCI Ratio = Knowledge ↔ Execution slider (0-100, default 80 = 80% knowledge).
      */
     public function maybe_upgrade_sessions() {
-        global $wpdb;
-        $table_sessions = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-        $cols = $wpdb->get_col( "DESCRIBE {$table_sessions}", 0 );
-        if ( ! in_array( 'kci_ratio', $cols, true ) ) {
-            $wpdb->query( "ALTER TABLE {$table_sessions} ADD COLUMN kci_ratio TINYINT UNSIGNED DEFAULT 80 AFTER meta" );
-        }
-
-        // v3.10.0 — Session Memory Spec columns
-        $new_cols = [
-            'session_memory_mode'       => "VARCHAR(20) DEFAULT 'off' AFTER kci_ratio",
-            'session_memory_spec'       => 'LONGTEXT AFTER session_memory_mode',
-            'session_focus_summary'     => 'TEXT AFTER session_memory_spec',
-            'session_open_loops'        => 'TEXT AFTER session_focus_summary',
-            'session_next_actions'      => 'TEXT AFTER session_open_loops',
-            'session_memory_updated_at' => 'DATETIME NULL AFTER session_next_actions',
-            'context_layers_snapshot'   => 'LONGTEXT AFTER session_memory_updated_at',
-        ];
-        foreach ( $new_cols as $col_name => $col_def ) {
-            if ( ! in_array( $col_name, $cols, true ) ) {
-                $wpdb->query( "ALTER TABLE {$table_sessions} ADD COLUMN {$col_name} {$col_def}" );
-            }
-        }
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — retained compatibility entry point no longer inspects or alters session SQL.
+        return true;
     }
 
     /**
-     * Migration: Copy data from webchat_conversations to webchat_sessions.
-     * Only runs once (checks if webchat_sessions is empty).
+     * Legacy conversation migration is intentionally disabled. New session
+     * metadata is represented by a marker row in webchat_messages.
      */
     public function maybe_migrate_conversations_to_sessions() {
-        global $wpdb;
-        $tbl_sessions = $wpdb->prefix . 'bizcity_webchat_sessions';
-        $tbl_conv = $wpdb->prefix . 'bizcity_webchat_conversations';
-        $tbl_msg = $wpdb->prefix . 'bizcity_webchat_messages';
-        
-        // Check if migration already done
-        $session_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_sessions}" );
-        if ( $session_count > 0 ) {
-            return; // Already migrated
-        }
-        
-        // Migrate conversations to sessions
-        $conversations = $wpdb->get_results( "SELECT * FROM {$tbl_conv} ORDER BY id ASC" );
-        foreach ( $conversations as $conv ) {
-            // Count messages for this conversation
-            $msg_count = (int) $wpdb->get_var( $wpdb->prepare(
-                "SELECT COUNT(*) FROM {$tbl_msg} WHERE session_id = %s",
-                $conv->session_id
-            ) );
-            
-            // Get last message info
-            $last_msg = $wpdb->get_row( $wpdb->prepare(
-                "SELECT message_text, created_at FROM {$tbl_msg} WHERE session_id = %s ORDER BY id DESC LIMIT 1",
-                $conv->session_id
-            ) );
-            
-            $wpdb->insert( $tbl_sessions, [
-                'session_id'           => $conv->session_id,
-                'user_id'              => $conv->user_id,
-                'project_id'           => $conv->project_id ?: '',
-                'character_id'         => 0,
-                'title'                => $conv->title ?: '',
-                'title_generated'      => !empty($conv->title) ? 1 : 0,
-                'client_name'          => $conv->client_name,
-                'platform_type'        => $conv->platform_type,
-                'status'               => $conv->status,
-                'rolling_summary'      => '',
-                'summary_updated_at'   => null,
-                'context_tokens'       => 0,
-                'message_count'        => $msg_count,
-                'last_message_at'      => $last_msg ? $last_msg->created_at : null,
-                'last_message_preview' => $last_msg ? mb_substr( $last_msg->message_text, 0, 200 ) : '',
-                'meta'                 => $conv->meta,
-                'started_at'           => $conv->started_at,
-                'ended_at'             => $conv->ended_at,
-            ] );
-        }
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — retain the public compatibility method without reading or writing the retired conversation table.
+        return 0;
     }
     
     /**
@@ -698,130 +482,9 @@ class BizCity_WebChat_Database {
      * @param array  $data
      */
     private function update_session_stats_v3( $session_id, $data ) {
-        global $wpdb;
-        $sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        
-        // Check if sessions table exists
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$sessions_table'" ) !== $sessions_table ) {
-            return;
-        }
-        
-        // Get session
-        $session = $wpdb->get_row( $wpdb->prepare(
-            "SELECT id, title, title_generated, message_count FROM {$sessions_table} WHERE session_id = %s LIMIT 1",
-            $session_id
-        ) );
-        
-        // Auto-create V3 session if it doesn't exist
-        if ( ! $session ) {
-            $user_id = $data['user_id'] ?? get_current_user_id();
-            $client_name = $data['client_name'] ?? '';
-            $platform_type = $data['platform_type'] ?? 'WEBCHAT';
-            
-            // Check if session_id format matches ADMINCHAT pattern
-            if ( strpos( $session_id, 'adminchat_' ) === 0 ) {
-                $platform_type = 'ADMINCHAT';
-            }
-            
-            // Create session record
-            $wpdb->insert( $sessions_table, [
-                'session_id'           => $session_id,
-                'user_id'              => (int) $user_id,
-                'project_id'           => '',
-                'character_id'         => 0,
-                'title'                => '',
-                'title_generated'      => 0,
-                'client_name'          => $client_name,
-                'platform_type'        => $platform_type,
-                'status'               => 'active',
-                'rolling_summary'      => '',
-                'summary_updated_at'   => null,
-                'context_tokens'       => 0,
-                'message_count'        => 0,
-                'last_message_at'      => null,
-                'last_message_preview' => '',
-                'meta'                 => null,
-                'started_at'           => current_time('mysql'),
-                'ended_at'             => null,
-            ] );
-            
-            // Log auto-create to Router Console
-            if ( class_exists( 'BizCity_User_Memory' ) ) {
-                BizCity_User_Memory::log_router_event( [
-                    'step'             => 'session_auto_create',
-                    'message'          => 'V3 session auto-created on first message',
-                    'mode'             => 'webchat_db',
-                    'functions_called' => 'update_session_stats_v3() → INSERT',
-                    'file_line'        => 'class-webchat-database.php',
-                    'session_uuid'     => $session_id,
-                    'platform_type'    => $platform_type,
-                    'user_id'          => (int) $user_id,
-                    'status'           => 'success',
-                ], $session_id );
-            }
-            
-            // Fetch the newly created session
-            $session = $wpdb->get_row( $wpdb->prepare(
-                "SELECT id, title, title_generated, message_count FROM {$sessions_table} WHERE session_id = %s LIMIT 1",
-                $session_id
-            ) );
-            
-            if ( ! $session ) {
-                // Log failure
-                if ( class_exists( 'BizCity_User_Memory' ) ) {
-                    BizCity_User_Memory::log_router_event( [
-                        'step'             => 'session_auto_create',
-                        'message'          => 'Failed to create V3 session',
-                        'mode'             => 'webchat_db',
-                        'functions_called' => 'update_session_stats_v3() → INSERT',
-                        'file_line'        => 'class-webchat-database.php',
-                        'session_uuid'     => $session_id,
-                        'status'           => 'failed',
-                        'db_error'         => $wpdb->last_error,
-                    ], $session_id );
-                }
-                return; // Failed to create
-            }
-        }
-        
-        $message_text = $data['message_text'] ?? '';
-        $message_from = $data['message_from'] ?? 'user';
-        $new_count = (int) $session->message_count + 1;
-        
-        // Prepare update data
-        $update = [
-            'message_count'        => $new_count,
-            'last_message_at'      => current_time('mysql'),
-            'last_message_preview' => mb_substr( $message_text, 0, 100 ),
-        ];
-        
-        // Auto-gen title from first USER message if title is empty
-        $title_generated_now = false;
-        if ( $message_from === 'user' && empty( $session->title ) && (int) $session->title_generated === 0 ) {
-            $update['title'] = $this->generate_session_title( $message_text );
-            $update['title_generated'] = 1;
-            $title_generated_now = true;
-        }
-        
-        $wpdb->update( $sessions_table, $update, [ 'id' => (int) $session->id ] );
-        
-        // Log to Router Console
-        if ( class_exists( 'BizCity_User_Memory' ) ) {
-            $log_data = [
-                'step'             => 'session_stats_update',
-                'message'          => mb_substr( $message_text, 0, 60, 'UTF-8' ),
-                'mode'             => 'webchat_db',
-                'functions_called' => 'update_session_stats_v3()',
-                'file_line'        => 'class-webchat-database.php',
-                'session_pk'       => (int) $session->id,
-                'session_uuid'     => $session_id,
-                'message_count'    => $new_count,
-                'title_generated'  => $title_generated_now ? 'yes' : 'no',
-            ];
-            if ( $title_generated_now ) {
-                $log_data['new_title'] = $update['title'];
-            }
-            BizCity_User_Memory::log_router_event( $log_data, $session_id );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — message writes update session counters and title through the filestore owner.
+        if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+            BizCity_WebChat_Session_State::instance()->update_message_stats( $session_id, $data );
         }
     }
     
@@ -860,29 +523,8 @@ class BizCity_WebChat_Database {
      * Get or create conversation
      */
     public function get_or_create_conversation($session_id, $data = []) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        
-        // Check existing active conversation
-        $existing = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$table} WHERE session_id = %s AND status = 'active' ORDER BY id DESC LIMIT 1",
-            $session_id
-        ));
-        
-        if ($existing) {
-            return (int) $existing;
-        }
-        
-        // Create new conversation
-        $wpdb->insert($table, [
-            'session_id' => $session_id,
-            'user_id' => $data['user_id'] ?? 0,
-            'client_name' => $data['client_name'] ?? '',
-            'platform_type' => $data['platform_type'] ?? 'WEBCHAT',
-            'status' => 'active',
-        ]);
-        
-        return $wpdb->insert_id;
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — use a canonical marker row in webchat_messages instead of the retired conversation table.
+        return $this->get_or_create_conversation_marker( $session_id, $data );
     }
     
     /**
@@ -899,7 +541,7 @@ class BizCity_WebChat_Database {
         }
         
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$table} WHERE session_id = %s AND platform_type = %s ORDER BY id ASC LIMIT %d, %d",
+            "SELECT * FROM {$table} WHERE session_id = %s AND platform_type = %s AND message_type != 'conversation_meta' ORDER BY id ASC LIMIT %d, %d",
             $session_id,
             $platform_type,
             $offset,
@@ -926,202 +568,205 @@ class BizCity_WebChat_Database {
      * Create task (for timeline tracking)
      */
     public function create_task($data) {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — legacy task writes are frozen; callers receive a safe empty ID.
-        if ( self::table_write_blocked( 'bizcity_webchat_tasks' ) || ! self::physical_table_exists( 'bizcity_webchat_tasks' ) ) {
-            return '';
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_tasks';
-        
-        $task_id = $data['task_id'] ?? uniqid('task_');
-        
-        $wpdb->insert($table, [
-            'task_id' => $task_id,
-            'session_id' => $data['session_id'] ?? '',
-            'user_id' => $data['user_id'] ?? 0,
-            'triggered_by' => $data['triggered_by'] ?? '',
-            'task_name' => $data['task_name'] ?? '',
-            'task_status' => 'running',
-            'workflow_id' => $data['workflow_id'] ?? 0,
-        ]);
-        
-        return $task_id;
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — task state is owned by Goal/Event Stream; preserve the legacy API without SQL fallback.
+        return '';
     }
     
     /**
      * Update task
      */
     public function update_task($task_id, $data) {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — prevent new writes to the retired task projection.
-        if ( self::table_write_blocked( 'bizcity_webchat_tasks' ) || ! self::physical_table_exists( 'bizcity_webchat_tasks' ) ) {
-            return false;
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_tasks';
-        
-        return $wpdb->update($table, $data, ['task_id' => $task_id]);
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — retired task projection updates are refused before any SQL.
+        return false;
     }
     
     /**
      * Complete task
      */
     public function complete_task($task_id, $status = 'completed') {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — prevent task status writes after quarantine.
-        if ( self::table_write_blocked( 'bizcity_webchat_tasks' ) || ! self::physical_table_exists( 'bizcity_webchat_tasks' ) ) {
-            return false;
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_tasks';
-        
-        return $wpdb->update($table, [
-            'task_status' => $status,
-            'completed_at' => current_time('mysql'),
-        ], ['task_id' => $task_id]);
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — task completion is recorded by the canonical event owner, not this retired projection.
+        return false;
     }
     
     /**
      * Add task step
      */
     public function add_task_step($data) {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — prevent new timeline-step rows.
-        if ( self::table_write_blocked( 'bizcity_webchat_task_steps' ) || ! self::physical_table_exists( 'bizcity_webchat_task_steps' ) ) {
-            return '';
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_task_steps';
-        
-        $step_id = $data['step_id'] ?? uniqid('step_');
-        
-        $wpdb->insert($table, [
-            'step_id' => $step_id,
-            'task_id' => $data['task_id'] ?? '',
-            'step_type' => $data['step_type'] ?? 'action',
-            'step_name' => $data['step_name'] ?? '',
-            'step_status' => $data['step_status'] ?? 'pending',
-            'input_data' => isset($data['input_data']) ? wp_json_encode($data['input_data']) : '',
-            'output_data' => isset($data['output_data']) ? wp_json_encode($data['output_data']) : '',
-            'duration_ms' => $data['duration_ms'] ?? 0,
-        ]);
-        
-        return $step_id;
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — task-step events belong to the canonical timeline owner; no legacy row is created.
+        return '';
     }
     
     /**
      * Complete task step
      */
     public function complete_task_step($step_id, $output_data = null, $status = 'completed') {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — prevent timeline-step updates after quarantine.
-        if ( self::table_write_blocked( 'bizcity_webchat_task_steps' ) || ! self::physical_table_exists( 'bizcity_webchat_task_steps' ) ) {
-            return false;
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_task_steps';
-        
-        $update_data = [
-            'step_status' => $status,
-            'completed_at' => current_time('mysql'),
-        ];
-        
-        if ($output_data !== null) {
-            $update_data['output_data'] = wp_json_encode($output_data);
-        }
-        
-        return $wpdb->update($table, $update_data, ['step_id' => $step_id]);
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — retired task-step updates are refused before any SQL.
+        return false;
     }
     
     /**
      * Get task with steps (for timeline)
      */
     public function get_task_timeline($task_id) {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — missing/frozen task projections degrade to an empty timeline.
-        if ( ! self::physical_table_exists( 'bizcity_webchat_tasks' ) || ! self::physical_table_exists( 'bizcity_webchat_task_steps' ) ) {
-            return null;
-        }
-        global $wpdb;
-        $tasks_table = $wpdb->prefix . 'bizcity_webchat_tasks';
-        $steps_table = $wpdb->prefix . 'bizcity_webchat_task_steps';
-        
-        $task = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$tasks_table} WHERE task_id = %s",
-            $task_id
-        ));
-        
-        if (!$task) return null;
-        
-        $steps = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$steps_table} WHERE task_id = %s ORDER BY id ASC",
-            $task_id
-        ));
-        
-        return [
-            'task' => $task,
-            'steps' => $steps,
-        ];
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — legacy task timelines degrade until the canonical Event Stream reader is wired.
+        return null;
     }
     
     /**
      * Get recent tasks for session
      */
     public function get_session_tasks($session_id, $limit = 10) {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — legacy task reads are safe when the projection is absent.
-        if ( ! self::physical_table_exists( 'bizcity_webchat_tasks' ) ) {
-            return array();
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_tasks';
-        
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$table} WHERE session_id = %s ORDER BY id DESC LIMIT %d",
-            $session_id,
-            $limit
-        ));
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — session task reads return an empty compatibility result without touching SQL.
+        return array();
     }
     
     /**
      * Get recent tasks (all sessions)
      */
     public function get_recent_tasks($limit = 20) {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — legacy task reads are safe when the projection is absent.
-        if ( ! self::physical_table_exists( 'bizcity_webchat_tasks' ) ) {
-            return array();
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_tasks';
-        
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$table} ORDER BY id DESC LIMIT %d",
-            $limit
-        ));
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — recent task reads return an empty compatibility result without touching SQL.
+        return array();
     }
     
+    /**
+     * Build a message-owned conversation marker and return its message ID.
+     */
+    private function get_or_create_conversation_marker( $session_id, $data = [] ) {
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — create one deterministic metadata marker per tenant, platform, and session.
+        global $wpdb;
+        $session_id = sanitize_text_field( (string) $session_id );
+        $platform_type = strtoupper( (string) ( $data['platform_type'] ?? 'WEBCHAT' ) );
+        if ( $platform_type === '' ) {
+            $platform_type = 'WEBCHAT';
+        }
+        $message_id = 'conversation_meta_' . substr( hash( 'sha256', get_current_blog_id() . '|' . $platform_type . '|' . $session_id ), 0, 40 );
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $marker = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, meta FROM {$table} WHERE message_id = %s AND message_type = 'conversation_meta' LIMIT 1",
+            $message_id
+        ) );
+        if ( $marker ) {
+            // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — reopen a closed marker when a new message starts the same stable session again.
+            $marker_meta = json_decode( (string) $marker->meta, true );
+            if ( is_array( $marker_meta ) && ( $marker_meta['status'] ?? 'active' ) !== 'active' ) {
+                $this->update_conversation_marker( (int) $marker->id, array( 'status' => 'active', 'ended_at' => null ) );
+            }
+            return (int) $marker->id;
+        }
+        $meta = array(
+            'conversation_meta' => true,
+            'title'             => sanitize_text_field( $data['title'] ?? '' ),
+            'status'            => 'active',
+            'ended_at'          => null,
+        );
+        $inserted = $wpdb->insert( $table, array(
+            'conversation_id'     => 0,
+            'session_id'          => $session_id,
+            'user_id'             => (int) ( $data['user_id'] ?? get_current_user_id() ),
+            'client_name'         => sanitize_text_field( $data['client_name'] ?? '' ),
+            'message_id'          => $message_id,
+            'message_text'        => '',
+            'message_from'        => 'system',
+            'message_type'        => 'conversation_meta',
+            'is_context_included' => 0,
+            'platform_type'       => $platform_type,
+            'project_id'          => sanitize_text_field( $data['project_id'] ?? '' ),
+            'status'              => 'visible',
+            'meta'                => wp_json_encode( $meta ),
+        ) );
+        return false === $inserted ? 0 : (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Return one conversation view derived from message rows.
+     */
+    private function message_conversation_view( $session_id, $platform_type = '' ) {
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — derive the compatibility conversation object from canonical message rows.
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $platform_type = strtoupper( (string) $platform_type );
+        if ( $platform_type === '' ) {
+            $platform_type = strpos( (string) $session_id, 'adminchat_' ) === 0 ? 'ADMINCHAT' : 'WEBCHAT';
+        }
+        $summary = $wpdb->get_row( $wpdb->prepare(
+            "SELECT MIN(id) AS first_id, MAX(user_id) AS user_id, MAX(client_name) AS client_name,
+                    MAX(project_id) AS project_id, MIN(created_at) AS started_at,
+                    MAX(created_at) AS last_message_at, SUM(message_type != 'conversation_meta') AS message_count,
+                    MAX(CASE WHEN message_type = 'conversation_meta' THEN meta ELSE '' END) AS conversation_meta
+             FROM {$table}
+             WHERE session_id = %s AND platform_type = %s",
+            $session_id,
+            $platform_type
+        ) );
+        if ( ! $summary || (int) $summary->first_id <= 0 ) {
+            return null;
+        }
+        $meta = json_decode( (string) $summary->conversation_meta, true );
+        $meta = is_array( $meta ) ? $meta : array();
+        $marker_id = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$table} WHERE session_id = %s AND platform_type = %s AND message_type = 'conversation_meta' ORDER BY id ASC LIMIT 1",
+            $session_id,
+            $platform_type
+        ) );
+        return (object) array(
+            'id'              => $marker_id > 0 ? $marker_id : (int) $summary->first_id,
+            'session_id'      => (string) $session_id,
+            'user_id'         => (int) $summary->user_id,
+            'client_name'     => (string) $summary->client_name,
+            'title'           => (string) ( $meta['title'] ?? '' ),
+            'platform_type'   => $platform_type,
+            'status'          => (string) ( $meta['status'] ?? 'active' ),
+            'project_id'      => (string) $summary->project_id,
+            'started_at'      => (string) $summary->started_at,
+            'last_message_at' => (string) $summary->last_message_at,
+            'message_count'   => max( 0, (int) $summary->message_count ),
+            'ended_at'        => isset( $meta['ended_at'] ) ? $meta['ended_at'] : null,
+            'meta'            => $meta,
+        );
+    }
+
+    /**
+     * Update metadata stored in the message-owned conversation marker.
+     */
+    private function update_conversation_marker( $id, array $fields ) {
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — update only the marker metadata owned by webchat_messages.
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $marker = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, meta FROM {$table} WHERE id = %d AND message_type = 'conversation_meta' LIMIT 1",
+            (int) $id
+        ) );
+        if ( ! $marker ) {
+            return false;
+        }
+        $meta = json_decode( (string) $marker->meta, true );
+        $meta = is_array( $meta ) ? $meta : array();
+        foreach ( array( 'title', 'status', 'ended_at' ) as $key ) {
+            if ( array_key_exists( $key, $fields ) ) {
+                $meta[ $key ] = $fields[ $key ];
+            }
+        }
+        $update = array( 'meta' => wp_json_encode( $meta ) );
+        if ( array_key_exists( 'project_id', $fields ) ) {
+            $update['project_id'] = sanitize_text_field( (string) $fields['project_id'] );
+        }
+        return false !== $wpdb->update( $table, $update, array( 'id' => (int) $id ) );
+    }
+
     /**
      * Get conversation by session ID
      */
     public function get_conversation_by_session($session_id) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        
-        return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$table} WHERE session_id = %s ORDER BY id DESC LIMIT 1",
-            $session_id
-        ));
+        return $this->message_conversation_view( $session_id );
     }
     
     /**
      * Close conversation
      */
     public function close_conversation($session_id) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        
-        return $wpdb->update(
-            $table,
-            [
-                'status' => 'closed',
-                'ended_at' => current_time('mysql'),
-            ],
-            ['session_id' => $session_id]
-        );
+        $conversation = $this->message_conversation_view( $session_id );
+        $marker_id = $conversation ? (int) $conversation->id : $this->get_or_create_conversation_marker( $session_id );
+        return $marker_id > 0 && $this->update_conversation_marker( $marker_id, array( 'status' => 'closed', 'ended_at' => current_time( 'mysql' ) ) );
     }
     
     /**
@@ -1132,7 +777,7 @@ class BizCity_WebChat_Database {
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
         
         return (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE session_id = %s",
+            "SELECT COUNT(*) FROM {$table} WHERE session_id = %s AND message_type != 'conversation_meta'",
             $session_id
         ));
     }
@@ -1142,18 +787,29 @@ class BizCity_WebChat_Database {
      */
     public function get_conversations($status = 'active', $limit = 20, $offset = 0) {
         global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        
-        $where = '';
-        if ($status !== 'all') {
-            $where = $wpdb->prepare("WHERE status = %s", $status);
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — list grouped message sessions while preserving the legacy conversation object shape.
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $groups = $wpdb->get_results( $wpdb->prepare(
+            "SELECT session_id, platform_type, MAX(created_at) AS last_message_at
+             FROM {$table}
+             WHERE session_id <> ''
+             GROUP BY session_id, platform_type
+             ORDER BY last_message_at DESC
+             LIMIT %d OFFSET %d",
+            max( 1, (int) $limit * 3 ),
+            max( 0, (int) $offset )
+        ) );
+        $conversations = array();
+        foreach ( $groups as $group ) {
+            $conversation = $this->message_conversation_view( $group->session_id, $group->platform_type );
+            if ( $conversation && ( 'all' === $status || $conversation->status === $status ) ) {
+                $conversations[] = $conversation;
+                if ( count( $conversations ) >= (int) $limit ) {
+                    break;
+                }
+            }
         }
-        
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$table} {$where} ORDER BY started_at DESC LIMIT %d OFFSET %d",
-            $limit,
-            $offset
-        ));
+        return $conversations;
     }
     
     /**
@@ -1161,16 +817,17 @@ class BizCity_WebChat_Database {
      */
     public function count_conversations($status = 'active') {
         global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        
-        if ($status === 'all') {
-            return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — count distinct tenant/platform/session groups from messages.
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $groups = $wpdb->get_results( "SELECT session_id, platform_type FROM {$table} WHERE session_id <> '' GROUP BY session_id, platform_type" );
+        $count = 0;
+        foreach ( $groups as $group ) {
+            $conversation = $this->message_conversation_view( $group->session_id, $group->platform_type );
+            if ( $conversation && ( 'all' === $status || $conversation->status === $status ) ) {
+                $count++;
+            }
         }
-        
-        return (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE status = %s",
-            $status
-        ));
+        return $count;
     }
 
     /* ================================================================
@@ -1187,8 +844,7 @@ class BizCity_WebChat_Database {
      * @return array { id, session_id, title }
      */
     public function create_session( $user_id, $client_name = '', $platform_type = 'ADMINCHAT', $title = '' ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — create legacy-compatible sessions as message-owned markers.
 
         // Use old format for ADMINCHAT: adminchat_{blogId}_{userId}
         // This ensures compatibility with intent system which looks up by session_id
@@ -1199,16 +855,12 @@ class BizCity_WebChat_Database {
             $session_id = 'wcs_' . $uuid;
         }
 
-        $wpdb->insert( $table, [
-            'session_id'    => $session_id,
+        $id = $this->get_or_create_conversation_marker( $session_id, array(
             'user_id'       => (int) $user_id,
             'client_name'   => $client_name,
             'title'         => $title,
             'platform_type' => $platform_type,
-            'status'        => 'active',
-        ] );
-
-        $id = $wpdb->insert_id;
+        ) );
 
         return [
             'id'         => $id,
@@ -1225,9 +877,18 @@ class BizCity_WebChat_Database {
      * @return bool
      */
     public function update_session_title( $id, $title ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        return (bool) $wpdb->update( $table, [ 'title' => $title ], [ 'id' => (int) $id ] );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — persist title in the message-owned marker metadata.
+        $session = $this->get_session( $id );
+        if ( ! $session ) {
+            return false;
+        }
+        $marker_id = $this->get_or_create_conversation_marker( $session->session_id, array(
+            'user_id'       => $session->user_id,
+            'client_name'   => $session->client_name,
+            'platform_type' => $session->platform_type,
+            'project_id'    => $session->project_id,
+        ) );
+        return $marker_id > 0 && $this->update_conversation_marker( $marker_id, array( 'title' => sanitize_text_field( $title ) ) );
     }
 
     /**
@@ -1238,9 +899,17 @@ class BizCity_WebChat_Database {
      * @return bool
      */
     public function update_session_project( $id, $project_id ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        return (bool) $wpdb->update( $table, [ 'project_id' => $project_id ], [ 'id' => (int) $id ] );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — persist project assignment on the message-owned marker.
+        $session = $this->get_session( $id );
+        if ( ! $session ) {
+            return false;
+        }
+        $marker_id = $this->get_or_create_conversation_marker( $session->session_id, array(
+            'user_id'       => $session->user_id,
+            'client_name'   => $session->client_name,
+            'platform_type' => $session->platform_type,
+        ) );
+        return $marker_id > 0 && $this->update_conversation_marker( $marker_id, array( 'project_id' => $project_id ) );
     }
 
     /**
@@ -1254,22 +923,36 @@ class BizCity_WebChat_Database {
      */
     public function get_sessions_for_user( $user_id, $platform_type = null, $limit = 30, $project_id = null ) {
         global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-
-        $where = $wpdb->prepare( "WHERE user_id = %d AND status = 'active'", $user_id );
-
-        if ( $platform_type ) {
-            $where .= $wpdb->prepare( ' AND platform_type = %s', $platform_type );
-        }
-
-        if ( $project_id !== null ) {
-            $where .= $wpdb->prepare( ' AND project_id = %s', $project_id );
-        }
-
-        return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$table} {$where} ORDER BY started_at DESC LIMIT %d",
-            $limit
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — derive user sessions from message groups, never from webchat_conversations.
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $groups = $wpdb->get_results( $wpdb->prepare(
+            "SELECT session_id, platform_type, MAX(created_at) AS last_message_at
+             FROM {$table}
+             WHERE user_id = %d AND session_id <> ''
+             GROUP BY session_id, platform_type
+             ORDER BY last_message_at DESC
+             LIMIT %d",
+            (int) $user_id,
+            max( 1, (int) $limit * 3 )
         ) );
+        $sessions = array();
+        foreach ( $groups as $group ) {
+            if ( $platform_type && strtoupper( $platform_type ) !== strtoupper( $group->platform_type ) ) {
+                continue;
+            }
+            $session = $this->message_conversation_view( $group->session_id, $group->platform_type );
+            if ( ! $session || 'active' !== $session->status ) {
+                continue;
+            }
+            if ( $project_id !== null && (string) $session->project_id !== (string) $project_id ) {
+                continue;
+            }
+            $sessions[] = $session;
+            if ( count( $sessions ) >= (int) $limit ) {
+                break;
+            }
+        }
+        return $sessions;
     }
 
     /**
@@ -1284,7 +967,7 @@ class BizCity_WebChat_Database {
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
         return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$table} WHERE conversation_id = %d ORDER BY id ASC LIMIT %d",
+            "SELECT * FROM {$table} WHERE conversation_id = %d AND message_type != 'conversation_meta' ORDER BY id ASC LIMIT %d",
             $conversation_id,
             $limit
         ) );
@@ -1302,7 +985,7 @@ class BizCity_WebChat_Database {
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
         return $wpdb->get_results( $wpdb->prepare(
-            "SELECT *, UNIX_TIMESTAMP(created_at) AS created_ts FROM {$table} WHERE session_id = %s ORDER BY id ASC LIMIT %d",
+            "SELECT *, UNIX_TIMESTAMP(created_at) AS created_ts FROM {$table} WHERE session_id = %s AND message_type != 'conversation_meta' ORDER BY id ASC LIMIT %d",
             $session_id,
             $limit
         ) );
@@ -1324,7 +1007,7 @@ class BizCity_WebChat_Database {
         return $wpdb->get_results( $wpdb->prepare(
             "SELECT *, UNIX_TIMESTAMP(created_at) AS created_ts 
              FROM {$table} 
-             WHERE session_id = %s AND plugin_slug = %s 
+                 WHERE session_id = %s AND plugin_slug = %s AND message_type != 'conversation_meta'
              ORDER BY id ASC 
              LIMIT %d",
             $session_id,
@@ -1380,7 +1063,7 @@ class BizCity_WebChat_Database {
         if ( ! empty( $intent_conversation_id ) ) {
             $rows = $wpdb->get_results( $wpdb->prepare(
                 "SELECT message_from, message_text FROM {$table}
-                 WHERE intent_conversation_id = %s
+                 WHERE intent_conversation_id = %s AND message_type != 'conversation_meta'
                  ORDER BY id DESC LIMIT %d",
                 $intent_conversation_id,
                 $limit
@@ -1394,7 +1077,7 @@ class BizCity_WebChat_Database {
         if ( ! empty( $session_id ) ) {
             $rows = $wpdb->get_results( $wpdb->prepare(
                 "SELECT message_from, message_text FROM {$table}
-                 WHERE session_id = %s
+                 WHERE session_id = %s AND message_type != 'conversation_meta'
                  ORDER BY id DESC LIMIT %d",
                 $session_id,
                 $limit
@@ -1433,13 +1116,19 @@ class BizCity_WebChat_Database {
      * @return bool
      */
     public function close_session( $id ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        return (bool) $wpdb->update(
-            $table,
-            [ 'status' => 'closed', 'ended_at' => current_time( 'mysql' ) ],
-            [ 'id' => (int) $id ]
-        );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — close the marker-backed session without touching the retired table.
+        $session = $this->get_session( $id );
+        if ( ! $session ) {
+            return false;
+        }
+        $marker_id = $this->get_or_create_conversation_marker( $session->session_id, array(
+            'user_id'       => $session->user_id,
+            'client_name'   => $session->client_name,
+            'platform_type' => $session->platform_type,
+            'project_id'    => $session->project_id,
+            'title'         => $session->title,
+        ) );
+        return $marker_id > 0 && $this->update_conversation_marker( $marker_id, array( 'status' => 'closed', 'ended_at' => current_time( 'mysql' ) ) );
     }
 
     /**
@@ -1450,16 +1139,26 @@ class BizCity_WebChat_Database {
      */
     public function delete_session( $id ) {
         global $wpdb;
-        $tbl_conv = $wpdb->prefix . 'bizcity_webchat_conversations';
         $tbl_msg  = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        // Get session_id for message cleanup
-        $row = $wpdb->get_row( $wpdb->prepare( "SELECT session_id FROM {$tbl_conv} WHERE id = %d", $id ) );
-        if ( $row ) {
-            $wpdb->delete( $tbl_msg, [ 'conversation_id' => (int) $id ] );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — delete the canonical message group addressed by its metadata marker.
+        $marker = $wpdb->get_row( $wpdb->prepare(
+            "SELECT session_id, platform_type FROM {$tbl_msg} WHERE id = %d AND message_type = 'conversation_meta' LIMIT 1",
+            (int) $id
+        ) );
+        if ( $marker ) {
+            $deleted = $wpdb->query( $wpdb->prepare(
+                "DELETE FROM {$tbl_msg} WHERE session_id = %s AND platform_type = %s",
+                $marker->session_id,
+                $marker->platform_type
+            ) );
+            return false !== $deleted;
         }
-
-        return (bool) $wpdb->delete( $tbl_conv, [ 'id' => (int) $id ] );
+        $deleted = $wpdb->query( $wpdb->prepare(
+            "DELETE FROM {$tbl_msg} WHERE conversation_id = %d",
+            (int) $id
+        ) );
+        return false !== $deleted && $deleted > 0;
     }
 
     /**
@@ -1471,13 +1170,20 @@ class BizCity_WebChat_Database {
      */
     public function close_all_sessions( $user_id, $platform_type = 'ADMINCHAT' ) {
         global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        return (int) $wpdb->query( $wpdb->prepare(
-            "UPDATE {$table} SET status = 'closed', ended_at = %s WHERE user_id = %d AND platform_type = %s AND status = 'active'",
-            current_time( 'mysql' ),
-            $user_id,
-            $platform_type
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — close user/platform marker rows one by one to preserve marker metadata.
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $markers = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id FROM {$table} WHERE user_id = %d AND platform_type = %s AND message_type = 'conversation_meta'",
+            (int) $user_id,
+            strtoupper( $platform_type )
         ) );
+        $closed = 0;
+        foreach ( $markers as $marker ) {
+            if ( $this->update_conversation_marker( $marker->id, array( 'status' => 'closed', 'ended_at' => current_time( 'mysql' ) ) ) ) {
+                $closed++;
+            }
+        }
+        return $closed;
     }
 
     /**
@@ -1488,8 +1194,20 @@ class BizCity_WebChat_Database {
      */
     public function get_session( $id ) {
         global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ) );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — resolve a legacy numeric session ID through the message marker.
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $marker = $wpdb->get_row( $wpdb->prepare(
+            "SELECT session_id, platform_type FROM {$table} WHERE id = %d AND message_type = 'conversation_meta' LIMIT 1",
+            (int) $id
+        ) );
+        if ( $marker ) {
+            return $this->message_conversation_view( $marker->session_id, $marker->platform_type );
+        }
+        $legacy_message = $wpdb->get_row( $wpdb->prepare(
+            "SELECT session_id, platform_type FROM {$table} WHERE conversation_id = %d ORDER BY id ASC LIMIT 1",
+            (int) $id
+        ) );
+        return $legacy_message ? $this->message_conversation_view( $legacy_message->session_id, $legacy_message->platform_type ) : null;
     }
 
     /**
@@ -1502,7 +1220,7 @@ class BizCity_WebChat_Database {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
         $msg   = $wpdb->get_var( $wpdb->prepare(
-            "SELECT message_text FROM {$table} WHERE conversation_id = %d AND message_from = 'user' ORDER BY id ASC LIMIT 1",
+            "SELECT message_text FROM {$table} WHERE conversation_id = %d AND message_from = 'user' AND message_type != 'conversation_meta' ORDER BY id ASC LIMIT 1",
             $conversation_id
         ) );
         return $msg ? trim( $msg ) : '';
@@ -1515,12 +1233,8 @@ class BizCity_WebChat_Database {
      * @return object|null
      */
     public function get_session_by_session_id( $session_id ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        return $wpdb->get_row( $wpdb->prepare(
-            "SELECT * FROM {$table} WHERE session_id = %s ORDER BY id DESC LIMIT 1",
-            $session_id
-        ) );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — resolve session identity from canonical message rows.
+        return $this->message_conversation_view( $session_id );
     }
 
     /**
@@ -1537,7 +1251,7 @@ class BizCity_WebChat_Database {
         // Get last N messages, then reverse to chronological order
         $rows = $wpdb->get_results( $wpdb->prepare(
             "SELECT message_from, message_text FROM {$table}
-             WHERE conversation_id = %d
+             WHERE conversation_id = %d AND message_type != 'conversation_meta'
              ORDER BY id DESC LIMIT %d",
             $conversation_id,
             $limit
@@ -1601,10 +1315,18 @@ class BizCity_WebChat_Database {
      * The 'proj_' prefix + UUID = 41 chars which overflows VARCHAR(36).
      */
     private function maybe_alter_project_id_column() {
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — retired project schema repair is disabled.
+        if ( ! self::table_exists_for_policy( 'bizcity_webchat_projects' ) ) {
+            return;
+        }
         static $done = false;
         if ( $done ) return;
         $done = true;
 
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not read the retired project projection.
+        if ( ! self::table_exists_for_policy( 'bizcity_webchat_projects' ) ) {
+            return null;
+        }
         global $wpdb;
 
         // Fix projects table: project_id VARCHAR(36) -> 50
@@ -1614,12 +1336,7 @@ class BizCity_WebChat_Database {
             $wpdb->query( "ALTER TABLE `{$tbl_proj}` MODIFY COLUMN project_id VARCHAR(50) NOT NULL" );
         }
 
-        // Fix sessions table: project_id VARCHAR(36) -> 50
-        $tbl_sess = $wpdb->prefix . 'bizcity_webchat_sessions';
-        $col2 = $wpdb->get_row( "SHOW COLUMNS FROM `{$tbl_sess}` WHERE Field = 'project_id'" );
-        if ( $col2 && strpos( $col2->Type, '36' ) !== false ) {
-            $wpdb->query( "ALTER TABLE `{$tbl_sess}` MODIFY COLUMN project_id VARCHAR(50) DEFAULT ''" );
-        }
+        // Session project state is owned by the encrypted session-state store.
     }
 
     /**
@@ -1629,6 +1346,10 @@ class BizCity_WebChat_Database {
      * @return object|null
      */
     public function get_project( $id ) {
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not read the retired project projection.
+        if ( ! self::table_exists_for_policy( 'bizcity_webchat_projects' ) ) {
+            return null;
+        }
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_projects';
         return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ) );
@@ -1641,6 +1362,10 @@ class BizCity_WebChat_Database {
      * @return object|null
      */
     public function get_project_by_uuid( $project_id ) {
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — project lists are served by the canonical notebook repository.
+        if ( ! self::table_exists_for_policy( 'bizcity_webchat_projects' ) ) {
+            return array();
+        }
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_projects';
         return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE project_id = %s", $project_id ) );
@@ -1654,6 +1379,10 @@ class BizCity_WebChat_Database {
      * @return array
      */
     public function get_projects_for_user( $user_id, $include_archived = false ) {
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — retired project updates are refused.
+        if ( ! self::table_exists_for_policy( 'bizcity_webchat_projects' ) ) {
+            return false;
+        }
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_projects';
 
@@ -1673,6 +1402,10 @@ class BizCity_WebChat_Database {
      * @return bool
      */
     public function update_project( $id, $data ) {
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — retired project deletes are refused.
+        if ( ! self::table_exists_for_policy( 'bizcity_webchat_projects' ) ) {
+            return false;
+        }
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_projects';
 
@@ -1714,15 +1447,21 @@ class BizCity_WebChat_Database {
      * @return bool
      */
     public function delete_project( $id ) {
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not maintain counters on the retired project projection.
+        if ( ! self::table_exists_for_policy( 'bizcity_webchat_projects' ) ) {
+            return;
+        }
         global $wpdb;
         $tbl_proj = $wpdb->prefix . 'bizcity_webchat_projects';
-        $tbl_sess = $wpdb->prefix . 'bizcity_webchat_sessions';
-
         // Get project_id for session cleanup
         $project = $this->get_project( $id );
         if ( $project ) {
-            // Unassign sessions
-            $wpdb->update( $tbl_sess, [ 'project_id' => '' ], [ 'project_id' => $project->project_id ] );
+            // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — project cleanup is delegated to the session-state owner.
+            if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+                foreach ( BizCity_WebChat_Session_State::instance()->list_by_project( $project->project_id, 5000 ) as $session ) {
+                    BizCity_WebChat_Session_State::instance()->update( $session->id, array( 'project_id' => '' ) );
+                }
+            }
         }
 
         return (bool) $wpdb->delete( $tbl_proj, [ 'id' => (int) $id ] );
@@ -1735,23 +1474,15 @@ class BizCity_WebChat_Database {
      * @return void
      */
     public function update_project_session_count( $project_id ) {
-        global $wpdb;
-        $tbl_proj = $wpdb->prefix . 'bizcity_webchat_projects';
-        $tbl_sess = $wpdb->prefix . 'bizcity_webchat_sessions';
-
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — public project search has no legacy SQL owner.
+        if ( ! self::table_exists_for_policy( 'bizcity_webchat_projects' ) ) {
+            return array();
+        }
         if ( empty($project_id) ) {
             return;
         }
-
-        $count = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$tbl_sess} WHERE project_id = %s AND status != 'archived'",
-            $project_id
-        ) );
-
-        $wpdb->update( $tbl_proj, [
-            'session_count'    => $count,
-            'last_activity_at' => current_time('mysql'),
-        ], [ 'project_id' => $project_id ] );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — project counts are derived from filestore state and are no longer mirrored into SQL.
+        return;
     }
 
     /**
@@ -1788,56 +1519,10 @@ class BizCity_WebChat_Database {
      * @return array { id, session_id, title }
      */
     public function create_session_v3( $user_id, $client_name = '', $platform_type = 'ADMINCHAT', $title = '', $data = [] ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-        // V3: Always generate unique session_id (allows multiple sessions per user)
-        // Legacy ADMINCHAT format: adminchat_{blog_id}_{user_id} - only 1 session per user
-        // New format: wcs_{uuid} - allows multiple sessions
-        $session_id = 'wcs_' . wp_generate_uuid4();
-
-        // Inherit character_id from project if not explicitly provided
-        $character_id = isset($data['character_id']) ? (int) $data['character_id'] : 0;
-        if ( !$character_id && !empty($data['project_id']) ) {
-            $project = $this->get_project_by_uuid( $data['project_id'] );
-            if ( $project && !empty($project->character_id) ) {
-                $character_id = (int) $project->character_id;
-            }
-        }
-
-        $wpdb->insert( $table, [
-            'session_id'           => $session_id,
-            'user_id'              => (int) $user_id,
-            'project_id'           => $data['project_id'] ?? '',
-            'character_id'         => $character_id,
-            'title'                => $title,
-            'title_generated'      => 0,
-            'client_name'          => $client_name,
-            'platform_type'        => $platform_type,
-            'status'               => 'active',
-            'rolling_summary'      => '',
-            'summary_updated_at'   => null,
-            'context_tokens'       => 0,
-            'message_count'        => 0,
-            'last_message_at'      => null,
-            'last_message_preview' => '',
-            'meta'                 => null,
-            'started_at'           => current_time('mysql'),
-            'ended_at'             => null,
-        ] );
-
-        $id = $wpdb->insert_id;
-
-        // Update project session count
-        if ( !empty($data['project_id']) ) {
-            $this->update_project_session_count( $data['project_id'] );
-        }
-
-        return [
-            'id'         => $id,
-            'session_id' => $session_id,
-            'title'      => $title,
-        ];
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — create V3 sessions through the canonical filestore owner.
+        return class_exists( 'BizCity_WebChat_Session_State' )
+            ? BizCity_WebChat_Session_State::instance()->create( $user_id, $client_name, $platform_type, $title, $data )
+            : array( 'id' => 0, 'session_id' => '', 'title' => $title );
     }
 
     /**
@@ -1847,9 +1532,10 @@ class BizCity_WebChat_Database {
      * @return object|null
      */
     public function get_session_v3( $id ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ) );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — read V3 session state from encrypted filestore.
+        return class_exists( 'BizCity_WebChat_Session_State' )
+            ? BizCity_WebChat_Session_State::instance()->get_by_id( $id )
+            : null;
     }
 
     /**
@@ -1859,12 +1545,10 @@ class BizCity_WebChat_Database {
      * @return object|null
      */
     public function get_session_v3_by_session_id( $session_id ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        return $wpdb->get_row( $wpdb->prepare(
-            "SELECT * FROM {$table} WHERE session_id = %s ORDER BY id DESC LIMIT 1",
-            $session_id
-        ) );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — read by stable session identity through the filestore owner.
+        return class_exists( 'BizCity_WebChat_Session_State' )
+            ? BizCity_WebChat_Session_State::instance()->get_by_session( $session_id )
+            : null;
     }
 
     /**
@@ -1876,24 +1560,11 @@ class BizCity_WebChat_Database {
      * @param string|null $project_id     Filter by project (null=all, ''=unassigned).
      * @return array
      */
-    public function get_sessions_v3_for_user( $user_id, $platform_type = null, $limit = 30, $project_id = null ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-        $where = $wpdb->prepare( "WHERE user_id = %d AND status = 'active'", $user_id );
-
-        if ( $platform_type ) {
-            $where .= $wpdb->prepare( ' AND platform_type = %s', $platform_type );
-        }
-
-        if ( $project_id !== null ) {
-            $where .= $wpdb->prepare( ' AND project_id = %s', $project_id );
-        }
-
-        return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$table} {$where} ORDER BY last_message_at DESC, started_at DESC LIMIT %d",
-            $limit
-        ) );
+    public function get_sessions_v3_for_user( $user_id, $platform_type = null, $limit = 30, $project_id = null, $status = 'active' ) {
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — list V3 sessions from folded encrypted records.
+        return class_exists( 'BizCity_WebChat_Session_State' )
+            ? BizCity_WebChat_Session_State::instance()->list_for_user( $user_id, $platform_type, $limit, $project_id, $status )
+            : array();
     }
 
     /**
@@ -1904,14 +1575,10 @@ class BizCity_WebChat_Database {
      * @return array
      */
     public function get_sessions_by_project( $project_id, $limit = 50 ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-        return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$table} WHERE project_id = %s AND status != 'archived' ORDER BY last_message_at DESC LIMIT %d",
-            $project_id,
-            $limit
-        ) );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — list project sessions through the filestore owner.
+        return class_exists( 'BizCity_WebChat_Session_State' )
+            ? BizCity_WebChat_Session_State::instance()->list_by_project( $project_id, $limit )
+            : array();
     }
 
     /**
@@ -1922,27 +1589,11 @@ class BizCity_WebChat_Database {
      * @return bool
      */
     public function update_session_v3( $id, $data ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-        $allowed = ['title', 'title_generated', 'project_id', 'character_id', 'status', 'rolling_summary', 'summary_updated_at', 'context_tokens', 'message_count', 'last_message_at', 'last_message_preview', 'ended_at', 'meta', 'session_memory_mode', 'session_memory_spec', 'session_focus_summary', 'session_open_loops', 'session_next_actions', 'session_memory_updated_at', 'context_layers_snapshot'];
-        $json_fields = ['meta', 'session_memory_spec', 'session_open_loops', 'session_next_actions', 'context_layers_snapshot'];
-        $update = [];
-        foreach ( $allowed as $key ) {
-            if ( isset($data[$key]) ) {
-                if ( in_array( $key, $json_fields, true ) && is_array($data[$key]) ) {
-                    $update[$key] = wp_json_encode($data[$key]);
-                } else {
-                    $update[$key] = $data[$key];
-                }
-            }
-        }
-
-        if ( empty($update) ) {
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — route all V3 session state mutations to encrypted filestore.
+        if ( ! class_exists( 'BizCity_WebChat_Session_State' ) ) {
             return false;
         }
-
-        return (bool) $wpdb->update( $table, $update, [ 'id' => (int) $id ] );
+        return BizCity_WebChat_Session_State::instance()->update( $id, $data );
     }
 
     /**
@@ -1953,32 +1604,10 @@ class BizCity_WebChat_Database {
      * @return bool
      */
     public function move_session_to_project( $id, $project_id ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-        // Ensure project_id column is wide enough (VARCHAR(36) -> 50)
-        $this->maybe_alter_project_id_column();
-
-        // Get old project_id
-        $session = $this->get_session_v3( $id );
-        if ( ! $session ) {
-            return false;
-        }
-
-        $old_project = $session->project_id;
-        $result = (bool) $wpdb->update( $table, [ 'project_id' => $project_id ], [ 'id' => (int) $id ] );
-
-        // Update session counts
-        if ( $result ) {
-            if ( $old_project ) {
-                $this->update_project_session_count( $old_project );
-            }
-            if ( $project_id ) {
-                $this->update_project_session_count( $project_id );
-            }
-        }
-
-        return $result;
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — move project assignment in the canonical state record.
+        return class_exists( 'BizCity_WebChat_Session_State' )
+            ? BizCity_WebChat_Session_State::instance()->update( $id, array( 'project_id' => $project_id ) )
+            : false;
     }
 
     /**
@@ -2004,29 +1633,13 @@ class BizCity_WebChat_Database {
      * @return void
      */
     public function update_session_message_stats( $session_id, $message_text, $message_count = 0 ) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-        // Get session
-        $session = $this->get_session_v3_by_session_id( $session_id );
-        if ( ! $session ) {
-            return;
-        }
-
-        // Count messages if not provided
-        if ( $message_count <= 0 ) {
-            $tbl_msg = $wpdb->prefix . 'bizcity_webchat_messages';
-            $message_count = (int) $wpdb->get_var( $wpdb->prepare(
-                "SELECT COUNT(*) FROM {$tbl_msg} WHERE session_id = %s",
-                $session_id
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — update message counters in filestore after canonical message write.
+        if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+            BizCity_WebChat_Session_State::instance()->update_message_stats( $session_id, array(
+                'message_text' => $message_text,
+                'message_count' => $message_count,
             ) );
         }
-
-        $wpdb->update( $table, [
-            'message_count'        => $message_count,
-            'last_message_at'      => current_time('mysql'),
-            'last_message_preview' => mb_substr( $message_text, 0, 200 ),
-        ], [ 'id' => $session->id ] );
     }
 
     /**
@@ -2036,24 +1649,17 @@ class BizCity_WebChat_Database {
      * @return bool
      */
     public function delete_session_v3( $id ) {
-        global $wpdb;
-        $tbl_sess = $wpdb->prefix . 'bizcity_webchat_sessions';
-        $tbl_msg  = $wpdb->prefix . 'bizcity_webchat_messages';
-
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — tombstone state and delete canonical messages without session SQL.
         $session = $this->get_session_v3( $id );
         if ( ! $session ) {
             return false;
         }
-
-        // Delete messages
-        $wpdb->delete( $tbl_msg, [ 'session_id' => $session->session_id ] );
-
-        // Update project count
-        if ( $session->project_id ) {
-            $this->update_project_session_count( $session->project_id );
-        }
-
-        return (bool) $wpdb->delete( $tbl_sess, [ 'id' => (int) $id ] );
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $wpdb->delete( $table, array( 'session_id' => $session->session_id, 'platform_type' => $session->platform_type ) );
+        return class_exists( 'BizCity_WebChat_Session_State' )
+            ? BizCity_WebChat_Session_State::instance()->delete( $id )
+            : false;
     }
 
     /**
@@ -2093,20 +1699,4 @@ class BizCity_WebChat_Database {
 
 } // End class_exists check
 
-// [2026-07-29 Johnny Chu] PHASE-1.21-B — expose WebChat's shared installer to the central schema registry.
-if ( class_exists( 'BizCity_Schema_Registry' ) && class_exists( 'BizCity_WebChat_Database' ) ) {
-    BizCity_Schema_Registry::register(
-        'bizcity_webchat_task_steps',
-        'extensions.bizcity-webchat', // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — legacy projection schema owner remains extension-scoped.
-        BizCity_WebChat_Database::SCHEMA_VERSION,
-        'bizcity_webchat_db_version',
-        array( 'BizCity_WebChat_Database', 'create_tables' )
-    );
-    BizCity_Schema_Registry::register(
-        'bizcity_memory_session',
-        'extensions.bizcity-webchat', // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — legacy memory schema owner remains extension-scoped.
-        BizCity_WebChat_Database::SCHEMA_VERSION,
-        'bizcity_webchat_db_version',
-        array( 'BizCity_WebChat_Database', 'create_tables' )
-    );
-}
+// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — retired task/step/session-memory projections are intentionally absent from the schema registry.

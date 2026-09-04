@@ -506,20 +506,27 @@ class BizCity_Zalo_Bot_REST_API {
 		}
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_zalo_bots';
-		$logs  = $wpdb->prefix . 'bizcity_zalo_bot_logs';
 		$rows  = $wpdb->get_results( "SELECT id, bot_name, app_id, oa_id, webhook_url, status, created_at, updated_at, CHAR_LENGTH(bot_token) AS token_len FROM $table ORDER BY id DESC" );
 		if ( $rows ) {
-			// Annotate with last activity timestamp from logs table so FE can
-			// auto-select the bot with most recent traffic (UX: avoid landing on
-			// an empty bot when admin has multiple bots configured).
-			$activity = $wpdb->get_results(
-				"SELECT bot_id, MAX(created_at) AS last_event_at, COUNT(*) AS event_count FROM {$logs} GROUP BY bot_id",
-				OBJECT_K
-			);
+			// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — derive activity from exact zalo_bot JSONL, never the retired SQL log.
+			$activity = array();
+			$log_rows = BizCity_Zalo_Bot_Database::instance()->get_logs( array( 'limit' => 5000 ) );
+			foreach ( (array) $log_rows as $log_row ) {
+				$log_bot_id = (int) ( $log_row->bot_id ?? 0 );
+				if ( $log_bot_id <= 0 ) { continue; }
+				if ( ! isset( $activity[ $log_bot_id ] ) ) {
+					$activity[ $log_bot_id ] = array( 'last_event_at' => '', 'event_count' => 0 );
+				}
+				$activity[ $log_bot_id ]['event_count']++;
+				$created_at = (string) ( $log_row->created_at ?? '' );
+				if ( strcmp( $created_at, $activity[ $log_bot_id ]['last_event_at'] ) > 0 ) {
+					$activity[ $log_bot_id ]['last_event_at'] = $created_at;
+				}
+			}
 			foreach ( $rows as $r ) {
 				$bid = (string) $r->id;
-				$r->last_event_at = isset( $activity[ $bid ] ) ? $activity[ $bid ]->last_event_at : null;
-				$r->event_count   = isset( $activity[ $bid ] ) ? (int) $activity[ $bid ]->event_count : 0;
+				$r->last_event_at = isset( $activity[ $bid ] ) ? $activity[ $bid ]['last_event_at'] : null;
+				$r->event_count   = isset( $activity[ $bid ] ) ? (int) $activity[ $bid ]['event_count'] : 0;
 			}
 		}
 		return rest_ensure_response( array( 'bots' => $rows ?: array() ) );
@@ -623,33 +630,24 @@ class BizCity_Zalo_Bot_REST_API {
 		}
 		$limit = max( 1, min( 100, (int) ( $request->get_param( 'limit' ) ?: 30 ) ) );
 
-		$logs = $wpdb->prefix . 'bizcity_zalo_bot_logs';
-		// Pick latest non-empty display_name per user (MAX over GROUP works because
-		// rows with the actual name will sort > NULL/empty alphabetically).
-		$sql = $wpdb->prepare(
-			"SELECT user_id            AS zalo_user_id,
-			        MAX( display_name ) AS display_name,
-			        COUNT(*)            AS msg_count,
-			        MAX( created_at )   AS last_seen,
-			        MAX( text )         AS last_text
-			   FROM {$logs}
-			  WHERE bot_id = %d
-			    AND user_id <> ''
-			    -- [2026-07-08 Johnny Chu] HOTFIX — avoid strict whitelist that can
-			    -- hide valid inbound rows when Zalo sends alternative message event names.
-			    AND event_name <> 'bot.reply'
-			    AND (
-			        event_name IN ( 'message.text.received', 'message.image.received' )
-			        OR event_name LIKE 'message.%'
-			        OR event_name LIKE 'user.send.%'
-			    )
-			  GROUP BY user_id
-			  ORDER BY last_seen DESC
-			  LIMIT %d",
-			$bot_id,
-			$limit
-		);
-		$rows = $wpdb->get_results( $sql, ARRAY_A ) ?: array();
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — aggregate recent users from exact zalo_bot JSONL.
+		$rows = array();
+		foreach ( (array) BizCity_Zalo_Bot_Database::instance()->get_logs( array( 'bot_id' => $bot_id, 'limit' => 5000 ) ) as $log_row ) {
+			if ( (string) ( $log_row->event_name ?? '' ) === 'bot.reply' ) { continue; }
+			$user_key = (string) ( $log_row->user_id ?? $log_row->client_id ?? '' );
+			if ( $user_key === '' ) { continue; }
+			if ( ! isset( $rows[ $user_key ] ) ) {
+				$rows[ $user_key ] = array( 'zalo_user_id' => $user_key, 'display_name' => '', 'msg_count' => 0, 'last_seen' => '', 'last_text' => '' );
+			}
+			$rows[ $user_key ]['msg_count']++;
+			if ( (string) ( $log_row->display_name ?? '' ) !== '' ) { $rows[ $user_key ]['display_name'] = (string) $log_row->display_name; }
+			if ( strcmp( (string) ( $log_row->created_at ?? '' ), $rows[ $user_key ]['last_seen'] ) > 0 ) {
+				$rows[ $user_key ]['last_seen'] = (string) ( $log_row->created_at ?? '' );
+				$rows[ $user_key ]['last_text'] = (string) ( $log_row->text ?? '' );
+			}
+		}
+		usort( $rows, static function ( $left, $right ) { return strcmp( $right['last_seen'], $left['last_seen'] ); } );
+		$rows = array_slice( $rows, 0, $limit );
 
 		// Annotate with link status + notebook
 		$nb_table  = $wpdb->prefix . 'bizcity_kg_notebooks';
@@ -719,18 +717,18 @@ class BizCity_Zalo_Bot_REST_API {
 		if ( empty( $out ) ) {
 			// [2026-07-08 Johnny Chu] HOTFIX — when selected bot has no rows, expose
 			// inbound activity from other bots so admin can spot wrong-bot listening.
-			$other_rows = $wpdb->get_results(
-				"SELECT bot_id,
-				        COUNT(*) AS inbound_count,
-				        MAX(created_at) AS last_seen
-				   FROM {$logs}
-				  WHERE event_name <> 'bot.reply'
-				    AND ( event_name LIKE 'message.%' OR event_name LIKE 'user.send.%' )
-				  GROUP BY bot_id
-				  ORDER BY last_seen DESC
-				  LIMIT 5",
-				ARRAY_A
-			) ?: array();
+			$other_activity = array();
+			foreach ( (array) BizCity_Zalo_Bot_Database::instance()->get_logs( array( 'limit' => 5000 ) ) as $log_row ) {
+				$log_bot_id = (int) ( $log_row->bot_id ?? 0 );
+				if ( $log_bot_id <= 0 || (string) ( $log_row->event_name ?? '' ) === 'bot.reply' ) { continue; }
+				if ( ! isset( $other_activity[ $log_bot_id ] ) ) { $other_activity[ $log_bot_id ] = array( 'bot_id' => $log_bot_id, 'inbound_count' => 0, 'last_seen' => '' ); }
+				$other_activity[ $log_bot_id ]['inbound_count']++;
+				$created_at = (string) ( $log_row->created_at ?? '' );
+				if ( strcmp( $created_at, $other_activity[ $log_bot_id ]['last_seen'] ) > 0 ) { $other_activity[ $log_bot_id ]['last_seen'] = $created_at; }
+			}
+			$other_rows = array_values( $other_activity );
+			usort( $other_rows, static function ( $left, $right ) { return strcmp( $right['last_seen'], $left['last_seen'] ); } );
+			$other_rows = array_slice( $other_rows, 0, 5 );
 
 			$debug['other_bot_activity'] = array_map(
 				static function( $row ) {
@@ -1098,7 +1096,6 @@ class BizCity_Zalo_Bot_REST_API {
 	 * ascending so the FE can render an inbox-style thread.
 	 */
 	public function mgmt_conversation( $request ) {
-		global $wpdb;
 		$bot_id       = (int) $request->get_param( 'id' );
 		$zalo_user_id = sanitize_text_field( (string) $request->get_param( 'zalo_user_id' ) );
 		$limit        = max( 1, min( 500, (int) ( $request->get_param( 'limit' ) ?: 200 ) ) );
@@ -1106,20 +1103,23 @@ class BizCity_Zalo_Bot_REST_API {
 			return new WP_Error( 'invalid_input', 'bot id + zalo_user_id required', array( 'status' => 400 ) );
 		}
 
-		$logs = $wpdb->prefix . 'bizcity_zalo_bot_logs';
-		$sql  = $wpdb->prepare(
-			"SELECT id, event_name, text, display_name, message_id, created_at
-			   FROM {$logs}
-			  WHERE bot_id = %d
-			    AND ( user_id = %s OR client_id = %s )
-			  ORDER BY id ASC
-			  LIMIT %d",
-			$bot_id,
-			$zalo_user_id,
-			$zalo_user_id,
-			$limit
-		);
-		$rows = $wpdb->get_results( $sql, ARRAY_A ) ?: array();
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — conversation history comes from exact zalo_bot JSONL.
+		$canonical = BizCity_Zalo_Bot_Database::instance()->get_logs( array(
+			'bot_id'    => $bot_id,
+			'client_id' => $zalo_user_id,
+			'limit'     => $limit,
+		) );
+		$rows = array();
+		foreach ( array_reverse( (array) $canonical ) as $row ) {
+			$rows[] = array(
+				'id'           => (int) ( $row->id ?? 0 ),
+				'event_name'   => (string) ( $row->event_name ?? '' ),
+				'text'         => (string) ( $row->text ?? '' ),
+				'display_name' => (string) ( $row->display_name ?? '' ),
+				'message_id'   => (string) ( $row->message_id ?? '' ),
+				'created_at'   => (string) ( $row->created_at ?? '' ),
+			);
+		}
 
 		// Map event_name → role for FE rendering
 		foreach ( $rows as &$r ) {
@@ -1435,22 +1435,11 @@ class BizCity_Zalo_Bot_REST_API {
 			$out['source']  = 'transient_cache';
 		}
 
-		$logs = $wpdb->prefix . 'bizcity_zalo_bot_logs';
-		$rows = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT id, event_name, event_data, created_at
-				   FROM {$logs}
-				  WHERE bot_id = %d
-				    AND ( user_id = %s OR client_id = %s )
-				    AND event_name != 'bot.reply'
-				  ORDER BY id DESC
-				  LIMIT 25",
-				$bot_id,
-				$zalo_user_id,
-				$zalo_user_id
-			),
-			ARRAY_A
-		) ?: array();
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — resolve chat IDs from exact zalo_bot JSONL history.
+		$rows = BizCity_Zalo_Bot_Database::instance()->get_logs( array( 'bot_id' => $bot_id, 'client_id' => $zalo_user_id, 'limit' => 25 ) );
+		$rows = array_values( array_filter( (array) $rows, static function ( $row ) {
+			return (string) ( $row->event_name ?? '' ) !== 'bot.reply';
+		} ) );
 
 		$out['inbound_count'] = count( $rows );
 		if ( ! empty( $rows ) ) {
@@ -1460,7 +1449,7 @@ class BizCity_Zalo_Bot_REST_API {
 
 		if ( $out['chat_id'] === '' ) {
 			foreach ( $rows as $r ) {
-				$data = isset( $r['event_data'] ) ? json_decode( (string) $r['event_data'], true ) : null;
+				$data = isset( $r->event_data ) ? json_decode( (string) $r->event_data, true ) : null;
 				if ( ! is_array( $data ) ) {
 					continue;
 				}
@@ -1473,7 +1462,7 @@ class BizCity_Zalo_Bot_REST_API {
 				if ( $cid !== '' ) {
 					$out['chat_id']       = $cid;
 					$out['source']        = 'webhook_history';
-					$out['sample_log_id'] = (int) $r['id'];
+					$out['sample_log_id'] = (int) ( $r->id ?? 0 );
 					break;
 				}
 			}
@@ -1506,25 +1495,21 @@ class BizCity_Zalo_Bot_REST_API {
 		);
 
 		// Layer B — Inbound history for this user in this bot.
-		$logs = $wpdb->prefix . 'bizcity_zalo_bot_logs';
-		$counts = $wpdb->get_row(
-			$wpdb->prepare(
-				"SELECT
-					COUNT(*)                                                                   AS total,
-					SUM( CASE WHEN event_name = 'message.text.received' THEN 1 ELSE 0 END )    AS text_msgs,
-					SUM( CASE WHEN event_name LIKE 'message.%.received' THEN 1 ELSE 0 END )    AS any_msgs,
-					SUM( CASE WHEN event_name = 'bot.reply' THEN 1 ELSE 0 END )                AS bot_replies,
-					MAX( created_at )                                                          AS last_seen,
-					MIN( created_at )                                                          AS first_seen
-				   FROM {$logs}
-				  WHERE bot_id = %d
-				    AND ( user_id = %s OR client_id = %s )",
-				$bot_id,
-				$zalo_user_id,
-				$zalo_user_id
-			),
-			ARRAY_A
-		) ?: array();
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — diagnosis reads exact zalo_bot JSONL, not the retired SQL projection.
+		$bot_rows = BizCity_Zalo_Bot_Database::instance()->get_logs( array( 'bot_id' => $bot_id, 'limit' => 5000 ) );
+		$user_rows = array_values( array_filter( (array) $bot_rows, static function ( $row ) use ( $zalo_user_id ) {
+			return (string) ( $row->user_id ?? $row->client_id ?? '' ) === $zalo_user_id;
+		} ) );
+		$counts = array( 'total' => count( $user_rows ), 'text_msgs' => 0, 'any_msgs' => 0, 'bot_replies' => 0, 'first_seen' => '', 'last_seen' => '' );
+		foreach ( $user_rows as $row ) {
+			$event_name = (string) ( $row->event_name ?? '' );
+			$counts['text_msgs'] += $event_name === 'message.text.received' ? 1 : 0;
+			$counts['any_msgs'] += strpos( $event_name, 'message.' ) === 0 ? 1 : 0;
+			$counts['bot_replies'] += $event_name === 'bot.reply' ? 1 : 0;
+			$created_at = (string) ( $row->created_at ?? '' );
+			if ( $counts['first_seen'] === '' || strcmp( $created_at, $counts['first_seen'] ) < 0 ) { $counts['first_seen'] = $created_at; }
+			if ( strcmp( $created_at, $counts['last_seen'] ) > 0 ) { $counts['last_seen'] = $created_at; }
+		}
 		$history = array(
 			'total_events'  => (int) ( $counts['total'] ?? 0 ),
 			'text_messages' => (int) ( $counts['text_msgs'] ?? 0 ),
@@ -1535,21 +1520,19 @@ class BizCity_Zalo_Bot_REST_API {
 		);
 
 		// Layer C — Is this user_id seen on OTHER bots? (cross-bot orphan detection)
-		$other = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT bot_id, COUNT(*) AS cnt, MAX( created_at ) AS last_seen
-				   FROM {$logs}
-				  WHERE ( user_id = %s OR client_id = %s )
-				    AND bot_id != %d
-				  GROUP BY bot_id
-				  ORDER BY cnt DESC
-				  LIMIT 5",
-				$zalo_user_id,
-				$zalo_user_id,
-				$bot_id
-			),
-			ARRAY_A
-		) ?: array();
+		$other_activity = array();
+		foreach ( (array) BizCity_Zalo_Bot_Database::instance()->get_logs( array( 'limit' => 5000 ) ) as $row ) {
+			$row_user_id = (string) ( $row->user_id ?? $row->client_id ?? '' );
+			$row_bot_id  = (int) ( $row->bot_id ?? 0 );
+			if ( $row_user_id !== $zalo_user_id || $row_bot_id <= 0 || $row_bot_id === $bot_id ) { continue; }
+			if ( ! isset( $other_activity[ $row_bot_id ] ) ) { $other_activity[ $row_bot_id ] = array( 'bot_id' => $row_bot_id, 'cnt' => 0, 'last_seen' => '' ); }
+			$other_activity[ $row_bot_id ]['cnt']++;
+			$created_at = (string) ( $row->created_at ?? '' );
+			if ( strcmp( $created_at, $other_activity[ $row_bot_id ]['last_seen'] ) > 0 ) { $other_activity[ $row_bot_id ]['last_seen'] = $created_at; }
+		}
+		$other = array_values( $other_activity );
+		usort( $other, static function ( $left, $right ) { return $right['cnt'] <=> $left['cnt']; } );
+		$other = array_slice( $other, 0, 5 );
 		$cross_bot = array(
 			'seen_on_other_bots' => count( $other ) > 0,
 			'bots'               => array_map(
@@ -1565,20 +1548,19 @@ class BizCity_Zalo_Bot_REST_API {
 		);
 
 		// Layer D — Bot-level webhook health (any inbound messages on this bot AT ALL?).
-		$bot_health = $wpdb->get_row(
-			$wpdb->prepare(
-				"SELECT
-					COUNT(*)                                                                   AS total,
-					SUM( CASE WHEN event_name LIKE 'message.%.received' THEN 1 ELSE 0 END )    AS msg_in,
-					SUM( CASE WHEN event_name = 'bot.reply' THEN 1 ELSE 0 END )                AS msg_out,
-					COUNT( DISTINCT CASE WHEN event_name LIKE 'message.%.received' THEN client_id END ) AS distinct_senders,
-					MAX( created_at )                                                          AS last_event_at
-				   FROM {$logs}
-				  WHERE bot_id = %d",
-				$bot_id
-			),
-			ARRAY_A
-		) ?: array();
+		$sender_ids = array();
+		$bot_health = array( 'total' => count( $bot_rows ), 'msg_in' => 0, 'msg_out' => 0, 'distinct_senders' => 0, 'last_event_at' => '' );
+		foreach ( (array) $bot_rows as $row ) {
+			$event_name = (string) ( $row->event_name ?? '' );
+			$is_inbound = strpos( $event_name, 'message.' ) === 0;
+			$bot_health['msg_in'] += $is_inbound ? 1 : 0;
+			$bot_health['msg_out'] += $event_name === 'bot.reply' ? 1 : 0;
+			$sender_id = (string) ( $row->client_id ?? $row->user_id ?? '' );
+			if ( $is_inbound && $sender_id !== '' ) { $sender_ids[ $sender_id ] = true; }
+			$created_at = (string) ( $row->created_at ?? '' );
+			if ( strcmp( $created_at, $bot_health['last_event_at'] ) > 0 ) { $bot_health['last_event_at'] = $created_at; }
+		}
+		$bot_health['distinct_senders'] = count( $sender_ids );
 		$health = array(
 			'total_events'     => (int) ( $bot_health['total'] ?? 0 ),
 			'msg_in'           => (int) ( $bot_health['msg_in'] ?? 0 ),
@@ -2013,7 +1995,6 @@ class BizCity_Zalo_Bot_REST_API {
 	public function mgmt_setup_status( $request ) {
 		$ctx = $this->load_bot_with_api( $request->get_param( 'id' ) );
 		if ( is_wp_error( $ctx ) ) { return $ctx; }
-		global $wpdb; // [2026-07-08 Johnny Chu] HOTFIX — required for db_counts queries below.
 		$bot = $ctx['bot'];
 		$api = $ctx['api'];
 
@@ -2104,25 +2085,17 @@ class BizCity_Zalo_Bot_REST_API {
 		$out['log_total']  = $log_total;
 		$out['log_date']   = $today;
 
-		// [2026-07-08 Johnny Chu] HOTFIX — per-bot inbound counters from DB so
-		// admin can detect "UI polling works but selected bot has no inbound rows".
-		$tbl_logs = $wpdb->prefix . 'bizcity_zalo_bot_logs';
-		$db_total = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$tbl_logs} WHERE bot_id = %d",
-			(int) $bot->id
-		) );
-		$db_inbound = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*)
-			   FROM {$tbl_logs}
-			  WHERE bot_id = %d
-			    AND event_name <> 'bot.reply'
-			    AND ( event_name LIKE 'message.%%' OR event_name LIKE 'user.send.%%' )",
-			(int) $bot->id
-		) );
-		$db_last_at = (string) $wpdb->get_var( $wpdb->prepare(
-			"SELECT MAX(created_at) FROM {$tbl_logs} WHERE bot_id = %d",
-			(int) $bot->id
-		) );
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — per-bot setup counters come from exact zalo_bot JSONL.
+		$canonical_rows = BizCity_Zalo_Bot_Database::instance()->get_logs( array( 'bot_id' => (int) $bot->id, 'limit' => 5000 ) );
+		$db_total = count( (array) $canonical_rows );
+		$db_inbound = 0;
+		$db_last_at = '';
+		foreach ( (array) $canonical_rows as $canonical_row ) {
+			$event_name = (string) ( $canonical_row->event_name ?? '' );
+			if ( $event_name !== 'bot.reply' && ( strpos( $event_name, 'message.' ) === 0 || strpos( $event_name, 'user.send.' ) === 0 ) ) { $db_inbound++; }
+			$created_at = (string) ( $canonical_row->created_at ?? '' );
+			if ( strcmp( $created_at, $db_last_at ) > 0 ) { $db_last_at = $created_at; }
+		}
 
 		$out['checks'][] = array(
 			'id'     => 'bot_inbound_db',

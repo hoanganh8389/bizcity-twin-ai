@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="2" failures="0" skipped="0" time="0.235">
+  <testsuite name="diagnostics" tests="2" failures="0" skipped="0" time="0.235">
+    <testcase classname="bizcity.diagnostics" name="core.helper.log_index" time="0.061">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.helper.jsonl_search_query_index_parity" time="0.084">
+    </testcase>
+  </testsuite>
+</testsuites>

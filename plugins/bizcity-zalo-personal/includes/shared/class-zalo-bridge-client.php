@@ -208,6 +208,15 @@ class BizCity_Zalo_Bridge_Client {
 		return $this->post( 'wp/accounts/' . rawurlencode( $account_id ) . '/qr', array() );
 	}
 
+	/** Reset only the runtime session and start QR again for the same account ID. */
+	public function reset_qr( string $account_id ): array {
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — keep account/mapping identity while delegating controlled QR session reset by mode.
+		if ( $this->is_managed_mode() ) {
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->reset_qr( $account_id ) : $this->degraded( 'managed_client_missing' );
+		}
+		return $this->post( 'wp/accounts/' . rawurlencode( $account_id ) . '/qr/reset', array() );
+	}
+
 	/**
 	 * Poll QR login status.
 	 *
@@ -220,6 +229,26 @@ class BizCity_Zalo_Bridge_Client {
 		}
 		// [2026-06-07 Johnny Chu] PHASE-0.39 — M2M /wp/accounts/{id}/qr-status.
 		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/qr-status' );
+	}
+
+	/** Read hash-only experimental group candidates through the active server boundary. */
+	public function get_group_candidates( string $account_id ): array {
+		// [2026-09-03 03:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H3-GROUP — keep group discovery behind managed Hub or custom M2M, never from the browser.
+		if ( $this->is_managed_mode() ) {
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->get_group_candidates( $account_id ) : $this->degraded( 'managed_client_missing' );
+		}
+		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/history/groups' );
+	}
+
+	/** Read one bounded experimental group-history page through the active server boundary. */
+	public function get_group_history( string $account_id, string $thread_ref, int $count = 20 ): array {
+		// [2026-09-03 02:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H1-GROUP — expose group history only through managed Hub or custom M2M, never from the browser.
+		$count = max( 1, min( 50, $count ) );
+		$query = '?threadRef=' . rawurlencode( $thread_ref ) . '&count=' . $count;
+		if ( $this->is_managed_mode() ) {
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->get_group_history( $account_id, $thread_ref, $count ) : $this->degraded( 'managed_client_missing' );
+		}
+		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/history/group' . $query );
 	}
 
 	// ── Public: Zalo OA (OAuth) ────────────────────────────────────────────

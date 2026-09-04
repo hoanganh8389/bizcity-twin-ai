@@ -3,7 +3,11 @@
 ## Giới thiệu
 
 * [Tổng quan BizCity Twin AI](README.md)
+* [Định hướng Enterprise Brain](rules/PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md)
 * [Framework Guide v1 — Ownership, Contracts & Development Rules](framework/FRAMEWORK-GUIDE-v1.md)
+* [Framework Contract Inventory v1](contracts/FRAMEWORK-CONTRACT-INVENTORY-v1.md)
+* [Context Bank - Enterprise Context Spine](rules/PHASE-0-RULE-CONTEXT-BANK.md)
+* [Context Bank Implementation Roadmap - Phase 1.33](roadmaps/PHASE-1.33-CONTEXT-BANK-IMPLEMENTATION-ROADMAP.md)
 
 ## 🚀 Bắt đầu
 
@@ -130,9 +134,12 @@
 * [Tạo Automation Block](developer/extending/automation-block.md)
 * [Plugin Standard — Intent & Scaffold](extending/PLUGIN-STANDARD.md)
 * [Twin Plugin Standard — Public Contracts](extending/PLUGIN-TWIN-STANDARD.md)
+* [WP-CLI `wp bizcity` command family roadmap](roadmaps/PHASE-1.31-WP-CLI-BIZCITY-COMMAND-FAMILY.md)
+* [Self-Diagnosing System Readiness Audit](roadmaps/PHASE-1.32-SELF-DIAGNOSING-SYSTEM-READINESS-AUDIT.md)
 * [R-GW-8: Client Standalone (quan trọng)](developer/rules/gateway-standalone.md)
 * [PHP 7.4 Compatibility](developer/rules/php74-compat.md)
 * [Conventions & Coding Rules](developer/rules/overview.md)
+* [R-CLI-CONTRACTS — Contract Discovery & Verification](rules/PHASE-0-RULE-CLI-CONTRACTS.md)
 
 ## ❓ FAQ & Hỗ Trợ
 

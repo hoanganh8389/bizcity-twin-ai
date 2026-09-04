@@ -156,7 +156,7 @@ function bizcity_knowledge_search_character($query, $character_id) {
     $table_chunks = $wpdb->prefix . 'bizcity_knowledge_chunks';
     
     // Check if tables exist
-    if ($wpdb->get_var("SHOW TABLES LIKE '$table_sources'") !== $table_sources) {
+    if (! bizcity_tbl_exists( $table_sources )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
         return '';
     }
     
@@ -365,7 +365,7 @@ function bizcity_knowledge_get_history($session_id, $limit = 10) {
     $table = $wpdb->prefix . 'bizcity_knowledge_conversations';
     
     // Check if table exists
-    if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+    if (! bizcity_tbl_exists( $table )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
         return [];
     }
     
@@ -446,7 +446,7 @@ function bizcity_knowledge_search_image_embeddings($image_data, $character_id) {
     $table_chunks = $wpdb->prefix . 'bizcity_knowledge_chunks';
     
     // Check if table exists
-    if ($wpdb->get_var("SHOW TABLES LIKE '$table_chunks'") !== $table_chunks) {
+    if (! bizcity_tbl_exists( $table_chunks )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
         return '';
     }
     

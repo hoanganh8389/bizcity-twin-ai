@@ -1261,19 +1261,7 @@ class BizCity_KG_Database {
 		}
 
 		// Memory tables — kg_source_uuid for promote pathway (memory → KG entities).
-		$memory_tables = [
-			$wpdb->prefix . 'bizcity_memory_rolling',
-			$wpdb->prefix . 'bizcity_memory_episodic',
-			$wpdb->prefix . 'bizcity_memory_notes',
-			$wpdb->prefix . 'bizcity_memory_research',
-		];
-		foreach ( $memory_tables as $mt ) {
-			// SHOW TABLES is a write-safe DDL check that doesn't go via INFORMATION_SCHEMA.
-			$tbl_exists = ( bizcity_tbl_exists( $mt ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-			if ( $tbl_exists ) {
-				$add( $mt, 'kg_source_uuid', "kg_source_uuid CHAR(36) DEFAULT NULL" );
-			}
-		}
+		// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — all memory-family SQL payload tables are excluded from KG schema mutation.
 
 		// Vòng 4.5.5e (Rule 8g v2 — 2026-05-02) — backfill scope_type/scope_id on
 		// legacy twinchat sources. v1 stamped only `plugin_name='twinchat'` +

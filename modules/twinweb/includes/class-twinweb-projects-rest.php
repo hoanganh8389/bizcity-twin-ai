@@ -176,6 +176,11 @@ class BizCity_TwinWeb_Projects_REST {
 	private static function table_exists( string $table ): bool {
 		static $cache = array();
 		if ( isset( $cache[ $table ] ) ) { return $cache[ $table ]; }
+		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — legacy project migration must not query a retired SQL projection.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'read' ) ) {
+			$cache[ $table ] = false;
+			return false;
+		}
 		global $wpdb;
 		$ck = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
 		$v  = wp_cache_get( $ck, 'bizcity_tbl' );

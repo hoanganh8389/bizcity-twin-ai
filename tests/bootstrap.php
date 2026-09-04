@@ -19,6 +19,11 @@ if ( PHP_VERSION_ID < 70400 ) {
 
 $root = dirname( __DIR__ );
 
+// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — define the standalone WordPress root before Composer autoload files run; helpers-deprecation.php otherwise exits the PHPUnit process silently.
+if ( ! defined( 'ABSPATH' ) ) {
+    define( 'ABSPATH', $root . '/' );
+}
+
 // Composer autoload (PSR-4 + classmap for contracts).
 $autoload = $root . '/vendor/autoload.php';
 if ( ! file_exists( $autoload ) ) {
@@ -58,6 +63,7 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 if ( ! defined( 'WP_DEBUG' ) ) {
     define( 'WP_DEBUG', false );
 }
-if ( ! defined( 'ABSPATH' ) ) {
-    define( 'ABSPATH', $root . '/' );
+// [2026-09-01 Johnny Chu] PHPUNIT-COMPAT - provide the WordPress row-shape constant used by the pure Context Bank tests.
+if ( ! defined( 'ARRAY_A' ) ) {
+    define( 'ARRAY_A', 'ARRAY_A' );
 }

@@ -113,11 +113,11 @@ class BizCity_Context_Layers_Capture {
 	}
 
 	/* ──────────────────────────────────────────────
-	 *  D. persist — lưu vào session DB
+	 *  D. persist — lưu vào encrypted session-state filestore
 	 * ────────────────────────────────────────────── */
 
 	/**
-	 * Persist snapshot to webchat session's context_layers_snapshot column.
+	 * Persist snapshot to the encrypted WebChat session-state record.
 	 *
 	 * @param string $session_id WebChat session ID.
 	 * @return bool
@@ -131,13 +131,11 @@ class BizCity_Context_Layers_Capture {
 			return false;
 		}
 
-		$db  = BizCity_WebChat_Database::instance();
-		$row = $db->get_session_v3_by_session_id( $session_id );
-		if ( ! $row ) {
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — keep context-layer snapshots out of session SQL columns.
+		if ( ! class_exists( 'BizCity_WebChat_Session_State' ) ) {
 			return false;
 		}
-
-		return $db->update_session_v3( (int) $row->id, array(
+		return BizCity_WebChat_Session_State::instance()->update_by_session( $session_id, array(
 			'context_layers_snapshot' => self::$snapshot,
 		) );
 	}

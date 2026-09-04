@@ -2,10 +2,9 @@
 /**
  * Per-workflow JSONL file logger.
  *
- * Subscribes to `bizcity_automation_log_appended` and mirrors each runner log
- * row into a JSONL file. Path is multisite-aware via wp_upload_dir():
- *   single-site → wp-content/uploads/automation-workflow-logs/wf-{id}.jsonl
- *   multisite   → wp-content/uploads/sites/{blog_id}/automation-workflow-logs/wf-{id}.jsonl
+ * Subscribes to `bizcity_automation_log_appended` during the compatibility
+ * window and writes the canonical workflow trace JSONL source. Path is:
+ *   {wp_uploads}/bizcity-automation-logs/workflow-trace/YYYY-MM-DD.jsonl
  *
  * Purpose: debug workflows that don't visibly fire (no run created) or fire but
  * produce no visible effect. JSONL is human-readable, easy to grep, easy to
@@ -14,7 +13,7 @@
  * Each line is one JSON object:
  *   { ts, run_id, workflow_id, node_id, block_id, step, status, status_text, error }
  *
- * Rotation: when file > 5 MB → rename to wf-{id}.1.jsonl (single backup, overwrite).
+ * Retention and file rotation are owned by BizCity_JSONL_File_Logger.
  *
  * @package Bizcity_Twin_AI
  * @subpackage Core\Automation
@@ -26,6 +25,8 @@ defined( 'ABSPATH' ) || exit;
 final class BizCity_Automation_File_Logger {
 
 	const SUBDIR        = 'automation-workflow-logs';
+	const JSONL_FOLDER  = 'bizcity-automation-logs';
+	const JSONL_MODULE  = 'workflow-trace';
 	const ROTATE_BYTES  = 5242880; // 5 MB
 	const STATUS_MAP    = array( 0 => 'RUN', 1 => 'OK', 2 => 'FAIL', 3 => 'SKIP' );
 
@@ -39,27 +40,30 @@ final class BizCity_Automation_File_Logger {
 	/* ─── Path helpers ───────────────────────────────────────────────── */
 
 	public static function base_dir(): string {
-		$up = wp_upload_dir();
-		return trailingslashit( $up['basedir'] ) . self::SUBDIR;
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			return '';
+		}
+		$location = BizCity_JSONL_File_Logger::location( self::JSONL_FOLDER, self::JSONL_MODULE );
+		return (string) ( $location['directory'] ?? '' );
 	}
 
 	public static function ensure_dir(): bool {
 		$dir = self::base_dir();
-		if ( ! file_exists( $dir ) ) {
-			if ( ! wp_mkdir_p( $dir ) ) { return false; }
-			// Lock down from public listing.
-			@file_put_contents( $dir . '/index.html', '' );
-			@file_put_contents( $dir . '/.htaccess', "Order allow,deny\nDeny from all\n" );
-		}
-		return is_writable( $dir );
+		return $dir !== '' && is_dir( $dir ) && is_writable( $dir );
 	}
 
 	public static function path_for( int $workflow_id ): string {
-		return self::base_dir() . '/wf-' . $workflow_id . '.jsonl';
+		unset( $workflow_id );
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			return '';
+		}
+		$location = BizCity_JSONL_File_Logger::location( self::JSONL_FOLDER, self::JSONL_MODULE );
+		return (string) ( $location['file'] ?? '' );
 	}
 
 	public static function size( int $workflow_id ): int {
-		$p = self::path_for( $workflow_id );
+		unset( $workflow_id );
+		$p = self::path_for( 0 );
 		return file_exists( $p ) ? (int) @filesize( $p ) : 0;
 	}
 
@@ -78,30 +82,28 @@ final class BizCity_Automation_File_Logger {
 	}
 
 	public static function on_log_appended( $run_id, $log_id ): void {
-		global $wpdb;
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — SQL hook is retained only as compatibility backfill while runner callers migrate.
+		$run_id = (string) $run_id;
 		$log_id = (int) $log_id;
-		if ( $log_id <= 0 ) { return; }
+		if ( class_exists( 'BizCity_Automation_Repo_Runs' )
+			&& method_exists( 'BizCity_Automation_Repo_Runs', 'sql_log_mode_enabled' )
+			&& ! BizCity_Automation_Repo_Runs::sql_log_mode_enabled( 'read' ) ) {
+			// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — repo already emits canonical JSONL rows when SQL mode is unavailable/blocked.
+			return;
+		}
+		if ( $run_id === '' || $log_id <= 0 || ! class_exists( 'BizCity_Automation_Repo_Runs' ) ) { return; }
 
-		$tbl_logs = $wpdb->prefix . 'bizcity_automation_logs';
-		$tbl_runs = $wpdb->prefix . 'bizcity_automation_runs';
+		$run = BizCity_Automation_Repo_Runs::find( $run_id );
+		$row = BizCity_Automation_Repo_Runs::log_by_id( $run_id, $log_id );
 
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT l.id, l.run_id, l.node_id, l.block_id, l.step, l.status, l.started_at, l.ended_at, l.error,
-			        r.workflow_id
-			   FROM {$tbl_logs} l
-			   LEFT JOIN {$tbl_runs} r ON r.run_id = l.run_id
-			  WHERE l.id = %d
-			  LIMIT 1",
-			$log_id
-		), ARRAY_A );
-
-		if ( ! $row || empty( $row['workflow_id'] ) ) { return; }
+		if ( ! is_array( $run ) || ! is_array( $row ) || empty( $run['workflow_id'] ) || empty( $row ) ) { return; }
 
 		$status_int = (int) $row['status'];
 		$entry = array(
-			'ts'          => $row['ended_at'] ?: $row['started_at'] ?: current_time( 'mysql' ),
-			'run_id'      => (string) $row['run_id'],
-			'workflow_id' => (int) $row['workflow_id'],
+			'ts'          => (string) ( $row['ended_at'] ?? $row['started_at'] ?? current_time( 'mysql' ) ),
+			'log_id'      => (int) ( $row['id'] ?? $log_id ),
+			'run_id'      => $run_id,
+			'workflow_id' => (int) $run['workflow_id'],
 			'node_id'     => (string) $row['node_id'],
 			'block_id'    => (string) $row['block_id'],
 			'step'        => (int) $row['step'],
@@ -128,20 +130,16 @@ final class BizCity_Automation_File_Logger {
 	}
 
 	private static function write( int $workflow_id, array $entry ): void {
-		if ( ! self::ensure_dir() ) { return; }
-		$path = self::path_for( $workflow_id );
-		self::rotate_if_needed( $path );
-		$line = wp_json_encode( $entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-		if ( $line === false ) { return; }
-		@file_put_contents( $path, $line . "\n", FILE_APPEND | LOCK_EX );
-	}
-
-	private static function rotate_if_needed( string $path ): void {
-		if ( ! file_exists( $path ) ) { return; }
-		if ( @filesize( $path ) < self::ROTATE_BYTES ) { return; }
-		$bak = $path . '.1';
-		if ( file_exists( $bak ) ) { @unlink( $bak ); }
-		@rename( $path, $bak );
+		unset( $workflow_id );
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) { return; }
+		$event = sanitize_key( (string) ( $entry['event'] ?? 'workflow_event' ) );
+		BizCity_JSONL_File_Logger::write_contract(
+			'core.automation.workflow_trace',
+			( (int) ( $entry['status'] ?? 0 ) === 2 ) ? 'error' : 'info',
+			$event !== '' ? $event : 'workflow_event',
+			(string) ( $entry['block_id'] ?? $event ),
+			$entry
+		);
 	}
 
 	/* ─── Readers / Admin ────────────────────────────────────────────── */
@@ -151,30 +149,83 @@ final class BizCity_Automation_File_Logger {
 	 * whole file (max 5MB) → split lines → parse JSON.
 	 */
 	public static function tail( int $workflow_id, int $lines = 200 ): array {
-		$path = self::path_for( $workflow_id );
-		if ( ! file_exists( $path ) ) { return array(); }
-		$raw  = @file_get_contents( $path );
-		if ( ! is_string( $raw ) || $raw === '' ) { return array(); }
-		$rows = preg_split( "/\r?\n/", trim( $raw ) );
-		if ( ! is_array( $rows ) ) { return array(); }
-		if ( count( $rows ) > $lines ) {
-			$rows = array_slice( $rows, -$lines );
-		}
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) { return array(); }
+		$rows = BizCity_JSONL_File_Logger::query_contract( 'core.automation.workflow_trace', array(
+			'days' => 30,
+			'limit' => max( 1, min( 2000, $lines ) ),
+			'filter' => static function ( $row ) use ( $workflow_id ) {
+				$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				return (int) ( $ctx['workflow_id'] ?? $row['workflow_id'] ?? 0 ) === $workflow_id;
+			},
+		) );
 		$out = array();
-		foreach ( $rows as $r ) {
-			if ( $r === '' ) { continue; }
-			$d = json_decode( $r, true );
-			if ( is_array( $d ) ) { $out[] = $d; }
-			else                  { $out[] = array( 'raw' => $r ); }
+		foreach ( (array) $rows as $row ) {
+			if ( is_array( $row ) ) {
+				$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				$out[] = ! empty( $ctx ) ? array_merge( $ctx, array( 'ts' => (string) ( $row['ts'] ?? '' ) ) ) : $row;
+			}
 		}
-		return $out;
+		return array_reverse( $out );
+	}
+
+	public static function logs_for_run( string $run_id, int $since_id = 0 ): array {
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — provide a bounded JSONL read model when the legacy automation log table is unavailable.
+		if ( $run_id === '' || ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+			return array();
+		}
+		$rows = BizCity_JSONL_File_Logger::query_contract( 'core.automation.workflow_trace', array(
+			'days'   => 7,
+			'limit'  => 5000,
+			'filter' => static function ( $row ) use ( $run_id ) {
+				$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				return (string) ( $ctx['run_id'] ?? '' ) === $run_id;
+			},
+		) );
+		$latest = array();
+		foreach ( (array) $rows as $row ) {
+			$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+			$log_id = (int) ( $ctx['log_id'] ?? 0 );
+			if ( $log_id <= 0 ) {
+				$log_id = abs( (int) crc32( 'automation-jsonl|' . (string) ( $row['event_uuid'] ?? '' ) ) );
+				$log_id = $log_id > 0 ? $log_id : 1;
+			}
+			if ( $since_id > 0 && $log_id <= $since_id ) {
+				continue;
+			}
+			$key = (string) $log_id;
+			if ( isset( $latest[ $key ] ) ) {
+				continue;
+			}
+			$latest[ $key ] = array(
+				'id'          => $log_id,
+				'run_id'      => $run_id,
+				'workflow_id' => (int) ( $ctx['workflow_id'] ?? 0 ),
+				'node_id'     => (string) ( $ctx['node_id'] ?? '' ),
+				'block_id'    => (string) ( $ctx['block_id'] ?? '' ),
+				'step'        => (int) ( $ctx['step'] ?? 0 ),
+				'status'      => (int) ( $ctx['status'] ?? 0 ),
+				'input_json'  => (string) ( $ctx['input_json'] ?? '' ),
+				'output_json' => (string) ( $ctx['output_json'] ?? '' ),
+				'error'       => (string) ( $ctx['error'] ?? '' ),
+				'started_at'  => (string) ( $ctx['started_at'] ?? $row['ts'] ?? '' ),
+				'ended_at'    => (string) ( $ctx['ended_at'] ?? '' ),
+			);
+		}
+		usort( $latest, static function ( $left, $right ) {
+			return (int) $left['id'] <=> (int) $right['id'];
+		} );
+		return array_map( array( __CLASS__, 'normalize_file_log' ), array_values( $latest ) );
+	}
+
+	private static function normalize_file_log( array $row ): array {
+		$row['input']  = $row['input_json'] !== '' ? json_decode( $row['input_json'], true ) : null;
+		$row['output'] = $row['output_json'] !== '' ? json_decode( $row['output_json'], true ) : null;
+		return $row;
 	}
 
 	public static function clear( int $workflow_id ): bool {
-		$path = self::path_for( $workflow_id );
-		$ok1  = ! file_exists( $path ) || @unlink( $path );
-		$bak  = $path . '.1';
-		if ( file_exists( $bak ) ) { @unlink( $bak ); }
-		return (bool) $ok1;
+		unset( $workflow_id );
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — append-only JSONL cannot delete one workflow file; retention owns deletion.
+		return false;
 	}
 }

@@ -78,7 +78,8 @@ class BizCity_Zalo_Inbound_Emitter {
 					'account_id'     => $local_account_id,
 					'zalo_msg_id'    => $zalo_msg_id,
 					'zalo_thread_id' => $peer_id,
-					'thread_kind'    => 'personal',
+					// [2026-08-26 Johnny Chu] PHASE-0.39F-GROUP-INBOX — keep native group self-echo mappings on the group thread.
+					'thread_kind'    => $is_group ? 'group' : 'personal',
 					'crm_message_id' => 0,
 					'direction'      => 'out',
 					'quote_src_json' => '',

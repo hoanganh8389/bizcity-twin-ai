@@ -192,11 +192,13 @@ class BizCity_CF7_CRM_Sync {
 				);
 			}
 
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
+			// [2026-08-27 Johnny Chu] R-CH-FILE-LOG — capture CRM sync Error/TypeError failures in the canonical channel contract.
 			$action = 'error';
 			$error  = $e->getMessage();
-			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-				BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', 'error', 'cf7_crm_sync_exception', 'CF7 CRM synchronization raised an exception.', array( 'exception_class' => get_class( $e ), 'error_present' => $error !== '' ) );
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+				// [2026-08-27 Johnny Chu] R-LOG-HYBRID — CF7 CRM sync failures use the channel audit contract.
+				BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.cf7_audit', 'error', 'cf7_crm_sync_exception', 'CF7 CRM synchronization raised an exception.', array( 'exception_class' => get_class( $e ), 'error_present' => $error !== '' ) );
 			}
 		}
 

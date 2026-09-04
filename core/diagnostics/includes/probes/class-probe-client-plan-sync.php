@@ -37,6 +37,14 @@ final class BizCity_Probe_Client_Plan_Sync implements BizCity_Diagnostics_Probe 
 
 	public function run( $ctx ): array {
 		$failures = array();
+		// [2026-09-02 Johnny Chu] B2C-F3/F7 — isolate route introspection so unrelated CRM schema installers do not run during this read-only client probe.
+		if ( class_exists( 'WP_REST_Server' ) && ! did_action( 'rest_api_init' ) ) {
+			$GLOBALS['wp_rest_server'] = new WP_REST_Server();
+		}
+		if ( class_exists( 'BizCoach_Pro_Billing_Proxy_REST' ) && method_exists( 'BizCoach_Pro_Billing_Proxy_REST', 'register_routes' ) ) {
+			// [2026-09-02 Johnny Chu] B2C-F3/F7 — register only the client billing routes on the isolated REST server.
+			BizCoach_Pro_Billing_Proxy_REST::register_routes();
+		}
 
 		$plan_service_file = rtrim( (string) BCPRO_DIR, '/\\' ) . '/includes/frontend/class-bcpro-plan-service.php';
 		$proxy_rest_file   = rtrim( (string) BCPRO_DIR, '/\\' ) . '/includes/frontend/class-bcpro-billing-proxy-rest.php';

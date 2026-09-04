@@ -453,6 +453,8 @@ final class BizCity_Channel_Conversation_Archive {
 				'account_key'             => 'a_' . self::hash_identifier( $account_id, $key ),
 				'peer_key'                => 'p_' . self::hash_identifier( $peer_uid, $key ),
 				'conversation_id'         => (int) $row['conversation_id'],
+				// [2026-08-29 Johnny Chu] PHASE-0.39F-CONTEXT — keep inbox correlation aligned with archive receipt writes.
+				'inbox_id'                => (int) $row['inbox_id'],
 				'crm_message_id'          => (int) $row['crm_message_id'],
 				'provider_message_id_hash'=> self::hash_identifier( (string) ( $row['platform_msg_id'] ?? $row['external_source_id'] ?? '' ), $key ),
 				'direction'               => $direction,
@@ -463,11 +465,13 @@ final class BizCity_Channel_Conversation_Archive {
 				'delivery_status'         => $delivery_status,
 				'occurred_at'             => (string) ( $row['created_at'] ?? current_time( 'mysql' ) ),
 			);
-			$written = self::append( $entry, $archive_channel, $account_id, $peer_uid );
-			if ( ! $written ) {
+			$entry['record_id'] = 'crm_' . (int) $entry['crm_message_id'] . '_' . substr( hash( 'sha256', (string) $entry['event_uuid'] ), 0, 24 );
+			$archive_receipt = self::append_with_receipt( $entry, $archive_channel, $account_id, $peer_uid );
+			if ( ! is_array( $archive_receipt ) ) {
 				return false;
 			}
 			if ( 'message' !== $event_type ) {
+				do_action( 'bizcity_channel_archive_written', array( 'entry' => $entry, 'receipt' => $archive_receipt ) );
 				return true;
 			}
 			$receipt_ok = self::write_receipt( $entry, $key, $archive_channel, $account_id, $peer_uid );
@@ -478,6 +482,7 @@ final class BizCity_Channel_Conversation_Archive {
 			if ( class_exists( 'BizCity_CRM_Repository' ) && method_exists( 'BizCity_CRM_Repository', 'mark_message_archived' ) ) {
 				BizCity_CRM_Repository::mark_message_archived( (int) $row['crm_message_id'], $archive_channel, $entry, $key );
 			}
+			do_action( 'bizcity_channel_archive_written', array( 'entry' => $entry, 'receipt' => $archive_receipt ) );
 			return true;
 		} catch ( \Throwable $e ) {
 			self::operational_failure( 'conversation_archive_failed', $e, $archive_channel );
@@ -554,7 +559,16 @@ final class BizCity_Channel_Conversation_Archive {
 	}
 
 	private static function append( array $entry, string $channel, string $account_id, string $peer_uid ): bool {
-		// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — append one bounded JSONL archive row with an exclusive lock.
+		return is_array( self::append_with_receipt( $entry, $channel, $account_id, $peer_uid ) );
+	}
+
+	/**
+	 * Append one archive row and return its lock-captured pointer receipt.
+	 *
+	 * @return array<string,mixed>|false
+	 */
+	private static function append_with_receipt( array $entry, string $channel, string $account_id, string $peer_uid ) {
+		// [2026-09-01 Johnny Chu] PHASE-CB4.2 — capture archive offset/hash while LOCK_EX is held for Context Bank pointer admission.
 		$dir = self::directory( $channel, $account_id, $peer_uid );
 		if ( $dir === '' ) {
 			return false;
@@ -569,8 +583,79 @@ final class BizCity_Channel_Conversation_Archive {
 			return false;
 		}
 		$file = $dir . DIRECTORY_SEPARATOR . gmdate( 'Y-m' ) . '.jsonl';
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-		return false !== @file_put_contents( $file, $line . "\n", FILE_APPEND | LOCK_EX );
+		$durable_line = $line . "\n";
+		$handle = @fopen( $file, 'ab' );
+		if ( ! $handle || ! @flock( $handle, LOCK_EX ) ) {
+			if ( $handle ) {
+				@fclose( $handle );
+			}
+			return false;
+		}
+		$file_stat = @fstat( $handle );
+		$offset = is_array( $file_stat ) && isset( $file_stat['size'] ) ? (int) $file_stat['size'] : 0;
+		$written = @fwrite( $handle, $durable_line );
+		@fflush( $handle );
+		$write_ok = false !== $written && (int) $written === strlen( $durable_line );
+		$receipt = $write_ok ? array(
+			'contract_id'   => 'core.channel_gateway.context_corpus',
+			'record_id'     => (string) ( $entry['record_id'] ?? '' ),
+			'event_uuid'    => (string) ( $entry['event_uuid'] ?? '' ),
+			'relative_file' => $channel . '/a_' . self::hash_identifier( $account_id, self::archive_key() ) . '/p_' . self::hash_identifier( $peer_uid, self::archive_key() ) . '/' . gmdate( 'Y-m' ) . '.jsonl',
+			'byte_offset'   => $offset,
+			'row_hash'      => hash( 'sha256', $durable_line ),
+			'content_hash'  => hash( 'sha256', $line ),
+			'occurred_at'   => (string) ( $entry['occurred_at'] ?? gmdate( 'c' ) ),
+			'operation'     => (string) ( $entry['operation'] ?? 'upsert' ),
+			'blog_id'       => (int) get_current_blog_id(),
+			'channel'       => $channel,
+			'account_key'   => (string) ( $entry['account_key'] ?? '' ),
+			'peer_key'      => (string) ( $entry['peer_key'] ?? '' ),
+		) : false;
+		@flock( $handle, LOCK_UN );
+		@fclose( $handle );
+		return is_array( $receipt ) && $receipt['record_id'] !== '' && $receipt['event_uuid'] !== '' ? $receipt : false;
+	}
+
+	/**
+	 * Verify one archive receipt against the exact stored JSONL line.
+	 *
+	 * @param array<string,mixed> $receipt Lock-captured archive receipt.
+	 * @param int                 $max_ms Read budget in milliseconds.
+	 * @return array<string,mixed>
+	 */
+	public static function read_receipt( array $receipt, int $max_ms = 100 ): array {
+		// [2026-09-01 Johnny Chu] PHASE-CB4.2 — verify archive pointer scope/hash before any Context Bank ledger follow succeeds.
+		$fail = static function ( $reason ) { return array( 'ok' => false, 'reason' => (string) $reason ); };
+		$started = microtime( true );
+		$relative = (string) ( $receipt['relative_file'] ?? '' );
+		$blog_id = (int) ( $receipt['blog_id'] ?? 0 );
+		$current_blog_id = (int) get_current_blog_id();
+		if ( (string) ( $receipt['contract_id'] ?? '' ) !== 'core.channel_gateway.context_corpus' || $blog_id <= 0 || $blog_id !== $current_blog_id || (int) ( $receipt['byte_offset'] ?? -1 ) < 0 || ! preg_match( '#^(facebook|messenger|zalo_oa|zalo_personal|webchat|email|instagram|whatsapp)/a_[a-f0-9]{64}/p_[a-f0-9]{64}/\d{4}-\d{2}\.jsonl$#i', $relative ) || ! preg_match( '/^[a-f0-9]{64}$/i', (string) ( $receipt['row_hash'] ?? '' ) ) ) {
+			return $fail( 'archive_receipt_shape_invalid' );
+		}
+		$root = self::root_directory();
+		$path = $root . DIRECTORY_SEPARATOR . str_replace( array( '/', '\\' ), DIRECTORY_SEPARATOR, $relative );
+		if ( $root === '' || ! is_file( $path ) || ! is_readable( $path ) ) {
+			return $fail( 'archive_pointer_missing' );
+		}
+		$handle = @fopen( $path, 'rb' );
+		if ( ! $handle || false === @fseek( $handle, (int) $receipt['byte_offset'] ) ) {
+			if ( $handle ) { @fclose( $handle ); }
+			return $fail( 'archive_pointer_seek_failed' );
+		}
+		$line = @fgets( $handle, self::MAX_LINE_BYTES + 2 );
+		@fclose( $handle );
+		if ( ( microtime( true ) - $started ) * 1000 > max( 1, min( 1000, $max_ms ) ) ) {
+			return $fail( 'archive_pointer_budget_exhausted' );
+		}
+		if ( ! is_string( $line ) || ! hash_equals( strtolower( (string) $receipt['row_hash'] ), strtolower( hash( 'sha256', $line ) ) ) || ( ! empty( $receipt['content_hash'] ) && ! hash_equals( strtolower( (string) $receipt['content_hash'] ), strtolower( hash( 'sha256', rtrim( $line, "\r\n" ) ) ) ) ) ) {
+			return $fail( 'archive_pointer_hash_mismatch' );
+		}
+		$entry = json_decode( trim( $line ), true );
+		if ( ! is_array( $entry ) || (int) ( $entry['blog_id'] ?? -1 ) !== $blog_id || (string) ( $entry['record_id'] ?? '' ) !== (string) ( $receipt['record_id'] ?? '' ) || (string) ( $entry['event_uuid'] ?? '' ) !== (string) ( $receipt['event_uuid'] ?? '' ) ) {
+			return $fail( 'archive_pointer_envelope_mismatch' );
+		}
+		return array( 'ok' => true, 'operation' => (string) ( $entry['operation'] ?? 'upsert' ), 'entry' => array( 'record_id' => (string) $entry['record_id'], 'event_uuid' => (string) $entry['event_uuid'], 'blog_id' => $blog_id ) );
 	}
 
 	private static function write_receipt( array $entry, string $key, string $channel, string $account_id, string $peer_uid ): bool {

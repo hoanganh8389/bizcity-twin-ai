@@ -397,7 +397,7 @@ final class BizCity_Automation_Runner {
 							'error'       => 'external_side_effect_unknown',
 							'output_json' => wp_json_encode( array( 'side_effect_status' => 'unknown', 'idempotency_key' => $side_effect['idempotency_key'] ) ),
 							'ended_at'    => current_time( 'mysql' ),
-						) );
+						), $run_id );
 						$this->finish_failed( $run_id, $err, 'external_side_effect_unknown' );
 						return $err;
 					}
@@ -418,7 +418,7 @@ final class BizCity_Automation_Runner {
 
 			if ( ! $block ) {
 				$err = new WP_Error( 'unknown_block', 'Block chưa register: ' . $block_id );
-				$this->update_log_failed( $log_id, $err );
+				$this->update_log_failed( $run_id, $log_id, $err );
 				$last_error = $err;
 				$this->finish_failed( $run_id, $err, 'unknown_block' );
 				return $err;
@@ -426,7 +426,7 @@ final class BizCity_Automation_Runner {
 
 			if ( ! empty( $ctx['_hil_spec'] ) && $this->is_hil_side_effect_block( $block_id ) && empty( $ctx['_hil_ready'] ) ) {
 				$err = new WP_Error( 'hil_not_ready', 'HIL chưa thu đủ thông tin hoặc chưa được xác nhận trước side effect.' );
-				$this->update_log_failed( $log_id, $err );
+				$this->update_log_failed( $run_id, $log_id, $err );
 				$this->finish_failed( $run_id, $err, 'hil_not_ready' );
 				return $err;
 			}
@@ -439,7 +439,7 @@ final class BizCity_Automation_Runner {
 
 			if ( is_wp_error( $output ) ) {
 				$side_effect_outcome = $this->side_effect_outcome( $block_id, $ctx, $output );
-				$this->update_log_failed( $log_id, $output, $side_effect_outcome );
+				$this->update_log_failed( $run_id, $log_id, $output, $side_effect_outcome );
 				$last_error = $output;
 				$reason = ( $side_effect_outcome['status'] ?? '' ) === 'unknown'
 					? 'external_side_effect_unknown'
@@ -456,7 +456,7 @@ final class BizCity_Automation_Runner {
 				$out['side_effect_reason']  = $side_effect_outcome['reason_code'];
 				$err_code = $side_effect_outcome['status'] === 'unknown' ? 'external_side_effect_unknown' : 'external_side_effect_failed';
 				$err = new WP_Error( $err_code, 'External side effect cần đối soát trước khi tiếp tục.', array( 'side_effect_status' => $side_effect_outcome['status'] ) );
-				$this->update_log_failed( $log_id, $err, $side_effect_outcome );
+				$this->update_log_failed( $run_id, $log_id, $err, $side_effect_outcome );
 				$this->finish_failed( $run_id, $err, $err_code );
 				return $err;
 			}
@@ -470,7 +470,7 @@ final class BizCity_Automation_Runner {
 				'status'      => self::LOG_STATUS_OK,
 				'output_json' => wp_json_encode( $out ),
 				'ended_at'    => current_time( 'mysql' ),
-			) );
+			), $run_id );
 			do_action( 'bizcity_automation_log_appended', $run_id, $log_id );
 
 			// Store in ctx by node id + kind alias.
@@ -619,7 +619,8 @@ final class BizCity_Automation_Runner {
 		}
 	}
 
-	private function update_log_failed( int $log_id, $err, array $outcome = array() ): void {
+	private function update_log_failed( string $run_id, int $log_id, $err, array $outcome = array() ): void {
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — include run context so repository fallback can update the same synthetic log row in JSONL mode.
 		$msg = is_wp_error( $err ) ? $err->get_error_message() : (string) $err;
 		$patch = array(
 			'status'   => self::LOG_STATUS_FAIL,
@@ -633,7 +634,7 @@ final class BizCity_Automation_Runner {
 				'provider_request_id' => (string) ( $outcome['provider_request_id'] ?? '' ),
 			) );
 		}
-		BizCity_Automation_Repo_Runs::append_log_update( $log_id, $patch );
+		BizCity_Automation_Repo_Runs::append_log_update( $log_id, $patch, $run_id );
 	}
 
 	private function side_effect_outcome( string $block_id, array $ctx, $result ): array {
@@ -684,7 +685,8 @@ final class BizCity_Automation_Runner {
 				$platform = strtolower( (string) ( $trigger['platform'] ?? $trigger['channel'] ?? '' ) );
 				$bot_id = (string) ( $trigger['bot_id'] ?? $trigger['account_id'] ?? '' );
 				$user_id = (string) ( $trigger['user_id'] ?? $trigger['sender_id'] ?? '' );
-				if ( strpos( $platform, 'zalo' ) !== false && $bot_id !== '' && $user_id !== '' ) {
+				// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - owner recovery never treats OA/Personal as Bot automation.
+				if ( in_array( strtoupper( $platform ), array( 'ZALO_BOT', 'ZALO' ), true ) && $bot_id !== '' && $user_id !== '' ) {
 					$identity_chat_id = 'zalobot_' . $bot_id . '_' . $user_id;
 				}
 			}
@@ -778,6 +780,11 @@ final class BizCity_Automation_Runner {
 	 * Called by hook BizCity_Automation_Runner::CRON_HOOK.
 	 */
 	public function on_cron_dispatch(): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — direct cron runner
+		// calls must not query, claim, or execute production runs in diagnostics.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		global $wpdb;
 
 		$cron = class_exists( 'BizCity_Cron_Manager' ) ? BizCity_Cron_Manager::instance() : null;

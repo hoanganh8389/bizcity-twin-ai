@@ -958,34 +958,19 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 			'rows'                        => 0,
 		);
 
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_zalo_bot_logs';
-		$exists = (int) $wpdb->get_var(
-			$wpdb->prepare(
-				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-				$table
-			)
-		);
-		if ( $exists !== 1 ) {
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — inspect exact zalo_bot operational JSONL, never the retired SQL projection.
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
 			return $out;
 		}
 		$out['available'] = true;
 
-		$since = gmdate( 'Y-m-d H:i:s', time() - max( 1, $lookback_hours ) * HOUR_IN_SECONDS );
-		$rows = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT id,event_name,event_data,created_at FROM {$table}
-				 WHERE event_name IN (%s,%s,%s,%s)
-				   AND created_at >= %s
-				 ORDER BY id DESC
-				 LIMIT 2000",
-				'unsupported.guidance.sent',
-				'upload_link.upload_ok',
-				'upload_link.upload_failed',
-				'upload_link.confirm_failed',
-				$since
-			)
-		);
+		$rows = BizCity_JSONL_File_Logger::query_contract( 'core.channel_gateway.zalo_bot', array(
+			'days'  => max( 1, (int) ceil( $lookback_hours / 24 ) ),
+			'limit' => 2000,
+			'filter' => static function ( $row ) {
+				return in_array( (string) ( $row['event'] ?? '' ), array( 'unsupported.guidance.sent', 'upload_link.upload_ok', 'upload_link.upload_failed', 'upload_link.confirm_failed' ), true );
+			},
+		) );
 
 		if ( ! is_array( $rows ) ) {
 			return $out;
@@ -993,8 +978,9 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 		$out['rows'] = count( $rows );
 
 		foreach ( $rows as $row ) {
-			$event = (string) ( $row->event_name ?? '' );
-			$raw   = (string) ( $row->event_data ?? '' );
+			$event = (string) ( $row['event'] ?? '' );
+			$ctx   = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+			$raw   = (string) ( $ctx['event_data'] ?? '' );
 			$data  = json_decode( $raw, true );
 			if ( ! is_array( $data ) ) {
 				$data = array();

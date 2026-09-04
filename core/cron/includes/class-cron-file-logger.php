@@ -5,10 +5,10 @@
  * JSONL-based cron run logger (PHASE-CRON-FILE-LOGGER 2026-06-14).
  *
  * Writes lightweight JSONL evidence files per-day, per-blog into:
- *   {wp_uploads}/bizcity_cron_logs/YYYY-MM-DD.jsonl
+ *   {wp_uploads}/bizcity-cron-logs/run-evidence/YYYY-MM-DD.jsonl
  *
  * Design goals:
- *  - Zero-DB reads on the hot write path (only file_put_contents).
+ *  - Zero-DB reads on the hot write path; JSONL I/O is delegated to the shared helper.
  *  - Multisite-safe: wp_upload_dir() returns per-blog basedir automatically.
  *  - GC: keep 5 most-recent days, delete older files.
  *  - Stats: parse JSONL to produce daily summary (total/ok/error/avg_ms/p95).
@@ -25,6 +25,8 @@ defined( 'ABSPATH' ) || exit;
 final class BizCity_Cron_File_Logger {
 
 	const FOLDER_NAME    = 'bizcity_cron_logs';
+	const JSONL_FOLDER   = 'bizcity-cron-logs';
+	const JSONL_MODULE   = 'run-evidence';
 	const KEEP_DAYS      = 5;
 	const HTACCESS_BODY  = "Order Deny,Allow\nDeny from all\n";
 
@@ -116,16 +118,13 @@ final class BizCity_Cron_File_Logger {
 	 * @param array $entry Associative array — will be JSON-encoded.
 	 */
 	public static function append( array $entry ): bool {
-		$path = self::today_path();
-		if ( ! $path ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return false;
 		}
-		$line = wp_json_encode( $entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-		if ( ! $line ) {
-			return false;
-		}
-		// FILE_APPEND | LOCK_EX — atomic per-process (safe for PHP-FPM).
-		return false !== @file_put_contents( $path, $line . "\n", FILE_APPEND | LOCK_EX );
+		$type = (string) ( $entry['type'] ?? 'event' );
+		$level = ( $type === 'end' && (string) ( $entry['status'] ?? '' ) !== 'ok' ) ? 'error' : 'info';
+		$message = (string) ( $entry['job_id'] ?? $type );
+		return (bool) BizCity_JSONL_File_Logger::write_contract( 'core.cron.run_evidence', $level, 'cron_' . $type, $message, $entry );
 	}
 
 	/**
@@ -171,31 +170,19 @@ final class BizCity_Cron_File_Logger {
 	 * @return array  Parsed entries (each is an associative array).
 	 */
 	public static function read_day( string $date = 'today' ) {
-		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — read_day()
-		$path = self::path_for_date( $date );
-		if ( ! $path || ! file_exists( $path ) ) {
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — read through the shared JSONL reader and preserve the legacy entry shape.
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return array();
 		}
-
+		$date = $date === 'today' ? gmdate( 'Y-m-d' ) : $date;
+		$rows = BizCity_JSONL_File_Logger::read_contract( 'core.cron.run_evidence', $date, 5000 );
 		$entries = array();
-		$fh = fopen( $path, 'rb' );
-		if ( ! $fh ) {
-			return array();
-		}
-		// [2026-07-27 Johnny Chu] PHASE-0.50-CRON-FILELOG-PRIMARY — do not
-		// truncate JSONL meta lines at 4096 bytes before decoding.
-		while ( ! feof( $fh ) ) {
-			$line = fgets( $fh );
-			if ( $line === false || trim( $line ) === '' ) {
-				continue;
-			}
-			$decoded = json_decode( trim( $line ), true );
-			if ( is_array( $decoded ) ) {
-				$entries[] = $decoded;
+		foreach ( (array) $rows as $row ) {
+			if ( is_array( $row ) ) {
+				$entries[] = self::unwrap_entry( $row );
 			}
 		}
-		fclose( $fh );
-		return $entries;
+		return array_reverse( $entries );
 	}
 
 	/**
@@ -206,62 +193,7 @@ final class BizCity_Cron_File_Logger {
 	 * @return array
 	 */
 	public static function tail( string $date = 'today', int $limit = 100 ) {
-		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — tail()
-		$path = self::path_for_date( $date );
-		if ( ! $path || ! file_exists( $path ) ) {
-			return array();
-		}
-
-		$size = filesize( $path );
-		if ( ! $size ) {
-			return array();
-		}
-
-		// Read from end in 16KB chunks until we have enough lines.
-		$fh = fopen( $path, 'rb' );
-		if ( ! $fh ) {
-			return array();
-		}
-
-		$chunk_size = 16384;
-		$pos        = $size;
-		$buffer     = '';
-		$lines      = array();
-
-		while ( $pos > 0 && count( $lines ) < $limit ) {
-			$read = min( $chunk_size, $pos );
-			$pos -= $read;
-			fseek( $fh, $pos );
-			$buffer = fread( $fh, $read ) . $buffer;
-			// Split buffer into lines.
-			$parts = explode( "\n", $buffer );
-			// The first element may be partial — keep it in buffer.
-			$buffer = array_shift( $parts );
-			// Add non-empty parts to front of lines (reversed chunk order).
-			foreach ( array_reverse( $parts ) as $ln ) {
-				if ( trim( $ln ) !== '' ) {
-					array_unshift( $lines, $ln );
-				}
-			}
-		}
-		fclose( $fh );
-
-		// Include remaining buffer if it has content.
-		if ( trim( $buffer ) !== '' ) {
-			array_unshift( $lines, $buffer );
-		}
-
-		// Take last $limit lines.
-		$lines = array_slice( $lines, - $limit );
-
-		$entries = array();
-		foreach ( $lines as $line ) {
-			$decoded = json_decode( trim( $line ), true );
-			if ( is_array( $decoded ) ) {
-				$entries[] = $decoded;
-			}
-		}
-		return $entries;
+		return array_slice( self::read_day( $date ), - max( 1, $limit ) );
 	}
 
 	// ─── Statistics ───────────────────────────────────────────────────────
@@ -376,25 +308,10 @@ final class BizCity_Cron_File_Logger {
 	 * @return string[]
 	 */
 	public static function available_dates() {
-		$dir = self::log_dir();
-		if ( ! $dir || ! is_dir( $dir ) ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return array();
 		}
-
-		$files = glob( $dir . DIRECTORY_SEPARATOR . '*.jsonl' );
-		if ( ! is_array( $files ) ) {
-			return array();
-		}
-
-		$dates = array();
-		foreach ( $files as $file ) {
-			$name = basename( $file, '.jsonl' );
-			if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $name ) ) {
-				$dates[] = $name;
-			}
-		}
-		rsort( $dates );
-		return $dates;
+		return BizCity_JSONL_File_Logger::list_dates( self::JSONL_FOLDER, self::JSONL_MODULE, 365 );
 	}
 
 	/**
@@ -542,25 +459,11 @@ final class BizCity_Cron_File_Logger {
 	 * Called nightly via bizcity_cron_runs_gc hook.
 	 */
 	public static function gc_old_logs() {
-		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — gc_old_logs()
-		$dir = self::log_dir();
-		if ( ! $dir || ! is_dir( $dir ) ) {
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — cron retention is owned by the shared JSONL CRUD class.
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return;
 		}
-
-		$files = glob( $dir . DIRECTORY_SEPARATOR . '*.jsonl' );
-		if ( ! is_array( $files ) ) {
-			return;
-		}
-
-		$cutoff = gmdate( 'Y-m-d', strtotime( '-' . self::KEEP_DAYS . ' days' ) );
-
-		foreach ( $files as $file ) {
-			$name = basename( $file, '.jsonl' );
-			if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $name ) && $name < $cutoff ) {
-				@unlink( $file );
-			}
-		}
+		BizCity_JSONL_File_Logger::purge_older_than( self::JSONL_FOLDER, self::JSONL_MODULE, self::KEEP_DAYS );
 	}
 
 	// ─── Path Helpers ─────────────────────────────────────────────────────
@@ -581,8 +484,7 @@ final class BizCity_Cron_File_Logger {
 	 * @return string|false
 	 */
 	public static function path_for_date( string $date ) {
-		$dir = self::log_dir();
-		if ( ! $dir ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return false;
 		}
 
@@ -594,7 +496,8 @@ final class BizCity_Cron_File_Logger {
 			return false;
 		}
 
-		return $dir . DIRECTORY_SEPARATOR . $date . '.jsonl';
+		$location = BizCity_JSONL_File_Logger::location( self::JSONL_FOLDER, self::JSONL_MODULE, $date );
+		return ! empty( $location['file'] ) ? $location['file'] : false;
 	}
 
 	/**
@@ -603,47 +506,23 @@ final class BizCity_Cron_File_Logger {
 	 * @return string|false  Absolute directory path, or false on failure.
 	 */
 	public static function log_dir() {
-		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — log_dir() uses wp_upload_dir (multisite-safe)
-		if ( self::$_dir_cache !== null ) {
-			return self::$_dir_cache;
-		}
-
-		$upload = wp_upload_dir();
-		if ( ! empty( $upload['error'] ) ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return false;
 		}
-
-		$dir = rtrim( $upload['basedir'], '/\\' ) . DIRECTORY_SEPARATOR . self::FOLDER_NAME;
-
-		if ( ! is_dir( $dir ) ) {
-			if ( ! wp_mkdir_p( $dir ) ) {
-				return false;
-			}
-			// Protect directory from direct web access.
-			self::write_htaccess( $dir );
-		}
-
-		self::$_dir_cache = $dir;
-		return $dir;
-	}
-
-	/**
-	 * Write an .htaccess that denies direct HTTP access to the log directory.
-	 *
-	 * @param string $dir Absolute directory path.
-	 */
-	private static function write_htaccess( string $dir ) {
-		$htaccess = $dir . DIRECTORY_SEPARATOR . '.htaccess';
-		if ( ! file_exists( $htaccess ) ) {
-			file_put_contents( $htaccess, self::HTACCESS_BODY );
-		}
+		$location = BizCity_JSONL_File_Logger::location( self::JSONL_FOLDER, self::JSONL_MODULE );
+		return ! empty( $location['directory'] ) ? $location['directory'] : false;
 	}
 
 	/**
 	 * Invalidate the log_dir static cache. Called in unit tests / on blog switch.
 	 */
 	public static function reset_dir_cache() {
-		// [2026-06-14 Johnny Chu] GAP-5 — uses class property so this actually works.
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — retained as a compatibility no-op after path ownership moved to the shared logger.
 		self::$_dir_cache = null;
+	}
+
+	private static function unwrap_entry( array $row ): array {
+		$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+		return ! empty( $ctx ) ? array_merge( $ctx, array( 'ts' => (string) ( $row['ts'] ?? '' ) ) ) : $row;
 	}
 }

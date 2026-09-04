@@ -147,6 +147,10 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			(array) ( $search_context_payload['results'] ?? array() ),
 			(array) ( $source_file_payload['source_file_briefs'] ?? array() )
 		);
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7 — reuse one bounded Context Bank result for both W0.20 blending and outer retrieval metadata.
+		$context_bank = $this->collect_context_bank_refs( $opts );
+		$pack_opts = $opts;
+		$pack_opts['_context_bank_payload'] = $context_bank;
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.20 — canonical Graph -> retrieval top30 -> rerank -> top8 evidence pack for all surfaces.
 		$graph_vector_rerank_pack = $this->build_graph_vector_rerank_pack(
 			$out,
@@ -154,7 +158,7 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			$cross_notebook_links,
 			(array) ( $source_file_payload['source_file_briefs'] ?? array() ),
 			$product_entities,
-			$opts
+			$pack_opts
 		);
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.16 — count true product-name entities separately from category traits.
 		$product_name_entity_count = 0;
@@ -190,7 +194,6 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'final_context_count'        => (int) ( $graph_vector_rerank_pack['final_context_count'] ?? 0 ),
 			'rerank_method'              => (string) ( $graph_vector_rerank_pack['rerank_method'] ?? '' ),
 			'rerank_degraded'            => ! empty( $graph_vector_rerank_pack['rerank_degraded'] ),
-			'rerank_error'               => (string) ( $graph_vector_rerank_pack['rerank_error'] ?? '' ),
 			'vector_status'              => (string) ( $graph_vector_rerank_pack['vector_status'] ?? '' ),
 			'vector_candidate_count'     => (int) ( $graph_vector_rerank_pack['vector_candidate_count'] ?? 0 ),
 			'vector_degraded_reason'     => (string) ( $graph_vector_rerank_pack['vector_degraded_reason'] ?? '' ),
@@ -205,6 +208,10 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'product_entities'          => $product_entities,
 			'product_entity_count'      => count( $product_entities ),
 			'product_name_entity_count' => $product_name_entity_count,
+				'context_bank_source_refs'  => (array) ( $context_bank['refs'] ?? array() ),
+			'context_bank_source_count' => (int) ( $context_bank['count'] ?? 0 ),
+			'context_bank_owner_records' => (array) ( $context_bank['owner_records'] ?? array() ),
+			'context_bank_retrieval'    => (array) ( $context_bank['meta'] ?? array() ),
 		);
 	}
 
@@ -379,7 +386,13 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 		}
 
 		$graph_entities = $this->w020_extract_graph_entities( $query_tokens, $cross_notebook_links, $source_file_briefs, $product_entities );
+		$context_bank = isset( $opts['_context_bank_payload'] ) && is_array( $opts['_context_bank_payload'] )
+			? $opts['_context_bank_payload']
+			: $this->collect_context_bank_refs( $opts );
 		$candidates     = $this->w020_collect_retrieval_candidates( $source_map, (array) ( $search_context_payload['results'] ?? array() ), $target_candidates );
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7 — blend only verified canonical-owner excerpts into the existing W0.20 pool before graph/vector rerank.
+		$context_bank_candidates = $this->w020_collect_context_bank_candidates( (array) ( $context_bank['owner_records'] ?? array() ), $target_candidates );
+		$candidates = $this->w020_merge_candidate_lists( $candidates, $context_bank_candidates, $target_candidates * 3 );
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.21.2 — promote relation triples/entities into real retrieval candidates, not only score terms.
 		$graph_payload  = $this->w020_collect_graph_relation_candidates( $source_file_briefs, $graph_entities, $target_candidates );
 		$candidates     = $this->w020_merge_candidate_lists( $candidates, (array) ( $graph_payload['candidates'] ?? array() ), $target_candidates * 3 );
@@ -395,7 +408,6 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.20.3 — use Hub Branch #8 rerank when ready, otherwise keep deterministic local score.
 		$hub_rerank     = $this->w020_apply_hub_rerank( $query, array_slice( $candidates, 0, $target_candidates ), $target_final, $opts );
 		$candidates     = (array) ( $hub_rerank['candidates'] ?? $candidates );
-
 		$retrieval_candidates = array_slice( $candidates, 0, $target_candidates );
 		$final_chunks         = array_slice( $retrieval_candidates, 0, $target_final );
 
@@ -422,7 +434,140 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'target_final_count'        => $target_final,
 			'final_context_count'       => count( $final_chunks ),
 			'final_context_chunks'      => $final_chunks,
+			'context_bank_source_refs'  => (array) ( $context_bank['refs'] ?? array() ),
+			'context_bank_source_count' => (int) ( $context_bank['count'] ?? 0 ),
+			'context_bank_retrieval'    => (array) ( $context_bank['meta'] ?? array() ),
 		);
+	}
+
+	/**
+	 * Add authorized Context Bank metadata references as W0.20 supplements.
+	 *
+	 * @param array<string,mixed> $opts
+	 * @return array<string,mixed>
+	 */
+	private function collect_context_bank_refs( array $opts ): array {
+		// [2026-09-02 Johnny Chu] PHASE-CB7.2 — keep Context Bank refs bounded and supplementary; W0.20 remains the sole top30/top8 selector.
+		$enabled = ! empty( $opts['context_bank_enabled'] )
+			|| ( function_exists( 'get_option' ) && (bool) get_option( 'bizcity_context_bank_mpr_enabled', false ) );
+		if ( ! $enabled || ! $this->load_context_bank_runtime() || ! class_exists( 'BizCity_Context_Bank_Search' ) || ! class_exists( 'BizCity_Context_Bank_Scope_Resolver' ) ) {
+			return array( 'refs' => array(), 'count' => 0, 'meta' => array( 'enabled' => false, 'reason' => 'context_bank_disabled_or_unavailable' ) );
+		}
+		$scope = BizCity_Context_Bank_Scope_Resolver::resolve( array(
+			'channel' => (string) ( $opts['channel'] ?? $opts['platform'] ?? 'TWIN_GPT' ),
+			'mode' => (string) ( $opts['context_bank_mode'] ?? 'hybrid' ),
+			'chat_kind' => (string) ( $opts['chat_kind'] ?? '' ),
+			// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7 — pass server-selected vertical and notebook hints through canonical owner validation before Context Bank search.
+			'vertical_id' => (string) ( $opts['vertical_id'] ?? $opts['vertical_slug'] ?? '' ),
+			'notebook_id' => (int) ( $opts['notebook_id'] ?? 0 ),
+		) );
+		if ( empty( $scope['ok'] ) || (string) ( $scope['effective_mode'] ?? 'skip' ) === 'skip' ) {
+			return array( 'refs' => array(), 'count' => 0, 'meta' => array( 'enabled' => true, 'reason' => (string) ( $scope['reason_bucket'] ?? 'context_bank_scope_denied' ), 'scope' => $scope ) );
+		}
+		$search_filters = array( 'blog_id' => (int) ( $scope['blog_id'] ?? get_current_blog_id() ), 'wp_user_id' => (int) ( $scope['owner_user_id'] ?? 0 ), 'limit' => (int) ( $scope['budgets']['max_rows'] ?? 20 ), 'source_contract_ids' => (array) ( $scope['policy_contracts'] ?? $scope['allowed_contracts'] ?? array() ) );
+		if ( ! empty( $scope['notebook_id'] ) ) {
+			$search_filters['notebook_id'] = (int) $scope['notebook_id'];
+		}
+		$result = BizCity_Context_Bank_Search::search(
+			$search_filters,
+			'',
+			(int) ( $scope['budgets']['max_pointer_follows'] ?? 10 ),
+			(int) ( $scope['budgets']['max_time_ms'] ?? 250 )
+		);
+		$allowed = array_flip( (array) ( $scope['allowed_contracts'] ?? array() ) );
+		$refs = array();
+		$seen_provenance = array();
+		foreach ( (array) ( $result['rows'] ?? array() ) as $row ) {
+			if ( ! is_array( $row ) || empty( $row['verified'] ) || ( ! empty( $allowed ) && ! isset( $allowed[ (string) ( $row['source_contract_id'] ?? '' ) ] ) ) ) {
+				continue;
+			}
+			$dedupe_key = (string) ( $row['record_id'] ?? '' ) . '|' . (string) ( $row['provenance_ref'] ?? '' );
+			if ( $dedupe_key !== '|' && isset( $seen_provenance[ $dedupe_key ] ) ) {
+				continue;
+			}
+			if ( $dedupe_key !== '|' ) {
+				$seen_provenance[ $dedupe_key ] = true;
+			}
+			$refs[] = $row;
+		}
+		$owner_records = array();
+		foreach ( (array) ( $result['owner_records'] ?? array() ) as $owner_record ) {
+			if ( ! is_array( $owner_record ) || ( ! empty( $allowed ) && ! isset( $allowed[ (string) ( $owner_record['source_contract_id'] ?? '' ) ] ) ) ) {
+				continue;
+			}
+			$owner_records[] = $owner_record;
+		}
+		return array( 'refs' => $refs, 'count' => count( $refs ), 'owner_records' => $owner_records, 'meta' => array( 'enabled' => true, 'contract_version' => 'context-retrieval-pack@1.0.0', 'tenant_scope' => array( 'blog_id' => (int) ( $scope['blog_id'] ?? 0 ) ), 'account_scope' => array( 'owner_user_id' => (int) ( $scope['owner_user_id'] ?? 0 ) ), 'retrieval_policy' => array( 'mode' => (string) ( $scope['effective_mode'] ?? 'skip' ), 'source' => 'context_bank_ledger', 'payload_access' => 'canonical_owner_after_pointer_authorization', 'max_rows' => (int) ( $scope['budgets']['max_rows'] ?? 0 ), 'max_pointer_follows' => (int) ( $scope['budgets']['max_pointer_follows'] ?? 0 ), 'max_time_ms' => (int) ( $scope['budgets']['max_time_ms'] ?? 0 ) ), 'scope' => (string) ( $result['scope'] ?? '' ), 'incomplete' => ! empty( $result['incomplete'] ), 'degraded' => ! empty( $result['degraded'] ), 'pointer_follows' => (int) ( $result['pointer_follows'] ?? 0 ), 'budget_ms' => (int) ( $result['budget_ms'] ?? 0 ) ) );
+	}
+
+	/**
+	 * Convert only verified canonical-owner records with bounded text into W0.20 candidates.
+	 * Pointer-only metadata remains available as supplementary retrieval metadata.
+	 *
+	 * @param array<int,array<string,mixed>> $owner_records
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function w020_collect_context_bank_candidates( array $owner_records, int $target_candidates ): array {
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7 — keep owner payload access behind the verified owner boundary and never synthesize content from ledger pointers.
+		$candidates = array();
+		$seen = array();
+		foreach ( $owner_records as $owner_record ) {
+			if ( ! is_array( $owner_record ) || empty( $owner_record['retrieval_safe'] ) || ! is_array( $owner_record['record'] ?? null ) ) {
+				continue;
+			}
+			$record = $owner_record['record'];
+			$excerpt = '';
+			foreach ( array( 'public_excerpt', 'retrieval_excerpt', 'excerpt' ) as $field ) {
+				if ( isset( $record[ $field ] ) && is_scalar( $record[ $field ] ) && trim( (string) $record[ $field ] ) !== '' ) {
+					$excerpt = trim( (string) $record[ $field ] );
+					break;
+				}
+			}
+			$record_id = trim( (string) ( $owner_record['record_id'] ?? $record['id'] ?? '' ) );
+			$provenance = trim( (string) ( $record['provenance_ref'] ?? $owner_record['provenance_ref'] ?? '' ) );
+			if ( $excerpt === '' || $record_id === '' || $provenance === '' ) {
+				continue;
+			}
+			$candidate = array(
+				'source'            => 'context_bank_owner',
+				'evidence_type'     => 'context_bank_owner_excerpt',
+				'rank'              => 1,
+				'notebook_id'       => 0,
+				'notebook_title'    => '',
+				'source_id'         => 0,
+				'source_title'      => (string) ( $record['skill_key'] ?? $record['title'] ?? 'Canonical owner evidence' ),
+				'passage_id'        => 0,
+				'citation'          => '',
+				'excerpt'           => $excerpt,
+				'matched_tokens'    => array(),
+				'match_count'       => 0,
+				'provenance_ref'    => $provenance,
+				'dedupe_key'        => 'context_bank|' . hash( 'sha256', (string) ( $owner_record['source_contract_id'] ?? '' ) . '|' . $record_id . '|' . $provenance ),
+			);
+			$this->w020_add_candidate( $candidates, $seen, $candidate );
+			if ( count( $candidates ) >= max( 1, $target_candidates ) ) {
+				break;
+			}
+		}
+		return $candidates;
+	}
+
+	private function load_context_bank_runtime() {
+		// [2026-09-02 Johnny Chu] PHASE-CB7.2 — lazy-load Context Bank only while a TwinBrain surface explicitly opts into its bounded references.
+		if ( class_exists( 'BizCity_Context_Bank_Search' ) ) {
+			return true;
+		}
+		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/';
+		$bootstrap = rtrim( $root, '/\\' ) . '/core/context-bank/bootstrap.php';
+		if ( ! class_exists( 'BizCity_Safe_Loader', false ) || ! is_file( $bootstrap ) || ! is_readable( $bootstrap ) ) {
+			return false;
+		}
+		try {
+			BizCity_Safe_Loader::require_file( $bootstrap, 'twinbrain.context_bank_source_layer' );
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+		return class_exists( 'BizCity_Context_Bank_Search' );
 	}
 
 	/**
@@ -840,13 +985,16 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			return;
 		}
 		$citation = trim( (string) ( $candidate['citation'] ?? '' ) );
-		$key = $citation !== ''
+		$key = isset( $candidate['dedupe_key'] ) && (string) $candidate['dedupe_key'] !== ''
+			? (string) $candidate['dedupe_key']
+			: ( $citation !== ''
 			? $citation
-			: ( (int) ( $candidate['notebook_id'] ?? 0 ) . ':' . (int) ( $candidate['source_id'] ?? 0 ) . ':' . md5( mb_substr( $excerpt, 0, 180 ) ) );
+			: ( (int) ( $candidate['notebook_id'] ?? 0 ) . ':' . (int) ( $candidate['source_id'] ?? 0 ) . ':' . md5( mb_substr( $excerpt, 0, 180 ) ) ) );
 		if ( isset( $seen[ $key ] ) ) {
 			return;
 		}
 		$seen[ $key ] = true;
+		unset( $candidate['dedupe_key'] );
 		$candidate['excerpt'] = mb_substr( $excerpt, 0, 1800 );
 		$candidates[] = $candidate;
 	}

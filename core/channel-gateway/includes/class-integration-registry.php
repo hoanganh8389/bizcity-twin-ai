@@ -303,9 +303,10 @@ class BizCity_Integration_Registry {
 	 *
 	 * @param string $code         Integration code (e.g. 'zalo_bot').
 	 * @param array  $account_data Plain-text account fields. Encrypted fields are encrypted on save.
-	 * @return array|WP_Error Saved account (without private params), or WP_Error on failure.
+ 	 * @param bool   $run_test     Whether to run the provider connection test before saving.
+ 	 * @return array|WP_Error Saved account (without private params), or WP_Error on failure.
 	 */
-	public function save_channel_account( string $code, array $account_data ) {
+ 	public function save_channel_account( string $code, array $account_data, bool $run_test = true ) {
 		$integ = $this->get( $code );
 		if ( ! $integ ) {
 			return new \WP_Error( 'not_found', "Integration '{$code}' not registered." );
@@ -343,7 +344,9 @@ class BizCity_Integration_Registry {
 			$clone->set_account( $account_data );
 		}
 
-		$clone->do_test();
+		if ( $run_test ) {
+			$clone->do_test();
+		}
 		$encrypted = $clone->get_encrypted_params();
 		$encrypted['_uid'] = $uid;
 

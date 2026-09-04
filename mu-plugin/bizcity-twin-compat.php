@@ -21,13 +21,22 @@
  *   4. plugins_loaded @11 fires → twin-ai boots → class_exists guard → skip ✓
  *
  * @package BizCity_Intent
- * @version 1.1.0
+ * @version 1.1.4
  */
 defined( 'ABSPATH' ) || exit;
 
+// [2026-09-02 09:25 AM Johnny Chu - Chu Hoàng Anh] B2C-F8 — keep the early compatibility loader out of Woo payment and confirmation requests.
+if ( ! empty( $_SERVER['REQUEST_URI'] ) && ( false !== strpos( (string) $_SERVER['REQUEST_URI'], '/order-pay/' ) || false !== strpos( (string) $_SERVER['REQUEST_URI'], '/order-received/' ) || ( isset( $_GET['pay_for_order'], $_GET['key'] ) && 'true' === (string) $_GET['pay_for_order'] && '' !== (string) $_GET['key'] ) || ( function_exists( 'is_wc_endpoint_url' ) && ( is_wc_endpoint_url( 'order-pay' ) || is_wc_endpoint_url( 'order-received' ) ) ) ) ) {
+    // [2026-09-02 17:20 PM Johnny Chu - Chu Hoàng Anh] B2C-F8 — stop the legacy BizGPT MU entrypoint before its missing raw requires run.
+    if ( ! defined( 'BIZGPT_AGENT_MU_LOADED' ) ) {
+        define( 'BIZGPT_AGENT_MU_LOADED', true );
+    }
+    return;
+}
+
 // [2026-08-26 Johnny Chu] R-AUTO-MU — canonical compat version owned by this bundle source.
 if ( ! defined( 'BIZCITY_TWIN_COMPAT_VERSION' ) ) {
-    define( 'BIZCITY_TWIN_COMPAT_VERSION', '1.1.0' );
+    define( 'BIZCITY_TWIN_COMPAT_VERSION', '1.1.4' ); // [2026-09-02  Johnny Chu - Chu Hoàng Anh] PHASE-1.30-DEPLOY — skip heavy early preloads during diagnostics CLI.
 }
 
 // Fingerprint — xác nhận file đúng version (bật khi cần debug)
@@ -130,7 +139,6 @@ if ( ! defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
 if ( ! defined( 'BIZCITY_TWIN_AI_URL' ) ) {
     define( 'BIZCITY_TWIN_AI_URL', plugins_url( '/', WP_PLUGIN_DIR . '/' . BIZCITY_TWIN_AI_SLUG . '/bizcity-twin-ai.php' ) );
 }
-
 // [2026-08-26 Johnny Chu] R-SAFE-LOADER — standalone compat loads the
 // canonical loader before optional module artifacts.
 if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
@@ -258,6 +266,17 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
         );
 }
 
+// [2026-08-29 Johnny Chu] PHASE-VIBE-WAVE5 — load table metadata helpers before early Knowledge callers use bizcity_tbl_exists().
+$_bc_table_helper = BIZCITY_TWIN_AI_DIR . 'includes/helpers-table-cache.php';
+$_bc_safe_loader = BIZCITY_TWIN_AI_DIR . 'core/helper/class-bizcity-safe-loader.php';
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) && is_file( $_bc_safe_loader ) && is_readable( $_bc_safe_loader ) ) {
+    require_once $_bc_safe_loader;
+}
+if ( class_exists( 'BizCity_Safe_Loader', false ) && is_file( $_bc_table_helper ) && is_readable( $_bc_table_helper ) ) {
+    BizCity_Safe_Loader::require_file( $_bc_table_helper, 'compat.table_metadata' );
+}
+unset( $_bc_table_helper, $_bc_safe_loader );
+
 // ── Knowledge ────────────────────────────────────────────────────────────────
 // [2026-06-29 Johnny Chu] HOTFIX — Define $_bizcity_admin_ctx HERE (mu-plugin time)
 // BEFORE loading core/knowledge/bootstrap.php so that $_kg_admin_ctx picks it up
@@ -302,7 +321,7 @@ if ( ! empty( $_GET['bzzalolink'] )
 }
 $_bc_knowledge = BIZCITY_TWIN_AI_DIR . 'core/knowledge/bootstrap.php';
 // [2026-08-09 Johnny Chu] R-PERF — do not preload Knowledge on plain frontend HTML.
-if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_knowledge ) ) {
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && !( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) && file_exists( $_bc_knowledge ) ) {
     if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
         BizCity_Loader_Ownership_Registry::claim( 'knowledge', 'compat_source', $_bc_knowledge, defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
     }
@@ -343,7 +362,7 @@ $_bc_intent_runtime_request = $_bc_intent_public_request
         || $_bc_intent_ajax_request
         || ( defined( 'DOING_CRON' ) && DOING_CRON )
         || ( defined( 'WP_CLI' ) && WP_CLI ) ) );
-if ( $_bc_intent_runtime_request && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_intent ) ) {
+if ( $_bc_intent_runtime_request && ! $_bc_twinchat_admin_shell_request && !( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) && file_exists( $_bc_intent ) ) {
     if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
         BizCity_Loader_Ownership_Registry::claim( 'intent', 'compat_source', $_bc_intent, defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
     }
@@ -359,7 +378,7 @@ unset( $_bc_intent, $_bc_intent_admin_page, $_bc_intent_ajax_request, $_bc_inten
 // ── Twin Core (Focus Router + Context Resolver — phải load trước prepare_llm_call) ──
 $_bc_twin_core = BIZCITY_TWIN_AI_DIR . 'core/twin-core/bootstrap.php';
 // [2026-08-09 Johnny Chu] R-PERF — defer Twin Core preload and schema work off plain frontend HTML.
-if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_twin_core ) ) {
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && !( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) && file_exists( $_bc_twin_core ) ) {
     if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
         BizCity_Loader_Ownership_Registry::claim( 'twin_core', 'compat_source', $_bc_twin_core, defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
     }
@@ -377,7 +396,7 @@ unset( $_bc_twin_core );
 // render_dashboard_react() gọi nó để build TouchBar agents.
 $_bc_market = BIZCITY_TWIN_AI_DIR . 'core/bizcity-market/bootstrap.php';
 // [2026-08-09 Johnny Chu] R-PERF — Market catalog/install is admin/runtime-only.
-if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_market ) && ! class_exists( 'BizCity_Market_Utils', false ) ) {
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && !( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) && file_exists( $_bc_market ) && ! class_exists( 'BizCity_Market_Utils', false ) ) {
     require_once $_bc_market;
 }
 unset( $_bc_market );
@@ -388,6 +407,7 @@ unset( $_bc_market );
 // [2026-08-25 Johnny Chu] PHASE-1.29-MODULES — point source compat loader to the canonical WebChat module.
 $_bc_webchat = BIZCITY_TWIN_AI_DIR . 'modules/webchat/bootstrap.php';
 if ( ! $_bc_twinchat_admin_shell_request
+    && !( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
     && is_file( $_bc_webchat )
     && is_readable( $_bc_webchat )
     && class_exists( 'BizCity_Safe_Loader', false )
@@ -396,16 +416,33 @@ if ( ! $_bc_twinchat_admin_shell_request
 }
 unset( $_bc_webchat );
 
-// [2026-08-26 Johnny Chu] HOTFIX-BUNDLED-ACTIVATION — bundled files are
-// loaded by bizcity-twin-ai.php and must not be injected into WordPress's
-// independent plugin catalog/activation list.
+// [2026-08-26 Johnny Chu] HOTFIX-BUNDLED-ACTIVATION — framework-owned bundled
+// files stay out of WordPress's catalog, while these optional extensions may
+// remain in the activation list after a manual plugins.php activation.
 if ( ! function_exists( 'bizcity_twin_cleanup_bundled_activation_entries' ) ) {
     function bizcity_twin_cleanup_bundled_activation_entries() {
         $prefix = BIZCITY_TWIN_AI_SLUG . '/plugins/';
+        $manual_prefixes = array(
+            $prefix . 'bizcity-tool-content/',
+            $prefix . 'bizcity-tool-image/',
+            $prefix . 'bizcity-content-creator/',
+        );
         $active = (array) get_option( 'active_plugins', array() );
         $clean  = array_values( array_filter( $active, static function ( $plugin ) use ( $prefix ) {
             return ! is_string( $plugin ) || 0 !== strpos( $plugin, $prefix );
         } ) );
+        foreach ( $active as $plugin ) {
+            if ( is_string( $plugin ) ) {
+                foreach ( $manual_prefixes as $manual_prefix ) {
+                    if ( 0 === strpos( $plugin, $manual_prefix )
+                        && is_file( WP_PLUGIN_DIR . '/' . $plugin ) ) {
+                        $clean[] = $plugin;
+                        break;
+                    }
+                }
+            }
+        }
+        $clean = array_values( array_unique( $clean ) );
         if ( count( $clean ) !== count( $active ) ) {
             update_option( 'active_plugins', $clean );
         }
@@ -413,7 +450,15 @@ if ( ! function_exists( 'bizcity_twin_cleanup_bundled_activation_entries' ) ) {
             $network = (array) get_site_option( 'active_sitewide_plugins', array() );
             $changed  = false;
             foreach ( array_keys( $network ) as $plugin ) {
-                if ( is_string( $plugin ) && 0 === strpos( $plugin, $prefix ) ) {
+                $is_manual = false;
+                foreach ( $manual_prefixes as $manual_prefix ) {
+                    if ( is_string( $plugin ) && 0 === strpos( $plugin, $manual_prefix )
+                        && is_file( WP_PLUGIN_DIR . '/' . $plugin ) ) {
+                        $is_manual = true;
+                        break;
+                    }
+                }
+                if ( is_string( $plugin ) && 0 === strpos( $plugin, $prefix ) && ! $is_manual ) {
                     unset( $network[ $plugin ] );
                     $changed = true;
                 }

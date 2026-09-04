@@ -510,6 +510,39 @@ jobs:
           working-directory: wp-content/plugins/bizcity-twin-ai
           fail-on-error: false
 
+      - name: Publish diagnostics failure evidence
+        if: always()
+        working-directory: wp-content/plugins/bizcity-twin-ai
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Diagnostics failure evidence"
+            if [ ! -f build/junit.xml ]; then
+              echo "JUnit output was not produced."
+              exit 0
+            fi
+            php -r '
+              $xml = simplexml_load_file( "build/junit.xml" );
+              if ( false === $xml ) {
+                fwrite( STDERR, "Unable to parse diagnostics JUnit output.\n" );
+                exit( 1 );
+              }
+              $failed = 0;
+              foreach ( $xml->testsuite->testcase as $case ) {
+                if ( ! isset( $case->failure ) ) {
+                  continue;
+                }
+                $failed++;
+                $detail = preg_replace( "/\\s+/", " ", html_entity_decode( (string) $case->failure, ENT_QUOTES, "UTF-8" ) );
+                printf( "- `%s`: %s\n", (string) $case["name"], trim( substr( (string) $detail, 0, 500 ) ) );
+              }
+              if ( 0 === $failed ) {
+                echo "No failed probe testcases in JUnit output.\n";
+              }
+            '
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
   docs-hooks-coverage:
     name: HOOKS.md coverage check
     runs-on: ubuntu-latest

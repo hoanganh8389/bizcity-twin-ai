@@ -71,14 +71,11 @@ require_once BZTOOL_CONTENT_DIR . 'includes/install.php';
 // [2026-08-25 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — provision and remove owned history storage.
 register_activation_hook( __FILE__, 'bztc_install_tables' );
 register_deactivation_hook( __FILE__, function() {
-    if ( ! defined( 'BZTOOL_CONTENT_DEACTIVATION_PURGE' ) ) {
-        define( 'BZTOOL_CONTENT_DEACTIVATION_PURGE', true );
+    // [2026-08-26 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — deactivation
+    // must preserve plugin data; explicit uninstall owns destructive cleanup.
+    if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
+        BizCity_Rewrite_Flush_Registry::queue_flush( 'bizcity-tool-content' );
     }
-    $_bztc_uninstall = BZTOOL_CONTENT_DIR . 'uninstall.php';
-    if ( is_file( $_bztc_uninstall ) && is_readable( $_bztc_uninstall ) ) {
-        require_once $_bztc_uninstall;
-    }
-    unset( $_bztc_uninstall );
 } );
 
 /* ── CPT registration on init ── */
@@ -290,5 +287,9 @@ add_action( 'template_redirect', function() {
     }
 } );
 
-register_activation_hook( __FILE__, function() { flush_rewrite_rules(); } );
-register_deactivation_hook( __FILE__, function() { flush_rewrite_rules(); } );
+register_activation_hook( __FILE__, function() {
+    // [2026-08-26 Johnny Chu] R-CR — queue rewrite refresh through the central registry.
+    if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
+        BizCity_Rewrite_Flush_Registry::queue_flush( 'bizcity-tool-content' );
+    }
+} );

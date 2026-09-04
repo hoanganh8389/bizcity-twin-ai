@@ -36,6 +36,12 @@ class BizCity_Twin_Event_Store {
 		global $wpdb;
 		$table = BizCity_Twin_Event_Stream_Schema::table();
 
+		// [2026-09-01 Johnny Chu] PHASE-CB4.1 — avoid an expected duplicate INSERT/error log on replay while retaining the existing race-safe fallback below.
+		$existing_id = self::id_for_uuid( (string) ( $event['event_uuid'] ?? '' ) );
+		if ( $existing_id > 0 ) {
+			return $existing_id;
+		}
+
 		// Resolve parent_event_id from parent_event_uuid if not yet set
 		if ( empty( $event['parent_event_id'] ) && ! empty( $event['parent_event_uuid'] ) ) {
 			$event['parent_event_id'] = self::id_for_uuid( $event['parent_event_uuid'] );
@@ -72,11 +78,11 @@ class BizCity_Twin_Event_Store {
 		// persisted canonical events to per-site JSONL so chat/channel traces can be
 		// inspected without querying the shard SQL table. BizCity_JSONL_File_Logger
 		// scrubs sensitive nested fields and remains best-effort/non-blocking.
-		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			$payload = json_decode( (string) $row['payload_json'], true );
-			BizCity_JSONL_File_Logger::write(
-				'bizcity-twin-core-logs',
-				'event-stream',
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — persist Event Stream evidence through its registered contract.
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.twin_core.event_stream_trace',
 				'info',
 				(string) $event['event_type'],
 				'Twin event persisted.',
@@ -95,9 +101,8 @@ class BizCity_Twin_Event_Store {
 
 			if ( in_array( (string) $event['event_type'], array( 'twin_goal_opened', 'twin_goal_progressed', 'twin_goal_closed' ), true ) ) {
 				// [2026-08-02 Johnny Chu] HOTFIX — mirror canonical Goal events at the Event Store boundary so JSONL evidence is written whenever the event INSERT succeeds.
-				$goal_written = BizCity_JSONL_File_Logger::write(
-					'bizcity-twinbrain-logs',
-					'twinbrain-goal-loop',
+				$goal_written = BizCity_JSONL_File_Logger::write_contract(
+					'core.twinbrain.goal_loop_trace',
 					'info',
 					(string) $event['event_type'],
 					'Canonical Goal Loop event persisted.',
@@ -186,10 +191,12 @@ class BizCity_Twin_Event_Store {
 	public static function fetch_for_trace( string $trace_id, array $opts = [] ): array {
 		global $wpdb;
 		$table = BizCity_Twin_Event_Stream_Schema::table();
+		$blog_id = (int) get_current_blog_id();
 
 		$limit  = max( 1, min( 5000, (int) ( $opts['limit'] ?? 500 ) ) );
-		$where  = [ 'trace_id = %s' ];
-		$params = [ $trace_id ];
+		// [2026-09-01 Johnny Chu] R-MSDB-CB — bind trace reads to the current physical tenant before applying optional filters.
+		$where  = [ 'trace_id = %s', 'blog_id = %d' ];
+		$params = [ $trace_id, $blog_id ];
 
 		if ( ! empty( $opts['after_uuid'] ) ) {
 			$cursor_id = self::id_for_uuid( $opts['after_uuid'] );

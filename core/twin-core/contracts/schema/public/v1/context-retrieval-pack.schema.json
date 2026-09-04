@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/context-retrieval-pack.schema.json",
+  "title": "BizCity Twin Context Retrieval Pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "query_id",
+    "scope",
+    "authorization",
+    "budget",
+    "matched_count",
+    "returned_count",
+    "truncated",
+    "records",
+    "rollups",
+    "references",
+    "relations",
+    "evidence_refs",
+    "kg_candidates",
+    "degraded",
+    "incomplete",
+    "reason_bucket"
+  ],
+  "properties": {
+    "contract": { "const": "context-retrieval-pack" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "query_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "blog_id"],
+      "properties": {
+        "mode": { "enum": ["vertical", "notebook", "hybrid", "recent_identity", "skip"] },
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "vertical_id": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "notebook_id": { "type": "integer", "minimum": 1 },
+        "case_id": { "type": "string", "minLength": 2, "maxLength": 191 }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "identity_scope"],
+      "properties": {
+        "allowed": { "type": "boolean" },
+        "identity_scope": { "enum": ["identity", "contact", "conversation", "case", "notebook", "tenant"] },
+        "denied_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_records", "max_bytes", "max_ms", "max_tokens"],
+      "properties": {
+        "max_records": { "type": "integer", "minimum": 1 },
+        "max_bytes": { "type": "integer", "minimum": 1 },
+        "max_ms": { "type": "integer", "minimum": 1 },
+        "max_tokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "matched_count": { "type": "integer", "minimum": 0 },
+    "returned_count": { "type": "integer", "minimum": 0 },
+    "truncated": { "type": "boolean" },
+    "records": { "type": "array", "maxItems": 200, "items": { "type": "object" } },
+    "rollups": { "type": "array", "maxItems": 100, "items": { "type": "object" } },
+    "references": { "type": "array", "maxItems": 100, "items": { "type": "object" } },
+    "relations": { "type": "array", "maxItems": 200, "items": { "type": "object" } },
+    "evidence_refs": { "type": "array", "maxItems": 200, "items": { "type": "string", "minLength": 3, "maxLength": 191 } },
+    "kg_candidates": { "type": "array", "maxItems": 100, "items": { "type": "object" } },
+    "degraded": { "type": "boolean" },
+    "incomplete": { "type": "boolean" },
+    "reason_bucket": { "type": "string", "minLength": 2, "maxLength": 80 }
+  }
+}

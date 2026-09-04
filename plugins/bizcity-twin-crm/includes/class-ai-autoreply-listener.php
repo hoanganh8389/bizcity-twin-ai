@@ -48,6 +48,10 @@ class BizCity_CRM_AI_Autoreply_Listener {
 	 * eligible. Catches all throwables → error_log only.
 	 */
 	public static function on_message_received( $payload ): void {
+		// [2026-09-02 Johnny Chu] R-CLI-ASYNC — diagnostics CRM fixtures must never enter autoreply, LLM or outbound channel side effects.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		try {
 			// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P11: trace autoreply entry.
 			$p11_msg = 'P11 autoreply_listener sender_type=' . ( $payload['sender_type'] ?? '?' ) . ' conv=' . ( $payload['conversation_id'] ?? 0 ) . ' inbox=' . ( $payload['inbox_id'] ?? '?' );
@@ -104,7 +108,11 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			$p11b_channel_type = (string) ( $inbox['channel_type'] ?? '' );
 			error_log( '[bizcity-crm-trace] P11b inbox_channel_type=' . ( $p11b_channel_type !== '' ? $p11b_channel_type : 'NULL' ) . ' channel_ref_id=' . ( $inbox['channel_ref_id'] ?? 'NULL' ) );
 			// [2026-08-02 Johnny Chu] R-ZONE — Zalo Bot/Telegram/TwinChat are Zone 2 command surfaces; workflow matcher owns their reply and CRM AI must not run a parallel TwinBrain response.
-			if ( in_array( strtolower( $p11b_channel_type ), array( 'zalo', 'zalo_bot', 'telegram', 'twinchat_be' ), true ) ) {
+			$channel_descriptor = class_exists( 'BizCity_CRM_Channel_Contract' )
+				? BizCity_CRM_Channel_Contract::describe( $p11b_channel_type )
+				: array();
+			if ( empty( $channel_descriptor ) || (string) ( $channel_descriptor['ai_policy'] ?? '' ) !== 'customer_autoreply' ) {
+				// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - derive auto-reply ownership from the canonical channel contract.
 				self::log( sprintf( 'skip conv#%d msg#%d: zone2_channel=%s — automation workflow owns reply', $conv_id, $msg_id, $p11b_channel_type ) );
 				return;
 			}
@@ -292,16 +300,15 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			// External templates only serve facebook/zalo/telegram; Internal
 			// only serves crm/web/twinchat. `both` (or no template) passes.
 			$channel = strtolower( (string) ( $inbox['channel_type'] ?? '' ) );
-			// [2026-07-06 Johnny Chu] PHASE-0.39 GURU-BIND HOTFIX — normalize Zone-1 aliases so
-			// template allowlist using "zalo" still matches channel_type="zalo_oa".
-			$channel_norm = in_array( $channel, array( 'zalo_oa', 'zalo_personal' ), true ) ? 'zalo' : $channel;
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT — retain exact Zone-1 channel codes for allowlist and zone decisions.
+			$channel_norm = $channel;
 			$char_id = (int) ( $guru_ctx['character_id'] ?? 0 );
 			if ( $channel !== '' && $char_id > 0 && class_exists( 'BizCity_CRM_Service_Templates' ) ) {
 				$svc = BizCity_CRM_Service_Templates::resolve_for_character( $char_id, $channel_norm );
 				$role_scope    = (string) ( $svc['template']['role_scope']      ?? 'both' );
 				$char_role     = (string) ( $svc['char_role']                   ?? 'both' );
 				$allowed_chans = array_map( 'strtolower', (array) ( $svc['template']['allowed_channels'] ?? array() ) );
-				$is_external   = in_array( $channel_norm, array( 'facebook', 'zalo', 'telegram' ), true );
+				$is_external   = in_array( $channel_norm, array( 'facebook', 'zalo_oa', 'zalo_personal', 'telegram' ), true );
 				$is_internal   = in_array( $channel_norm, array( 'crm', 'web', 'twinchat' ),       true );
 
 				$mismatch_reason = '';
@@ -573,7 +580,9 @@ class BizCity_CRM_AI_Autoreply_Listener {
 		}
 		if ( strpos( $t, 'messenger' ) !== false ) { return BizCity_Channel_File_Logger::CH_MESSENGER; }
 		if ( strpos( $t, 'zalo_oa' ) !== false )   { return BizCity_Channel_File_Logger::CH_ZALO_OA; }
-		if ( strpos( $t, 'zalo' ) !== false )      { return BizCity_Channel_File_Logger::CH_ZALO_BOT; }
+		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - keep Personal diagnostics out of the Bot log folder.
+		if ( $t === 'zalo_personal' )              { return BizCity_Channel_File_Logger::CH_ZALO_PERSONAL; }
+		if ( $t === 'zalo_bot' )                   { return BizCity_Channel_File_Logger::CH_ZALO_BOT; }
 		if ( strpos( $t, 'telegram' ) !== false )  { return BizCity_Channel_File_Logger::CH_TELEGRAM; }
 		if ( strpos( $t, 'web' ) !== false )       { return BizCity_Channel_File_Logger::CH_WEBCHAT; }
 		// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — CRM's facebook inbox is the

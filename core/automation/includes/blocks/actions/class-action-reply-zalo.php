@@ -4,7 +4,7 @@
  *
  * Resolve template tokens trong `text`, sau đó:
  *   do_action( 'bizcity_channel_send', [
- *     'channel' => 'zalo',
+	 *     'channel' => 'zalo_bot',
  *     'to'      => $ctx['trigger']['user_id'] ?? '',
  *     'text'    => $text,
  *     'context' => $ctx,
@@ -63,7 +63,7 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 			$bot_id  = (string) ( $trigger['account_id'] ?? $trigger['bot_id'] ?? '' );
 			$user_id = (string) ( $trigger['user_id']    ?? $trigger['sender_id'] ?? '' );
 			if ( $bot_id !== '' && $user_id !== '' ) {
-				$chat_id = 'zalobot_' . $bot_id . '_' . $user_id;
+				$chat_id = 'zalobot_' . $bot_id . '_private_' . $user_id; // [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - use canonical private Bot target.
 			}
 		}
 
@@ -119,7 +119,7 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 			'bizcity_automation_send_message',
 			null,
 			array(
-				'channel' => 'zalo',
+				'channel' => 'zalo_bot',
 				'chat_id' => $chat_id,
 				'text' => $text,
 				'idempotency_key' => (string) ( $data['idempotency_key'] ?? ( $ctx['_side_effect']['idempotency_key'] ?? '' ) ),
@@ -156,7 +156,7 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 			return array(
 				'sent'              => true,
 				'side_effect_status'=> 'sent',
-				'channel'           => 'zalo',
+				'channel'           => 'zalo_bot',
 				'chat_id'           => $chat_id,
 				'dry'               => true,
 				'text'              => $text,
@@ -184,7 +184,7 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 		return array_merge( $send, array(
 			'side_effect_status'  => (string) ( $outcome['status'] ?? 'sent' ),
 			'provider_request_id' => (string) ( $outcome['provider_request_id'] ?? ( $send['mid'] ?? '' ) ),
-			'channel'             => 'zalo',
+			'channel'             => 'zalo_bot',
 			'chat_id'             => $chat_id,
 			'platform'            => is_array( $send ) ? ( $send['platform'] ?? '' ) : '',
 		) );

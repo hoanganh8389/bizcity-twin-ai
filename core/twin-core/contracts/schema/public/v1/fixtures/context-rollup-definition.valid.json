@@ -1,0 +1,15 @@
+{
+  "contract": "context-rollup-definition",
+  "version": "1.0.0",
+  "rollup_id": "customer_product_affinity",
+  "owner": "core/context-bank",
+  "input_contracts": ["web.click", "crm.message", "commerce.order"],
+  "dimensions": ["customer", "product"],
+  "window": { "type": "sliding", "duration": "30d" },
+  "measures": ["views", "messages", "orders", "score"],
+  "evidence_policy": { "retain_source_refs": true, "sample_limit": 20 },
+  "correction_policy": { "late_event": "reopen_window", "supersession": "version" },
+  "rebuild_policy": { "mode": "checkpointed_batch", "batch_limit": 5000 },
+  "retention_days": 365,
+  "kg_candidate_policy": "summary_only"
+}

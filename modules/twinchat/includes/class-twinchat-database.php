@@ -43,7 +43,8 @@ class BizCity_TwinChat_Database {
 	/** Shared sessions table (managed by WebChat module). */
 	public function table_sessions() {
 		global $wpdb;
-		return $wpdb->prefix . 'bizcity_webchat_sessions';
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — TwinChat session metadata has no SQL table name.
+		return '';
 	}
 
 	/**
@@ -279,49 +280,23 @@ class BizCity_TwinChat_Database {
 		global $wpdb;
 		$notebook_id = (int) $notebook_id;
 		$limit       = max( 1, min( 200, (int) $limit ) );
-		$ses_tbl     = $this->table_sessions();
-
-		// Prefer webchat_sessions when available.
-		$ses_exists = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $ses_tbl );
-		if ( $ses_exists ) {
-			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT session_id,
-				        last_message_at      AS last_at,
-				        message_count,
-				        last_message_preview AS first_message,
-				        title
-				   FROM {$ses_tbl}
-				  WHERE project_id = %s AND platform_type = %s
-				  ORDER BY last_message_at DESC
-				  LIMIT %d",
-				(string) $notebook_id,
-				self::PLATFORM,
-				$limit
-			), ARRAY_A );
-			return is_array( $rows ) ? $rows : [];
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — read notebook sessions from the encrypted state owner.
+		if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			$states = BizCity_WebChat_Session_State::instance()->list_for_user( null, self::PLATFORM, $limit, (string) $notebook_id, 'all' );
+			$rows = array();
+			foreach ( $states as $state ) {
+				$rows[] = array(
+					'session_id' => $state->session_id,
+					'last_at' => $state->last_message_at,
+					'message_count' => (int) $state->message_count,
+					'first_message' => $state->last_message_preview,
+					'title' => $state->title,
+				);
+			}
+			return $rows;
 		}
 
-		// Fallback: aggregate from messages table.
-		$msg_tbl = $this->table_messages();
-		$exists  = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $msg_tbl );
-		if ( ! $exists ) {
-			return [];
-		}
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT session_id,
-			        MAX(created_at)                                                     AS last_at,
-			        COUNT(*)                                                            AS message_count,
-			        SUBSTRING_INDEX( GROUP_CONCAT(message_text ORDER BY id ASC SEPARATOR '\n'), '\n', 1 ) AS first_message
-			   FROM {$msg_tbl}
-			  WHERE project_id = %s AND platform_type = %s AND session_id <> ''
-			  GROUP BY session_id
-			  ORDER BY last_at DESC
-			  LIMIT %d",
-			(string) $notebook_id,
-			self::PLATFORM,
-			$limit
-		), ARRAY_A );
-		return is_array( $rows ) ? $rows : [];
+		return array();
 	}
 
 	/**
@@ -333,11 +308,7 @@ class BizCity_TwinChat_Database {
 	 */
 	public function upsert_session( array $args ) {
 		global $wpdb;
-		$ses_tbl     = $this->table_sessions();
-		$ses_exists  = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $ses_tbl );
-		if ( ! $ses_exists ) {
-			return false; // webchat_sessions table not installed yet.
-		}
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — TwinChat upsert uses the encrypted session-state owner.
 
 		$session_id  = (string) ( $args['session_id']  ?? '' );
 		$notebook_id = (int)    ( $args['notebook_id'] ?? 0 );
@@ -348,41 +319,28 @@ class BizCity_TwinChat_Database {
 
 		$title   = isset( $args['title'] )   ? mb_substr( sanitize_text_field( $args['title'] ), 0, 255 )   : '';
 		$preview = isset( $args['preview'] ) ? mb_substr( sanitize_text_field( $args['preview'] ), 0, 255 ) : $title;
-		$now     = current_time( 'mysql', true );
-
-		// Check if session row already exists.
-		$exists = $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$ses_tbl} WHERE session_id = %s LIMIT 1",
-			$session_id
-		) );
-
-		if ( $exists ) {
-			// Update stats on existing session.
-			return false !== $wpdb->update( $ses_tbl, [
-				'last_message_at'      => $now,
-				'last_message_preview' => $preview,
-				'message_count'        => $wpdb->get_var( $wpdb->prepare(
-					"SELECT COUNT(*) FROM {$this->table_messages()} WHERE session_id = %s AND platform_type = %s",
-					$session_id, self::PLATFORM
-				) ) ?: 1,
-			], [ 'session_id' => $session_id ] );
+		if ( ! class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			return false;
 		}
-
-		// Insert new session row.
-		// Note: webchat_sessions uses `started_at` (not `created_at`) as its timestamp column.
-		return false !== $wpdb->insert( $ses_tbl, [
-			'session_id'           => $session_id,
-			'user_id'              => $user_id,
-			'project_id'           => (string) $notebook_id,
-			'title'                => $title,
-			'title_generated'      => 0,
-			'platform_type'        => self::PLATFORM,
-			'status'               => 'active',
-			'message_count'        => 1,
-			'last_message_at'      => $now,
+		$store = BizCity_WebChat_Session_State::instance();
+		$state = $store->get_by_session( $session_id, self::PLATFORM );
+		if ( ! $state ) {
+			$created = $store->create_for_session( $session_id, $user_id, '', self::PLATFORM, $title, array( 'project_id' => (string) $notebook_id ) );
+			$state = $store->get_by_id( $created['id'] );
+		}
+		if ( ! $state ) {
+			return false;
+		}
+		$count = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$this->table_messages()} WHERE session_id = %s AND platform_type = %s AND message_type != 'conversation_meta'",
+			$session_id, self::PLATFORM
+		) );
+		return $store->update( $state->id, array(
+			'title' => $title !== '' ? $title : $state->title,
+			'last_message_at' => current_time( 'mysql', true ),
 			'last_message_preview' => $preview,
-			'started_at'           => $now,
-		] );
+			'message_count' => max( 1, $count ),
+		) );
 	}
 }
 

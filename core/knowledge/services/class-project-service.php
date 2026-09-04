@@ -82,13 +82,9 @@ class BizCity_Project_Service {
         }
 
         foreach ( $projects as &$p ) {
-            global $wpdb;
-            $count = $wpdb->get_var( $wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}bizcity_webchat_conversations WHERE user_id = %d AND project_id = %s AND status = 'active'",
-                $user_id,
-                $p['id']
-            ) );
-            $p['session_count'] = (int) $count;
+            $db = class_exists( 'BizCity_WebChat_Database' ) ? BizCity_WebChat_Database::instance() : null;
+            $sessions = $db ? $db->get_sessions_for_user( $user_id, null, 1000, $p['id'] ) : array();
+            $p['session_count'] = count( $sessions );
         }
 
         self::$legacy_project_cache[ $user_id ] = $projects;

@@ -1,0 +1,20 @@
+{
+  "contract": "fulfillment-result",
+  "version": "1.0.0",
+  "result_id": "ful_01hzy7m9qk",
+  "operation": "quote",
+  "order_ref": "order:123",
+  "status": "success",
+  "idempotency_key": "shipping-quote:order:123:01",
+  "provider": {
+    "adapter_id": "local.woo.fulfillment",
+    "external_ref": "quote:456"
+  },
+  "fulfillment": {
+    "state": "quoted",
+    "eta_at": "2026-09-03T12:00:00Z",
+    "milestone": "quote_ready"
+  },
+  "retryable": false,
+  "occurred_at": "2026-08-30T12:00:00Z"
+}

@@ -124,13 +124,8 @@ class BizCity_Intent_Database {
      * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — delete old rows only from the scheduled cron context.
      */
     public static function gc_prompt_logs(): void {
-        global $wpdb;
-        $deleted = 0; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — delete-only drain; no SQL writer/reader.
-        $table = $wpdb->prefix . 'bizcity_intent_prompt_logs';
-        if ( $wpdb && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) ) {
-            $result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d", self::PROMPT_LOGS_RETENTION_DAYS, self::PROMPT_LOGS_RETENTION_BATCH ) );
-            $deleted = false === $result ? 0 : (int) $result;
-        }
+        // [2026-08-27 Johnny Chu] PHASE-1.30-JSONL-ONLY — retired prompt-log SQL retention is disabled; JSONL owns retention and approved cleanup owns DROP.
+        $deleted = 0;
         if ( class_exists( 'BizCity_Cron_Manager' ) ) {
             $cron = BizCity_Cron_Manager::instance();
             $cron->note( array( 'counters' => array( 'intent_prompt_logs_retention_deleted' => $deleted ) ) );
@@ -858,10 +853,10 @@ class BizCity_Intent_Database {
         // INSERT path removed; JSONL is the only prompt telemetry store.
 
         // [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — Phase A dual-write mirror; best-effort, never blocks the caller.
-        if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
-            $written = BizCity_JSONL_File_Logger::write(
-                'bizcity-intent-logs',
-                'prompt-log',
+        if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+            // [2026-08-27 Johnny Chu] R-LOG-HYBRID — prompt telemetry uses the canonical contract ID.
+            $written = BizCity_JSONL_File_Logger::write_contract(
+                'core.intent.prompt_log',
                 'info',
                 'prompt_log_recorded',
                 'Per-turn prompt telemetry recorded.',
@@ -908,6 +903,10 @@ class BizCity_Intent_Database {
         // reader flag; SQL remains the default during parity observation.
         if ( self::LOG_READER === 'jsonl' ) {
             return $this->get_prompt_logs_from_jsonl( $filters, $limit, $offset );
+        }
+        // [2026-08-26 Johnny Chu] PHASE-1.30-EXIT-RETURN — fallback SQL reader must stay blocked after JSONL cutover.
+        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::allow_sql( $this->table_prompt_logs, 'read' ) ) {
+            return array();
         }
 
         $where_parts = [];
@@ -962,6 +961,10 @@ class BizCity_Intent_Database {
         if ( self::LOG_READER === 'jsonl' ) {
             return $this->get_prompt_log_stats_from_jsonl( $days );
         }
+        // [2026-08-26 Johnny Chu] PHASE-1.30-EXIT-RETURN — prevent fallback SQL aggregates on the retired prompt-log table.
+        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::allow_sql( $this->table_prompt_logs, 'read' ) ) {
+            return array( 'total' => 0, 'by_mode' => array(), 'by_intent' => array(), 'avg_duration' => 0, 'per_day' => array() );
+        }
 
         $since = gmdate( 'Y-m-d H:i:s', strtotime( "-{$days} days" ) );
 
@@ -1010,7 +1013,7 @@ class BizCity_Intent_Database {
 
     /** Read prompt-log rows from the shared JSONL store. */
     private function get_prompt_logs_from_jsonl( array $filters, $limit, $offset, $days = 0 ) {
-        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
             return array();
         }
 
@@ -1019,7 +1022,7 @@ class BizCity_Intent_Database {
         $days   = $days > 0
             ? max( 1, min( 90, absint( $days ) ) )
             : 7;
-        $rows   = BizCity_JSONL_File_Logger::query( 'bizcity-intent-logs', 'prompt-log', array(
+        $rows   = BizCity_JSONL_File_Logger::query_contract( 'core.intent.prompt_log', array(
             'days'   => $days,
             'limit'  => 10000,
             'filter' => function ( $raw ) use ( $filters ) {

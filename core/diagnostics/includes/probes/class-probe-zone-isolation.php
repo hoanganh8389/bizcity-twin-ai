@@ -36,8 +36,8 @@ if ( class_exists( 'BizCity_Probe_Zone_Isolation', false ) ) {
 
 final class BizCity_Probe_Zone_Isolation implements BizCity_Diagnostics_Probe {
 
-	public function id(): string          { return 'core.channel.zone_isolation'; }
-	public function label(): string       { return 'Zone Isolation: CRM Care (Zone 1) vs Admin/Automation (Zone 2)'; }
+	public function id(): string          { return 'core.channel.zone_isolation_legacy'; } // [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - avoid duplicate canonical probe ID.
+	public function label(): string       { return 'Legacy Zone Isolation: Customer Care vs Admin/Automation'; }
 	public function description(): string {
 		return '9 lớp kiểm tra guard discriminator Zone 1 (zalo_oa/personal → CRM Inbox) vs Zone 2 (ZALO_BOT → automation). PASS = tin khách hàng KHÔNG kích admin pipeline và ngược lại (R-ZONE-2, PHASE-0.40 G0).';
 	}

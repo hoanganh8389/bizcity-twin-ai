@@ -1,0 +1,29 @@
+{
+  "contract": "extension-manifest",
+  "version": "1.0.0",
+  "extension_id": "bizcity.zalo-bot",
+  "extension_version": "1.0.0",
+  "requires_framework": ">=1.3 <2.0",
+  "capabilities": [
+    "channel.inbound",
+    "channel.outbound",
+    "context.admit"
+  ],
+  "channels": [
+    {
+      "slug": "zalo_bot",
+      "platform": "ZALO_BOT",
+      "zone": "admin",
+      "identity_policy": "bot_user_or_group",
+      "account_scope": "multiple",
+      "crm_policy": "enabled",
+      "brain_policy": "user_bound",
+      "context_policy": "conversation_summary",
+      "surface_policy": ["admin", "gpt_member"]
+    }
+  ],
+  "diagnostics": {
+    "probe_owner": "core.channel.zalo_bot.contract",
+    "requires": ["disk", "loader", "runtime"]
+  }
+}

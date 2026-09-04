@@ -35,7 +35,8 @@ class BizCity_Zalo_Hotline_Adapter extends BizCity_Channel_Adapter_Base {
 		$user_id = str_replace( 'zalo_', '', $chat_id );
 
 		if ( function_exists( 'send_zalo_botbanhang' ) ) {
-			$result = send_zalo_botbanhang( $user_id, $message, $type, $bot_id );
+			// [2026-09-02 18:35 PM Johnny Chu - Chu Hoàng Anh] HOTFIX — pass the legacy Zalo sender arguments in its canonical order.
+			$result = send_zalo_botbanhang( $message, $user_id, $type );
 			if ( $result ) {
 				return true;
 			}

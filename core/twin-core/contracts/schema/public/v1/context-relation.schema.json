@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/context-relation.schema.json",
+  "title": "BizCity Twin Context Relation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "relation_id",
+    "subject",
+    "predicate",
+    "object",
+    "valid_from",
+    "confidence",
+    "source_refs",
+    "provenance",
+    "status"
+  ],
+  "properties": {
+    "contract": { "const": "context-relation" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "relation_id": { "type": "string", "minLength": 8, "maxLength": 191 },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "key"],
+      "properties": {
+        "type": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "key": { "type": "string", "minLength": 3, "maxLength": 191 }
+      }
+    },
+    "predicate": { "type": "string", "minLength": 2, "maxLength": 120 },
+    "object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "key"],
+      "properties": {
+        "type": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "key": { "type": "string", "minLength": 3, "maxLength": 191 }
+      }
+    },
+    "valid_from": { "type": "string", "format": "date-time" },
+    "valid_to": { "type": "string", "format": "date-time" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "source_refs": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "minLength": 3, "maxLength": 191 } },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_contract_id", "record_id"],
+      "properties": {
+        "source_contract_id": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "record_id": { "type": "string", "minLength": 8, "maxLength": 191 },
+        "trace_id": { "type": "string", "minLength": 8, "maxLength": 128 }
+      }
+    },
+    "status": { "enum": ["active", "superseded", "tombstoned", "quarantined"] }
+  }
+}

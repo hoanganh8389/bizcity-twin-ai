@@ -63,6 +63,7 @@ final class BizCity_Probe_Schema_Inventory implements BizCity_Diagnostics_Probe 
 		$missing          = [];
 		$critical_missing = [];
 		$drift            = [];
+		$drift_details    = [];
 		$auto_fixable     = [];
 
 		foreach ( $rows as $r ) {
@@ -87,6 +88,7 @@ final class BizCity_Probe_Schema_Inventory implements BizCity_Diagnostics_Probe 
 				$diff = BizCity_Diagnostics_Column_Inspector::diff( $r );
 				if ( ( $diff['status'] ?? '' ) === 'drift' ) {
 					$drift[] = $r['physical'];
+					$drift_details[ $r['physical'] ] = array_slice( (array) ( $diff['missing'] ?? [] ), 0, 5 );
 					if ( $has_installer || $has_json ) {
 						$auto_fixable[] = $r['physical'];
 					}
@@ -135,7 +137,7 @@ final class BizCity_Probe_Schema_Inventory implements BizCity_Diagnostics_Probe 
 				// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-EVIDENCE — include the physical drift targets in CI error output, not only the aggregate count.
 				'error'     => $critical_missing
 					? sprintf( '%d bảng critical đang thiếu: %s', count( $critical_missing ), implode( ', ', array_slice( $critical_missing, 0, 8 ) ) )
-					: sprintf( '%d bảng drift cột: %s', count( $drift ), implode( ', ', array_slice( $drift, 0, 8 ) ) ),
+					: sprintf( '%d bảng drift cột: %s', count( $drift ), $this->format_drift_details( $drift, $drift_details ) ),
 				'fix_hint'  => $fix_hint,
 				'artifacts' => [
 					[ 'kind' => 'missing',          'id' => count( $missing ),          'label' => implode( ', ', array_slice( $missing, 0, 8 ) ) ],
@@ -150,6 +152,15 @@ final class BizCity_Probe_Schema_Inventory implements BizCity_Diagnostics_Probe 
 			'status'  => 'pass',
 			'summary' => sprintf( '%d bảng OK, không có drift hay missing', $total ),
 		];
+	}
+
+	private function format_drift_details( array $drift, array $drift_details ): string {
+		$out = array();
+		foreach ( array_slice( $drift, 0, 8 ) as $physical ) {
+			$missing = isset( $drift_details[ $physical ] ) ? (array) $drift_details[ $physical ] : array();
+			$out[] = $physical . ( $missing ? ' missing=' . implode( ',', $missing ) : '' );
+		}
+		return implode( '; ', $out );
 	}
 
 	public function cleanup(): void {

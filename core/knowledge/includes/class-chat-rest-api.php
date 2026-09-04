@@ -350,13 +350,9 @@ class BizCity_Chat_REST_API {
             ) );
         }
 
-        // Close conversation
-        $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        if ( bizcity_tbl_exists( $conv_table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-            $wpdb->query( $wpdb->prepare(
-                "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = %s",
-                $session_id, $platform_type
-            ) );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — close the marker-backed conversation after clearing its messages.
+        if ( class_exists( 'BizCity_WebChat_Database' ) ) {
+            BizCity_WebChat_Database::instance()->close_conversation( $session_id );
         }
 
         return new WP_REST_Response( array(

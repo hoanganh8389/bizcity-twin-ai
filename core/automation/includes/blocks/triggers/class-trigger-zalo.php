@@ -3,7 +3,7 @@
  * Trigger: Zalo inbound message.
  *
  * Runtime: hook `bizcity_channel_inbound` (BE-4) sẽ enqueue run, payload chứa
- * `{ channel: 'zalo', text, user_id, page_id, ... }`. Execute ở đây chỉ
+ * `{ channel: 'zalo_bot', text, user_id, account_id, ... }`. Execute ở đây chỉ
  * forward payload từ ctx['trigger'] về cho downstream nodes.
  *
  * @package    Bizcity_Twin_AI
@@ -46,7 +46,7 @@ final class BizCity_Automation_Trigger_Zalo extends BizCity_Automation_Block_Bas
 				$zalo_bot_id     = (string) ( $out['bot_id'] ?? $out['instance_id'] ?? $out['account_id'] ?? '' );
 				if ( $zalo_user_id !== '' && $zalo_bot_id !== '' ) {
 					// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — canonical key for owner resolve, avoid thread/group chat_id.
-					$resolve_chat_id = 'zalobot_' . $zalo_bot_id . '_' . $zalo_user_id;
+					$resolve_chat_id = 'zalobot_' . $zalo_bot_id . '_private_' . $zalo_user_id; // [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - resolve owner using the canonical private identity key.
 					$out['identity_chat_id'] = $resolve_chat_id;
 				}
 				$resolved = (int) BizCity_User_Resolver::instance()->resolve( $resolve_chat_id );

@@ -1,0 +1,41 @@
+{
+  "contract": "channel-diagnostics-record",
+  "version": "1.0.0",
+  "event_uuid": "0190abc1-1234-7abc-8def-0123456789ab",
+  "trace_id": "trace_01j6f5m8k2",
+  "occurred_at": "2026-09-01T08:30:00Z",
+  "blog_id": 1258,
+  "channel": "zalo_oa",
+  "zone": "customer",
+  "account": {
+    "scope": "exact",
+    "account_id": "oa_938271",
+    "account_key": "a_7a3c9f10",
+    "label": "Zalo OA Hà Nội"
+  },
+  "direction": "inbound",
+  "level": "info",
+  "event": "message_received",
+  "stage": "context",
+  "message": "Normalized customer message entered the context capture stage.",
+  "producer": {
+    "module": "core/channel-gateway",
+    "version": "1.0.0"
+  },
+  "pipeline_status": {
+    "operational_logged": "success",
+    "context_captured": "success",
+    "ledger_indexed": "success",
+    "kg_candidate": "not_candidate"
+  },
+  "record_ref": {
+    "context_record_id": "ctx_message_01j6f5m8k2",
+    "conversation_id": 8821,
+    "message_id": 456
+  },
+  "context": {
+    "platform": "ZALO_OA",
+    "code": "zalo_oa",
+    "reason_bucket": "ok"
+  }
+}

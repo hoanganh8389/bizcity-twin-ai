@@ -105,8 +105,7 @@ class BizCity_Universal_Channel_Listener {
 	}
 
 	public static function bridge_zalo( $message_data ): void {
-		// [2026-06-07 Johnny Chu] PHASE-0.40 G0.1 R-ZONE-2 — discriminator: ZALO_BOT (Zone 2 admin)
-		// must NOT enter CRM Inbox (Zone 1). Bot messages go to automation/twinbrain ONLY.
+		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE — ZALO_BOT must stay out of Customer Care; CRM Operations consumes the explicit Bot trigger separately.
 		$platform = is_array( $message_data ) ? (string) ( $message_data['platform'] ?? '' ) : '';
 		if ( $platform === 'ZALO_BOT' ) {
 			return;
@@ -271,10 +270,14 @@ class BizCity_Universal_Channel_Listener {
 	 * @param mixed  $payload
 	 */
 	public static function on_trigger( $trigger_key, $payload = array() ): void {
-		if ( ! is_string( $trigger_key ) || ! isset( self::$map[ $trigger_key ] ) ) {
+		if ( ! is_string( $trigger_key ) ) {
 			return;
 		}
 		if ( ! is_array( $payload ) ) {
+			return;
+		}
+		$trigger_key = self::resolve_trigger_key( $trigger_key, $payload );
+		if ( $trigger_key === '' || ! isset( self::$map[ $trigger_key ] ) ) {
 			return;
 		}
 		$spec = self::$map[ $trigger_key ];
@@ -291,6 +294,13 @@ class BizCity_Universal_Channel_Listener {
 
 		// Build a stable chat_id. Pattern: <prefix><account>_<user>
 		$chat_id = self::compose_chat_id( $platform, $account_id, $user_id );
+		// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - use the explicit Bot private/group target before identity and memory resolution.
+		if ( $platform === 'ZALO_BOT' ) {
+			$explicit_chat_id = (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' );
+			if ( $explicit_chat_id !== '' && strpos( $explicit_chat_id, 'zalobot_' ) === 0 ) {
+				$chat_id = $explicit_chat_id;
+			}
+		}
 		$wp_user_id = 0;
 		if ( class_exists( 'BizCity_User_Resolver' ) ) {
 			$wp_user_id = (int) BizCity_User_Resolver::instance()->resolve( $chat_id, (int) get_current_blog_id() );
@@ -330,14 +340,6 @@ class BizCity_Universal_Channel_Listener {
 			}
 		}
 		$identity_link_required = ( 'user_bound' === ( $subject_contract['channel_class'] ?? '' ) ) && $wp_user_id <= 0;
-		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — preserve explicit private/group ZaloBot conversation targets.
-		if ( $platform === 'ZALO_BOT' ) {
-			$explicit_chat_id = (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' );
-			if ( $explicit_chat_id !== '' && strpos( $explicit_chat_id, 'zalobot_' ) === 0 ) {
-				$chat_id = $explicit_chat_id;
-			}
-		}
-
 		// Resolve binding → character_id (Guru). Null is fine — means no Guru bound yet.
 		$character_id   = null;
 		$binding_mode   = null;
@@ -474,13 +476,51 @@ class BizCity_Universal_Channel_Listener {
 		}
 	}
 
+	/**
+	 * Resolve the shared Zalo action to a discriminator-specific map entry.
+	 *
+	 * @param string $trigger_key Original action key.
+	 * @param array  $payload     Channel payload.
+	 * @return string
+	 */
+	private static function resolve_trigger_key( string $trigger_key, array $payload ): string {
+		// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - prevent UCL from applying the Bot schema to OA/Personal payloads on the shared action.
+		if ( 'bizcity_zalo_message_received' !== $trigger_key ) {
+			return $trigger_key;
+		}
+		$code = sanitize_key( (string) ( $payload['code'] ?? '' ) );
+		$platform = strtoupper( (string) ( $payload['platform'] ?? '' ) );
+		$platform_codes = array(
+			'ZALO_BOT'      => 'zalo_bot',
+			'ZALO_PERSONAL' => 'zalo_personal',
+			'ZALO_OA'       => 'zalo_oa',
+		);
+		if ( $code !== '' && isset( $platform_codes[ $platform ] ) && $code !== $platform_codes[ $platform ] ) {
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - conflicting channel discriminators fail closed at the first shared boundary.
+			return '';
+		}
+		if ( isset( $platform_codes[ $platform ] ) ) {
+			$code = $platform_codes[ $platform ];
+		}
+		if ( $code === 'zalo_personal' ) {
+			return 'bizcity_zalo_personal_message_received';
+		}
+		if ( $code === 'zalo_oa' ) {
+			return 'bizcity_zalo_oa_message_received';
+		}
+		if ( $code === 'zalo_bot' ) {
+			return $trigger_key;
+		}
+		return '';
+	}
+
 	private static function compose_chat_id( string $platform, string $account_id, string $user_id ): string {
 		switch ( $platform ) {
 			case 'FB_MESS':
 			case 'FB_FEED':
 				return 'fb_' . $account_id . '_' . $user_id;
 			case 'ZALO_BOT':
-				return 'zalobot_' . $account_id . '_' . $user_id;
+				return 'zalobot_' . $account_id . '_private_' . $user_id;
 			// [2026-07-27 Johnny Chu] PHASE-0.52 W1 — keep OA identity separate from Zone 2 Zalo Bot.
 			case 'ZALO_OA':
 				return 'zalooa_' . $account_id . '_' . $user_id;

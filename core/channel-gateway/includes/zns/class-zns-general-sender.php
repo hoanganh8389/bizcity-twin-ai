@@ -297,8 +297,9 @@ class BizCity_ZNS_General_Sender {
 
 	private static function crm_log( $event, $level, $message, array $ctx = array() ) {
 		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — general ZNS evidence is CRM-owned.
-		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', $level, $event, $message, $ctx );
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — general ZNS evidence uses the registered channel contract.
+			BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.zns_audit', $level, $event, $message, $ctx );
 		}
 	}
 }

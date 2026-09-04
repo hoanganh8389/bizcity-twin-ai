@@ -31,7 +31,13 @@ class BizCity_TwinWeb_Installer {
 	public static function maybe_install() {
 		$installed = get_option( self::VERSION_OPTION, '' );
 		if ( version_compare( $installed, self::VERSION, '>=' ) ) {
-			return;
+			global $wpdb;
+			// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — do not trust version stamp alone; cloned shards can have a current option with missing physical TwinWeb tables.
+			$threads_table = $wpdb->prefix . self::THREADS_BASE;
+			$jobs_table    = $wpdb->prefix . self::JOBS_BASE;
+			if ( self::table_exists( $threads_table ) && self::table_exists( $jobs_table ) ) {
+				return;
+			}
 		}
 		if ( self::install() ) {
 			update_option( self::VERSION_OPTION, self::VERSION );

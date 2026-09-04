@@ -115,6 +115,10 @@ class BizCity_KG_Cost_Guard {
 	 * Run by KG_Database migration.
 	 */
 	public function ensure_table() {
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — respect lifecycle install gate for legacy-ledger states.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::install_blocked( $this->table() ) ) {
+			return;
+		}
 		global $wpdb;
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		$cs = $wpdb->get_charset_collate();
@@ -369,6 +373,16 @@ class BizCity_KG_Cost_Guard {
 	 * Record a billable LLM call.
 	 */
 	public function record_usage( array $args ) {
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — KG usage ledger remains SQL-structural; fail closed when policy blocks write or table is missing.
+		if ( ! $this->can_use_sql_ledger( 'write' ) ) {
+			do_action( 'bizcity_kg_usage_ledger_blocked', array(
+				'reason'    => 'kg_usage_sql_write_blocked',
+				'operation' => 'write',
+				'blog_id'   => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
+			) );
+			return;
+		}
+
 		global $wpdb;
 		$row = wp_parse_args( $args, [
 			'user_id'       => 0,
@@ -415,6 +429,10 @@ class BizCity_KG_Cost_Guard {
 	/* ── Stats helpers ──────────────────────────────────────────────────── */
 
 	public function spent_today_usd() {
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — return stable zero when the SQL structural ledger is unavailable.
+		if ( ! $this->can_use_sql_ledger( 'read' ) ) {
+			return 0.0;
+		}
 		global $wpdb;
 		return (float) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COALESCE(SUM(cost_usd),0) FROM {$this->table()} WHERE day = %s",
@@ -423,6 +441,10 @@ class BizCity_KG_Cost_Guard {
 	}
 
 	public function user_passages_today( $user_id ) {
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — keep quota reads missing-safe when lifecycle policy blocks this table.
+		if ( ! $this->can_use_sql_ledger( 'read' ) ) {
+			return 0;
+		}
 		global $wpdb;
 		return (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(DISTINCT passage_id) FROM {$this->table()}
@@ -432,6 +454,17 @@ class BizCity_KG_Cost_Guard {
 	}
 
 	public function summary_today() {
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — summary remains deterministic even when SQL ledger is blocked/missing.
+		if ( ! $this->can_use_sql_ledger( 'read' ) ) {
+			return [
+				'spent_usd'  => 0.0,
+				'in_tokens'  => 0,
+				'out_tokens' => 0,
+				'calls'      => 0,
+				'cap_usd'    => $this->daily_cap_usd(),
+				'pct'        => 0.0,
+			];
+		}
 		global $wpdb;
 		$row = $wpdb->get_row( $wpdb->prepare(
 			"SELECT
@@ -483,5 +516,20 @@ class BizCity_KG_Cost_Guard {
 
 	private function today() {
 		return current_time( 'Y-m-d' );
+	}
+
+	private function can_use_sql_ledger( $operation = 'read' ) {
+		$table = $this->table();
+
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — lifecycle policy is the only gate authority for the SQL billing ledger path.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::allow_sql( $table, $operation ) ) {
+			return false;
+		}
+
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+			return false;
+		}
+
+		return true;
 	}
 }

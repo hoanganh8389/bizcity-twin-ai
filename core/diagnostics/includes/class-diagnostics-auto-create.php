@@ -32,6 +32,10 @@ final class BizCity_Diagnostics_Auto_Create {
 	public static function run( string $suffix ): array {
 		global $wpdb;
 		$start = microtime( true );
+		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — central auto-create must refuse retired legacy tables before metadata or DDL access.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::install_blocked( $suffix ) ) {
+			return self::envelope( $suffix, true, 'retired', [], [], $start );
+		}
 
 		$declared = BizCity_Diagnostics_Changelog_Loader::tables();
 		if ( ! isset( $declared[ $suffix ] ) ) {
@@ -54,6 +58,14 @@ final class BizCity_Diagnostics_Auto_Create {
 			if ( $res === false ) {
 				$errors[] = 'CREATE failed: ' . $wpdb->last_error;
 				return self::envelope( $suffix, false, 'create_failed', $statements, $errors, $start );
+			}
+			// [2026-08-26 Johnny Chu] R-METADATA-CACHE — invalidate the negative table result before any follow-up probe or installer read.
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $physical );
+			}
+			if ( class_exists( 'BizCity_Diagnostics_Table_Inspector' ) ) {
+				// [2026-09-02 Johnny Chu] R-PERF-DIAG — refresh explicit inventory after CREATE, never during normal dashboard rendering.
+				BizCity_Diagnostics_Table_Inspector::flush_cache();
 			}
 			self::audit( $suffix, 'create', $statements );
 			return self::envelope( $suffix, true, 'created', $statements, $errors, $start );
@@ -120,6 +132,14 @@ final class BizCity_Diagnostics_Auto_Create {
 		$action = $statements ? ( $errors ? 'partial' : 'altered' ) : 'noop';
 		$ok     = ! $errors;
 		if ( $statements && $ok ) {
+			// [2026-08-26 Johnny Chu] R-METADATA-CACHE — clear cached schema negatives after additive ALTERs.
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $physical );
+			}
+			if ( class_exists( 'BizCity_Diagnostics_Table_Inspector' ) ) {
+				// [2026-09-02 Johnny Chu] R-PERF-DIAG — refresh explicit inventory after additive ALTER/INDEX changes.
+				BizCity_Diagnostics_Table_Inspector::flush_cache();
+			}
 			self::audit( $suffix, $action, $statements );
 		}
 		return self::envelope( $suffix, $ok, $action, $statements, $errors, $start );

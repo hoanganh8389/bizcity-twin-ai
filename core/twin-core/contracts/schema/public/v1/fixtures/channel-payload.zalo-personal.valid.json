@@ -1,0 +1,23 @@
+{
+  "contract": "channel-payload",
+  "version": "1.1.0",
+  "direction": "inbound",
+  "platform": "zalo_personal",
+  "zone": "customer",
+  "identity": {
+    "account_id": "personal_account_77",
+    "user_id": "peer_8821",
+    "chat_id": "zalopersonal_77_peer_8821",
+    "message_id": "msg_personal_456"
+  },
+  "message": {
+    "text": "Đơn hàng của tôi đang ở đâu?",
+    "timestamp": "2026-09-01T08:31:00Z",
+    "attachments": []
+  },
+  "signature": {
+    "algorithm": "hmac-sha256",
+    "header": "x-bizcity-signature",
+    "verified": true
+  }
+}

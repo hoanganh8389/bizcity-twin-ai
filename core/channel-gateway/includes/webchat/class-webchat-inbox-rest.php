@@ -64,38 +64,31 @@ class BizCity_WebChat_Inbox_REST {
 		if ( $limit <= 0 || $limit > 200 ) { $limit = 50; }
 		$status = in_array( $status, array( 'active', 'closed', 'archived', 'all' ), true ) ? $status : 'active';
 
-		$table_s = $wpdb->prefix . 'bizcity_webchat_sessions';
 		$table_m = $wpdb->prefix . 'bizcity_webchat_messages';
-
-		$has_sessions = ( bizcity_tbl_exists( $table_s ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-
 		$rows = array();
-
-		if ( $has_sessions ) {
-			$where  = array( "platform_type = 'WEBCHAT'" );
-			$params = array();
-			if ( $status !== 'all' ) {
-				$where[] = 'status = %s';
-				$params[] = $status;
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — Inbox session metadata is read from the encrypted session-state owner.
+		if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			$states = BizCity_WebChat_Session_State::instance()->list_for_user( null, 'WEBCHAT', $limit * 3, null, $status );
+			foreach ( $states as $state ) {
+				if ( $search !== '' && false === stripos( (string) $state->title . ' ' . (string) $state->client_name . ' ' . (string) $state->session_id . ' ' . (string) $state->last_message_preview, $search ) ) {
+					continue;
+				}
+				$rows[] = array(
+					'id' => (int) $state->id,
+					'session_id' => $state->session_id,
+					'title' => $state->title,
+					'client_name' => $state->client_name,
+					'character_id' => (int) $state->character_id,
+					'message_count' => (int) $state->message_count,
+					'last_message_at' => $state->last_message_at,
+					'last_message_preview' => $state->last_message_preview,
+					'last_ts' => $state->last_message_at ? strtotime( $state->last_message_at ) : 0,
+					'status' => $state->status,
+				);
+				if ( count( $rows ) >= $limit ) {
+					break;
+				}
 			}
-			if ( $search !== '' ) {
-				$where[]  = '(title LIKE %s OR client_name LIKE %s OR session_id LIKE %s OR last_message_preview LIKE %s)';
-				$like     = '%' . $wpdb->esc_like( $search ) . '%';
-				$params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like;
-			}
-			$where_sql = implode( ' AND ', $where );
-
-			$sql = "SELECT id, session_id, title, client_name, character_id,
-			               message_count, last_message_at, last_message_preview, status,
-			               UNIX_TIMESTAMP(last_message_at) AS last_ts
-			        FROM {$table_s}
-			        WHERE {$where_sql}
-			        ORDER BY (last_message_at IS NULL), last_message_at DESC
-			        LIMIT %d";
-			$params[] = $limit;
-
-			$prepared = $wpdb->prepare( $sql, $params );
-			$rows     = $wpdb->get_results( $prepared, ARRAY_A ) ?: array();
 		} else {
 			// Fallback: derive sessions from messages table when v3 sessions table absent.
 			if ( ! bizcity_tbl_exists( $table_m ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES

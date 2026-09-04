@@ -31,7 +31,6 @@ final class BizCity_Automation_Installer {
 	const TABLE_SUFFIXES = array(
 		'bizcity_automation_workflows',
 		'bizcity_automation_runs',
-		'bizcity_automation_logs',
 		'bizcity_automation_templates', // BE-7
 		'bizcity_automation_config_packs', // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — editable CSV/Sheet packs.
 		'bizcity_automation_config_rows',  // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — row_json/canonical/search_text rows.

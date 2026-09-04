@@ -2,19 +2,20 @@
 /**
  * Channel Gateway — Debug Logger
  *
- * JSON-Lines logger để truy vết pipeline:
+ * Compatibility facade để truy vết pipeline:
  *   Webhook in → waic_twf_process_flow → Campaign_Tracker (visit) →
  *   Scenario_Dispatcher (dispatch) → Outbound message → FB Publisher.
  *
- * Storage:
- *   wp-content/uploads/[sites/{blog_id}/]bizcity-cg-logs/YYYY-MM-DD.jsonl
+ * New operational rows delegate to BizCity_Channel_File_Logger. The historical
+ * bizcity-cg-logs tree and debug routes remain migration-only until parity and
+ * retirement gates pass.
  *
  * (Đa site: wp_upload_dir() đã tự chèn /sites/{blog_id}/ nên multisite hoạt
  * động không cần code thêm.)
  *
- * UI:
- *   - Tools → "BizCity CG Debug Logs" (admin page render JSON pretty)
- *   - REST GET /bizcity/cg/v1/debug-logs?date=YYYY-MM-DD&channel=...&q=...&limit=500
+ * UI/routes:
+ *   - Legacy Tools/REST debug surfaces remain compatibility-only.
+ *   - Canonical target: shared BizCity Log Explorer via /bizcity-channel/v1/logs.
  *
  * Bảo mật:
  *   - Folder log đẻ kèm `.htaccess deny from all` + `index.html` empty.
@@ -163,45 +164,18 @@ class BizCity_CG_Debug_Logger {
 	 * @param string $level    'debug'|'info'|'warn'|'error'.
 	 */
 	public static function log( string $channel, string $event, array $data = array(), string $level = 'info' ): void {
-		// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — enrich the aggregate CG
-		// row before writing so bizcity-cg-logs and per-channel JSONL share keys.
+		// [2026-09-01 Johnny Chu] R-CH-10 — normalize legacy debug calls into the single channel diagnostics writer.
 		if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
 			$data = BizCity_Chat_Correlation::ensure( $data, $event );
 			if ( BizCity_Chat_Correlation::is_inbound_event( $event ) ) {
 				$data = BizCity_Chat_Correlation::bind_pending_root( $data );
 			}
 		}
-		$dir = self::ensure_dir();
-		if ( $dir === '' ) { return; }
-
-		$row = array(
-			'ts'      => gmdate( 'c' ),
-			'ts_unix' => microtime( true ),
-			'blog_id' => is_multisite() ? get_current_blog_id() : 1,
-			'level'   => $level,
-			'channel' => $channel,
-			'event'   => $event,
-			'event_uuid' => (string) ( $data['event_uuid'] ?? '' ),
-			'trace_id' => (string) ( $data['trace_id'] ?? '' ),
-			'parent_event_uuid' => (string) ( $data['parent_event_uuid'] ?? '' ),
-			'pid'     => function_exists( 'getmypid' ) ? getmypid() : 0,
-			'data'    => self::mask_sensitive( $data ),
-		);
-
-		$line = wp_json_encode( $row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "\n";
-		if ( $line === false || $line === "\n" ) { return; }
-
-		$file = $dir . '/' . gmdate( 'Y-m-d' ) . '.jsonl';
-		// LOCK_EX để tránh interleave khi 2 request đồng thời.
-		@file_put_contents( $file, $line, FILE_APPEND | LOCK_EX );
-
-		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — R-CH-FILE-LOG: also write to per-channel file.
-		// This single call covers ALL channels (facebook/zalo_bot/zalo_oa/messenger/telegram/webchat/cf7).
-		// Requires class-channel-file-logger.php to be loaded before this file (bootstrap order).
-		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
-			$physical_ch = self::map_to_physical_channel( $channel, $data );
-			BizCity_Channel_File_Logger::write( $physical_ch, $level, $event, '', $row['data'] );
+		if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			return;
 		}
+		$physical_channel = self::map_to_physical_channel( $channel, $data );
+		BizCity_Channel_File_Logger::write( $physical_channel, $level, $event, '', self::mask_sensitive( $data ) );
 	}
 
 	/**
@@ -217,6 +191,29 @@ class BizCity_CG_Debug_Logger {
 	 * @return string          One of BizCity_Channel_File_Logger::CH_* values.
 	 */
 	private static function map_to_physical_channel( string $channel, array $data ): string {
+		// [2026-09-01 Johnny Chu] R-CH-10 — explicit normalized platform/code wins over legacy substring mapping.
+		$explicit_code = sanitize_key( (string) ( $data['code'] ?? $data['channel'] ?? '' ) );
+		if ( in_array( $explicit_code, array( 'facebook', 'messenger', 'zalo_oa', 'zalo_bot', 'zalo_personal', 'zalo_zns', 'telegram', 'webchat', 'email', 'cf7' ), true ) ) {
+			return $explicit_code;
+		}
+		$explicit_platform = strtoupper( (string) ( $data['platform'] ?? '' ) );
+		$platform_map = array(
+			'ZALO_BOT'      => 'zalo_bot',
+			'ZALO_OA'       => 'zalo_oa',
+			'ZALO_PERSONAL' => 'zalo_personal',
+			'ZALO_ZNS'      => 'zalo_zns',
+			'FB_MESS'       => 'messenger',
+			'FACEBOOK'      => 'facebook',
+			'MESSENGER'     => 'messenger',
+			'TELEGRAM'      => 'telegram',
+			'WEBCHAT'       => 'webchat',
+			'EMAIL'         => 'email',
+			'CF7'           => 'cf7',
+		);
+		if ( isset( $platform_map[ $explicit_platform ] ) ) {
+			return $platform_map[ $explicit_platform ];
+		}
+
 		// Exact / prefix matches (fast path).
 		$exact_map = array(
 			'fb_webhook_raw'   => 'facebook',
@@ -538,6 +535,14 @@ class BizCity_CG_Debug_Logger {
 				'q'           => array( 'type' => 'string',  'required' => false ),
 				'campaign_id' => array( 'type' => 'integer', 'required' => false, 'default' => 0,
 					'description' => 'Filter rows where data.campaign_id equals this OR webhook route contains /campaigns/{id}/.' ),
+				'account_id' => array( 'type' => 'string', 'required' => false, 'default' => '' ),
+				'event'   => array( 'type' => 'string', 'required' => false, 'default' => '' ),
+				'stage'   => array( 'type' => 'string', 'required' => false, 'default' => '' ),
+				'trace_id' => array( 'type' => 'string', 'required' => false, 'default' => '' ),
+				'operational_logged' => array( 'type' => 'string', 'required' => false, 'default' => '' ),
+				'context_captured' => array( 'type' => 'string', 'required' => false, 'default' => '' ),
+				'ledger_indexed' => array( 'type' => 'string', 'required' => false, 'default' => '' ),
+				'kg_candidate' => array( 'type' => 'string', 'required' => false, 'default' => '' ),
 				'limit'       => array( 'type' => 'integer', 'default' => 500 ),
 				'tail'        => array( 'type' => 'boolean', 'default' => true, 'description' => 'true = lấy N row cuối, false = N row đầu' ),
 			),
@@ -585,6 +590,7 @@ class BizCity_CG_Debug_Logger {
 	}
 
 	public static function rest_list( WP_REST_Request $req ) {
+		// [2026-09-01 Johnny Chu] R-CH-10 — legacy debug route reads the canonical structured channel records instead of a second aggregate file tree.
 		$date    = (string) ( $req->get_param( 'date' ) ?: gmdate( 'Y-m-d' ) );
 		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
 			return new WP_Error( 'bad_date', 'date must be YYYY-MM-DD', array( 'status' => 400 ) );
@@ -593,6 +599,11 @@ class BizCity_CG_Debug_Logger {
 		$level       = (string) $req->get_param( 'level' );
 		$q           = (string) $req->get_param( 'q' );
 		$campaign_id = (int) $req->get_param( 'campaign_id' );
+		$account_id  = (string) $req->get_param( 'account_id' );
+		$event       = (string) $req->get_param( 'event' );
+		$stage       = (string) $req->get_param( 'stage' );
+		$trace_id    = (string) $req->get_param( 'trace_id' );
+		$statuses    = array( 'operational_logged', 'context_captured', 'ledger_indexed', 'kg_candidate' );
 		$limit       = max( 1, min( 5000, (int) $req->get_param( 'limit' ) ) );
 		$tail        = (bool) $req->get_param( 'tail' );
 
@@ -602,37 +613,60 @@ class BizCity_CG_Debug_Logger {
 		$cid_data_str  = $campaign_id > 0 ? ('"campaign_id":' . $campaign_id) : '';
 		$cid_route_str = $campaign_id > 0 ? ('/campaigns/' . $campaign_id . '/') : '';
 
-		$file = self::ensure_dir() . '/' . $date . '.jsonl';
+		$filter_args = array(
+			'channel' => '',
+			'days' => 31,
+			'limit' => 5000,
+			'level' => $level,
+			'account_id' => $account_id,
+			'event' => '',
+			'stage' => $stage,
+			'trace_id' => $trace_id,
+			'q' => $q,
+			'date' => $date,
+		);
+		$channel_list = array_filter( array_map( 'trim', explode( ',', $channel ) ) );
+		$legacy_channels = array(
+			'twf_flow.zalo' => 'zalo_bot',
+			'zalo_webhook_raw' => 'zalo_bot',
+			'zalo_bot_event' => 'zalo_bot',
+			'fb_webhook_raw' => 'facebook',
+			'fb_referral' => 'facebook',
+			'twf_flow.facebook' => 'facebook',
+			'bizhook' => 'zalo_oa',
+			'webhook' => 'channel_gateway',
+			'twf_flow' => 'channel_gateway',
+			'message_in' => 'channel_gateway',
+			'message_out' => 'channel_gateway',
+			'campaign_visit' => 'channel_gateway',
+			'scenario_dispatch' => 'channel_gateway',
+			'scheduler' => 'channel_gateway',
+			'reminder' => 'channel_gateway',
+			'twinchat' => 'webchat',
+		);
+		$channel_list = array_values( array_unique( array_map( function ( $value ) use ( $legacy_channels ) {
+			return isset( $legacy_channels[ $value ] ) ? $legacy_channels[ $value ] : sanitize_key( $value );
+		}, $channel_list ) ) );
 		$rows = array();
-		if ( ! file_exists( $file ) ) {
-			return array( 'date' => $date, 'count' => 0, 'rows' => array(), 'file' => $file, 'exists' => false );
-		}
-
-		$fp = @fopen( $file, 'rb' );
-		if ( ! $fp ) {
-			return new WP_Error( 'io_error', 'cannot open log file', array( 'status' => 500 ) );
-		}
-		while ( ( $line = fgets( $fp ) ) !== false ) {
-			$line = trim( $line );
-			if ( $line === '' ) { continue; }
-			$dec = json_decode( $line, true );
-			if ( ! is_array( $dec ) ) { continue; }
-			// Multi-channel support: comma-separated values (e.g. 'zalo_webhook_raw,zalo_bot_event').
-			if ( $channel !== '' ) {
-				$ch_list = array_filter( array_map( 'trim', explode( ',', $channel ) ) );
-				if ( $ch_list && ! in_array( $dec['channel'] ?? '', $ch_list, true ) ) { continue; }
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			foreach ( $channel_list ? $channel_list : array( '' ) as $requested_channel ) {
+				$filter_args['channel'] = $requested_channel;
+				$filter_args['event'] = $event;
+				foreach ( $statuses as $status_key ) {
+					$filter_args[ $status_key ] = (string) $req->get_param( $status_key );
+				}
+				$rows = array_merge( $rows, BizCity_Channel_File_Logger::query_records( $filter_args ) );
 			}
-			if ( $level !== ''   && ( $dec['level']   ?? '' ) !== $level )   { continue; }
-			if ( $q !== '' && stripos( $line, $q ) === false ) { continue; }
-			// campaign_id OR-filter: match data.campaign_id value OR webhook route path
-			if ( $campaign_id > 0 ) {
-				$ok = stripos( $line, $cid_data_str ) !== false
-					|| stripos( $line, $cid_route_str ) !== false;
-				if ( ! $ok ) { continue; }
-			}
-			$rows[] = $dec;
 		}
-		fclose( $fp );
+		$unique = array();
+		$rows = array_values( array_filter( $rows, function ( $row ) use ( &$unique, $campaign_id, $cid_data_str, $cid_route_str ) {
+			$key = (string) ( $row['event_uuid'] ?? '' );
+			if ( $key !== '' && isset( $unique[ $key ] ) ) { return false; }
+			if ( $key !== '' ) { $unique[ $key ] = true; }
+			if ( $campaign_id <= 0 ) { return true; }
+			$encoded = wp_json_encode( $row );
+			return ( is_string( $encoded ) && ( stripos( $encoded, $cid_data_str ) !== false || stripos( $encoded, $cid_route_str ) !== false ) );
+		} ) );
 
 		$total = count( $rows );
 		if ( $tail ) {
@@ -647,8 +681,8 @@ class BizCity_CG_Debug_Logger {
 			'total'  => $total,
 			'tail'   => $tail,
 			'rows'   => array_values( $rows ),
-			'file'   => self::relative_path( $file ),
-			'exists' => true,
+			'file'   => 'bizcity-channel-logs/{channel}/YYYY-MM-DD.jsonl',
+			'exists' => ! empty( $rows ),
 		);
 	}
 

@@ -372,6 +372,7 @@ class BizCity_Admin_Menu {
 		}
 
 		if ( class_exists( 'BizCity_Zalo_Bot_Admin_Menu', false ) ) {
+			// [2026-09-01 Johnny Chu] PHASE-1.30-ZALO-MEMORY-REMOVE — do not expose the deleted legacy Zalo memory page.
 			$zb = BizCity_Zalo_Bot_Admin_Menu::instance();
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'All Zalo Bots', $td ), __( 'Zalo Bots', $td ),
@@ -389,10 +390,6 @@ class BizCity_Admin_Menu {
 				__( 'Zalo Logs', $td ), __( 'Zalo Logs', $td ),
 				'manage_options', 'bizcity-zalo-bot-logs',
 				[ $zb, 'render_logs_page' ] );
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'Zalo Memory', $td ), __( 'Zalo Memory', $td ),
-				'manage_options', 'bizcity-zalo-bot-memory',
-				[ $zb, 'render_memory_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Connections', $td ), __( 'Zalo Connections', $td ),
 				'manage_options', 'bizcity-zalobot-connections',
@@ -800,7 +797,6 @@ class BizCity_Admin_Menu {
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-zalo-bot-assign' );
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-zalo-bot-test-api' );
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-zalo-bot-logs' );
-		remove_submenu_page( self::SLUG_CHAT, 'bizcity-zalo-bot-memory' );
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-knowledge-monitor' );
 		// [2026-06-11 Johnny Chu] HOTFIX — Bind Connectors moved to SLUG_KNOWLEDGE; remove from TwinChat menu.
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-knowledge-characters' );

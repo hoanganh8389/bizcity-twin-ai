@@ -44,15 +44,17 @@ class BizCity_Membership_Admin_Page {
 	}
 
 	public static function add_menu() {
-		// [2026-06-09 Johnny Chu] HOTFIX — rename brand to "Twin Membership".
-		add_menu_page(
+		if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+			return;
+		}
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — Membership is an Account/Usage child of Workspace.
+		add_submenu_page(
+			'bizcity-twin-workspace',
 			__( 'Twin Membership', 'bizcity-twin-ai' ),
 			__( 'Twin Membership', 'bizcity-twin-ai' ),
 			self::CAP,
 			self::MENU_SLUG,
-			array( __CLASS__, 'render' ),
-			'dashicons-id-alt',
-			58
+			array( __CLASS__, 'render' )
 		);
 	}
 

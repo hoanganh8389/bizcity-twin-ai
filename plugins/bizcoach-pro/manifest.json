@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.bizcoach-pro",
+  "name": "BizCoach Pro — Producer Hub",
+  "version": "0.2.0",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.0"
+  },
+  "capabilities": {
+    "tools": [
+      {
+        "id": "bizcoach-pro.astro",
+        "label": "Astro / life-coach consultation",
+        "description": "Producer-hub artifact plugin for the Guru persona layer (astro chart, coaching template, membership account hub).",
+        "primary": true
+      }
+    ],
+    "personas": [
+      { "id": "bizcoach-pro.coach", "label": "BizCoach persona artifact producer" }
+    ]
+  },
+  "vertical_modes": [
+    {
+      "id": "astro",
+      "label": "Astro",
+      "role": "Hồ sơ cá nhân và transit.",
+      "output_shape": "narrative",
+      "guest_allowed": false,
+      "min_plan": "free",
+      "registry_filter": "bizcity_twinbrain_vertical_bridge_registry",
+      "mpr_layers": [2, 5],
+      "automation_mode": "built_in_mpr",
+      "channel_entry": "core/channel-gateway.normalized_envelope",
+      "admin_surface": "plugins/bizcity-twin-crm"
+    }
+  ]
+}

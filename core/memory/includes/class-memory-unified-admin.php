@@ -1,10 +1,9 @@
 <?php
 /**
- * BizCity Memory — Unified Settings Admin Page (Wave 2.8d D6.7).
+ * BizCity Memory — Legacy Unified Settings compatibility page.
  *
  * Standalone admin page (under `bizcity-knowledge` parent) cung cấp:
- *   1. Toggle ON/OFF cho `bizcity_memory_unified_enabled` (via option, không
- *      hardcode filter để founder/team có thể flip an toàn).
+	 *   1. Show the retired unified SQL warehouse state; it cannot be enabled.
  *   2. Status panel hiển thị:
  *      - Flag effective state (option vs filter override).
  *      - Unified table existence + row count.
@@ -65,24 +64,11 @@ class BizCity_Memory_Unified_Admin {
 		}
 		check_admin_referer( self::NONCE_KEY );
 
-		$enable = isset( $_POST['memory_unified_enabled'] )
-		       && ( $_POST['memory_unified_enabled'] === '1' );
-
-		update_option( BizCity_Memory_Unified_Installer::FLAG_OPTION, $enable ? '1' : '0' );
-
-		if ( $enable ) {
-			// Record timestamp of enable for "staging duration" badge.
-			if ( ! get_option( self::TS_OPTION ) ) {
-				update_option( self::TS_OPTION, time() );
-			}
-			// Force installer to create table NOW if missing.
-			if ( class_exists( 'BizCity_Memory_Unified_Installer' ) ) {
-				BizCity_Memory_Unified_Installer::instance()->maybe_install();
-			}
-		}
+		// [2026-09-01 Johnny Chu] PHASE-CB4.4 — clear the obsolete toggle; this page cannot authorize SQL memory storage.
+		update_option( BizCity_Memory_Unified_Installer::FLAG_OPTION, '0' );
 
 		wp_safe_redirect( add_query_arg(
-			[ 'page' => self::SLUG, 'saved' => $enable ? 'on' : 'off' ],
+			[ 'page' => self::SLUG, 'saved' => 'retired' ],
 			admin_url( 'admin.php' )
 		) );
 		exit;
@@ -95,7 +81,7 @@ class BizCity_Memory_Unified_Admin {
 		global $wpdb;
 
 		$opt_value      = get_option( BizCity_Memory_Unified_Installer::FLAG_OPTION, '0' );
-		$opt_enabled    = ( $opt_value === '1' || $opt_value === 1 );
+		$opt_enabled    = false;
 		$effective      = BizCity_Memory_Unified_Installer::is_enabled();
 		$filter_active  = $effective !== $opt_enabled;
 
@@ -130,10 +116,8 @@ class BizCity_Memory_Unified_Admin {
 		<div class="wrap">
 			<h1>🧬 <?php esc_html_e( 'Memory Unified — Wave 2.8d D6.7', 'bizcity-twin-ai' ); ?></h1>
 
-			<?php if ( $saved === 'on' ) : ?>
-				<div class="notice notice-success is-dismissible"><p><strong>✅ Flag turned ON.</strong> Unified table installed if missing. Dual-write and unified recall are enabled for supported writers; keep legacy tables until D7 write-cutover gates pass.</p></div>
-			<?php elseif ( $saved === 'off' ) : ?>
-				<div class="notice notice-warning is-dismissible"><p><strong>⚠️ Flag turned OFF.</strong> Reverted to legacy memory tables. Staging timer reset on next enable.</p></div>
+			<?php if ( $saved === 'retired' || $saved === 'on' || $saved === 'off' ) : ?>
+				<div class="notice notice-warning is-dismissible"><p><strong>Unified SQL memory is retired.</strong> Context Bank filestore references are canonical; legacy SQL rows remain migration debt.</p></div>
 			<?php endif; ?>
 
 			<?php if ( $filter_active ) : ?>
@@ -147,21 +131,12 @@ class BizCity_Memory_Unified_Admin {
 				<!-- Toggle card -->
 				<div class="card" style="padding:20px; max-width:none;">
 					<h2 style="margin-top:0;"><?php esc_html_e( 'Feature flag', 'bizcity-twin-ai' ); ?></h2>
-					<p>Bật flag để kích hoạt:</p>
+					<p>Unified SQL memory is retired and cannot be enabled.</p>
 					<ul style="list-style: disc; margin-left: 20px;">
-						<li><strong>Installer:</strong> tạo bảng <code><?php echo esc_html( $unified_tbl ); ?></code> nếu chưa có.</li>
-						<li><strong>Dual-write:</strong> legacy writers ghi đồng thời sang bảng unified; đây là staging, chưa được phép đổi tên bảng legacy.</li>
-						<li><strong>Read cutover:</strong> <code>BizCity_Smart_Gateway::collect_context()</code> route qua <code>BizCity_TwinBrain_Memory_Recall</code> thay vì 3 legacy classes (D6.5 patches).</li>
+						<li><strong>Payload owner:</strong> encrypted business filestore + Context Bank pointer/correlation ledger.</li>
+						<li><strong>Legacy rows:</strong> read/migration-only; no new SQL memory payloads.</li>
+						<li><strong>Replacement gate:</strong> adapter, ledger, rollup and bounded retrieval evidence remain tracked in Phase 1.33.</li>
 					</ul>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-						<input type="hidden" name="action" value="bizcity_memory_unified_save" />
-						<?php wp_nonce_field( self::NONCE_KEY ); ?>
-						<label style="display:flex; align-items:center; gap:8px; font-size:15px; margin:16px 0;">
-							<input type="checkbox" name="memory_unified_enabled" value="1" <?php checked( $opt_enabled, true ); ?> />
-							<span><?php esc_html_e( 'Enable unified memory (dual-write + unified recall)', 'bizcity-twin-ai' ); ?></span>
-						</label>
-						<button type="submit" class="button button-primary"><?php esc_html_e( 'Save flag', 'bizcity-twin-ai' ); ?></button>
-					</form>
 
 					<?php if ( $opt_enabled ) : ?>
 						<hr style="margin:20px 0;" />

@@ -134,7 +134,6 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 	const EXPECTED_TABLES = array(
 		'bizcity_automation_workflows',
 		'bizcity_automation_runs',
-		'bizcity_automation_logs',
 		'bizcity_automation_templates', // BE-7
 	);
 

@@ -50,20 +50,16 @@ if ( class_exists( 'BizCity_Knowledge_Database' ) ) {
     return;
 }
 
-// [2026-06-21 Johnny Chu] R-SHOW-TABLES — polyfill bizcity_tbl_exists() for early-load paths
-// (e.g. activation hook, WP-CLI, or any path that loads knowledge without core/helper first).
-if ( ! function_exists( 'bizcity_tbl_exists' ) ) {
-    function bizcity_tbl_exists( $table_name ) {
-        static $s = array();
-        if ( isset( $s[ $table_name ] ) ) { return $s[ $table_name ]; }
-        global $wpdb;
-        $result = (bool) $wpdb->get_var( $wpdb->prepare(
-            'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-            $table_name
-        ) );
-        $s[ $table_name ] = $result;
-        return $result;
+// [2026-08-29 Johnny Chu] R-METADATA-CACHE — use the shared helper for early knowledge loads instead of a module-local polyfill.
+if ( ! class_exists( 'BizCity_Table_Metadata', false ) ) {
+    $_kg_safe_loader = dirname( __DIR__ ) . '/helper/class-bizcity-safe-loader.php';
+    if ( ! class_exists( 'BizCity_Safe_Loader', false ) && is_file( $_kg_safe_loader ) && is_readable( $_kg_safe_loader ) ) {
+        require_once $_kg_safe_loader;
     }
+    unset( $_kg_safe_loader );
+}
+if ( class_exists( 'BizCity_Safe_Loader', false ) && ! class_exists( 'BizCity_Table_Metadata', false ) ) {
+    BizCity_Safe_Loader::require_file( dirname( __DIR__ ) . '/helper/class-bizcity-table-metadata.php', 'helper.table_metadata.early' );
 }
 
 // [2026-06-11 Johnny Chu] R-PERF — Admin/REST/AJAX context gate (same pattern as bizcity-twin-ai.php)

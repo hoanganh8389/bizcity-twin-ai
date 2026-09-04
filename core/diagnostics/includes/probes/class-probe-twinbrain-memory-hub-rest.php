@@ -70,19 +70,17 @@ final class BizCity_Probe_TwinBrain_Memory_Hub_Rest implements BizCity_Diagnosti
 		$writer_file = $plugin_root . '/core/memory/includes/class-memory-unified-writer.php';
 		$notes_file  = $plugin_root . '/modules/twinchat/notebooklm/includes/class-twinchat-notes-service.php';
 		$user_memory_file = $plugin_root . '/core/knowledge/includes/class-user-memory.php';
-		$admin_menu_file  = $plugin_root . '/core/knowledge/includes/class-admin-menu.php';
 		$rest_src    = is_readable( $rest_file ) ? (string) file_get_contents( $rest_file ) : '';
 		$writer_src  = is_readable( $writer_file ) ? (string) file_get_contents( $writer_file ) : '';
 		$notes_src   = is_readable( $notes_file ) ? (string) file_get_contents( $notes_file ) : '';
 		$user_memory_src = is_readable( $user_memory_file ) ? (string) file_get_contents( $user_memory_file ) : '';
-		$admin_menu_src  = is_readable( $admin_menu_file ) ? (string) file_get_contents( $admin_menu_file ) : '';
-		$mirror_contract_ok = strpos( $rest_src, "bizcity_memory_mirror_write', 'user'" ) !== false
-			&& strpos( $rest_src, "bizcity_memory_mirror_delete', 'user'" ) !== false
+		$mirror_contract_ok = strpos( $rest_src, 'upsert_public' ) !== false
+			&& strpos( $rest_src, 'delete_with_receipt' ) !== false
 			&& strpos( $writer_src, "add_action( 'bizcity_memory_mirror_delete'" ) !== false
 			&& strpos( $writer_src, 'function on_mirror_delete' ) !== false
 			&& strpos( $notes_src, "bizcity_memory_mirror_delete', 'note'" ) !== false
 			&& strpos( $user_memory_src, "bizcity_memory_mirror_delete', 'user'" ) !== false
-			&& strpos( $admin_menu_src, "bizcity_memory_mirror_delete', 'user'" ) !== false;
+			&& strpos( $user_memory_src, 'delete_with_receipt' ) !== false;
 		$ctx->emit_step( [
 			'label'  => 'Mirror contract · REST update/delete + Notes delete',
 			'status' => $mirror_contract_ok ? 'pass' : 'fail',
@@ -107,14 +105,14 @@ final class BizCity_Probe_TwinBrain_Memory_Hub_Rest implements BizCity_Diagnosti
 			return [ 'status' => 'fail', 'error' => 'POST error: ' . $res->as_error()->get_error_message() ];
 		}
 		$data = $res->get_data();
-		$created_id = (int) ( $data['item']['id'] ?? 0 );
+		$created_id = (string) ( $data['item']['record_id'] ?? '' );
 		$ctx->emit_step( [
 			'label'  => 'POST /memory/me',
-			'status' => $created_id > 0 ? 'pass' : 'fail',
-			'detail' => 'id=' . $created_id . ' · op=' . ( $data['op'] ?? '?' ),
+			'status' => $created_id !== '' ? 'pass' : 'fail',
+			'detail' => 'record_id=' . $created_id . ' · op=' . ( $data['op'] ?? '?' ),
 		] );
-		if ( $created_id <= 0 ) {
-			return [ 'status' => 'fail', 'error' => 'POST returned no id.' ];
+		if ( $created_id === '' ) {
+			return [ 'status' => 'fail', 'error' => 'POST returned no record_id.' ];
 		}
 
 		// Step 2 — GET list, verify visible.
@@ -128,7 +126,7 @@ final class BizCity_Probe_TwinBrain_Memory_Hub_Rest implements BizCity_Diagnosti
 		$items = (array) ( $res->get_data()['items'] ?? [] );
 		$found = false;
 		foreach ( $items as $it ) {
-			if ( (int) ( $it['id'] ?? 0 ) === $created_id ) { $found = true; break; }
+			if ( (string) ( $it['record_id'] ?? '' ) === $created_id ) { $found = true; break; }
 		}
 		$ctx->emit_step( [
 			'label'  => 'GET /memory/me?q=sentinel',

@@ -441,17 +441,18 @@ class BizCity_Profile_Context {
             if ($profile) return $profile;
         }
 
-        // Strategy 2: by session_id match in webchat conversations
+        // Strategy 2: by session_id match in the message-owned conversation marker
         // (Useful for WEBCHAT guests who don't have a user_id but were matched to a coachee)
         if ($session_id && !$user_id) {
-            $conv_table = $this->wpdb->prefix . 'bizcity_webchat_conversations';
-            // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-            if (bizcity_tbl_exists( $conv_table )) {
-                // Check if conversation has a linked coachee_id
-                $coachee_id = $this->wpdb->get_var($this->wpdb->prepare(
-                    "SELECT coachee_id FROM {$conv_table} WHERE session_id = %s AND coachee_id IS NOT NULL AND coachee_id > 0 ORDER BY id DESC LIMIT 1",
+            $messages_table = $this->wpdb->prefix . 'bizcity_webchat_messages';
+            // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — read optional coachee linkage from marker metadata only.
+            if ( function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $messages_table ) ) {
+                $marker_meta = $this->wpdb->get_var($this->wpdb->prepare(
+                    "SELECT meta FROM {$messages_table} WHERE session_id = %s AND platform_type = 'WEBCHAT' AND message_type = 'conversation_meta' ORDER BY id ASC LIMIT 1",
                     $session_id
                 ));
+                $marker_meta = json_decode( (string) $marker_meta, true );
+                $coachee_id = is_array( $marker_meta ) ? absint( $marker_meta['coachee_id'] ?? 0 ) : 0;
                 if ($coachee_id) {
                     return $this->wpdb->get_row($this->wpdb->prepare(
                         "SELECT * FROM {$table} WHERE id = %d LIMIT 1",

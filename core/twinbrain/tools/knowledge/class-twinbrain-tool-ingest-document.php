@@ -28,10 +28,25 @@
 
 defined( 'ABSPATH' ) || exit;
 
-class BizCity_TwinBrain_Tool_Ingest_Document implements BizCity_Twin_Tool {
+class BizCity_TwinBrain_Tool_Ingest_Document implements BizCity_Twin_Tool, BizCity_Tool_Interface {
 
 	public function name(): string {
 		return 'ingest_document';
+	}
+
+	public function id() {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — expose the stable typed Tool identifier.
+		return $this->name();
+	}
+
+	public function label() {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — expose the typed Tool display label.
+		return 'Ingest document';
+	}
+
+	public function schema() {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — adapt the existing parameter schema to the public Tool envelope.
+		return array( 'name' => $this->id(), 'description' => $this->description(), 'parameters' => $this->parameters_schema() );
 	}
 
 	/**
@@ -200,6 +215,17 @@ class BizCity_TwinBrain_Tool_Ingest_Document implements BizCity_Twin_Tool {
 				'type'        => $type,
 			),
 			'citation_ids' => $source_id > 0 ? array( 'src:S' . $source_id ) : array(),
+		);
+	}
+
+	public function run( array $args, array $context = array() ) {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — preserve one execution owner while exposing the typed result envelope.
+		$result = $this->execute( $args, $context );
+		return array(
+			'success' => ! empty( $result['ok'] ),
+			'result'  => $result['result'] ?? null,
+			'summary' => $result['summary'] ?? '',
+			'error'   => $result['error'] ?? null,
 		);
 	}
 

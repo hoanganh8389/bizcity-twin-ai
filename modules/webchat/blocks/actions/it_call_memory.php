@@ -441,17 +441,16 @@ class WaicAction_it_call_memory extends WaicAction {
 			return;
 		}
 
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-		$wpdb->update(
-			$table,
-			[
-				'session_memory_mode'       => 'execution',
-				'session_memory_updated_at' => current_time( 'mysql' ),
-			],
-			[ 'session_id' => $session_id ]
-		);
+		// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-SPEC-FILESTORE — update execution mode through the filestore-owned session spec.
+		if ( ! class_exists( 'BizCity_Session_Memory_Spec' ) ) {
+			return;
+		}
+		$spec = BizCity_Session_Memory_Spec::get( $session_id );
+		if ( ! is_array( $spec ) ) {
+			$spec = BizCity_Session_Memory_Spec::blank( 'execution' );
+		}
+		$spec['mode'] = 'execution';
+		BizCity_Session_Memory_Spec::persist( $session_id, $spec );
 	}
 
 	/**

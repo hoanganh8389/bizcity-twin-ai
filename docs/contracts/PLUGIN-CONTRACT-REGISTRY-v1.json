@@ -6,6 +6,19 @@
   "status_values": ["pass", "partial", "fail", "review", "reference_only"],
   "modules": [
     {
+      "id": "bizcity.framework-cli",
+      "path": "core/cli",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "tier": "core",
+      "db_reversible": true,
+      "plug_and_play": false,
+      "activation_isolated": true,
+      "manifest": null,
+      "bootstrap": "core/cli/class-bizcity-framework-cli.php",
+      "required_surfaces": ["wp_cli_root", "diagnostics_verdict", "multisite_context", "runtime_probe", "ci_smoke"]
+    },
+    {
       "id": "bizcity.twinchat",
       "path": "modules/twinchat",
       "kind": "framework_integrated",
@@ -90,7 +103,7 @@
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
-      "manifest": null,
+      "manifest": "plugins/bizcity-twin-crm/manifest.json",
       "bootstrap": "plugins/bizcity-twin-crm/bootstrap.php",
       "required_surfaces": ["channel_normalized", "outbound_logging", "identity_scoping", "error_envelope", "runtime_probe"]
     },
@@ -103,7 +116,7 @@
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
-      "manifest": null,
+      "manifest": "plugins/bizcity-zalo-bot/manifest.json",
       "bootstrap": "plugins/bizcity-zalo-bot/bootstrap.php",
       "required_surfaces": ["channel_normalized", "zone_isolation", "canonical_sender", "file_log", "error_envelope"]
     },
@@ -116,7 +129,7 @@
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
-      "manifest": null,
+      "manifest": "plugins/bizcity-facebook-bot/manifest.json",
       "bootstrap": "plugins/bizcity-facebook-bot/bootstrap.php",
       "required_surfaces": ["channel_normalized", "comment_context", "canonical_sender", "file_log", "error_envelope"]
     },
@@ -129,7 +142,7 @@
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
-      "manifest": null,
+      "manifest": "plugins/bizcity-zalo-personal/manifest.json",
       "bootstrap": "plugins/bizcity-zalo-personal/bootstrap.php",
       "required_surfaces": ["channel_normalized", "identity_scoping", "archive_contract", "file_log", "error_envelope"]
     },
@@ -142,7 +155,7 @@
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
-      "manifest": null,
+      "manifest": "plugins/bizcity-pagebuilder/manifest.json",
       "bootstrap": "plugins/bizcity-pagebuilder/bizcity-pagebuilder.php",
       "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "mutation_guard", "error_envelope", "runtime_probe"]
     },
@@ -155,7 +168,7 @@
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
-      "manifest": null,
+      "manifest": "plugins/bizcity-profile/manifest.json",
       "bootstrap": "plugins/bizcity-profile/bizcity-personal.php",
       "required_surfaces": ["identity_scoping", "profile_routes", "runtime_probe"]
     },
@@ -168,7 +181,7 @@
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
-      "manifest": null,
+      "manifest": "plugins/bizcoach-pro/manifest.json",
       "bootstrap": "plugins/bizcoach-pro/bizcoach-pro.php",
       "required_surfaces": ["credential_scope", "error_envelope", "cache_contract", "runtime_probe"]
     },
@@ -177,7 +190,7 @@
       "path": "plugins/bizcity-zalo-bizcity",
       "kind": "legacy_adapter",
       "status": "partial",
-      "manifest": null,
+      "manifest": "plugins/bizcity-zalo-bizcity/manifest.json",
       "bootstrap": "plugins/bizcity-zalo-bizcity/bootstrap.php",
       "required_surfaces": ["adapter_boundary", "channel_normalized", "ddl_governance", "error_envelope"]
     }

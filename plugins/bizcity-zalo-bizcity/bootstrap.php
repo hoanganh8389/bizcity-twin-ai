@@ -183,8 +183,8 @@ add_action('template_redirect', function () {
         exit;
     }
 
-    // ✅ Log vào bizcity_zalo_bot_logs với bot_id = 9999
-    #back_trace('NOTICE', ''.'Logging webhook to bizcity_zalo_bot_logs (bot_id=9999)');
+    // ✅ Canonical Zalo Bot operational evidence is written by the main handler.
+    #back_trace('NOTICE', ''.'Logging webhook through the canonical zalo_bot channel contract');
     
     #back_trace('SUCCESS', 'Webhook logged to bizcity_zalo_bot_logs with ID ' . $wpdb->insert_id);
 
@@ -550,7 +550,6 @@ function bizgpt_build_cross_path_context( $chat_id, $user_id = 0, $minutes = 30,
 
     // ── 3. Recent messages from webchat DB (cross-platform, by chat_id or user_id) ──
     $tbl_msg  = $wpdb->prefix . 'bizcity_webchat_messages';
-    $tbl_conv = $wpdb->prefix . 'bizcity_webchat_conversations';
 
     // Check tables exist
     if ( $wpdb->get_var( "SHOW TABLES LIKE '{$tbl_msg}'" ) === $tbl_msg ) {
@@ -559,19 +558,17 @@ function bizgpt_build_cross_path_context( $chat_id, $user_id = 0, $minutes = 30,
         // Strategy: query by user_id (more reliable across chat_ids and sessions)
         $messages = [];
         if ( $user_id ) {
-            // Get conversation IDs for this user
-            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$tbl_conv}'" ) === $tbl_conv ) {
-                $messages = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT m.message_from, m.message_text, m.created_at
-                     FROM {$tbl_msg} m
-                     JOIN {$tbl_conv} c ON m.conversation_id = c.id
-                     WHERE c.user_id = %d
-                       AND m.created_at >= %s
-                     ORDER BY m.created_at DESC
-                     LIMIT %d",
-                    $user_id, $cutoff, $max_messages
-                ) );
-            }
+            // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — read recent context directly from the canonical message owner.
+            $messages = $wpdb->get_results( $wpdb->prepare(
+                "SELECT message_from, message_text, created_at
+                 FROM {$tbl_msg}
+                 WHERE user_id = %d
+                   AND message_type != 'conversation_meta'
+                   AND created_at >= %s
+                 ORDER BY created_at DESC
+                 LIMIT %d",
+                $user_id, $cutoff, $max_messages
+            ) );
         }
 
         if ( ! empty( $messages ) ) {

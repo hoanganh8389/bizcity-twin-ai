@@ -301,6 +301,10 @@ class BizCity_Scheduler_Manager {
 			) {$charset};";
 			require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 			dbDelta( $sql );
+			// [2026-08-26 Johnny Chu] R-METADATA-CACHE — clear the negative existence memo after fresh canonical scheduler DDL.
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $unified );
+			}
 			return; // No legacy data to backfill on fresh subsite.
 		}
 

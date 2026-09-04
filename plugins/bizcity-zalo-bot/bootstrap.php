@@ -80,10 +80,7 @@ class BizCity_Zalo_Bot_Plugin {
 			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-database.php';
 		}
 		
-		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-memory.php' ) ) {
-			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-memory.php';
-		}
-		
+		// [2026-09-01 Johnny Chu] PHASE-1.30-ZALO-MEMORY-REMOVE — legacy memory builder is intentionally not loaded.
 		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-webhook-handler.php' ) ) {
 			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-webhook-handler.php';
 		}
@@ -171,12 +168,6 @@ class BizCity_Zalo_Bot_Plugin {
 		// [2026-03-17] Moved to version-gated check only — no longer runs SHOW TABLES on every init
 		// Tables are created via register_activation_hook or auto-provisioned on first admin visit
 		add_action( 'admin_init', array( $this, 'maybe_create_tables' ), 20 );
-		// [2026-03-12] Tắt cron memory extraction — chưa cần thiết, gây nặng hệ thống
-		// add_action( 'init', array( $this, 'setup_cron' ) );
-		// add_action( 'bizcity_zalo_bot_daily_memory', array( $this, 'run_daily_memory_extraction' ) );
-		// Xoá cron nếu đã schedule trước đó
-		$ts = wp_next_scheduled( 'bizcity_zalo_bot_daily_memory' );
-		if ( $ts ) { wp_unschedule_event( $ts, 'bizcity_zalo_bot_daily_memory' ); }
 		register_activation_hook( BIZCITY_ZALO_BOT_FILE, array( 'BizCity_Zalo_Bot_Database', 'activate' ) );
 		// [2026-08-21 Johnny Chu] DIAGNOSTICS-CLI-SCHEMA-ORCHESTRATION — this
 		// bundled sub-plugin is require_once'd by bizcity-twin-ai, so its own
@@ -184,7 +175,7 @@ class BizCity_Zalo_Bot_Plugin {
 		// activation hooks for plugins passed to activate_plugin()). Expose
 		// table provisioning to BizCity_Site_Provisioner so headless CI
 		// diagnostics, new-blog multisite provisioning and manual self-heal
-		// still create bizcity_zalo_bots/bizcity_zalo_bot_logs.
+		// still create the active bizcity_zalo_bots configuration table.
 		add_filter( 'bizcity_register_installers', array( $this, 'register_site_provisioner_installer' ) );
 	}
 
@@ -196,7 +187,7 @@ class BizCity_Zalo_Bot_Plugin {
 		$list   = is_array( $list ) ? $list : array();
 		$list[] = array(
 			'id'           => 'zalo_bot',
-			'label'        => 'Zalo Bot (bots/logs)',
+			'label'        => 'Zalo Bot (configuration)',
 			'callback'     => array( $this, 'maybe_create_tables' ),
 			'version_opt'  => 'bizcity_zalo_bot_db_version',
 			'expected_ver' => self::DB_VERSION,
@@ -229,10 +220,7 @@ class BizCity_Zalo_Bot_Plugin {
 			BizCity_Zalo_Bot_Database::instance();
 		}
 		
-		if ( class_exists( 'BizCity_Zalo_Bot_Memory' ) ) {
-			BizCity_Zalo_Bot_Memory::instance();
-		}
-		
+		// [2026-09-01 Johnny Chu] PHASE-1.30-ZALO-MEMORY-REMOVE — Zalo initialization now has no legacy memory component.
 		if ( class_exists( 'BizCity_Zalo_Bot_Webhook_Handler' ) ) {
 			BizCity_Zalo_Bot_Webhook_Handler::instance();
 		}
@@ -311,9 +299,8 @@ class BizCity_Zalo_Bot_Plugin {
 		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-SELF-HEAL — a matching option is insufficient when a shard table was dropped or never provisioned.
 		$installed_version = get_option( 'bizcity_zalo_bot_db_version' );
 		$bots_table = $GLOBALS['wpdb']->prefix . 'bizcity_zalo_bots';
-		$logs_table = $GLOBALS['wpdb']->prefix . 'bizcity_zalo_bot_logs';
 		$tables_ready = function_exists( 'bizcity_tbl_exists' )
-			? bizcity_tbl_exists( $bots_table ) && bizcity_tbl_exists( $logs_table )
+			? bizcity_tbl_exists( $bots_table )
 			: false;
 		if ( $installed_version === self::DB_VERSION && $tables_ready ) {
 			return;
@@ -328,58 +315,6 @@ class BizCity_Zalo_Bot_Plugin {
 		update_option( 'bizcity_zalo_bot_db_version', self::DB_VERSION, false );
 	}
 	
-	/**
-	 * Setup cron job for daily memory extraction
-	 */
-	public function setup_cron() {
-		if ( ! wp_next_scheduled( 'bizcity_zalo_bot_daily_memory' ) ) {
-			wp_schedule_event( time(), 'daily', 'bizcity_zalo_bot_daily_memory' );
-		}
-	}
-	
-	/**
-	 * Run daily memory extraction for all active bots
-	 */
-	public function run_daily_memory_extraction() {
-		error_log( '[BizCity Zalo Bot] Running daily memory extraction' );
-		
-		$db = BizCity_Zalo_Bot_Database::instance();
-		$bots = $db->get_active_bots();
-		
-		if ( empty( $bots ) ) {
-			error_log( '[BizCity Zalo Bot] No active bots found for memory extraction' );
-			return;
-		}
-		
-		$memory = BizCity_Zalo_Bot_Memory::instance();
-		$total_inserted = 0;
-		$total_updated = 0;
-		
-		foreach ( $bots as $bot ) {
-			$result = $memory->build_from_logs( array(
-				'bot_id' => $bot->id,
-				'limit' => 200, // Process last 200 logs per bot
-			) );
-			
-			if ( $result['ok'] ) {
-				$total_inserted += $result['inserted'];
-				$total_updated += $result['updated'];
-				error_log( sprintf(
-					'[BizCity Zalo Bot] Bot %s: %d logs processed, %d inserted, %d updated',
-					$bot->bot_name,
-					$result['count'],
-					$result['inserted'],
-					$result['updated']
-				) );
-			}
-		}
-		
-		error_log( sprintf(
-			'[BizCity Zalo Bot] Daily extraction complete: %d inserted, %d updated',
-			$total_inserted,
-			$total_updated
-		) );
-	}
 }
 
 // Initialize the plugin

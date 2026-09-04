@@ -425,28 +425,10 @@ class BizCity_Session_Service {
             return 0;
         }
 
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions_v3';
-
-        if ( bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-            return (int) $wpdb->query( $wpdb->prepare(
-                "UPDATE {$table} SET status = 'closed', ended_at = NOW() WHERE user_id = %d AND platform_type = %s AND status = 'active'",
-                $user_id,
-                $platform
-            ) );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — close user sessions through the encrypted session-state owner.
+        if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+            return (int) BizCity_WebChat_Session_State::instance()->close_all( $user_id, $platform );
         }
-
-        // Legacy
-        $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-        if ( bizcity_tbl_exists( $conv_table ) ) {
-            return (int) $wpdb->query( $wpdb->prepare(
-                "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE user_id = %d AND platform_type = %s AND status = 'active'",
-                $user_id,
-                $platform
-            ) );
-        }
-
         return 0;
     }
 

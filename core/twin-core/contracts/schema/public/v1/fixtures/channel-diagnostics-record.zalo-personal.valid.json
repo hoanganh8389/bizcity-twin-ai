@@ -1,0 +1,38 @@
+{
+  "contract": "channel-diagnostics-record",
+  "version": "1.0.0",
+  "event_uuid": "0190abc1-1234-7abc-8def-0123456789cd",
+  "trace_id": "trace_zalopersonal_001",
+  "occurred_at": "2026-09-01T08:33:00Z",
+  "blog_id": 1258,
+  "channel": "zalo_personal",
+  "zone": "customer",
+  "account": {
+    "scope": "exact",
+    "account_id": "personal_account_B",
+    "account_key": "a_personal_19c3d271",
+    "label": "Zalo Personal B"
+  },
+  "direction": "inbound",
+  "level": "info",
+  "event": "message_received",
+  "stage": "archive",
+  "producer": {
+    "module": "plugins/bizcity-zalo-personal",
+    "version": "1.0.0"
+  },
+  "pipeline_status": {
+    "operational_logged": "success",
+    "context_captured": "success",
+    "ledger_indexed": "pending",
+    "kg_candidate": "not_candidate"
+  },
+  "record_ref": {
+    "context_record_id": "ctx_personal_01j6f5m8k2",
+    "conversation_id": 8822,
+    "message_id": 457
+  },
+  "context": {
+    "reason_bucket": "ledger_pending"
+  }
+}

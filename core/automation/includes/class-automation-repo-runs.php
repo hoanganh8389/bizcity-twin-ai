@@ -27,6 +27,9 @@ final class BizCity_Automation_Repo_Runs {
 	const STATUS_CANCELLED = 4;
 
 	private static $runs_user_id_column_exists = null;
+	private static $file_log_seed = 1000000000;
+	private static $file_log_run_by_id = array();
+	private static $file_log_row_by_id = array();
 
 	public static function table_runs(): string { return BizCity_Automation_Installer::table( self::TABLE_RUNS ); }
 	public static function table_logs(): string { return BizCity_Automation_Installer::table( self::TABLE_LOGS ); }
@@ -205,9 +208,15 @@ final class BizCity_Automation_Repo_Runs {
 
 	public static function logs( string $run_id, int $since_id = 0 ): array {
 		global $wpdb;
+		if ( ! self::should_use_sql_logs( 'read' ) ) {
+			return class_exists( 'BizCity_Automation_File_Logger' ) && method_exists( 'BizCity_Automation_File_Logger', 'logs_for_run' )
+				? BizCity_Automation_File_Logger::logs_for_run( $run_id, $since_id )
+				: array();
+		}
+		$table = self::table_logs();
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				'SELECT * FROM ' . self::table_logs() . ' WHERE run_id = %s AND id > %d ORDER BY id ASC',
+				'SELECT * FROM ' . $table . ' WHERE run_id = %s AND id > %d ORDER BY id ASC',
 				$run_id,
 				$since_id
 			),
@@ -220,6 +229,17 @@ final class BizCity_Automation_Repo_Runs {
 		// [2026-08-15 Johnny Chu] MPR-V5-NOTICE — fetch one canonical node log for progress projection instead of rescanning a run on every hook.
 		global $wpdb;
 		if ( $run_id === '' || $log_id <= 0 ) {
+			return array();
+		}
+		if ( ! self::should_use_sql_logs( 'read' ) ) {
+			$rows = class_exists( 'BizCity_Automation_File_Logger' ) && method_exists( 'BizCity_Automation_File_Logger', 'logs_for_run' )
+				? BizCity_Automation_File_Logger::logs_for_run( $run_id, $log_id - 1 )
+				: array();
+			foreach ( $rows as $row ) {
+				if ( (int) ( $row['id'] ?? 0 ) === $log_id ) {
+					return $row;
+				}
+			}
 			return array();
 		}
 		$row = $wpdb->get_row(
@@ -237,33 +257,109 @@ final class BizCity_Automation_Repo_Runs {
 		global $wpdb;
 		$row = array_merge(
 			array(
+				'id'          => 0,
 				'run_id'      => '',
 				'node_id'     => '',
 				'block_id'    => '',
 				'step'        => 0,
 				'status'      => self::STATUS_QUEUED,
+				'input_json'  => '',
+				'output_json' => '',
+				'error'       => '',
 				'started_at'  => current_time( 'mysql' ),
+				'ended_at'    => '',
 			),
 			$row
 		);
-		$wpdb->insert( self::table_logs(), $row );
-		return (int) $wpdb->insert_id;
+
+		$run_id = (string) $row['run_id'];
+		if ( $run_id === '' ) {
+			return 0;
+		}
+
+		if ( self::should_use_sql_logs( 'write' ) ) {
+			$ok = $wpdb->insert( self::table_logs(), $row );
+			if ( false !== $ok ) {
+				$log_id = (int) $wpdb->insert_id;
+				if ( $log_id > 0 ) {
+					self::$file_log_run_by_id[ $log_id ] = $run_id;
+				}
+				return $log_id;
+			}
+		}
+
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — when SQL logs are unavailable/blocked, append the canonical JSONL row model and keep stable log_id for SSE hooks.
+		$log_id = (int) $row['id'];
+		if ( $log_id <= 0 ) {
+			$log_id = ++self::$file_log_seed;
+		}
+		$row['id'] = $log_id;
+		if ( self::append_file_log_row( $row ) ) {
+			self::$file_log_run_by_id[ $log_id ] = $run_id;
+			self::$file_log_row_by_id[ $log_id ] = $row;
+			return $log_id;
+		}
+
+		return 0;
 	}
 
 	/** Update an existing log row (used by runner to mark ok/fail). */
-	public static function append_log_update( int $log_id, array $patch ): bool {
+	public static function append_log_update( int $log_id, array $patch, string $run_id = '' ): bool {
 		global $wpdb;
 		if ( $log_id <= 0 ) { return false; }
-		return $wpdb->update( self::table_logs(), $patch, array( 'id' => $log_id ) ) !== false;
+
+		if ( self::should_use_sql_logs( 'write' ) ) {
+			$updated = $wpdb->update( self::table_logs(), $patch, array( 'id' => $log_id ) );
+			if ( false !== $updated ) {
+				return true;
+			}
+		}
+
+		if ( $run_id === '' && isset( self::$file_log_run_by_id[ $log_id ] ) ) {
+			$run_id = (string) self::$file_log_run_by_id[ $log_id ];
+		}
+		if ( $run_id === '' ) {
+			return false;
+		}
+
+		$base = isset( self::$file_log_row_by_id[ $log_id ] ) && is_array( self::$file_log_row_by_id[ $log_id ] )
+			? self::$file_log_row_by_id[ $log_id ]
+			: self::log_by_id( $run_id, $log_id );
+		if ( ! is_array( $base ) || empty( $base ) ) {
+			$base = array(
+				'id'          => $log_id,
+				'run_id'      => $run_id,
+				'node_id'     => '',
+				'block_id'    => '',
+				'step'        => 0,
+				'status'      => self::STATUS_RUNNING,
+				'input_json'  => '',
+				'output_json' => '',
+				'error'       => '',
+				'started_at'  => current_time( 'mysql' ),
+				'ended_at'    => '',
+			);
+		}
+
+		$merged = array_merge( $base, $patch );
+		$merged['id'] = $log_id;
+		$merged['run_id'] = $run_id;
+		if ( self::append_file_log_row( $merged ) ) {
+			self::$file_log_run_by_id[ $log_id ] = $run_id;
+			self::$file_log_row_by_id[ $log_id ] = $merged;
+			return true;
+		}
+
+		return false;
 	}
 
 	/** Purge completed automation step logs outside the seven-day window. */
 	public static function gc_logs(): int {
 		global $wpdb;
-		$table = self::table_logs();
-		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+		if ( ! self::should_use_sql_logs( 'delete' ) ) {
 			return 0;
 		}
+		$table = self::table_logs();
 		$deleted = $wpdb->query( $wpdb->prepare(
 			"DELETE FROM {$table}
 			 WHERE COALESCE( ended_at, started_at ) < ( CURRENT_TIMESTAMP - INTERVAL %d DAY )
@@ -272,6 +368,63 @@ final class BizCity_Automation_Repo_Runs {
 			self::LOG_RETENTION_BATCH
 		) );
 		return false === $deleted ? 0 : (int) $deleted;
+	}
+
+	public static function sql_log_mode_enabled( string $operation = 'read' ): bool {
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — expose SQL mode gate so compatibility listeners can avoid duplicate JSONL writes.
+		return self::should_use_sql_logs( $operation );
+	}
+
+	private static function should_use_sql_logs( string $operation = 'read' ): bool {
+		$table = self::table_logs();
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			if ( ! BizCity_Legacy_Table_Policy::allow_sql( $table, $operation ) ) {
+				return false;
+			}
+			if ( $operation === 'read' && ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'write' ) ) {
+				// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — once SQL writes are blocked, read from canonical JSONL to avoid stale timeline gaps.
+				return false;
+			}
+		}
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+			return false;
+		}
+		return true;
+	}
+
+	private static function append_file_log_row( array $row ): bool {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			return false;
+		}
+		$log_id = (int) ( $row['id'] ?? 0 );
+		if ( $log_id <= 0 ) {
+			return false;
+		}
+		$status = (int) ( $row['status'] ?? self::STATUS_RUNNING );
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — failed/error rows must stay error-level in canonical JSONL even when legacy status mapping differs.
+		$level = ( $status === 2 || (string) ( $row['error'] ?? '' ) !== '' ) ? 'error' : 'info';
+		$ctx = array(
+			'log_id'      => $log_id,
+			'run_id'      => (string) ( $row['run_id'] ?? '' ),
+			'node_id'     => (string) ( $row['node_id'] ?? '' ),
+			'block_id'    => (string) ( $row['block_id'] ?? '' ),
+			'step'        => (int) ( $row['step'] ?? 0 ),
+			'status'      => $status,
+			'input_json'  => (string) ( $row['input_json'] ?? '' ),
+			'output_json' => (string) ( $row['output_json'] ?? '' ),
+			'error'       => (string) ( $row['error'] ?? '' ),
+			'started_at'  => (string) ( $row['started_at'] ?? '' ),
+			'ended_at'    => (string) ( $row['ended_at'] ?? '' ),
+			'legacy_schema' => 'bizcity_automation_logs',
+		);
+		$event = $status === self::STATUS_RUNNING ? 'automation_log_running' : 'automation_log_update';
+		return (bool) BizCity_JSONL_File_Logger::write_contract(
+			'core.automation.workflow_trace',
+			$level,
+			$event,
+			(string) ( $row['block_id'] ?? $event ),
+			$ctx
+		);
 	}
 
 	/**

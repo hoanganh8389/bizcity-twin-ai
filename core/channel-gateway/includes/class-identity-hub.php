@@ -226,6 +226,92 @@ class BizCity_Identity_Hub {
 	}
 
 	/**
+	 * Merge one active identity into another canonical identity.
+	 *
+	 * Bindings and the merge pointer are changed atomically on the current
+	 * tenant shard. Downstream rollups consume the committed event and rebuild;
+	 * this owner never rewrites memory, CRM or KG payloads.
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function merge( string $source_uuid, string $target_uuid, string $reason = '' ) {
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB5 — atomically merge two tenant-scoped identities and emit one post-commit rebuild event.
+		global $wpdb;
+		$blog_id = (int) get_current_blog_id();
+		$source_uuid = strtolower( trim( $source_uuid ) );
+		$target_uuid = strtolower( trim( $target_uuid ) );
+		$reason = sanitize_key( (string) $reason );
+		if ( ! function_exists( 'current_user_can' ) || ! current_user_can( 'manage_options' ) ) {
+			return new WP_Error( 'identity_merge_forbidden', 'Bạn không có quyền gộp định danh.' );
+		}
+		if ( $blog_id <= 0 || ! self::is_uuid( $source_uuid ) || ! self::is_uuid( $target_uuid ) || $source_uuid === $target_uuid ) {
+			return new WP_Error( 'identity_merge_invalid', 'Định danh gộp không hợp lệ.' );
+		}
+		if ( ! self::table_exists( self::table_contacts() ) || ! self::table_exists( self::table_bindings() ) ) {
+			return new WP_Error( 'identity_merge_schema_unavailable', 'Bảng định danh chưa sẵn sàng.' );
+		}
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return new WP_Error( 'identity_merge_transaction_failed', 'Không mở được giao dịch gộp định danh.' );
+		}
+		$contacts = $wpdb->get_results( $wpdb->prepare( 'SELECT id, identity_uuid, primary_wp_user_id, status, merged_into_uuid FROM ' . self::table_contacts() . ' WHERE blog_id=%d AND identity_uuid IN (%s, %s) LIMIT 2 FOR UPDATE', $blog_id, $source_uuid, $target_uuid ), ARRAY_A );
+		$by_uuid = array();
+		foreach ( (array) $contacts as $contact ) {
+			if ( is_array( $contact ) ) {
+				$by_uuid[ strtolower( (string) ( $contact['identity_uuid'] ?? '' ) ) ] = $contact;
+			}
+		}
+		$source = isset( $by_uuid[ $source_uuid ] ) ? $by_uuid[ $source_uuid ] : array();
+		$target = isset( $by_uuid[ $target_uuid ] ) ? $by_uuid[ $target_uuid ] : array();
+		if ( empty( $source ) || empty( $target ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			return new WP_Error( 'identity_merge_not_found', 'Không tìm thấy đủ hai định danh trong tenant hiện tại.' );
+		}
+		if ( (string) ( $source['status'] ?? '' ) !== self::STATUS_ACTIVE || (string) ( $target['status'] ?? '' ) !== self::STATUS_ACTIVE || (string) ( $source['merged_into_uuid'] ?? '' ) !== '' || (string) ( $target['merged_into_uuid'] ?? '' ) !== '' ) {
+			$wpdb->query( 'ROLLBACK' );
+			return new WP_Error( 'identity_merge_not_active', 'Chỉ được gộp định danh đang hoạt động.' );
+		}
+		$source_user_id = (int) ( $source['primary_wp_user_id'] ?? 0 );
+		$target_user_id = (int) ( $target['primary_wp_user_id'] ?? 0 );
+		if ( $source_user_id > 0 && $target_user_id > 0 && $source_user_id !== $target_user_id ) {
+			$wpdb->query( 'ROLLBACK' );
+			return new WP_Error( 'identity_merge_user_conflict', 'Hai định danh đang thuộc hai tài khoản khác nhau.' );
+		}
+		$duplicate_binding = $wpdb->get_var( $wpdb->prepare( 'SELECT s.id FROM ' . self::table_bindings() . ' s INNER JOIN ' . self::table_bindings() . ' t ON t.blog_id=s.blog_id AND t.platform=s.platform AND t.account_id=s.account_id AND t.external_ref=s.external_ref WHERE s.blog_id=%d AND s.identity_uuid=%s AND t.identity_uuid=%s LIMIT 1 FOR UPDATE', $blog_id, $source_uuid, $target_uuid ) );
+		if ( $duplicate_binding ) {
+			$wpdb->query( 'ROLLBACK' );
+			return new WP_Error( 'identity_merge_binding_conflict', 'Hai định danh có liên kết kênh trùng nhau.' );
+		}
+		try {
+			$binding_update = $wpdb->query( $wpdb->prepare( 'UPDATE ' . self::table_bindings() . ' SET identity_uuid=%s, last_seen_at=%s WHERE blog_id=%d AND identity_uuid=%s', $target_uuid, current_time( 'mysql', true ), $blog_id, $source_uuid ) );
+			if ( false === $binding_update ) {
+				throw new RuntimeException( 'identity_merge_binding_update_failed' );
+			}
+			$target_update = array( 'updated_at' => current_time( 'mysql', true ) );
+			$target_formats = array( '%s' );
+			if ( $target_user_id <= 0 && $source_user_id > 0 ) {
+				$target_update['primary_wp_user_id'] = $source_user_id;
+				$target_formats[] = '%d';
+			}
+			if ( false === $wpdb->update( self::table_contacts(), $target_update, array( 'blog_id' => $blog_id, 'identity_uuid' => $target_uuid ), $target_formats, array( '%d', '%s' ) ) ) {
+				throw new RuntimeException( 'identity_merge_target_update_failed' );
+			}
+			if ( false === $wpdb->update( self::table_contacts(), array( 'status' => self::STATUS_MERGED, 'merged_into_uuid' => $target_uuid, 'updated_at' => current_time( 'mysql', true ) ), array( 'blog_id' => $blog_id, 'identity_uuid' => $source_uuid, 'status' => self::STATUS_ACTIVE ), array( '%s', '%s', '%s' ), array( '%d', '%s', '%s' ) ) ) {
+				throw new RuntimeException( 'identity_merge_source_update_failed' );
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				throw new RuntimeException( 'identity_merge_commit_failed' );
+			}
+		} catch ( Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' );
+			return new WP_Error( 'identity_merge_failed', 'Không hoàn tất được giao dịch gộp định danh.', array( 'reason' => sanitize_key( $error->getMessage() ) ) );
+		}
+		unset( self::$uuid_cache[ $blog_id . ':' . $source_uuid ], self::$uuid_cache[ $blog_id . ':' . $target_uuid ] );
+		$event_uuid = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : hash( 'sha256', $source_uuid . '|' . $target_uuid . '|' . microtime( true ) );
+		do_action( 'bizcity_identity_merged', $source_uuid, $target_uuid, array( 'event_uuid' => $event_uuid, 'blog_id' => $blog_id, 'binding_count' => max( 0, (int) $binding_update ), 'reason' => $reason ) );
+		return array( 'ok' => true, 'merged' => true, 'source_uuid' => $source_uuid, 'target_uuid' => $target_uuid, 'event_uuid' => $event_uuid, 'binding_count' => max( 0, (int) $binding_update ) );
+	}
+
+	/**
 	 * Resolve an identity from runtime options without creating a new identity.
 	 */
 	public static function resolve_from_opts( array $opts, int $blog_id = 0 ): ?array {

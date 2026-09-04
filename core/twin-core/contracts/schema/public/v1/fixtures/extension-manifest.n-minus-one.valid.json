@@ -1,0 +1,31 @@
+{
+  "contract": "extension-manifest",
+  "version": "1.0.0",
+  "extension_id": "vendor.n-minus-one",
+  "extension_version": "1.4.0",
+  "requires_framework": ">=1.2 <2.0",
+  "capabilities": [
+    "channel.inbound",
+    "action.notify"
+  ],
+  "channels": [
+    {
+      "slug": "n_minus_one_channel",
+      "platform": "N_MINUS_ONE",
+      "zone": "admin",
+      "identity_policy": "workspace_account_user",
+      "account_scope": "multiple",
+      "crm_policy": "disabled",
+      "brain_policy": "user_bound",
+      "context_policy": "conversation_summary",
+      "surface_policy": ["admin"]
+    }
+  ],
+  "diagnostics": {
+    "probe_owner": "vendor.n_minus_one.contract",
+    "requires": ["disk", "loader", "runtime"]
+  },
+  "x_optional_extension_metadata": {
+    "owner_label": "sample"
+  }
+}

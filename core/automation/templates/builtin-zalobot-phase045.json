@@ -1,0 +1,200 @@
+[
+  {
+    "template_uuid": "7c8d0a6f-2e51-4f3d-9b70-1c4f5e8a2d11",
+    "template_version": "1.0.0",
+    "visibility": "global",
+    "slug": "tpl_zalobot_login_required_v1",
+    "name": "[global] Zalo Bot · Yêu cầu liên kết tài khoản",
+    "description": "Nhánh an toàn cho người gửi Zalo Bot chưa liên kết: hướng dẫn liên kết mà không gửi private login URL vào group.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "ShieldCheck",
+    "tags": "zalo-bot,identity,login-required,group-safe",
+    "plan": "free",
+    "trigger_config": {
+      "filter": "__identity_link_required__",
+      "identity_link_required": true,
+      "selector_mode": "global",
+      "visibility": "global",
+      "chat_kind": "any",
+      "owner_required": false,
+      "is_fallback": false,
+      "priority": 100
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_zalobot_login_required_v1",
+        "template_uuid": "7c8d0a6f-2e51-4f3d-9b70-1c4f5e8a2d11",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "trigger",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot · chưa liên kết",
+            "filter": "__identity_link_required__",
+            "identity_link_required": true,
+            "chat_kind": "any"
+          }
+        },
+        {
+          "id": "guard",
+          "type": "action",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "action.ensure_linked_user",
+            "label": "Kiểm tra liên kết tài khoản"
+          }
+        },
+        {
+          "id": "branch",
+          "type": "condition",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "logic.condition",
+            "label": "Đã liên kết?",
+            "expression": "guard.linked == 1"
+          }
+        },
+        {
+          "id": "issue_link",
+          "type": "action",
+          "position": { "x": 960, "y": 220 },
+          "data": {
+            "blockId": "action.issue_login_link",
+            "label": "Liên kết tài khoản an toàn"
+          }
+        },
+        {
+          "id": "linked_noop",
+          "type": "action",
+          "position": { "x": 960, "y": 0 },
+          "data": {
+            "blockId": "action.log",
+            "label": "Bỏ qua nhánh yêu cầu liên kết",
+            "message": "linked sender bypassed login-required branch"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_trigger_guard", "source": "trigger", "target": "guard" },
+        { "id": "e_guard_branch", "source": "guard", "target": "branch" },
+        { "id": "e_branch_false", "source": "branch", "target": "issue_link", "sourceHandle": "false" },
+        { "id": "e_branch_true", "source": "branch", "target": "linked_noop", "sourceHandle": "true" }
+      ]
+    }
+  },
+  {
+    "template_uuid": "2e6f8c11-7a43-4d90-b5ce-93f1a2b7c804",
+    "template_version": "1.0.0",
+    "visibility": "global",
+    "slug": "tpl_zalobot_group_deep_research_v1",
+    "name": "[global] Zalo Bot · Nghiên cứu sâu trong nhóm",
+    "description": "Mention Bot BizCity trong group để nghiên cứu sâu bằng TwinBrain AskBrain parity, nguồn có trích dẫn và trả lời về đúng group.",
+    "category": "ai",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "SearchCheck",
+    "tags": "zalo-bot,group,deep-research,askbrain,citation,customer-default",
+    "plan": "free",
+    "trigger_config": {
+      "filter": "@deep",
+      "keywords": ["@deep", "tra cứu", "nghiên cứu sâu", "/deep"],
+      "selector_mode": "global",
+      "visibility": "global",
+      "chat_kind": "group",
+      "require_mention": true,
+      "owner_required": true,
+      "is_fallback": false,
+      "priority": 40
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_zalobot_group_deep_research_v1",
+        "template_uuid": "2e6f8c11-7a43-4d90-b5ce-93f1a2b7c804",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "trigger",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot group · @deep",
+            "filter": "@deep",
+            "keywords": ["@deep", "tra cứu", "nghiên cứu sâu", "/deep"],
+            "chat_kind": "group",
+            "require_mention": true,
+            "owner_required": true
+          }
+        },
+        {
+          "id": "guard",
+          "type": "action",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "action.ensure_linked_user",
+            "label": "Xác nhận chủ tài khoản"
+          }
+        },
+        {
+          "id": "branch",
+          "type": "condition",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "logic.condition",
+            "label": "Đã liên kết?",
+            "expression": "guard.linked == 1"
+          }
+        },
+        {
+          "id": "research",
+          "type": "action",
+          "position": { "x": 960, "y": 0 },
+          "data": {
+            "blockId": "action.twinbrain_deep_research",
+            "label": "TwinBrain AskBrain Deep Research",
+            "question": "{{trigger.message_text_clean}}",
+            "max_sources": 8
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": { "x": 1280, "y": 0 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Trả lời về đúng group",
+            "chat_id": "{{trigger.conversation_chat_id}}",
+            "text": "{{research.answer_md}}"
+          }
+        },
+        {
+          "id": "unlinked",
+          "type": "action",
+          "position": { "x": 960, "y": 220 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Hướng dẫn liên kết",
+            "chat_id": "{{trigger.conversation_chat_id}}",
+            "text": "{{guard.public_hint}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_trigger_guard", "source": "trigger", "target": "guard" },
+        { "id": "e_guard_branch", "source": "guard", "target": "branch" },
+        { "id": "e_branch_true", "source": "branch", "target": "research", "sourceHandle": "true" },
+        { "id": "e_research_reply", "source": "research", "target": "reply" },
+        { "id": "e_branch_false", "source": "branch", "target": "unlinked", "sourceHandle": "false" }
+      ]
+    }
+  }
+]

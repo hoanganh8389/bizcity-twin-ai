@@ -72,29 +72,6 @@ class BizCity_Facebook_Bot_Database {
 			KEY user_id (user_id)
 		) $charset_collate;";
 		
-		// Logs table - incoming messages
-		$table_logs = $wpdb->prefix . 'bizcity_facebook_bot_logs';
-		$sql_logs = "CREATE TABLE IF NOT EXISTS $table_logs (
-			id bigint(20) NOT NULL AUTO_INCREMENT,
-			bot_id bigint(20) NOT NULL,
-			event_name varchar(100) NOT NULL,
-			event_data longtext,
-			client_id varchar(100) DEFAULT '',
-			user_id varchar(100) DEFAULT '',
-			message_id varchar(100) DEFAULT '',
-			display_name varchar(255) DEFAULT '',
-			text text,
-			attachment_type varchar(50) DEFAULT '',
-			attachment_url text,
-			created_at datetime DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (id),
-			KEY bot_id (bot_id),
-			KEY event_name (event_name),
-			KEY client_id (client_id),
-			KEY user_id (user_id),
-			KEY created_at (created_at)
-		) $charset_collate;";
-		
 		// Inbox table for conversations
 		$table_inbox = $wpdb->prefix . 'bizcity_facebook_inbox';
 		$sql_inbox = "CREATE TABLE IF NOT EXISTS $table_inbox (
@@ -174,7 +151,6 @@ class BizCity_Facebook_Bot_Database {
 		}
 		
 		dbDelta( $sql_bots );
-		dbDelta( $sql_logs );
 		dbDelta( $sql_inbox );
 		dbDelta( $sql_customers );
 		dbDelta( $sql_comments );
@@ -403,37 +379,50 @@ class BizCity_Facebook_Bot_Database {
 	 * Insert log entry (alias for log_event)
 	 */
 	public function insert_log( $bot_id, $log_type, $log_data ) {
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_facebook_bot_logs';
-		
-		return $wpdb->insert( $table, array(
-			'bot_id'     => $bot_id,
-			'event_name' => $log_type,
-			'event_data' => is_string( $log_data ) ? $log_data : json_encode( $log_data ),
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — write legacy Facebook log owner path to canonical channel JSONL first.
+		$event_data = is_string( $log_data ) ? $log_data : wp_json_encode( $log_data );
+		$jsonl_ok   = $this->write_channel_log( array(
+			'bot_id'          => (int) $bot_id,
+			'event_name'      => (string) $log_type,
+			'event_data'      => $event_data,
+			'client_id'       => '',
+			'user_id'         => '',
+			'message_id'      => '',
+			'display_name'    => '',
+			'text'            => '',
+			'attachment_type' => '',
+			'attachment_url'  => '',
 		) );
+		if ( $jsonl_ok ) {
+			return 1;
+		}
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — JSONL failure is fail-closed; the retired SQL projection is never written.
+		return 0;
 	}
 	
 	/**
 	 * Log event
 	 */
 	public function log_event( $bot_id, $event_name, $event_data, $client_id = '', $message_id = '', $display_name = '', $text = '', $attachment_type = '', $attachment_url = '' ) {
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_facebook_bot_logs';
-		
-		$client_id_str = (string) $client_id;
-		
-		return $wpdb->insert( $table, array(
-			'bot_id'          => $bot_id,
-			'event_name'      => $event_name,
-			'event_data'      => is_array( $event_data ) ? json_encode( $event_data ) : $event_data,
-			'client_id'       => $client_id_str,
-			'user_id'         => $client_id_str,
-			'message_id'      => $message_id,
-			'display_name'    => $display_name,
-			'text'            => $text,
-			'attachment_type' => $attachment_type,
-			'attachment_url'  => $attachment_url,
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — use canonical channel JSONL contract before legacy SQL fallback.
+		$event_data_json = is_array( $event_data ) ? wp_json_encode( $event_data ) : (string) $event_data;
+		$jsonl_ok = $this->write_channel_log( array(
+			'bot_id'          => (int) $bot_id,
+			'event_name'      => (string) $event_name,
+			'event_data'      => $event_data_json,
+			'client_id'       => (string) $client_id,
+			'user_id'         => (string) $client_id,
+			'message_id'      => (string) $message_id,
+			'display_name'    => (string) $display_name,
+			'text'            => (string) $text,
+			'attachment_type' => (string) $attachment_type,
+			'attachment_url'  => (string) $attachment_url,
 		) );
+		if ( $jsonl_ok ) {
+			return 1;
+		}
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — JSONL failure is fail-closed; the retired SQL projection is never written.
+		return 0;
 	}
 	
 	/**
@@ -442,9 +431,6 @@ class BizCity_Facebook_Bot_Database {
 	 * @param int $limit Optional limit when first param is bot_id
 	 */
 	public function get_logs( $args = array(), $limit = 50 ) {
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_facebook_bot_logs';
-		
 		// Support simple call: get_logs( $bot_id, $limit )
 		if ( is_numeric( $args ) ) {
 			$args = array(
@@ -462,44 +448,156 @@ class BizCity_Facebook_Bot_Database {
 		);
 		
 		$args = wp_parse_args( $args, $defaults );
-		
-		$where = array( '1=1' );
-		if ( $args['bot_id'] > 0 ) {
-			$where[] = $wpdb->prepare( 'bot_id = %d', $args['bot_id'] );
+
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — read canonical channel JSONL history first for admin/history parity.
+		$jsonl_rows = $this->read_channel_logs( $args );
+		if ( is_array( $jsonl_rows ) ) {
+			return $jsonl_rows;
 		}
-		if ( ! empty( $args['event_name'] ) ) {
-			$where[] = $wpdb->prepare( 'event_name = %s', $args['event_name'] );
-		}
-		if ( ! empty( $args['client_id'] ) ) {
-			$where[] = $wpdb->prepare( 'client_id = %s', $args['client_id'] );
-		}
-		
-		$where_sql = implode( ' AND ', $where );
-		$limit_sql = $wpdb->prepare( 'LIMIT %d OFFSET %d', $args['limit'], $args['offset'] );
-		
-		return $wpdb->get_results( "SELECT * FROM $table WHERE $where_sql ORDER BY created_at DESC $limit_sql" );
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — logger unavailable means stable empty history, never SQL fallback.
+		return array();
 	}
 	
 	/**
 	 * Get unique user IDs (clients who messaged)
 	 */
 	public function get_user_ids( $bot_id = 0 ) {
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_facebook_bot_logs';
-		
-		$where = "client_id != '' AND client_id IS NOT NULL";
-		if ( $bot_id > 0 ) {
-			$where .= $wpdb->prepare( ' AND bot_id = %d', $bot_id );
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — aggregate user list from canonical channel JSONL when available.
+		$jsonl_rows = $this->get_logs( array( 'bot_id' => (int) $bot_id, 'limit' => 2000 ) );
+		if ( is_array( $jsonl_rows ) && ! empty( $jsonl_rows ) ) {
+			$agg = array();
+			foreach ( $jsonl_rows as $row ) {
+				$client_id = isset( $row->client_id ) ? (string) $row->client_id : '';
+				if ( $client_id === '' ) {
+					$client_id = isset( $row->user_id ) ? (string) $row->user_id : '';
+				}
+				if ( $client_id === '' ) {
+					continue;
+				}
+				$created_at = isset( $row->created_at ) ? (string) $row->created_at : '';
+				if ( ! isset( $agg[ $client_id ] ) || strcmp( $created_at, (string) $agg[ $client_id ]['last_seen'] ) > 0 ) {
+					$agg[ $client_id ] = array(
+						'user_id'      => $client_id,
+						'last_seen'    => $created_at,
+						'display_name' => isset( $row->display_name ) ? (string) $row->display_name : '',
+					);
+				}
+			}
+			if ( ! empty( $agg ) ) {
+				usort( $agg, static function ( $left, $right ) {
+					return strcmp( (string) $right['last_seen'], (string) $left['last_seen'] );
+				} );
+				$agg = array_slice( $agg, 0, 50 );
+				return array_map( static function ( $item ) {
+					return (object) $item;
+				}, $agg );
+			}
 		}
-		
-		return $wpdb->get_results( 
-			"SELECT DISTINCT client_id as user_id, MAX(created_at) as last_seen, MAX(display_name) as display_name
-			 FROM $table 
-			 WHERE $where 
-			 GROUP BY client_id 
-			 ORDER BY last_seen DESC 
-			 LIMIT 50"
+		// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — do not reconstruct user lists from retired SQL.
+		return array();
+	}
+
+	private function write_channel_log( array $payload ) {
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) || ! method_exists( 'BizCity_Channel_File_Logger', 'write' ) ) {
+			return false;
+		}
+		$event_name = sanitize_text_field( (string) ( $payload['event_name'] ?? '' ) );
+		if ( $event_name === '' ) {
+			$event_name = 'facebook_bot_event';
+		}
+		$event_data = json_decode( (string) ( $payload['event_data'] ?? '' ), true );
+		$page_id = is_array( $event_data ) ? (string) ( $event_data['page_id'] ?? $event_data['page']['id'] ?? '' ) : '';
+		$ctx = array(
+			'bot_id'          => (int) ( $payload['bot_id'] ?? 0 ),
+			'account_id'      => $page_id !== '' ? $page_id : 'facebook_bot_' . (int) ( $payload['bot_id'] ?? 0 ),
+			'event_name'      => $event_name,
+			'event_data'      => (string) ( $payload['event_data'] ?? '' ),
+			'client_id'       => (string) ( $payload['client_id'] ?? '' ),
+			'user_id'         => (string) ( $payload['user_id'] ?? '' ),
+			'message_id'      => (string) ( $payload['message_id'] ?? '' ),
+			'display_name'    => (string) ( $payload['display_name'] ?? '' ),
+			'text'            => (string) ( $payload['text'] ?? '' ),
+			'attachment_type' => (string) ( $payload['attachment_type'] ?? '' ),
+			'attachment_url'  => (string) ( $payload['attachment_url'] ?? '' ),
+			'legacy_schema'   => 'bizcity_facebook_bot_logs',
 		);
+		return (bool) BizCity_Channel_File_Logger::write(
+			BizCity_Channel_File_Logger::CH_FACEBOOK,
+			BizCity_Channel_File_Logger::LEVEL_INFO,
+			$event_name,
+			'facebook_bot_event',
+			$ctx
+		);
+	}
+
+	private function read_channel_logs( array $args ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+			return null;
+		}
+		$limit  = max( 1, min( 500, (int) ( $args['limit'] ?? 50 ) ) );
+		$offset = max( 0, (int) ( $args['offset'] ?? 0 ) );
+		$scan   = min( 5000, $limit + $offset + 300 );
+		$bot_id = (int) ( $args['bot_id'] ?? 0 );
+		$event_name = (string) ( $args['event_name'] ?? '' );
+		$client_id  = (string) ( $args['client_id'] ?? '' );
+
+		$rows = BizCity_JSONL_File_Logger::query_contract( 'core.channel_gateway.facebook', array(
+			'days'  => 45,
+			'limit' => $scan,
+			'filter' => static function ( $row ) use ( $bot_id, $event_name, $client_id ) {
+				$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				if ( $bot_id > 0 && (int) ( $ctx['bot_id'] ?? 0 ) !== $bot_id ) {
+					return false;
+				}
+				if ( $event_name !== '' && (string) ( $row['event'] ?? '' ) !== $event_name ) {
+					return false;
+				}
+				if ( $client_id !== '' ) {
+					$row_client = (string) ( $ctx['client_id'] ?? $ctx['user_id'] ?? '' );
+					if ( $row_client !== $client_id ) {
+						return false;
+					}
+				}
+				return true;
+			},
+		) );
+		if ( ! is_array( $rows ) ) {
+			return array();
+		}
+		$rows = array_slice( $rows, $offset, $limit );
+		$out  = array();
+		foreach ( $rows as $row ) {
+			$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+			$event_uuid = (string) ( $row['event_uuid'] ?? $ctx['event_uuid'] ?? '' );
+			$ts = (string) ( $row['ts'] ?? '' );
+			$created_at = str_replace( 'T', ' ', substr( $ts, 0, 19 ) );
+			$id = (int) ( $ctx['legacy_log_id'] ?? 0 );
+			if ( $id <= 0 ) {
+				$id = abs( (int) crc32( 'fb|' . $event_uuid . '|' . $ts ) );
+				if ( $id <= 0 ) {
+					$id = 1;
+				}
+			}
+			$event_data = (string) ( $ctx['event_data'] ?? '' );
+			if ( $event_data === '' ) {
+				$event_data = (string) ( $row['msg'] ?? '' );
+			}
+			$out[] = (object) array(
+				'id'              => $id,
+				'bot_id'          => (int) ( $ctx['bot_id'] ?? 0 ),
+				'event_name'      => (string) ( $row['event'] ?? '' ),
+				'event_data'      => $event_data,
+				'client_id'       => (string) ( $ctx['client_id'] ?? '' ),
+				'user_id'         => (string) ( $ctx['user_id'] ?? ( $ctx['client_id'] ?? '' ) ),
+				'message_id'      => (string) ( $ctx['message_id'] ?? '' ),
+				'display_name'    => (string) ( $ctx['display_name'] ?? '' ),
+				'text'            => (string) ( $ctx['text'] ?? '' ),
+				'attachment_type' => (string) ( $ctx['attachment_type'] ?? '' ),
+				'attachment_url'  => (string) ( $ctx['attachment_url'] ?? '' ),
+				'created_at'      => $created_at,
+			);
+		}
+		return $out;
 	}
 	
 	/**

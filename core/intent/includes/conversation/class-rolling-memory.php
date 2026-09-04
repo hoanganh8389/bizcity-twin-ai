@@ -46,6 +46,9 @@ class BizCity_Rolling_Memory {
     const SCORE_MIN = 0;
     const SCORE_MAX = 100;
 
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — canonical encrypted business-record contract for rolling memory.
+    const BUSINESS_CONTRACT_ID = 'core.intent.rolling_memory';
+
     public static function instance() {
         if ( is_null( self::$instance ) ) {
             self::$instance = new self();
@@ -85,6 +88,16 @@ class BizCity_Rolling_Memory {
         static $checked = [];
         if ( isset( $checked[ $cache_key ] ) ) return;
         $checked[ $cache_key ] = true;
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — retired rolling SQL is never installed or migrated by fallback loaders.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::install_blocked( $wpdb->prefix . 'bizcity_memory_rolling' ) ) {
+			return;
+		}
+
+        // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — once the business contract is loaded, do not recreate or migrate the quarantined SQL table.
+        if ( class_exists( 'BizCity_File_Contract_Registry' )
+            && BizCity_File_Contract_Registry::has( self::BUSINESS_CONTRACT_ID ) ) {
+            return;
+        }
 
         $table = $wpdb->prefix . 'bizcity_memory_rolling';
 
@@ -125,7 +138,8 @@ class BizCity_Rolling_Memory {
         $lock_name = 'bizcity_memory_migrate_' . md5( $table );
         $got_lock  = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $lock_name ) );
         if ( 1 !== $got_lock ) {
-            BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'rolling-memory', 'warn', 'migration_lock_busy', 'Rolling memory migration lock was busy.', array( 'table' => $table ) );
+            // [2026-08-27 Johnny Chu] R-LOG-HYBRID — rolling memory migration evidence uses its registered contract.
+            BizCity_JSONL_File_Logger::write_contract( 'core.intent.rolling_memory_trace', 'warn', 'migration_lock_busy', 'Rolling memory migration lock was busy.', array( 'table' => $table ) );
             return;
         }
 
@@ -216,7 +230,7 @@ class BizCity_Rolling_Memory {
             if ( $legacy_index_exists ) {
                 $dropped = $wpdb->query( "ALTER TABLE {$table} DROP INDEX uniq_conversation" );
                 if ( false === $dropped ) {
-                    BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'rolling-memory', 'error', 'legacy_index_drop_failed', 'Rolling memory legacy index could not be removed.', array( 'table' => $table, 'index' => 'uniq_conversation' ) );
+                    BizCity_JSONL_File_Logger::write_contract( 'core.intent.rolling_memory_trace', 'error', 'legacy_index_drop_failed', 'Rolling memory legacy index could not be removed.', array( 'table' => $table, 'index' => 'uniq_conversation' ) );
                 }
             }
 
@@ -233,7 +247,7 @@ class BizCity_Rolling_Memory {
                     'last_log'     => time(),
                 ] );
                 delete_transient( $backoff_key );
-                BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'rolling-memory', 'info', 'migration_ok', 'Rolling memory table migration completed.', array( 'table' => $table, 'version' => self::DB_VERSION ) );
+                BizCity_JSONL_File_Logger::write_contract( 'core.intent.rolling_memory_trace', 'info', 'migration_ok', 'Rolling memory table migration completed.', array( 'table' => $table, 'version' => self::DB_VERSION ) );
             } else {
                 // [2026-07-29 Johnny Chu] R-CH-IDMEM — remember the failed ALTER for one hour;
                 // only emit the same failure again after one day or when its reason changes.
@@ -257,7 +271,7 @@ class BizCity_Rolling_Memory {
                 // [2026-07-28 Johnny Chu] HOTFIX P1 — retain the routed DB failure reason so a
                 // silent dbDelta/no-op can be distinguished from read-only or missing privileges.
                 if ( $should_log ) {
-                    BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'rolling-memory', 'error', 'migration_incomplete', 'Rolling memory identity schema is still missing; migration is backing off.', array( 'table' => $table, 'retry_seconds' => self::MIGRATION_RETRY_SECONDS, 'db_error_present' => $db_error !== '', 'error_hash' => $error_hash, 'route_check_required' => true ) );
+                    BizCity_JSONL_File_Logger::write_contract( 'core.intent.rolling_memory_trace', 'error', 'migration_incomplete', 'Rolling memory identity schema is still missing; migration is backing off.', array( 'table' => $table, 'retry_seconds' => self::MIGRATION_RETRY_SECONDS, 'db_error_present' => $db_error !== '', 'error_hash' => $error_hash, 'route_check_required' => true ) );
                 }
             }
         } finally {
@@ -355,29 +369,47 @@ class BizCity_Rolling_Memory {
         // Skip passthrough-only (knowledge/emotion modes with no intent conv)
         if ( $action === 'passthrough' && empty( $goal ) ) return;
 
-        global $wpdb;
-        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-SCHEMA-GUARD — do not issue tenant writes while the routed rolling table is missing identity columns.
-        if ( ! self::has_required_columns( $this->table ) ) return;
-
-        // Get or create rolling memory row
+        // Get or create rolling memory row.
         $row = $this->get_by_conversation( $conv_id, $identity_uuid );
 
         if ( ! $row ) {
-            // Create new rolling memory entry
-            $wpdb->insert( $this->table, [
-                'blog_id'         => (int) $scope['blog_id'],
-                'user_id'         => $user_id,
-                'identity_uuid'   => $identity_uuid,
-                'session_id'      => $session_id,
-                'conversation_id' => $conv_id,
-                'goal'            => $goal,
-                'goal_label'      => $goal_label,
-                'window_summary'  => '',
-                'total_turns'     => 1,
-                'status'          => 'active',
-                'created_at'      => current_time( 'mysql' ),
-                'updated_at'      => current_time( 'mysql' ),
-            ] );
+            $created = $this->write_filestore_row( array(
+                'blog_id'                => (int) $scope['blog_id'],
+                'user_id'                => $user_id,
+                'identity_uuid'          => $identity_uuid,
+                'session_id'             => $session_id,
+                'conversation_id'        => $conv_id,
+                'goal'                   => $goal,
+                'goal_label'             => $goal_label,
+                'window_summary'         => '',
+                'window_turn_count'      => 0,
+                'user_goal_score'        => 0,
+                'bot_satisfaction_score' => 0,
+                'status'                 => 'active',
+                'completion_summary'     => '',
+                'summary_token_count'    => 0,
+                'total_turns'            => 1,
+            ) );
+            if ( ! $created ) {
+				// [2026-09-01 Johnny Chu] PHASE-CB4.4 — do not create a rolling-memory SQL payload when Context Bank filestore admission fails.
+				return;
+            }
+            // [2026-09-01 Johnny Chu] PHASE-CB4.5 — admit a newly created rolling pointer before the first post-create read.
+            do_action( 'bizcity_memory_mirror_write', 'rolling', array(
+                'blog_id' => (int) $scope['blog_id'],
+                'user_id' => $user_id,
+                'identity_uuid' => $identity_uuid,
+                'session_id' => $session_id,
+                'conversation_id' => (string) $conv_id,
+                'goal' => (string) $goal,
+                'goal_label' => (string) $goal_label,
+                'window_summary' => '',
+                'window_turn_count' => 0,
+                'user_goal_score' => 0,
+                'bot_satisfaction_score' => 0,
+                'status' => 'active',
+                'filestore_receipt' => $created,
+            ), 'insert' );
             $row = $this->get_by_conversation( $conv_id, $identity_uuid );
         }
 
@@ -401,11 +433,34 @@ class BizCity_Rolling_Memory {
             if ( $mapped_status === 'expired' ) $mapped_status = 'cancelled';
             $updates['status'] = $mapped_status;
 
-            // Generate completion summary asynchronously
-            $this->generate_completion_summary( $row, $result, $params );
+            // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — fold completion summary into the canonical file record first.
+            $completion_summary = $this->build_completion_summary( $row, $result );
+            if ( $completion_summary !== '' ) {
+                $updates['completion_summary'] = $completion_summary;
+                if ( $mapped_status === 'completed' ) {
+                    $updates['user_goal_score'] = 100;
+                }
+            }
         }
 
-        $wpdb->update( $this->table, $updates, [ 'id' => $row->id ] );
+        $latest_data = array_merge( (array) $row, $updates, array(
+            'blog_id'         => (int) $scope['blog_id'],
+            'user_id'         => $user_id,
+            'identity_uuid'   => $identity_uuid,
+            'session_id'      => $session_id,
+            'conversation_id' => $conv_id,
+        ) );
+
+        $saved = $this->write_filestore_row( $latest_data );
+		if ( ! is_array( $saved ) ) {
+			// [2026-09-01 Johnny Chu] PHASE-CB4.4 — fail closed instead of updating the legacy rolling-memory SQL projection.
+			return;
+        }
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — admit the rolling receipt before any post-write reader lookup can request the new pointer.
+        do_action( 'bizcity_memory_mirror_write', 'rolling', array_merge( $latest_data, array(
+            'blog_id' => get_current_blog_id(),
+            'filestore_receipt' => $saved,
+        ) ), 'update' );
 
         // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
         // Refetch latest row data so the mirror reflects post-update state.
@@ -424,6 +479,7 @@ class BizCity_Rolling_Memory {
                 'user_goal_score'        => (int) $latest->user_goal_score,
                 'bot_satisfaction_score' => (int) $latest->bot_satisfaction_score,
                 'status'                 => (string) $latest->status,
+				'filestore_receipt'        => $saved,
             ], 'update' );
         }
     }
@@ -528,22 +584,39 @@ PROMPT;
         $json = $this->extract_json( $llm_result['message'] );
         if ( ! $json ) return;
 
-        global $wpdb;
-        $wpdb->update( $this->table, [
-            'window_summary'       => sanitize_text_field( $json['window_summary'] ?? '' ),
-            'user_goal_score'      => $this->clamp_score( $json['user_goal_score'] ?? 0 ),
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — rolling score updates persist only in the encrypted business-record store.
+        $payload = array_merge( (array) $row, array(
+            'window_summary'        => sanitize_text_field( $json['window_summary'] ?? '' ),
+            'user_goal_score'       => $this->clamp_score( $json['user_goal_score'] ?? 0 ),
             'bot_satisfaction_score'=> $this->clamp_score( $json['bot_satisfaction_score'] ?? 50 ),
-            'window_turn_count'    => count( $recent ),
-            'summary_token_count'  => $this->estimate_tokens( $json['window_summary'] ?? '' ),
-            'updated_at'           => current_time( 'mysql' ),
-        ], [ 'id' => $row->id ] );
+            'window_turn_count'     => count( $recent ),
+            'summary_token_count'   => $this->estimate_tokens( $json['window_summary'] ?? '' ),
+            'updated_at'            => current_time( 'mysql' ),
+        ) );
+		$this->write_filestore_row( $payload );
     }
 
     /**
      * Generate a completion summary when conversation ends.
      */
     private function generate_completion_summary( $row, $result, $params ) {
-        if ( ! function_exists( 'bizcity_openrouter_chat' ) ) return;
+        $summary = $this->build_completion_summary( $row, $result );
+        if ( $summary === '' ) {
+            return '';
+        }
+        $status = $result['status'] ?? 'COMPLETED';
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — completion summaries are folded by the canonical filestore owner.
+        $this->write_filestore_row( array_merge( (array) $row, array(
+            'completion_summary' => $summary,
+            'user_goal_score'    => ( $status === 'COMPLETED' ) ? 100 : intval( $row->user_goal_score ),
+            'updated_at'         => current_time( 'mysql' ),
+        ) ) );
+        return $summary;
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — build completion summary once so file-first and SQL fallback share the same business text.
+    private function build_completion_summary( $row, $result ) {
+        if ( ! function_exists( 'bizcity_openrouter_chat' ) ) return '';
 
         $goal_text = $row->goal_label ?: $row->goal;
         $status    = $result['status'] ?? 'COMPLETED';
@@ -582,13 +655,9 @@ PROMPT;
         );
 
         if ( ! empty( $llm_result['success'] ) && ! empty( $llm_result['message'] ) ) {
-            global $wpdb;
-            $wpdb->update( $this->table, [
-                'completion_summary' => sanitize_textarea_field( $llm_result['message'] ),
-                'user_goal_score'    => ( $status === 'COMPLETED' ) ? 100 : intval( $row->user_goal_score ),
-                'updated_at'         => current_time( 'mysql' ),
-            ], [ 'id' => $row->id ] );
+            return sanitize_textarea_field( $llm_result['message'] );
         }
+        return '';
     }
 
     /* ================================================================
@@ -602,28 +671,20 @@ PROMPT;
      * @return object|null
      */
     public function get_by_conversation( $conv_id, $identity_uuid = '' ) {
-        global $wpdb;
-
         // [2026-07-28 Johnny Chu] R-CH-IDMEM — a conversation id without its UUID is not a safe owner selector.
         if ( trim( (string) $identity_uuid ) === '' ) {
             return null;
         }
-        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-SCHEMA-GUARD — fail closed until tenant identity columns are physically present.
-        if ( ! self::has_required_columns( $this->table ) ) {
-            return null;
+
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — conversation lookup is filestore-only.
+        $records = $this->query_filestore_rows( array( 'identity_uuid' => (string) $identity_uuid ), array(
+            'conversation_id' => (string) $conv_id,
+        ), 1 );
+        if ( ! empty( $records ) ) {
+            return (object) $records[0];
         }
 
-        $where  = array( 'conversation_id = %s' );
-        $params = array( $conv_id );
-        if ( $identity_uuid !== '' ) {
-            $where[]  = 'blog_id = %d AND identity_uuid = %s';
-            $params[] = get_current_blog_id();
-            $params[] = $identity_uuid;
-        }
-        return $wpdb->get_row( $wpdb->prepare(
-            "SELECT * FROM {$this->table} WHERE " . implode( ' AND ', $where ) . " LIMIT 1",
-            $params
-        ) );
+        return null;
     }
 
     /**
@@ -634,34 +695,20 @@ PROMPT;
      * @return array
      */
     public function get_active_for_user( $user_id, $session_id = '', $identity_uuid = '' ) {
-        global $wpdb;
-        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-SCHEMA-GUARD — avoid Unknown column blog_id during shard repair.
-        if ( ! self::has_required_columns( $this->table ) ) {
-            return array();
-        }
         $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
             ? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'session_id' => $session_id, 'identity_uuid' => $identity_uuid ) )
             : array( 'user_id' => (int) $user_id, 'session_id' => (string) $session_id, 'identity_uuid' => (string) $identity_uuid );
-        $where  = array( 'blog_id = %d', "status = 'active'" );
-        $params = array( get_current_blog_id() );
-        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
-            if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) return array();
-        } else {
-            $where[] = 'identity_uuid = %s AND user_id = %d';
-            $params[] = '';
-            $params[] = (int) $scope['user_id'];
+
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — rolling context readers consume encrypted file records only.
+        $records = $this->query_filestore_rows( $scope, array(
+            'status'     => 'active',
+            'session_id' => (string) $session_id,
+        ), 5 );
+        if ( ! empty( $records ) ) {
+            return array_map( function ( $record ) { return (object) $record; }, $records );
         }
 
-        if ( $session_id ) {
-            $where[] = 'session_id = %s';
-            $params[] = $session_id;
-        }
-
-        return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$this->table} WHERE " . implode( ' AND ', $where ) . "
-             ORDER BY updated_at DESC LIMIT 5",
-            $params
-        ) );
+        return array();
     }
 
     /**
@@ -672,28 +719,20 @@ PROMPT;
      * @return array
      */
     public function get_recently_completed( $user_id, $minutes = 30, $identity_uuid = '' ) {
-        global $wpdb;
-        // [2026-08-13 Johnny Chu] HOTFIX-MEMORY-SCHEMA-GUARD — return an empty memory set while migration is incomplete.
-        if ( ! self::has_required_columns( $this->table ) ) {
-            return array();
-        }
         $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
             ? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'identity_uuid' => $identity_uuid ) )
             : array( 'user_id' => (int) $user_id, 'identity_uuid' => (string) $identity_uuid );
-        $where  = array( 'blog_id = %d', "status IN ('completed','cancelled')", 'updated_at >= DATE_SUB(NOW(), INTERVAL %d MINUTE)' );
-        $params = array( get_current_blog_id(), $minutes );
-        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
-            if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) return array();
-        } else {
-            $where[] = 'identity_uuid = %s AND user_id = %d';
-            $params[] = '';
-            $params[] = (int) $scope['user_id'];
+
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — recently completed goals read from business filestore only.
+        $records = $this->query_filestore_rows( $scope, array(
+            'status_in' => array( 'completed', 'cancelled' ),
+            'minutes'   => (int) $minutes,
+        ), 5 );
+        if ( ! empty( $records ) ) {
+            return array_map( function ( $record ) { return (object) $record; }, $records );
         }
-        return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$this->table} WHERE " . implode( ' AND ', $where ) . "
-             ORDER BY updated_at DESC LIMIT 5",
-            $params
-        ) );
+
+        return array();
     }
 
     /**
@@ -832,6 +871,153 @@ PROMPT;
      *  HELPERS
      * ================================================================ */
 
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — rolling memory can move to filestore-first only when the canonical contract and store are loaded.
+    private function is_filestore_available() {
+        return class_exists( 'BizCity_File_Contract_Registry' )
+            && class_exists( 'BizCity_Business_JSONL_File_Store' )
+            && BizCity_File_Contract_Registry::has( self::BUSINESS_CONTRACT_ID );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — derive a stable record identity from tenant + owner + conversation scope.
+    private function filestore_record_id( array $data ) {
+        $scope = (int) ( $data['blog_id'] ?? get_current_blog_id() ) . '|'
+            . (string) ( $data['identity_uuid'] ?? '' ) . '|'
+            . (int) ( $data['user_id'] ?? 0 ) . '|'
+            . (string) ( $data['conversation_id'] ?? '' );
+        $key = function_exists( 'wp_salt' ) ? wp_salt( 'auth' ) : '';
+        if ( class_exists( 'BizCity_Codec' ) && $key !== '' ) {
+            return 'rm_' . BizCity_Codec::hmac_sha256( $scope, $key, false );
+        }
+        return 'rm_' . hash( 'sha256', $scope );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — normalize folded file records so existing readers keep the same object shape.
+    private function normalize_filestore_row( array $record ) {
+        $defaults = array(
+            'id'                     => 0,
+            'legacy_id'              => 0,
+            'blog_id'                => get_current_blog_id(),
+            'user_id'                => 0,
+            'identity_uuid'          => '',
+            'session_id'             => '',
+            'conversation_id'        => '',
+            'goal'                   => '',
+            'goal_label'             => '',
+            'window_summary'         => '',
+            'window_turn_count'      => 0,
+            'user_goal_score'        => 0,
+            'bot_satisfaction_score' => 0,
+            'status'                 => 'active',
+            'completion_summary'     => '',
+            'summary_token_count'    => 0,
+            'total_turns'            => 0,
+            'created_at'             => '',
+            'updated_at'             => '',
+        );
+        $row = wp_parse_args( $record, $defaults );
+        $row['id']                     = (int) ( $row['legacy_id'] ?? $row['id'] ?? 0 );
+        $row['blog_id']                = (int) $row['blog_id'];
+        $row['user_id']                = (int) $row['user_id'];
+        $row['window_turn_count']      = (int) $row['window_turn_count'];
+        $row['user_goal_score']        = (int) $row['user_goal_score'];
+        $row['bot_satisfaction_score'] = (int) $row['bot_satisfaction_score'];
+        $row['summary_token_count']    = (int) $row['summary_token_count'];
+        $row['total_turns']            = (int) $row['total_turns'];
+        $row['status']                 = (string) $row['status'];
+        return $row;
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — write one folded rolling-memory state into the encrypted business filestore.
+    private function write_filestore_row( array $data ) {
+        if ( ! $this->is_filestore_available() ) {
+            return false;
+        }
+
+        $now = current_time( 'mysql' );
+        $normalized = $this->normalize_filestore_row( $data );
+        if ( $normalized['identity_uuid'] === '' || $normalized['conversation_id'] === '' ) {
+            return false;
+        }
+
+        $normalized['record_id'] = $this->filestore_record_id( $normalized );
+        $existing = BizCity_Business_JSONL_File_Store::find( self::BUSINESS_CONTRACT_ID, $normalized['record_id'], array(
+            'blog_id' => (int) $normalized['blog_id'],
+        ) );
+        if ( ! empty( $existing ) ) {
+            $normalized = array_merge( $existing, $normalized );
+        }
+        $normalized['created_at'] = (string) ( $normalized['created_at'] ?: ( $existing['created_at'] ?? $now ) );
+        $normalized['updated_at'] = $now;
+        if ( $normalized['summary_token_count'] <= 0 && $normalized['window_summary'] !== '' ) {
+            $normalized['summary_token_count'] = $this->estimate_tokens( $normalized['window_summary'] );
+        }
+
+        return BizCity_Business_JSONL_File_Store::write_with_receipt( self::BUSINESS_CONTRACT_ID, $normalized, 'upsert' );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — scoped rolling-memory reader shared by context, AJAX and completion lookups.
+    private function query_filestore_rows( array $scope, array $args = array(), $limit = 5 ) {
+        if ( ! $this->is_filestore_available() ) {
+            return array();
+        }
+
+        $status      = isset( $args['status'] ) ? (string) $args['status'] : '';
+        $status_in   = isset( $args['status_in'] ) && is_array( $args['status_in'] ) ? array_values( array_map( 'strval', $args['status_in'] ) ) : array();
+        $session_id  = isset( $args['session_id'] ) ? (string) $args['session_id'] : '';
+        $conversation_id = isset( $args['conversation_id'] ) ? (string) $args['conversation_id'] : '';
+        $minutes     = max( 0, (int) ( $args['minutes'] ?? 0 ) );
+        $cutoff      = $minutes > 0 ? ( time() - ( $minutes * 60 ) ) : 0;
+
+        $query = array(
+            'blog_id' => get_current_blog_id(),
+            'days'    => 365,
+            'limit'   => max( 1, (int) $limit ) * 8,
+            'filter'  => function ( $record ) use ( $status, $status_in, $session_id, $conversation_id, $cutoff ) {
+                if ( $status !== '' && (string) ( $record['status'] ?? '' ) !== $status ) {
+                    return false;
+                }
+                if ( ! empty( $status_in ) && ! in_array( (string) ( $record['status'] ?? '' ), $status_in, true ) ) {
+                    return false;
+                }
+                if ( $session_id !== '' && (string) ( $record['session_id'] ?? '' ) !== $session_id ) {
+                    return false;
+                }
+                if ( $conversation_id !== '' && (string) ( $record['conversation_id'] ?? '' ) !== $conversation_id ) {
+                    return false;
+                }
+                if ( $cutoff > 0 ) {
+                    $ts = strtotime( (string) ( $record['updated_at'] ?? $record['created_at'] ?? '' ) );
+                    if ( ! $ts || $ts < $cutoff ) {
+                        return false;
+                    }
+                }
+                return true;
+            },
+        );
+        if ( ! empty( $scope['identity_uuid'] ) ) {
+            $query['identity_uuid'] = (string) $scope['identity_uuid'];
+        }
+        if ( ! empty( $scope['user_id'] ) ) {
+            $query['user_id'] = (int) $scope['user_id'];
+        }
+
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — rolling reads follow bounded Context Bank pointers instead of direct file scans.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
+        }
+        $records = class_exists( 'BizCity_Context_Bank_Memory_Adapter' )
+            ? BizCity_Context_Bank_Memory_Adapter::query( self::BUSINESS_CONTRACT_ID, $query )
+            : array();
+        if ( empty( $records ) ) {
+            return array();
+        }
+        $records = array_map( array( $this, 'normalize_filestore_row' ), $records );
+        usort( $records, function ( $a, $b ) {
+            return strcmp( (string) ( $b['updated_at'] ?? '' ), (string) ( $a['updated_at'] ?? '' ) );
+        } );
+        return array_slice( $records, 0, max( 1, (int) $limit ) );
+    }
+
     private function clamp_score( $val ) {
         return max( self::SCORE_MIN, min( self::SCORE_MAX, intval( $val ) ) );
     }
@@ -874,13 +1060,4 @@ PROMPT;
     }
 }
 
-// [2026-07-28 Johnny Chu] R-CR — register rolling schema before the installer can run dbDelta().
-if ( class_exists( 'BizCity_Schema_Registry' ) ) {
-    BizCity_Schema_Registry::register(
-        'bizcity_memory_rolling',
-        'core.intent.memory.rolling',
-        BizCity_Rolling_Memory::DB_VERSION,
-        BizCity_Rolling_Memory::DB_VERSION_OPTION,
-        array( 'BizCity_Rolling_Memory', 'ensure_table' )
-    );
-}
+// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — retired rolling SQL has no schema-registry installer.

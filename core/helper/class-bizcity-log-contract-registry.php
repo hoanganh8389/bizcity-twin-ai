@@ -42,6 +42,8 @@ final class BizCity_Log_Contract_Registry {
 			'retention_days'      => 7,
 			'reader'              => 'BizCity_JSONL_File_Logger',
 			'status'              => 'active',
+			'indexed'             => false,
+			'storage_scope'       => 'blog',
 		);
 		$normalized = array_merge( $defaults, $contract );
 
@@ -59,6 +61,18 @@ final class BizCity_Log_Contract_Registry {
 		}
 
 		$normalized['retention_days'] = max( 1, (int) $normalized['retention_days'] );
+		$normalized['indexed'] = ! empty( $normalized['indexed'] );
+		$normalized['storage_scope'] = sanitize_key( (string) $normalized['storage_scope'] );
+		if ( ! in_array( $normalized['storage_scope'], array( 'blog', 'network', 'global' ), true ) ) {
+			return false;
+		}
+		foreach ( self::$contracts as $existing_id => $existing_contract ) {
+			if ( $existing_id !== $id
+				&& (string) ( $existing_contract['jsonl_folder'] ?? '' ) === $normalized['jsonl_folder']
+				&& (string) ( $existing_contract['jsonl_module'] ?? '' ) === $normalized['jsonl_module'] ) {
+				return false;
+			}
+		}
 		if ( isset( self::$contracts[ $id ] ) ) {
 			$existing = self::$contracts[ $id ];
 			if ( $existing['owner_module'] !== $normalized['owner_module']
@@ -93,5 +107,23 @@ final class BizCity_Log_Contract_Registry {
 	 */
 	public static function has( $id ) {
 		return isset( self::$contracts[ $id ] );
+	}
+
+	/** Resolve one immutable contract from its canonical folder/module pair. */
+	public static function resolve( $folder, $module ) {
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — callers resolve contract identity from registry metadata, never from request-controlled paths.
+		$folder = (string) $folder;
+		$module = (string) $module;
+		$found = null;
+		foreach ( self::$contracts as $id => $contract ) {
+			if ( (string) ( $contract['jsonl_folder'] ?? '' ) !== $folder || (string) ( $contract['jsonl_module'] ?? '' ) !== $module ) {
+				continue;
+			}
+			if ( null !== $found ) {
+				return null;
+			}
+			$found = array( 'id' => $id, 'contract' => $contract );
+		}
+		return $found;
 	}
 }

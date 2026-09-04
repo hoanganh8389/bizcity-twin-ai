@@ -97,14 +97,14 @@ final class BizCity_Probe_TwinBrain_Memory_Recall implements BizCity_Diagnostics
 				'fix_hint' => 'Check BizCity_User_Memory::get_last_upsert_failure() + $wpdb->last_error trong WP_DEBUG_LOG; có thể schema chưa migrate hoặc identity_uuid owner không resolve được.',
 			];
 		}
-		$this->planted_id = $this->find_planted_id( $user_id );
+		$this->planted_id = $this->find_planted_record_id( $user_id );
 		$ctx->emit_step( [
 			'label'  => 'Plant test row',
 			'status' => $this->planted_id ? 'pass' : 'fail',
-			'detail' => $this->planted_id ? ( $res . ' · id=' . $this->planted_id ) : 'no id found',
+			'detail' => $this->planted_id ? ( $res . ' · record_id=' . $this->planted_id ) : 'no record found',
 		] );
 		if ( ! $this->planted_id ) {
-			return [ 'status' => 'fail', 'error' => 'Planted row not retrievable by key.' ];
+			return [ 'status' => 'fail', 'error' => 'Planted filestore record not retrievable by key.' ];
 		}
 
 		// Step 2 — collect.
@@ -142,7 +142,7 @@ final class BizCity_Probe_TwinBrain_Memory_Recall implements BizCity_Diagnostics
 			),
 		] );
 
-		$has_cite  = in_array( $expect, $citations, true ) || strpos( $block, $expect ) !== false;
+		$has_cite  = strpos( $block, $expect ) !== false || in_array( $this->planted_id, array_map( function ( $citation ) { return (string) ( $citation['record_id'] ?? '' ); }, $citations ), true );
 		$has_text  = strpos( $block, self::PROBE_TOKEN ) !== false;
 		$under_cap = mb_strlen( $block ) <= BizCity_TwinBrain_Memory_Recall::BLOCK_CAP_CHARS;
 
@@ -171,41 +171,35 @@ final class BizCity_Probe_TwinBrain_Memory_Recall implements BizCity_Diagnostics
 				'status'   => 'fail',
 				'summary'  => 'Memory Recall incomplete — ' . implode( '; ', $reasons ),
 				'error'    => implode( '; ', $reasons ),
-				'fix_hint' => 'Check Memory_Recall::format_line() và tier-A enumeration; verify upsert_public lưu memory_tier=explicit.',
+				'fix_hint' => 'Check Context Bank memory pointer admission and verified receipt follow for the user-memory contract.',
 			];
 		}
 
 		return [
 			'status'  => 'pass',
 			'summary' => sprintf(
-				'Recall OK — row #%d recalled · %d citations · %d chars block · %dms',
+				'Recall OK — record %s recalled · %d citations · %d chars block · %dms',
 				$this->planted_id, count( $citations ), mb_strlen( $block ), $elapsed_ms
 			),
 		];
 	}
 
 	public function cleanup(): void {
-		global $wpdb;
-		if ( ! $this->planted_id ) {
-			// Best-effort: still delete by key in case run() aborted early.
-			$table = $wpdb->prefix . 'bizcity_memory_users';
-			$wpdb->delete( $table, [ 'memory_key' => self::MEMORY_KEY ], [ '%s' ] );
+		if ( ! class_exists( 'BizCity_Business_JSONL_File_Store' ) ) {
 			return;
 		}
-		$table = $wpdb->prefix . 'bizcity_memory_users';
-		$wpdb->delete( $table, [ 'id' => $this->planted_id ], [ '%d' ] );
+		if ( $this->planted_id ) {
+			BizCity_Business_JSONL_File_Store::delete( BizCity_User_Memory::BUSINESS_CONTRACT_ID, $this->planted_id, array( 'blog_id' => get_current_blog_id(), 'user_id' => get_current_user_id() ) );
+		}
 		$this->planted_id = null;
 	}
 
-	private function find_planted_id( int $user_id ) {
-		global $wpdb;
-		$table   = $wpdb->prefix . 'bizcity_memory_users';
-		$blog_id = get_current_blog_id();
-		$id      = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$table} WHERE blog_id = %d AND user_id = %d AND memory_key = %s LIMIT 1",
-			$blog_id, $user_id, self::MEMORY_KEY
-		) );
-		return $id > 0 ? $id : null;
+	private function find_planted_record_id( int $user_id ) {
+		if ( ! class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) {
+			return null;
+		}
+		$rows = BizCity_Context_Bank_Memory_Adapter::query( BizCity_User_Memory::BUSINESS_CONTRACT_ID, array( 'blog_id' => get_current_blog_id(), 'user_id' => $user_id, 'limit' => 100, 'filter' => function ( $row ) { return (string) ( $row['memory_key'] ?? '' ) === self::MEMORY_KEY; } ) );
+		return isset( $rows[0]['record_id'] ) ? (string) $rows[0]['record_id'] : null;
 	}
 }
 

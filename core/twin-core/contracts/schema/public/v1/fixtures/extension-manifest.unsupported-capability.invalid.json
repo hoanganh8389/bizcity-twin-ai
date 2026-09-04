@@ -1,0 +1,28 @@
+{
+  "contract": "extension-manifest",
+  "version": "1.0.0",
+  "extension_id": "vendor.unknown",
+  "extension_version": "1.0.0",
+  "requires_framework": ">=1.3 <2.0",
+  "capabilities": [
+    "channel.inbound",
+    "brain.read_private_everywhere"
+  ],
+  "channels": [
+    {
+      "slug": "unknown_channel",
+      "platform": "UNKNOWN",
+      "zone": "admin",
+      "identity_policy": "account_user",
+      "account_scope": "multiple",
+      "crm_policy": "disabled",
+      "brain_policy": "user_bound",
+      "context_policy": "none",
+      "surface_policy": ["admin"]
+    }
+  ],
+  "diagnostics": {
+    "probe_owner": "vendor.unknown.contract",
+    "requires": ["disk", "loader", "runtime"]
+  }
+}

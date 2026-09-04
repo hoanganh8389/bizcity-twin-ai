@@ -48,6 +48,21 @@ require_once __DIR__ . '/includes/class-automation-repo-runs.php';
 require_once __DIR__ . '/includes/class-automation-repo-templates.php';     // BE-7
 require_once __DIR__ . '/includes/class-automation-repo-config-packs.php';  // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — DataTable config packs.
 
+// [2026-08-27 Johnny Chu] PHASE-DIAG-CI-MOCK — register the automation
+// schema with Site Provisioner so headless Diagnostics provisions workflows,
+// runs, logs and config-pack tables without relying on current_screen/admin_init.
+add_filter( 'bizcity_register_installers', static function ( $list ) {
+	$list = is_array( $list ) ? $list : array();
+	$list[] = array(
+		'id'           => 'automation',
+		'label'        => 'Core Automation',
+		'callback'     => array( 'BizCity_Automation_Installer', 'ensure' ),
+		'version_opt'  => BizCity_Automation_Installer::DB_VERSION_OPTION,
+		'expected_ver' => BizCity_Automation_Installer::DB_VERSION,
+	);
+	return $list;
+}, 20, 1 );
+
 // [2026-08-14 Johnny Chu] HOTFIX-AUTOMATION-LOADER — keep the optional
 // template seeder out of the channel runtime; a broken seeder must not stop
 // FB/Zalo matcher registration before webhook listeners are initialized.
@@ -108,6 +123,16 @@ require_once __DIR__ . '/includes/blocks/actions/class-action-schedule-event.php
 require_once __DIR__ . '/includes/blocks/actions/class-action-invoke-skill.php';
 // [2026-08-16 Johnny Chu] PHASE-TWB-GURU-ASK — register the canonical synchronous ask-Guru action.
 require_once __DIR__ . '/includes/blocks/actions/class-action-ask-guru.php';
+// [2026-09-01 Johnny Chu] PHASE-0.45-W4/W5 — identity branch and AskBrain-parity deep research actions through guarded artifact loading.
+foreach ( array(
+	array( 'file' => __DIR__ . '/includes/blocks/actions/class-action-ensure-linked-user.php', 'label' => 'automation.action.ensure_linked_user' ),
+	array( 'file' => __DIR__ . '/includes/blocks/actions/class-action-issue-login-link.php', 'label' => 'automation.action.issue_login_link' ),
+	array( 'file' => __DIR__ . '/includes/blocks/actions/class-action-twinbrain-deep-research.php', 'label' => 'automation.action.twinbrain_deep_research' ),
+) as $_phase045_action ) {
+	if ( class_exists( 'BizCity_Safe_Loader' ) && is_file( $_phase045_action['file'] ) && is_readable( $_phase045_action['file'] ) ) {
+		BizCity_Safe_Loader::require_file( $_phase045_action['file'], $_phase045_action['label'] );
+	}
+}
 // [2026-06-07 Johnny Chu] PHASE-0.38.W1.5 — action.create_woo_order block (Order Fulfillment Hub).
 require_once __DIR__ . '/includes/blocks/actions/class-action-create-woo-order.php';
 // [2026-06-07 Johnny Chu] PHASE-0.40 G7.2 — action.notify_discord block (Discord webhook).
@@ -179,6 +204,11 @@ if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
 // BE-3 — Runner cron dispatcher (R-CRON-META compliant).
 // BE-6.C — also stamp last_tick option for health probe / admin notice.
 add_action( BizCity_Automation_Runner::CRON_HOOK, function () {
+	// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — the periodic cron
+	// dispatcher must not pick queued production runs during diagnostics CLI.
+	if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+		return;
+	}
 	update_option( 'bizcity_automation_cron_last_tick', time(), false );
 	BizCity_Automation_Runner::instance()->on_cron_dispatch();
 }, 5 );
@@ -208,6 +238,11 @@ add_filter( 'cron_schedules', function ( $schedules ) {
 	return $schedules;
 } );
 add_action( 'init', function () {
+	// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not register or
+	// schedule the production automation cron from diagnostics CLI.
+	if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+		return;
+	}
 	if ( class_exists( 'BizCity_Cron_Manager' ) ) {
 		BizCity_Cron_Manager::instance()->register( array(
 			'id'          => BizCity_Automation_Runner::CRON_JOB_ID,

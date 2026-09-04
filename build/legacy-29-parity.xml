@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="8" failures="1" skipped="0" time="5.111">
+  <testsuite name="diagnostics" tests="8" failures="1" skipped="0" time="5.111">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.jsonl_source_parity" time="0.998">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.unified.recall-parity" time="1.608">
+      <failure message="Plant phase: expected 3 sentinel rows in legacy table, got 0."> | Failed steps: Planted 3 sentinel rows: legacy rows=0 (ids=n/a)</failure>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.filestore_parity" time="0.599">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.memory.notes_filestore_parity" time="0.174">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.knowledge.kg_source_progress_parity" time="0.074">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="integrations.google_usage_parity" time="0.266">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.knowledge.kg_cleanup_audit_parity" time="0.400">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.skills.usage_parity" time="0.069">
+    </testcase>
+  </testsuite>
+</testsuites>

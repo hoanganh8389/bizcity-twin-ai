@@ -31,11 +31,43 @@ final class BizCity_MCP_Installer {
 	 * DB_VERSION. Called from core/mcp/bootstrap.php on plugins_loaded.
 	 */
 	public static function ensure() {
-		if ( get_option( self::DB_VERSION_OPTION, '' ) === self::DB_VERSION ) {
+		$installed = (string) get_option( self::DB_VERSION_OPTION, '' );
+		// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — cloned shards can carry an updated version option while MCP tables are still physically missing.
+		if ( $installed === self::DB_VERSION && self::has_required_tables() ) {
 			return;
 		}
 		self::install();
-		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+		if ( self::has_required_tables() ) {
+			update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+		}
+	}
+
+	private static function has_required_tables(): bool {
+		global $wpdb;
+
+		$required_tables = array(
+			$wpdb->prefix . 'bizcity_mcp_api_keys',
+			$wpdb->prefix . 'bizcity_mcp_retrieval_snapshots',
+			$wpdb->prefix . 'bizcity_mcp_context_packs',
+		);
+		foreach ( $required_tables as $table_name ) {
+			if ( ! self::table_exists( $table_name ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	private static function table_exists( string $table_name ): bool {
+		global $wpdb;
+
+		return (bool) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$table_name
+			)
+		);
 	}
 
 	/**
@@ -139,13 +171,8 @@ final class BizCity_MCP_Installer {
 	 * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — delete old rows only from the scheduled cron context.
 	 */
 	public static function gc_audit_log(): void {
-		global $wpdb;
-		$deleted = 0; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — delete-only drain; no SQL writer/reader.
-		$table = $wpdb->prefix . 'bizcity_mcp_audit_log';
-		if ( $wpdb && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) ) {
-			$result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d", self::AUDIT_RETENTION_DAYS, self::AUDIT_RETENTION_BATCH ) );
-			$deleted = false === $result ? 0 : (int) $result;
-		}
+		// [2026-08-27 Johnny Chu] PHASE-1.30-JSONL-ONLY — retired MCP SQL retention is disabled; MCP JSONL owns retention and approved cleanup owns DROP.
+		$deleted = 0;
 		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
 			$cron = BizCity_Cron_Manager::instance();
 			$cron->note( array( 'counters' => array( 'mcp_audit_log_retention_deleted' => $deleted ) ) );

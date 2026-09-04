@@ -139,13 +139,15 @@ final class BizCity_Probe_Codec_Standard implements BizCity_Diagnostics_Probe {
 
 	private static function find_active_legacy_calls( string $root ): array {
 		$found = array();
-		$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $root, FilesystemIterator::SKIP_DOTS ) );
-		foreach ( $iterator as $file ) {
-			if ( ! $file->isFile() || strtolower( $file->getExtension() ) !== 'php' ) {
+		// [2026-08-28 Johnny Chu] CODEC-CORE-DDV — inspect loaded runtime files, not the whole OneDrive tree.
+		$root_prefix = str_replace( '\\', '/', rtrim( $root, '/\\' ) ) . '/';
+		$skip_pattern = '#[\\/](?:_archived|vendor|_library|docs|changelog|tests|assets|build|dist|packages|node_modules)[\\/]#i';
+		foreach ( get_included_files() as $path ) {
+			$normalized_path = str_replace( '\\', '/', $path );
+			if ( strpos( $normalized_path, $root_prefix ) !== 0 || substr( $normalized_path, -4 ) !== '.php' ) {
 				continue;
 			}
-			$path = $file->getPathname();
-			if ( preg_match( '#[\\/](?:_archived|vendor|_library|docs|changelog|tests|assets|build|dist)[\\/]#i', $path ) ) {
+			if ( preg_match( $skip_pattern, $normalized_path ) ) {
 				continue;
 			}
 			$lines = @file( $path, FILE_IGNORE_NEW_LINES );

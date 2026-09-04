@@ -1,0 +1,13 @@
+{
+  "contract": "context-relation",
+  "version": "1.0.0",
+  "relation_id": "rel_bad",
+  "subject": { "type": "customer" },
+  "predicate": "placed_order",
+  "object": { "type": "order", "key": "order:o_789" },
+  "valid_from": "bad-date",
+  "confidence": 2,
+  "source_refs": [],
+  "provenance": { "source_contract_id": "commerce.order" },
+  "status": "active"
+}

@@ -2067,8 +2067,9 @@ PROMPT;
 
 		// Check MIME type — only accept images
 		$allowed_types = [ 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml' ];
-		$finfo         = new finfo( FILEINFO_MIME_TYPE );
-		$detected_type = $finfo->file( $file['tmp_name'] );
+		// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — Fileinfo is optional on shared hosts; use WordPress MIME verification when the extension is unavailable instead of throwing a class-not-found fatal.
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		$detected_type = self::detect_upload_mime( $file['tmp_name'], $file['name'] ?? '' );
 		if ( ! in_array( $detected_type, $allowed_types, true ) ) {
 			// [2026-08-10 Johnny Chu] PHASE-1.24-PAGEBUILDER — map MIME rejection to error envelope.
 			return self::rest_error( 'invalid_param', 'File tải lên không phải ảnh hợp lệ.', 'Chọn PNG, JPEG, GIF hoặc WebP rồi thử lại.', 'pagebuilder_upload_format' );
@@ -2122,8 +2123,9 @@ PROMPT;
 
 		// Validate MIME type from actual file content (not spoofable header)
 		$allowed_types = [ 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml' ];
-		$finfo         = new finfo( FILEINFO_MIME_TYPE );
-		$detected_type = $finfo->file( $_FILES['file']['tmp_name'] );
+		// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — share the Fileinfo/WordPress fallback so AJAX and REST upload boundaries have identical behavior.
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		$detected_type = self::detect_upload_mime( $_FILES['file']['tmp_name'], $_FILES['file']['name'] ?? '' );
 		if ( ! in_array( $detected_type, $allowed_types, true ) ) {
 			// [2026-08-10 Johnny Chu] PHASE-1.24-PAGEBUILDER — map AJAX MIME rejection to error envelope.
 			wp_send_json_error( self::error_payload( 'invalid_param', 'File tải lên không phải ảnh hợp lệ.', 'Chọn PNG, JPEG, GIF hoặc WebP rồi thử lại.', 'pagebuilder_upload_format' ) );
@@ -2151,6 +2153,30 @@ PROMPT;
 			'url'           => $url,
 			'attachment_id' => $attachment_id,
 		] );
+	}
+
+	private static function detect_upload_mime( $path, $name = '' ) {
+		// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — prefer libmagic, then use the canonical WordPress extension/content checker on hosts without Fileinfo.
+		if ( class_exists( 'finfo' ) && defined( 'FILEINFO_MIME_TYPE' ) ) {
+			try {
+				$finfo = new finfo( FILEINFO_MIME_TYPE );
+				$mime  = $finfo->file( $path );
+				if ( is_string( $mime ) && $mime !== '' ) {
+					return $mime;
+				}
+			} catch ( \Throwable $e ) {
+				// Fall through to WordPress detection on a partial or unavailable libmagic install.
+			}
+		}
+
+		if ( function_exists( 'wp_check_filetype_and_ext' ) ) {
+			$checked = wp_check_filetype_and_ext( $path, $name );
+			if ( is_array( $checked ) && ! empty( $checked['type'] ) ) {
+				return (string) $checked['type'];
+			}
+		}
+
+		return '';
 	}
 
 	/* ═══════════════════════════════════════════════

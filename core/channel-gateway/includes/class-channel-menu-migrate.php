@@ -21,7 +21,6 @@
  *   bizcity-zalo-bot-listener    → group=channels&sub=zalo-bot-listener
  *   bizcity-zalo-bot-test-api    → group=channels&sub=zalo-bot-test-api
  *   bizcity-zalo-bot-logs        → group=channels&sub=zalo-bot-logs
- *   bizcity-zalo-bot-memory      → group=channels&sub=zalo-bot-memory
  *   zalo-video-guider            → group=channels&sub=zalo-legacy-guide
  *   zalo-users-admin             → group=channels&sub=zalo-user-mapping
  *   zalo-guider                  → group=channels&sub=zalo-legacy
@@ -49,6 +48,7 @@ add_action( 'bizchat_gateway_register_subpages', function ( $reg ) {
 	}
 
 	$td = 'bizcity-twin-ai';
+	// [2026-09-01 Johnny Chu] PHASE-1.30-ZALO-MEMORY-REMOVE — legacy Zalo memory submenu and redirect are retired.
 
 	// ── T-P0.37.1.2.1 — Zalo Bot Dashboard ──────────────────────────
 	if ( class_exists( 'BizCity_Zalo_Bot_Dashboard', false ) ) {
@@ -84,7 +84,6 @@ add_action( 'bizchat_gateway_register_subpages', function ( $reg ) {
 			[ 'zalo-bot-listener', __( 'Zalo Webhook', $td ),   '🔔', [ $zb, 'render_listener_page' ],  25 ],
 			[ 'zalo-bot-test-api', __( 'Zalo Test API', $td ),  '🧪', [ $zb, 'render_test_api_page' ],  30 ],
 			[ 'zalo-bot-logs',     __( 'Zalo Logs', $td ),      '📜', [ $zb, 'render_logs_page' ],       35 ],
-			[ 'zalo-bot-memory',   __( 'Zalo Memory', $td ),    '🧠', [ $zb, 'render_memory_page' ],     40 ],
 		] as [ $slug, $title, $icon, $cb, $order ] ) {
 			$reg->add_subpage( [
 				'group'    => 'channels',
@@ -293,7 +292,6 @@ add_action( 'admin_init', function () {
 		'bizcity-zalo-bot-listener'    => 'group=channels&sub=zalo-bot-listener',
 		'bizcity-zalo-bot-test-api'    => 'group=channels&sub=zalo-bot-test-api',
 		'bizcity-zalo-bot-logs'        => 'group=channels&sub=zalo-bot-logs',
-		'bizcity-zalo-bot-memory'      => 'group=channels&sub=zalo-bot-memory',
 		'zalo-video-guider'            => 'group=channels&sub=zalo-legacy-guide',
 		'zalo-users-admin'             => 'group=channels&sub=zalo-user-mapping',
 		'zalo-guider'                  => 'group=channels&sub=zalo-legacy',

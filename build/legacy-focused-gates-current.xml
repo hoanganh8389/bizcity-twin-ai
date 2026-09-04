@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="4" failures="0" skipped="0" time="10.321">
+  <testsuite name="diagnostics" tests="4" failures="0" skipped="0" time="10.321">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.lifecycle" time="0.026">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.callers" time="10.025">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.owner_parity" time="0.018">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.webchat.sql_lifecycle" time="0.040">
+    </testcase>
+  </testsuite>
+</testsuites>

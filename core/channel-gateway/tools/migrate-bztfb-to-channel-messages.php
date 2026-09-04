@@ -52,7 +52,7 @@ class BizCity_Migrate_Bztfb {
 		);
 		$found = array();
 		foreach ( $candidates as $t ) {
-			$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $t ) );
+			$exists = bizcity_tbl_exists( $t ) ? $t : null; // [2026-06-21 R-SHOW-TABLES]
 			if ( $exists !== '' ) {
 				$found[] = $t;
 			}
@@ -82,7 +82,7 @@ class BizCity_Migrate_Bztfb {
 		}
 		if ( class_exists( 'BizCity_Channel_Messages' ) ) {
 			$dest = BizCity_Channel_Messages::table();
-			$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $dest ) );
+			$exists = bizcity_tbl_exists( $dest ) ? $dest : null; // [2026-06-21 R-SHOW-TABLES]
 			$out['destination_table']  = $dest;
 			$out['destination_exists'] = $exists !== '';
 			if ( $exists !== '' ) {

@@ -326,13 +326,13 @@ class BizCity_CF7_ZNS_Sender {
 	 * @param  array  $ctx      Extra context (NO credentials, NO PII raw).
 	 */
 	private static function file_log( $event, $level, $message, $form_id, array $ctx ) {
-		if ( ! class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger', false ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			return;
 		}
 		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — ZNS file evidence is CRM-owned.
-		BizCity_JSONL_File_Logger::write(
-			BizCity_JSONL_File_Logger::CRM_FOLDER,
-			'zns',
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — ZNS sender evidence uses the registered channel contract.
+		BizCity_JSONL_File_Logger::write_contract(
+			'core.channel_gateway.zns_audit',
 			strtolower( $level ),
 			$event,
 			$message,
@@ -341,9 +341,9 @@ class BizCity_CF7_ZNS_Sender {
 	}
 
 	private static function crm_log( $event, $level, $message, $form_id, array $ctx = array() ) {
-		if ( ! class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger', false ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			return;
 		}
-		BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', $level, $event, $message, array_merge( array( 'form_id' => (int) $form_id ), $ctx ) );
+		BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.zns_audit', $level, $event, $message, array_merge( array( 'form_id' => (int) $form_id ), $ctx ) );
 	}
 }

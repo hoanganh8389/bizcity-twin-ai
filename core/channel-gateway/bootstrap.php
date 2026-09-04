@@ -66,11 +66,23 @@ require_once $gateway_dir . 'class-channel-menu-registry.php';
 // PHASE 0.37 M3.W3 — Built-in stub adapters for legacy platforms.
 $adapters_dir = $gateway_dir . 'adapters/';
 $webchat_dir  = $gateway_dir . 'webchat/';
-require_once $adapters_dir . 'class-telegram-adapter.php';
-require_once $webchat_dir  . 'class-webchat-adapter.php';
-require_once $adapters_dir . 'class-adminchat-adapter.php';
-require_once $adapters_dir . 'class-email-smtp-adapter.php';
-require_once $adapters_dir . 'class-zalo-hotline-adapter.php';
+// [2026-09-02 05:45 PM Johnny Chu - Chu Hoàng Anh] R-SAFE-LOADER — a partial deploy must degrade one stub adapter instead of fatalling the whole gateway.
+$_bzc_stub_adapters = array(
+	$adapters_dir . 'class-telegram-adapter.php'      => 'channel.adapter.telegram',
+	$webchat_dir  . 'class-webchat-adapter.php'       => 'channel.adapter.webchat',
+	$adapters_dir . 'class-adminchat-adapter.php'     => 'channel.adapter.adminchat',
+	$adapters_dir . 'class-email-smtp-adapter.php'    => 'channel.adapter.email_smtp',
+	$adapters_dir . 'class-zalo-hotline-adapter.php'  => 'channel.adapter.zalo_hotline',
+);
+foreach ( $_bzc_stub_adapters as $_bzc_stub_file => $_bzc_stub_label ) {
+	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+		BizCity_Safe_Loader::require_file( $_bzc_stub_file, $_bzc_stub_label );
+	} elseif ( is_file( $_bzc_stub_file ) && is_readable( $_bzc_stub_file ) ) {
+		// Safe Loader is normally provided by the main plugin; retain a guarded bootstrap fallback.
+		require_once $_bzc_stub_file;
+	}
+}
+unset( $_bzc_stub_adapters, $_bzc_stub_file, $_bzc_stub_label );
 
 // [2026-06-10 Johnny Chu] PHASE-CG-SMTP-INTEGRATION — Full Email SMTP channel integration + REST.
 // [2026-06-11 Johnny Chu] HOTFIX — file_exists guard: files deployed via rsync; guard prevents fatal on stale server.
@@ -113,6 +125,18 @@ BizCity_Facebook_Page_REST::init(); // Always call after require_once — file-s
 
 // [2026-06-19 Johnny Chu] PHASE-0.39 — Zalo OA direct PHP integration (no bridge).
 require_once $adapters_dir . 'class-zalo-oa-integration.php';
+// [2026-08-28 Johnny Chu] R-SAFE-LOADER — load Branch 20 B2 artifacts only when present and readable.
+$_bzc_zalo_oa_hub_client = $adapters_dir . 'class-zalo-oa-hub-client.php';
+$_bzc_zalo_oa_hub_rest = $adapters_dir . 'class-zalo-oa-hub-rest.php';
+if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+	BizCity_Safe_Loader::require_file( $_bzc_zalo_oa_hub_client, 'channel.zalo_oa_hub_client' );
+	BizCity_Safe_Loader::require_file( $_bzc_zalo_oa_hub_rest, 'channel.zalo_oa_hub_rest' );
+} else {
+	if ( is_file( $_bzc_zalo_oa_hub_client ) && is_readable( $_bzc_zalo_oa_hub_client ) ) { require_once $_bzc_zalo_oa_hub_client; }
+	if ( is_file( $_bzc_zalo_oa_hub_rest ) && is_readable( $_bzc_zalo_oa_hub_rest ) ) { require_once $_bzc_zalo_oa_hub_rest; }
+}
+unset( $_bzc_zalo_oa_hub_client, $_bzc_zalo_oa_hub_rest );
+if ( class_exists( 'BizCity_Zalo_OA_Hub_REST' ) ) { BizCity_Zalo_OA_Hub_REST::init(); }
 // [2026-06-19 Johnny Chu] PHASE-0.39 — Zalo OA OAuth v4 REST (connect-url + callback).
 require_once $adapters_dir . 'class-zalo-oa-oauth-rest.php';
 BizCity_Zalo_OA_OAuth_REST::init();
@@ -378,11 +402,21 @@ BizCity_Listener_Automation_Bridge::init();
 // PHASE 0.37 M3.W3 — Register built-in stub adapters with Gateway Bridge.
 // These provide coverage for legacy platforms until full adapters are built (M5).
 add_action( 'bizcity_register_channel', function ( $bridge ) {
-	$bridge->register_adapter( new BizCity_Telegram_Adapter() );
-	$bridge->register_adapter( new BizCity_WebChat_Adapter() );
-	$bridge->register_adapter( new BizCity_AdminChat_Adapter() );
-	$bridge->register_adapter( new BizCity_Email_SMTP_Adapter() );
-	$bridge->register_adapter( new BizCity_Zalo_Hotline_Adapter() );
+	if ( class_exists( 'BizCity_Telegram_Adapter' ) ) {
+		$bridge->register_adapter( new BizCity_Telegram_Adapter() );
+	}
+	if ( class_exists( 'BizCity_WebChat_Adapter' ) ) {
+		$bridge->register_adapter( new BizCity_WebChat_Adapter() );
+	}
+	if ( class_exists( 'BizCity_AdminChat_Adapter' ) ) {
+		$bridge->register_adapter( new BizCity_AdminChat_Adapter() );
+	}
+	if ( class_exists( 'BizCity_Email_SMTP_Adapter' ) ) {
+		$bridge->register_adapter( new BizCity_Email_SMTP_Adapter() );
+	}
+	if ( class_exists( 'BizCity_Zalo_Hotline_Adapter' ) ) {
+		$bridge->register_adapter( new BizCity_Zalo_Hotline_Adapter() );
+	}
 }, 20 );
 
 // PHASE 0.37 M4 — Register full BizCity_Channel_Integration adapters.

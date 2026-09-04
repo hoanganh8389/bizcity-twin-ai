@@ -400,11 +400,11 @@ class WaicAction_it_call_reflection extends WaicAction {
 		$table = BCN_Schema_Extend::table_studio_outputs();
 
 		// Resolve project_id from session (studio_outputs uses project_id, not session_id)
-		$sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-		$project_id = $wpdb->get_var( $wpdb->prepare(
-			"SELECT project_id FROM {$sessions_table} WHERE session_id = %s LIMIT 1",
-			$session_id
-		) );
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — resolve pipeline project from encrypted session state.
+		$session = class_exists( 'BizCity_WebChat_Session_State' )
+			? BizCity_WebChat_Session_State::instance()->get_by_session( $session_id )
+			: null;
+		$project_id = $session ? (string) $session->project_id : '';
 
 		if ( empty( $project_id ) ) {
 			return [];
@@ -561,11 +561,11 @@ class WaicAction_it_call_reflection extends WaicAction {
 			$table = BCN_Schema_Extend::table_studio_outputs();
 
 			// Find the content studio output
-			$sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-			$project_id = $wpdb->get_var( $wpdb->prepare(
-				"SELECT project_id FROM {$sessions_table} WHERE session_id = %s LIMIT 1",
-				$variables['_session_id'] ?? ''
-			) );
+			// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — resolve output project through the session-state owner.
+			$session = class_exists( 'BizCity_WebChat_Session_State' )
+				? BizCity_WebChat_Session_State::instance()->get_by_session( $variables['_session_id'] ?? '' )
+				: null;
+			$project_id = $session ? (string) $session->project_id : '';
 
 			if ( $project_id ) {
 				$output_row = $wpdb->get_row( $wpdb->prepare(

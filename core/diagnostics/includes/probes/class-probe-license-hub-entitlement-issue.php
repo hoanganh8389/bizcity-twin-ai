@@ -39,6 +39,10 @@ final class BizCity_Probe_License_Hub_Entitlement_Issue implements BizCity_Diagn
 
 	public function run( $ctx ): array {
 		$failures = array();
+		// [2026-09-02 Johnny Chu] B2C-F3/F7 — register the Hub license routes directly when diagnostics uses an isolated REST server.
+		if ( class_exists( 'BizCity_Router_License_REST' ) && method_exists( 'BizCity_Router_License_REST', 'register_routes' ) ) {
+			BizCity_Router_License_REST::register_routes();
+		}
 
 		$router_dir = defined( 'BIZCITY_LLM_ROUTER_DIR' )
 			? rtrim( (string) BIZCITY_LLM_ROUTER_DIR, '/\\' )

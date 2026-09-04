@@ -206,13 +206,8 @@ class BizCity_Memory_Log {
 	 * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — delete old rows only from the scheduled cron context.
 	 */
 	public static function gc_logs(): void {
-		global $wpdb;
-		$deleted = 0; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — delete-only drain; no SQL writer/reader.
-		$table = $wpdb->prefix . 'bizcity_memory_logs';
-		if ( $wpdb && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) ) {
-			$result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d", self::RETENTION_DAYS, self::RETENTION_BATCH ) );
-			$deleted = false === $result ? 0 : (int) $result;
-		}
+		// [2026-08-27 Johnny Chu] PHASE-1.30-JSONL-ONLY — retired memory SQL retention is disabled; JSONL/Event Stream owns the audit lifecycle.
+		$deleted = 0;
 		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
 			$cron = BizCity_Cron_Manager::instance();
 			$cron->note( array( 'counters' => array( 'memory_logs_retention_deleted' => $deleted ) ) );
@@ -253,10 +248,9 @@ class BizCity_Memory_Log {
 		$limit     = max( 1, min( 10000, absint( $limit ) ) );
 		$rows      = array();
 
-		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
-			$json_rows = BizCity_JSONL_File_Logger::query(
-				BizCity_JSONL_File_Logger::MEMORY_FOLDER,
-				'mutation-audit',
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+			$json_rows = BizCity_JSONL_File_Logger::query_contract(
+				'core.memory.mutation_audit',
 				array(
 					'days'   => self::RETENTION_DAYS,
 					'limit'  => $limit,
@@ -303,6 +297,11 @@ class BizCity_Memory_Log {
 	public function purge_old( $days = 7 ) {
 		global $wpdb;
 		$days = max( 1, absint( $days ) );
+		// [2026-08-26 Johnny Chu] PHASE-1.30-EXIT-RETURN — prevent legacy memory-log DELETE from reaching the database.
+		// [2026-08-26 Johnny Chu] PHASE-1.30-FAIL-CLOSED — purge exits when policy is unavailable or legacy SQL is blocked.
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::allow_sql( $this->table, 'delete' ) ) {
+			return 0;
+		}
 		if ( ! $wpdb || ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $this->table ) ) ) {
 			return 0;
 		}

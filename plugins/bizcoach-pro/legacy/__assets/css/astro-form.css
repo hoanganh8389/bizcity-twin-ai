@@ -1,0 +1,832 @@
+/**
+ * BizCoach Map – Astrology Form & Result Styles
+ *
+ * @package BizCoach_Map
+ */
+
+/* =====================================================
+ * FORM WRAPPER
+ * =====================================================*/
+.bccm-astro-form-wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* =====================================================
+ * HERO
+ * =====================================================*/
+.bccm-astro-form-hero {
+    text-align: center;
+    padding: 40px 20px 30px;
+    margin-bottom: 30px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    border-radius: 20px;
+    color: #fff;
+}
+
+.bccm-astro-form-hero h1 {
+    font-size: 32px;
+    margin: 0 0 12px;
+    color: #fbbf24;
+    text-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
+}
+
+.bccm-astro-form-hero p {
+    font-size: 16px;
+    color: #e2e8f0;
+    margin: 0;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+/* =====================================================
+ * FORM
+ * =====================================================*/
+.bccm-astro-form {
+    background: #fff;
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e5e7eb;
+    margin-bottom: 30px;
+}
+
+.bccm-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.bccm-form-group {
+    flex: 1;
+    min-width: 120px;
+}
+
+.bccm-col-3 { flex: 0 0 calc(25% - 12px); min-width: 100px; }
+.bccm-col-6 { flex: 0 0 calc(50% - 8px); }
+.bccm-col-12 { flex: 0 0 100%; }
+
+.bccm-form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+}
+
+.bccm-form-group label .required {
+    color: #ef4444;
+}
+
+.bccm-form-group input[type="text"],
+.bccm-form-group input[type="date"],
+.bccm-form-group input[type="time"],
+.bccm-form-group input[type="tel"],
+.bccm-form-group input[type="email"],
+.bccm-form-group select,
+.bccm-form-group textarea {
+    width: 100%;
+    height: 44px;
+    padding: 10px 14px;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 12px;
+    font-size: 14px;
+    color: #1f2937;
+    background: #fafafa;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+.bccm-form-group textarea {
+    height: auto;
+    min-height: 80px;
+    resize: vertical;
+}
+
+.bccm-form-group input[type="text"]:focus,
+.bccm-form-group input[type="date"]:focus,
+.bccm-form-group input[type="time"]:focus,
+.bccm-form-group input[type="tel"]:focus,
+.bccm-form-group input[type="email"]:focus,
+.bccm-form-group select:focus,
+.bccm-form-group textarea:focus {
+    border-color: #6366f1;
+    outline: none;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+/* Radio group */
+.bccm-radio-group {
+    display: flex;
+    gap: 16px;
+    padding-top: 8px;
+}
+
+.bccm-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #374151;
+}
+
+.bccm-radio input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #6366f1;
+}
+
+/* Address wrap */
+.bccm-address-wrap {
+    display: flex;
+    gap: 8px;
+}
+
+.bccm-address-wrap input {
+    flex: 1;
+}
+
+.bccm-btn-geo {
+    height: 44px;
+    padding: 0 16px;
+    border: 2px solid #6366f1;
+    border-radius: 10px;
+    background: #fff;
+    color: #6366f1;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+
+.bccm-btn-geo:hover {
+    background: #6366f1;
+    color: #fff;
+}
+
+/* Geo results */
+.bccm-geo-results {
+    margin-top: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #fefce8;
+}
+
+.bccm-geo-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.bccm-geo-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #374151;
+    border-bottom: 1px solid #fef3c7;
+    transition: background 0.15s;
+}
+
+.bccm-geo-item:last-child { border-bottom: 0; }
+
+.bccm-geo-item:hover {
+    background: #fef08a;
+    color: #92400e;
+}
+
+.bccm-geo-status {
+    margin-top: 6px;
+    font-size: 12px;
+    min-height: 18px;
+}
+
+/* Submit button */
+.bccm-form-actions {
+    text-align: center;
+    margin-top: 30px;
+}
+
+.bccm-btn-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 56px;
+    min-width: 280px;
+    padding: 0 32px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.35);
+    transition: all 0.3s;
+}
+
+.bccm-btn-submit:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 35px rgba(99, 102, 241, 0.45);
+}
+
+.bccm-btn-submit:active {
+    transform: translateY(0);
+}
+
+.bccm-btn-submit:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* =====================================================
+ * RESULT AREA
+ * =====================================================*/
+.bccm-astro-result {
+    margin-top: 30px;
+}
+
+.bccm-astro-hero {
+    text-align: center;
+    padding: 30px 20px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    border-radius: 16px;
+    color: #fff;
+    margin-bottom: 24px;
+}
+
+.bccm-astro-hero h2 {
+    font-size: 24px;
+    margin: 0 0 8px;
+    color: #fbbf24;
+}
+
+.bccm-astro-sub {
+    font-size: 14px;
+    color: #94a3b8;
+    margin: 0;
+}
+
+/* Big 3 Cards */
+.bccm-big3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 30px;
+}
+
+.bccm-big3-card {
+    text-align: center;
+    padding: 24px 16px;
+    background: linear-gradient(135deg, #fef3c7, #fff7ed);
+    border-radius: 16px;
+    border: 1px solid #fbbf24;
+    box-shadow: 0 2px 12px rgba(251, 191, 36, 0.15);
+}
+
+.bccm-big3-icon {
+    font-size: 36px;
+    margin-bottom: 8px;
+}
+
+.bccm-big3-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #92400e;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+}
+
+.bccm-big3-sign {
+    font-size: 22px;
+    font-weight: 800;
+    color: #1f2937;
+    margin-bottom: 4px;
+}
+
+.bccm-big3-desc {
+    font-size: 12px;
+    color: #78716c;
+}
+
+/* Natal Wheel Chart */
+.bccm-wheel-chart {
+    margin-bottom: 30px;
+    text-align: center;
+}
+
+.bccm-wheel-chart h3 {
+    font-size: 20px;
+    color: #1f2937;
+    margin-bottom: 16px;
+}
+
+.bccm-wheel-img {
+    background: #16213e;
+    border-radius: 16px;
+    padding: 20px;
+    display: inline-block;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.bccm-wheel-img img {
+    max-width: 500px;
+    width: 100%;
+    height: auto;
+}
+
+/* Tables */
+.bccm-planets-table,
+.bccm-aspects-table,
+.bccm-houses-table {
+    margin-bottom: 30px;
+}
+
+.bccm-planets-table h3,
+.bccm-aspects-table h3,
+.bccm-houses-table h3 {
+    font-size: 20px;
+    color: #1f2937;
+    margin-bottom: 16px;
+}
+
+.bccm-planets-table table,
+.bccm-aspects-table table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.bccm-planets-table thead,
+.bccm-aspects-table thead {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+}
+
+.bccm-planets-table thead th,
+.bccm-aspects-table thead th {
+    padding: 12px 16px;
+    color: #fbbf24;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+}
+
+.bccm-planets-table tbody td,
+.bccm-aspects-table tbody td {
+    padding: 10px 16px;
+    font-size: 14px;
+    color: #374151;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.bccm-planets-table tbody tr:hover,
+.bccm-aspects-table tbody tr:hover {
+    background: #f0f9ff;
+}
+
+/* Houses Grid */
+.bccm-houses-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.bccm-house-card {
+    padding: 14px;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+    text-align: center;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.bccm-house-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.bccm-house-num {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6366f1;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.bccm-house-sign {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 4px;
+}
+
+.bccm-house-meaning {
+    font-size: 11px;
+    color: #9ca3af;
+    line-height: 1.3;
+}
+
+.bccm-house-angular {
+    background: #f0f4ff !important;
+    border-color: #6366f1;
+    border-width: 2px;
+}
+
+/* =====================================================
+ * REGISTER CTA
+ * =====================================================*/
+.bccm-register-cta {
+    margin-top: 30px;
+}
+
+.bccm-cta-box {
+    text-align: center;
+    padding: 32px;
+    background: linear-gradient(135deg, #ecfdf5, #f0f9ff, #fef3c7);
+    border-radius: 16px;
+    border: 2px dashed #22c55e;
+}
+
+.bccm-cta-box h3 {
+    font-size: 22px;
+    color: #1f2937;
+    margin: 0 0 10px;
+}
+
+.bccm-cta-box p {
+    font-size: 14px;
+    color: #6b7280;
+    margin: 0 0 20px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.bccm-btn-register {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 52px;
+    padding: 0 28px;
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    color: #fff !important;
+    font-size: 16px;
+    font-weight: 700;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(34, 197, 94, 0.3);
+    text-decoration: none !important;
+    transition: all 0.3s;
+}
+
+.bccm-btn-register:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(34, 197, 94, 0.4);
+    color: #fff !important;
+}
+
+/* =====================================================
+ * RESPONSIVE
+ * =====================================================*/
+@media (max-width: 768px) {
+    .bccm-astro-form-wrap {
+        padding: 10px;
+    }
+
+    .bccm-astro-form-hero {
+        padding: 24px 16px 20px;
+    }
+
+    .bccm-astro-form-hero h1 {
+        font-size: 22px;
+    }
+
+    .bccm-astro-form {
+        padding: 20px 16px;
+    }
+
+    .bccm-form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .bccm-col-3,
+    .bccm-col-6,
+    .bccm-col-12 {
+        flex: 0 0 100%;
+    }
+
+    .bccm-address-wrap {
+        flex-direction: column;
+    }
+
+    .bccm-big3 {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .bccm-houses-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .bccm-wheel-img img {
+        max-width: 100%;
+    }
+
+    .bccm-btn-submit {
+        width: 100%;
+        min-width: auto;
+    }
+}
+
+@media (max-width: 480px) {
+    .bccm-houses-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ═══════════ AstroViet Charts ═══════════ */
+.bccm-astroviet-section {
+    margin-top: 24px;
+    padding: 20px;
+    background: #f8fafc;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+.bccm-astroviet-section h3 {
+    margin: 0 0 16px;
+    font-size: 18px;
+    color: #1e293b;
+}
+.bccm-astroviet-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+.bccm-astroviet-item {
+    min-width: 0;
+    text-align: center;
+}
+.bccm-astroviet-item img {
+    max-width: 100%;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.bccm-chart-caption {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 6px;
+}
+
+/* Aspect Grid (native HTML) */
+.bccm-aspect-grid-wrap {
+    overflow-x: auto;
+    margin: 0 auto;
+}
+.bccm-aspect-grid {
+    border-collapse: collapse;
+    margin: 0 auto;
+    font-size: 14px;
+}
+.bccm-aspect-grid th {
+    width: 32px;
+    height: 32px;
+    text-align: center;
+    vertical-align: middle;
+    font-size: 16px;
+    font-weight: 600;
+    color: #334155;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 4px;
+}
+.bccm-aspect-grid td {
+    width: 32px;
+    height: 32px;
+    text-align: center;
+    vertical-align: middle;
+    font-size: 15px;
+    font-weight: 700;
+    border: 1px solid #e2e8f0;
+    padding: 2px;
+}
+.bccm-aspect-grid td.bccm-grid-aspect:hover {
+    background: #f0f4ff;
+    transform: scale(1.15);
+    transition: all 0.15s ease;
+}
+.bccm-aspect-grid td.bccm-grid-empty {
+    background: #f1f5f9;
+}
+.bccm-aspect-grid td.bccm-grid-none::after {
+    content: '·';
+    color: #d1d5db;
+}
+
+@media (max-width: 640px) {
+    .bccm-astroviet-grid {
+        grid-template-columns: 1fr;
+    }
+    .bccm-aspect-grid th,
+    .bccm-aspect-grid td {
+        width: 26px;
+        height: 26px;
+        font-size: 12px;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * CHART PATTERNS — Astro-Charts inspired (Frontend)
+ * ══════════════════════════════════════════════════════════════════════ */
+.bccm-patterns-section,
+.bccm-special-section {
+    margin-top: 32px;
+}
+.bccm-patterns-section h3,
+.bccm-special-section h3 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 4px;
+}
+.bccm-patterns-section h3 small,
+.bccm-special-section h3 small {
+    font-weight: 400;
+    color: #94a3b8;
+    font-size: 14px;
+}
+.bccm-section-desc {
+    color: #64748b;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+.bccm-patterns-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+.bccm-pattern-card {
+    background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 20px;
+    transition: transform .2s, box-shadow .2s, border-color .2s;
+}
+.bccm-pattern-card:hover {
+    transform: translateY(-2px);
+    border-color: #818cf8;
+    box-shadow: 0 8px 24px rgba(99,102,241,.15);
+}
+.bccm-pattern-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.bccm-pattern-icon {
+    font-size: 32px;
+    line-height: 1;
+}
+.bccm-pattern-type {
+    font-weight: 700;
+    font-size: 16px;
+    color: #1e293b;
+}
+.bccm-pattern-planets {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+.bccm-pattern-planet {
+    font-size: 13px;
+    color: #475569;
+    padding: 3px 10px;
+    background: rgba(255,255,255,.7);
+    border-radius: 8px;
+    display: inline-block;
+    width: fit-content;
+    backdrop-filter: blur(4px);
+}
+.bccm-pattern-desc {
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.55;
+    border-top: 1px solid rgba(226,232,240,.7);
+    padding-top: 10px;
+    margin-top: 4px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * SPECIAL FEATURES — Astro-Charts inspired (Frontend)
+ * ══════════════════════════════════════════════════════════════════════ */
+.bccm-special-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+}
+.bccm-special-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px 18px;
+    background: linear-gradient(135deg, #f8fafc 0%, #faf5ff 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    transition: transform .2s, box-shadow .2s, border-color .2s;
+}
+.bccm-special-card:hover {
+    transform: translateY(-2px);
+    border-color: #a78bfa;
+    box-shadow: 0 8px 24px rgba(139,92,246,.12);
+}
+.bccm-special-icon {
+    font-size: 28px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.bccm-special-text {
+    flex: 1;
+    min-width: 0;
+}
+.bccm-special-main {
+    margin: 0;
+    font-weight: 600;
+    font-size: 14px;
+    color: #1e293b;
+}
+.bccm-special-sub {
+    margin: 5px 0 0;
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+    .bccm-patterns-grid,
+    .bccm-special-grid {
+        grid-template-columns: 1fr;
+    }
+    .bccm-pattern-card,
+    .bccm-special-card {
+        padding: 14px;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * PROKERALA NATAL CHART (Frontend)
+ * ══════════════════════════════════════════════════════════════════════ */
+.bccm-prokerala-section {
+    margin-top: 32px;
+}
+.bccm-prokerala-section h3 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 4px;
+}
+.bccm-prokerala-section h3 small {
+    font-weight: 400;
+    color: #94a3b8;
+    font-size: 14px;
+}
+.bccm-prokerala-chart {
+    text-align: center;
+    margin: 16px 0 8px;
+}
+.bccm-prokerala-svg {
+    max-width: 560px;
+    margin: 0 auto;
+}
+.bccm-prokerala-svg svg {
+    width: 100%;
+    height: auto;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(124,58,237,.15);
+    transition: box-shadow .3s;
+}
+.bccm-prokerala-svg svg:hover {
+    box-shadow: 0 12px 40px rgba(124,58,237,.25);
+}
+.bccm-prokerala-chart img {
+    max-width: 560px;
+    width: 100%;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(124,58,237,.15);
+}

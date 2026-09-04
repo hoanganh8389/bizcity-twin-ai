@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="1" failures="1" skipped="0" time="0.206">
+  <testsuite name="diagnostics" tests="1" failures="1" skipped="0" time="0.206">
+    <testcase classname="bizcity.diagnostics" name="core.helper.jsonl_search_query_index_parity" time="0.124">
+      <failure message="fail">Basic JSONL query/read/search and pointer verification failed. | Failed steps: Runtime - pointer hash follow: Pointer offset or hash does not resolve to the canonical JSONL row.</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

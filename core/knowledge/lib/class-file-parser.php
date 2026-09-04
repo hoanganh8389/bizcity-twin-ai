@@ -297,15 +297,23 @@ class BizCity_Knowledge_FileParser {
         // Clean up text
         $text = $this->clean_pdf_text($text);
         
-        // If extraction failed, return warning
-        if (empty($text) || strlen($text) < 50) {
-            return new WP_Error(
-                'pdf_extraction_limited', 
-                'Không thể trích xuất văn bản từ PDF. File có thể là ảnh scan hoặc được mã hóa. Vui lòng sử dụng file PDF dạng văn bản hoặc chuyển sang DOCX/TXT.'
-            );
+        // Return if regex extraction worked well enough
+        if ( ! empty( $text ) && strlen( $text ) >= 50 ) {
+            return $text;
         }
-        
-        return $text;
+
+        // If extraction failed, try LLM OCR (handles scanned PDFs via vision model)
+        $ocr_result = $this->parse_pdf_with_llm_ocr( $file_path );
+        if ( ! is_wp_error( $ocr_result ) && strlen( trim( $ocr_result ) ) > 20 ) {
+            return $ocr_result;
+        }
+
+        // All methods failed
+        return new WP_Error(
+            'pdf_extraction_limited', 
+            is_wp_error( $ocr_result ) ? $ocr_result->get_error_message()
+            : 'Không thể trích xuất văn bản từ PDF. File có thể là ảnh scan hoặc được mã hóa. Vui lòng sử dụng file PDF dạng văn bản hoặc chuyển sang DOCX/TXT.'
+        );
     }
     
     /**
@@ -482,6 +490,80 @@ class BizCity_Knowledge_FileParser {
         return trim($text);
     }
     
+    /**
+     * Parse scanned PDF via LLM vision (OCR fallback).
+     * Uses Imagick to render pages as JPEG then calls bizcity_llm_chat() with vision model.
+     *
+     * @param string $file_path Full path to PDF file
+     * @return string|WP_Error Extracted text or error
+     */
+    private function parse_pdf_with_llm_ocr( string $file_path ) {
+        if ( ! class_exists( 'Imagick' ) ) {
+            return new WP_Error( 'no_imagick', 'Không thể OCR PDF scan: cần cài extension Imagick. Hãy chuyển sang DOCX hoặc TXT.' );
+        }
+
+        if ( ! function_exists( 'bizcity_llm_chat' ) ) {
+            return new WP_Error( 'no_llm', 'LLM gateway chưa sẵn sàng. Hãy chuyển file sang dạng văn bản (DOCX/TXT).' );
+        }
+
+        $texts    = [];
+        $max_pages = 10; // cap tối đa để tránh tốn token
+
+        try {
+            // Count pages
+            $imagick_check = new Imagick();
+            $imagick_check->pingImage( $file_path );
+            $page_count = min( $imagick_check->getNumberImages(), $max_pages );
+            $imagick_check->destroy();
+
+            for ( $page = 0; $page < $page_count; $page++ ) {
+                $im = new Imagick();
+                $im->setResolution( 150, 150 );
+                $im->readImage( $file_path . '[' . $page . ']' );
+                $im->setImageFormat( 'jpeg' );
+                $im->setImageCompressionQuality( 85 );
+                $image_b64 = base64_encode( $im->getImageBlob() );
+                $im->destroy();
+
+                $response = bizcity_llm_chat(
+                    [
+                        [
+                            'role'    => 'user',
+                            'content' => [
+                                [
+                                    'type' => 'text',
+                                    'text' => 'Đây là trang ' . ( $page + 1 ) . ' của tài liệu PDF. Hãy trích xuất toàn bộ nội dung văn bản trong ảnh, giữ nguyên cấu trúc đoạn văn. Chỉ trả về văn bản thuần tuý, không thêm giải thích.',
+                                ],
+                                [
+                                    'type'      => 'image_url',
+                                    'image_url' => [ 'url' => 'data:image/jpeg;base64,' . $image_b64 ],
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'model'      => 'google/gemini-flash-1.5-8b',
+                        'max_tokens' => 4096,
+                    ]
+                );
+
+                if ( is_array( $response ) && ! empty( $response['message'] ) ) {
+                    $texts[] = trim( $response['message'] );
+                } elseif ( is_string( $response ) && ! empty( $response ) ) {
+                    $texts[] = trim( $response );
+                }
+            }
+        } catch ( \Exception $e ) {
+            return new WP_Error( 'imagick_error', 'Lỗi đọc ảnh PDF: ' . $e->getMessage() );
+        }
+
+        if ( empty( $texts ) ) {
+            return new WP_Error( 'ocr_empty', 'OCR trả về nội dung trống. File có thể bị lỗi hoặc chất lượng ảnh quá thấp.' );
+        }
+
+        return implode( "\n\n--- Trang mới ---\n\n", $texts );
+    }
+
     /**
      * Parse DOCX file (Office Open XML)
      */

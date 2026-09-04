@@ -29,6 +29,11 @@ final class BizCity_Probe_Commerce_Hub_Checkout implements BizCity_Diagnostics_P
 	public function estimate_ms(): int { return 700; }
 
 	public function precondition() {
+		// [2026-09-02 Johnny Chu] R-GW-8/PHASE-C-WOO-HUB — this probe is Hub-only; B2 clients must not run Hub checkout ownership checks.
+		$host = isset( $_SERVER['HTTP_HOST'] ) ? strtolower( preg_replace( '/:\d+$/', '', (string) $_SERVER['HTTP_HOST'] ) ) : '';
+		if ( ! in_array( $host, array( 'bizcity.vn', 'www.bizcity.vn' ), true ) ) {
+			return 'not_applicable_b2_client: Hub commerce checkout is owned by bizcity.vn.';
+		}
 		// [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — Hub-only probe: skip on client
 		// sites where bizcity-llm-router is intentionally absent (R-GW-8).
 		if ( ! class_exists( 'BizCity_Router_Commerce_REST' ) && ! defined( 'BIZCITY_LLM_ROUTER_DIR' ) ) {
@@ -39,6 +44,19 @@ final class BizCity_Probe_Commerce_Hub_Checkout implements BizCity_Diagnostics_P
 
 	public function run( $ctx ): array {
 		$failures = array();
+		// [2026-09-02 Johnny Chu] PHASE-C-WOO-HUB — reject diagnostics-only forced loading when the Hub plugin is inactive.
+		$router_plugin_file = 'bizcity-llm-router/bizcity-llm-router.php';
+		$active_plugins     = (array) get_option( 'active_plugins', array() );
+		$network_plugins    = (array) get_site_option( 'active_sitewide_plugins', array() );
+		$router_is_active   = in_array( $router_plugin_file, $active_plugins, true ) || isset( $network_plugins[ $router_plugin_file ] );
+		$ctx->emit_step( array(
+			'label'  => 'Router plugin activation',
+			'status' => $router_is_active ? 'pass' : 'fail',
+			'detail' => $router_is_active ? 'bizcity-llm-router is active in the current Hub lifecycle' : 'Router classes may be forced-loaded by diagnostics, but the plugin is inactive',
+		) );
+		if ( ! $router_is_active ) {
+			return array( 'status' => 'fail', 'summary' => 'Router plugin is inactive; commerce probe cannot claim Hub runtime.', 'error' => 'router_plugin_inactive', 'fix_hint' => 'Activate bizcity-llm-router on the B1 Hub, then rerun the focused commerce probe with --host=bizcity.vn.' );
+		}
 
 		$router_dir = defined( 'BIZCITY_LLM_ROUTER_DIR' )
 			? rtrim( (string) BIZCITY_LLM_ROUTER_DIR, '/\\' )

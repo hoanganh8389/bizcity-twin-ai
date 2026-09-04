@@ -50,7 +50,8 @@ class BizCity_CRM_Service_Templates {
 				'max_chars_target'   => 800,
 				'max_tokens_hint'    => 400,
 				'per_chunk_max_chars'=> 1800,
-				'allowed_channels'   => array( 'facebook', 'zalo', 'telegram', 'web' ),
+				// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT — keep Zalo OA/Personal distinct at the template boundary.
+				'allowed_channels'   => array( 'facebook', 'zalo_oa', 'zalo_personal', 'telegram', 'web' ),
 			),
 			'telesale' => array(
 				'label'              => 'Telesale / Tư vấn bán hàng',
@@ -62,7 +63,7 @@ class BizCity_CRM_Service_Templates {
 				'max_chars_target'   => 600,
 				'max_tokens_hint'    => 300,
 				'per_chunk_max_chars'=> 1800,
-				'allowed_channels'   => array( 'facebook', 'zalo', 'telegram' ),
+				'allowed_channels'   => array( 'facebook', 'zalo_oa', 'zalo_personal', 'telegram' ),
 			),
 			'page_inbox' => array(
 				'label'              => 'Trực Page (FB Inbox / Zalo OA)',
@@ -72,7 +73,7 @@ class BizCity_CRM_Service_Templates {
 				'max_chars_target'   => 500,
 				'max_tokens_hint'    => 250,
 				'per_chunk_max_chars'=> 1800,
-				'allowed_channels'   => array( 'facebook', 'zalo' ),
+				'allowed_channels'   => array( 'facebook', 'zalo_oa', 'zalo_personal' ),
 			),
 			'comment_reply' => array(
 				'label'              => 'Trả lời comment Facebook',
@@ -202,15 +203,11 @@ class BizCity_CRM_Service_Templates {
 			return $out;
 		}
 
-		// [2026-07-06 Johnny Chu] PHASE-0.39 GURU-BIND HOTFIX — normalize Zone-1 aliases so
-		// channel_type="zalo_oa" resolves to the same external defaults as "zalo".
+		// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT — evaluate exact customer-channel codes without a generic Zalo alias.
 		$channel_norm = strtolower( (string) $channel_type );
-		if ( in_array( $channel_norm, array( 'zalo_oa', 'zalo_personal' ), true ) ) {
-			$channel_norm = 'zalo';
-		}
 
 		// Channel-aware default when nothing set.
-		$is_external = in_array( $channel_norm, array( 'facebook', 'zalo', 'telegram' ), true );
+		$is_external = in_array( $channel_norm, array( 'facebook', 'zalo_oa', 'zalo_personal', 'telegram' ), true );
 		if ( $is_external ) {
 			$out['slug']     = 'page_inbox';
 			$out['template'] = self::apply_overrides( self::get( 'page_inbox' ), $settings );

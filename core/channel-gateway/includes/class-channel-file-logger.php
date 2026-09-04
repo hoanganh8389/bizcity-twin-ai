@@ -99,6 +99,75 @@ class BizCity_Channel_File_Logger {
 	// ──────────────────────────────────────────────────────────────────
 
 	/**
+	 * Write one normalized channel diagnostics record.
+	 *
+	 * @param array<string,mixed> $record Public channel-diagnostics-record shape.
+	 * @return array<string,mixed> Durable write receipt or failure reason.
+	 */
+	public static function write_record( array $record ) {
+		// [2026-09-01 Johnny Chu] R-CH-10 — one structured channel diagnostics writer with exact account and Zalo channel boundaries.
+		try {
+			$channel = sanitize_key( (string) ( $record['channel'] ?? '' ) );
+			$allowed_channels = array(
+				self::CH_EMAIL,
+				self::CH_FACEBOOK,
+				self::CH_MESSENGER,
+				self::CH_ZALO_OA,
+				self::CH_ZALO_BOT,
+				self::CH_ZALO_PERSONAL,
+				self::CH_ZALO_ZNS,
+				self::CH_TELEGRAM,
+				self::CH_WEBCHAT,
+				self::CH_CF7,
+				self::CH_CHANNEL_GATEWAY,
+				self::CH_ASTRO,
+			);
+			if ( $channel === '' || ! in_array( $channel, $allowed_channels, true ) || $channel === 'zalo' ) {
+				return array( 'written' => false, 'indexed' => false, 'reason' => 'invalid_channel' );
+			}
+
+			$record['contract'] = 'channel-diagnostics-record';
+			$record['version']  = (string) ( $record['version'] ?? '1.0.0' );
+			$record['channel']  = $channel;
+			$record['zone']     = self::normalize_zone( $channel, $record['zone'] ?? '' );
+			$record['direction'] = self::normalize_direction( $record['direction'] ?? 'internal' );
+			$record['level']     = self::normalize_level( $record['level'] ?? self::LEVEL_INFO );
+			$record['event']     = sanitize_key( (string) ( $record['event'] ?? 'channel_event' ) );
+			$record['stage']     = self::normalize_stage( $record['stage'] ?? '' );
+			$record['event_uuid'] = self::ensure_event_uuid( $record['event_uuid'] ?? '' );
+			$record['trace_id']    = (string) ( $record['trace_id'] ?? '' );
+			$record['occurred_at'] = self::normalize_timestamp( $record['occurred_at'] ?? '' );
+			if ( isset( $record['message'] ) ) {
+				$record['message'] = self::safe_message( $record['message'] );
+			}
+			$record['producer'] = self::normalize_producer( $record['producer'] ?? array() );
+			$account_input = is_array( $record['account'] ?? null ) ? $record['account'] : array();
+			if ( $channel !== self::CH_CHANNEL_GATEWAY && $channel !== self::CH_ASTRO && empty( $account_input['account_id'] ) ) {
+				// [2026-09-01 Johnny Chu] R-CH-10 — real channel events must fail closed when exact account scope is missing.
+				return array( 'written' => false, 'indexed' => false, 'reason' => 'account_scope_required' );
+			}
+			$record['account'] = self::normalize_account( $record['account'] ?? array(), $channel );
+			$record['pipeline_status'] = self::normalize_pipeline_status( $record['pipeline_status'] ?? array() );
+			// [2026-09-01 Johnny Chu] R-CH-10 — this immutable row exists only after its operational append succeeds.
+			$record['pipeline_status']['operational_logged'] = 'success';
+			$record['context'] = self::scrub_context( is_array( $record['context'] ?? null ) ? $record['context'] : array() );
+
+			$contract_id = self::contract_id( $channel );
+			if ( $contract_id === '' ) {
+				return array( 'written' => false, 'indexed' => false, 'reason' => 'channel_contract_missing' );
+			}
+			if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract_record' ) ) {
+				$receipt = BizCity_JSONL_File_Logger::write_contract_record( $contract_id, $record );
+				return $receipt;
+			}
+
+			return array( 'written' => false, 'indexed' => false, 'reason' => 'canonical_logger_missing' );
+		} catch ( \Throwable $e ) {
+			return array( 'written' => false, 'indexed' => false, 'reason' => 'channel_logger_exception' );
+		}
+	}
+
+	/**
 	 * Write one log entry to the channel's JSONL file.
 	 *
 	* NEVER throws. On any failure returns false without writing to the shared PHP diagnostic stream.
@@ -112,47 +181,48 @@ class BizCity_Channel_File_Logger {
 	 * @return bool
 	 */
 	public static function write( $channel, $level, $event, $message, array $ctx = array() ) {
-		try {
-			// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — every channel row
-			// gets event_uuid/trace_id/parent_event_uuid, even when a legacy emitter
-			// omitted them. Callers that already know the Twin event UUID preserve it.
-			if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
-				$ctx = BizCity_Chat_Correlation::ensure( $ctx, $event );
-			}
-			$dir = self::get_log_dir( $channel );
-			if ( $dir === '' ) { return false; }
-
-			$ts   = function_exists( 'wp_date' ) ? wp_date( 'Y-m-d\TH:i:s' ) : gmdate( 'Y-m-d\TH:i:s' );
-			$date = substr( $ts, 0, 10 );
-
-			// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — enforce redaction at the
-			// channel boundary instead of trusting every caller to sanitize ctx.
-			$ctx = self::scrub_context( $ctx );
-			$entry = array(
-				'ts'      => $ts,
-				'blog_id' => (int) get_current_blog_id(),
-				'channel' => (string) $channel,
-				'level'   => (string) $level,
-				'event'   => (string) $event,
-				'event_uuid' => (string) ( $ctx['event_uuid'] ?? '' ),
-				'trace_id' => (string) ( $ctx['trace_id'] ?? '' ),
-				'parent_event_uuid' => (string) ( $ctx['parent_event_uuid'] ?? '' ),
-				'msg'     => substr( (string) $message, 0, 500 ),
-				'ctx'     => $ctx,
-			);
-
-			$line = json_encode( $entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-			if ( $line === false ) { return false; }
-			$line .= "\n";
-
-			$file = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $date . '.jsonl';
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			// [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — file logger failures must not pollute the shared PHP error log.
-			return false !== @file_put_contents( $file, $line, FILE_APPEND | LOCK_EX );
-		} catch ( \Throwable $e ) {
-			// Logger MUST NEVER THROW or emit a secondary PHP error-log entry.
-			return false;
+		// [2026-09-01 Johnny Chu] R-CH-10 — legacy positional API delegates to the single structured writer.
+		if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
+			$ctx = BizCity_Chat_Correlation::ensure( $ctx, $event );
 		}
+		$physical_channel = sanitize_key( (string) $channel );
+		return ! empty( self::write_record( array(
+			'channel'    => $physical_channel,
+			'level'      => $level,
+			'event'      => $event,
+			'stage'      => self::stage_for_event( $event ),
+			'direction'  => self::direction_for_event( $event ),
+			'event_uuid' => $ctx['event_uuid'] ?? '',
+			'trace_id'   => $ctx['trace_id'] ?? '',
+			'producer'   => array( 'module' => 'core/channel-gateway', 'version' => '1.0.0' ),
+			'account'    => self::account_from_context( $ctx, $physical_channel ),
+			'pipeline_status' => array(
+				'context_captured' => 'not_applicable',
+				'ledger_indexed'   => 'pending',
+				'kg_candidate'     => 'not_candidate',
+			),
+			'message'    => self::safe_message( $message ),
+			'context'    => $ctx,
+		) ) );
+	}
+
+	private static function append_line( $file, $line ) {
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — capture channel pointer offset inside the exclusive append lock.
+		$handle = @fopen( $file, 'ab' );
+		if ( false === $handle || ! @flock( $handle, LOCK_EX ) ) {
+			if ( is_resource( $handle ) ) { fclose( $handle ); }
+			return array( 'written' => false, 'offset' => 0 );
+		}
+		$offset = (int) ftell( $handle );
+		$written = false !== @fwrite( $handle, $line . "\n" );
+		@fflush( $handle );
+		@flock( $handle, LOCK_UN );
+		fclose( $handle );
+		return array( 'written' => $written, 'offset' => $offset );
+	}
+
+	private static function new_event_uuid() {
+		return function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : sprintf( '%s-%s-4%s-8%s-%s', substr( sha1( uniqid( '', true ) ), 0, 8 ), substr( sha1( uniqid( '', true ) ), 8, 4 ), substr( sha1( uniqid( '', true ) ), 13, 3 ), substr( sha1( uniqid( '', true ) ), 17, 3 ), substr( sha1( uniqid( '', true ) ), 20, 12 ) );
 	}
 
 	/**
@@ -182,6 +252,134 @@ class BizCity_Channel_File_Logger {
 		return self::write( $channel, self::LEVEL_ERROR, $event, $message, $ctx );
 	}
 
+	private static function normalize_zone( $channel, $zone ) {
+		$zone = sanitize_key( (string) $zone );
+		if ( in_array( $zone, array( 'customer', 'admin', 'system' ), true ) ) {
+			return $zone;
+		}
+		if ( in_array( $channel, array( self::CH_FACEBOOK, self::CH_MESSENGER, self::CH_ZALO_OA, self::CH_ZALO_PERSONAL, self::CH_WEBCHAT ), true ) ) {
+			return 'customer';
+		}
+		if ( in_array( $channel, array( self::CH_ZALO_BOT, self::CH_TELEGRAM ), true ) ) {
+			return 'admin';
+		}
+		return 'system';
+	}
+
+	private static function normalize_direction( $direction ) {
+		$direction = sanitize_key( (string) $direction );
+		return in_array( $direction, array( 'inbound', 'outbound', 'internal' ), true ) ? $direction : 'internal';
+	}
+
+	private static function normalize_level( $level ) {
+		$level = sanitize_key( (string) $level );
+		return in_array( $level, array( self::LEVEL_DEBUG, self::LEVEL_INFO, self::LEVEL_WARN, self::LEVEL_ERROR ), true ) ? $level : self::LEVEL_INFO;
+	}
+
+	private static function normalize_stage( $stage ) {
+		$stage = sanitize_key( (string) $stage );
+		$allowed = array( 'intake', 'normalize', 'persist', 'dispatch', 'delivery', 'archive', 'context', 'ledger', 'kg', 'reconcile', 'system' );
+		return in_array( $stage, $allowed, true ) ? $stage : 'system';
+	}
+
+	private static function normalize_timestamp( $timestamp ) {
+		$timestamp = trim( (string) $timestamp );
+		return preg_match( '/^\d{4}-\d{2}-\d{2}T[^ ]+Z$/', $timestamp ) ? $timestamp : gmdate( 'Y-m-d\TH:i:s\Z' );
+	}
+
+	private static function ensure_event_uuid( $event_uuid ) {
+		$event_uuid = trim( (string) $event_uuid );
+		return preg_match( '/^[a-f0-9-]{36}$/i', $event_uuid ) ? strtolower( $event_uuid ) : self::new_event_uuid();
+	}
+
+	private static function normalize_producer( $producer ) {
+		$producer = is_array( $producer ) ? $producer : array();
+		$module = sanitize_text_field( (string) ( $producer['module'] ?? 'core/channel-gateway' ) );
+		$version = (string) ( $producer['version'] ?? '1.0.0' );
+		if ( $module === '' ) {
+			$module = 'core/channel-gateway';
+		}
+		if ( ! preg_match( '/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/', $version ) ) {
+			$version = '1.0.0';
+		}
+		return array( 'module' => $module, 'version' => $version );
+	}
+
+	private static function normalize_account( $account, $channel ) {
+		$account = is_array( $account ) ? $account : array();
+		$account_id = sanitize_text_field( (string) ( $account['account_id'] ?? '' ) );
+		$account_key = sanitize_text_field( (string) ( $account['account_key'] ?? '' ) );
+		$scope = sanitize_key( (string) ( $account['scope'] ?? '' ) );
+		if ( $account_id === '' ) {
+			$account_id = 'system:' . $channel;
+			$scope = 'system';
+		} elseif ( ! in_array( $scope, array( 'exact', 'platform', 'system' ), true ) ) {
+			$scope = 'exact';
+		}
+		$out = array( 'scope' => $scope, 'account_id' => substr( $account_id, 0, 190 ) );
+		if ( $account_key !== '' ) {
+			$out['account_key'] = substr( $account_key, 0, 191 );
+		}
+		if ( ! empty( $account['label'] ) ) {
+			$out['label'] = substr( sanitize_text_field( (string) $account['label'] ), 0, 120 );
+		}
+		return $out;
+	}
+
+	private static function normalize_pipeline_status( $status ) {
+		$status = is_array( $status ) ? $status : array();
+		$allowed = array( 'success', 'failed', 'pending', 'skipped', 'not_applicable' );
+		$out = array();
+		foreach ( array( 'operational_logged', 'context_captured', 'ledger_indexed' ) as $key ) {
+			$value = sanitize_key( (string) ( $status[ $key ] ?? '' ) );
+			$out[ $key ] = in_array( $value, $allowed, true ) ? $value : ( $key === 'operational_logged' ? 'pending' : 'not_applicable' );
+		}
+		$kg = sanitize_key( (string) ( $status['kg_candidate'] ?? 'not_candidate' ) );
+		$out['kg_candidate'] = in_array( $kg, array( 'pending', 'approved', 'rejected', 'deferred', 'not_candidate', 'not_applicable' ), true ) ? $kg : 'not_candidate';
+		return $out;
+	}
+
+	private static function safe_message( $message ) {
+		// [2026-09-01 Johnny Chu] R-CH-10 — keep operational summaries bounded and redact common credential/PII shapes before JSONL persistence.
+		$message = trim( (string) $message );
+		$message = preg_replace( '/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', '[redacted-email]', $message );
+		$message = preg_replace( '/\b(?:Bearer\s+|biz[-_])[A-Za-z0-9._\-]{8,}\b/i', '[redacted-token]', $message );
+		$message = preg_replace( '/(?<!\d)(?:\+?\d[\d .()\-]{7,}\d)(?!\d)/', '[redacted-phone]', $message );
+		return substr( $message, 0, 500 );
+	}
+
+	private static function account_from_context( array $ctx, $channel ) {
+		$account_id = '';
+		foreach ( array( 'account_id', 'channel_account_id', 'bot_id', 'oa_id', 'page_id', 'account_uid', 'client_id' ) as $key ) {
+			if ( isset( $ctx[ $key ] ) && (string) $ctx[ $key ] !== '' ) {
+				$account_id = (string) $ctx[ $key ];
+				break;
+			}
+		}
+		return array(
+			'account_id' => $account_id,
+			'account_key' => (string) ( $ctx['account_key'] ?? '' ),
+			'scope' => $account_id !== '' ? 'exact' : 'system',
+		);
+	}
+
+	private static function stage_for_event( $event ) {
+		$event = sanitize_key( (string) $event );
+		if ( strpos( $event, 'webhook' ) !== false || strpos( $event, 'intake' ) !== false ) { return 'intake'; }
+		if ( strpos( $event, 'normalize' ) !== false || strpos( $event, 'received' ) !== false ) { return 'normalize'; }
+		if ( strpos( $event, 'send' ) !== false || strpos( $event, 'deliver' ) !== false ) { return 'delivery'; }
+		if ( strpos( $event, 'archive' ) !== false ) { return 'archive'; }
+		if ( strpos( $event, 'ledger' ) !== false || strpos( $event, 'index' ) !== false ) { return 'ledger'; }
+		return 'system';
+	}
+
+	private static function direction_for_event( $event ) {
+		$event = sanitize_key( (string) $event );
+		if ( strpos( $event, 'received' ) !== false || strpos( $event, 'inbound' ) !== false ) { return 'inbound'; }
+		if ( strpos( $event, 'sent' ) !== false || strpos( $event, 'outbound' ) !== false || strpos( $event, 'send' ) !== false ) { return 'outbound'; }
+		return 'internal';
+	}
+
 	// ──────────────────────────────────────────────────────────────────
 	// Read API (admin/diagnostic use only)
 	// ──────────────────────────────────────────────────────────────────
@@ -197,6 +395,11 @@ class BizCity_Channel_File_Logger {
 	 */
 	public static function read( $channel, $date = '', $limit = 200, $level = '' ) {
 		try {
+			$contract_id = self::contract_id( $channel );
+			if ( $contract_id !== '' && class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'read_contract' ) ) {
+				// [2026-08-27 Johnny Chu] R-LOG-HYBRID — registered channel reads use the canonical bounded reader.
+				return (array) BizCity_JSONL_File_Logger::read_contract( $contract_id, $date, $limit, $level );
+			}
 			if ( $date === '' ) {
 				$date = function_exists( 'wp_date' ) ? wp_date( 'Y-m-d' ) : gmdate( 'Y-m-d' );
 			}
@@ -221,6 +424,87 @@ class BizCity_Channel_File_Logger {
 	}
 
 	/**
+	 * Query normalized channel diagnostics across registered channel contracts.
+	 *
+	 * @param array<string,mixed> $args Typed channel/account/event filters.
+	 * @return array<int,array<string,mixed>> Newest rows first.
+	 */
+	public static function query_records( array $args = array() ) {
+		// [2026-09-01 Johnny Chu] R-CH-10 — one bounded account-scoped reader for every channel diagnostics consumer.
+		$channels = array( self::CH_EMAIL, self::CH_FACEBOOK, self::CH_MESSENGER, self::CH_ZALO_OA, self::CH_ZALO_BOT, self::CH_ZALO_PERSONAL, self::CH_ZALO_ZNS, self::CH_TELEGRAM, self::CH_WEBCHAT, self::CH_CF7, self::CH_CHANNEL_GATEWAY, self::CH_ASTRO );
+		$requested_channel = sanitize_key( (string) ( $args['channel'] ?? '' ) );
+		if ( $requested_channel !== '' ) {
+			if ( ! in_array( $requested_channel, $channels, true ) ) {
+				return array();
+			}
+			$channels = array( $requested_channel );
+		}
+		$days = max( 1, min( 31, (int) ( $args['days'] ?? 3 ) ) );
+		$limit = max( 1, min( 5000, (int) ( $args['limit'] ?? 200 ) ) );
+		$level = sanitize_key( (string) ( $args['level'] ?? '' ) );
+		$account_id = sanitize_text_field( (string) ( $args['account_id'] ?? '' ) );
+		$event = sanitize_key( (string) ( $args['event'] ?? '' ) );
+		$stage = sanitize_key( (string) ( $args['stage'] ?? '' ) );
+		$trace_id = sanitize_text_field( (string) ( $args['trace_id'] ?? '' ) );
+		$date = sanitize_text_field( (string) ( $args['date'] ?? '' ) );
+		$query = sanitize_text_field( (string) ( $args['q'] ?? '' ) );
+		$status_filters = array();
+		foreach ( array( 'operational_logged', 'context_captured', 'ledger_indexed', 'kg_candidate' ) as $status_key ) {
+			$status_value = sanitize_key( (string) ( $args[ $status_key ] ?? '' ) );
+			if ( $status_value !== '' ) {
+				$status_filters[ $status_key ] = $status_value;
+			}
+		}
+		if ( $date !== '' && ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+			$date = '';
+		}
+		$rows = array();
+		$seen = array();
+		foreach ( $channels as $channel ) {
+			$contract_id = self::contract_id( $channel );
+			if ( $contract_id === '' || ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+				continue;
+			}
+			$channel_rows = BizCity_JSONL_File_Logger::query_contract( $contract_id, array(
+				'days' => $days,
+				'limit' => $limit,
+				'level' => $level,
+				'filter' => function ( $row ) use ( $channel, $account_id, $event, $stage, $trace_id, $date, $query, $status_filters ) {
+					if ( ! is_array( $row ) ) { return false; }
+					if ( sanitize_key( (string) ( $row['channel'] ?? $channel ) ) !== $channel ) { return false; }
+					if ( $date !== '' && substr( (string) ( $row['occurred_at'] ?? $row['ts'] ?? '' ), 0, 10 ) !== $date ) { return false; }
+					$account = is_array( $row['account'] ?? null ) ? $row['account'] : array();
+					if ( $account_id !== '' && (string) ( $account['account_id'] ?? '' ) !== $account_id ) { return false; }
+					if ( $event !== '' && sanitize_key( (string) ( $row['event'] ?? '' ) ) !== $event ) { return false; }
+					if ( $stage !== '' && sanitize_key( (string) ( $row['stage'] ?? '' ) ) !== $stage ) { return false; }
+					if ( $trace_id !== '' && (string) ( $row['trace_id'] ?? '' ) !== $trace_id ) { return false; }
+					if ( $query !== '' ) {
+						$haystack = function_exists( 'wp_json_encode' ) ? wp_json_encode( $row ) : json_encode( $row );
+						if ( ! is_string( $haystack ) || stripos( $haystack, $query ) === false ) { return false; }
+					}
+					$pipeline = is_array( $row['pipeline_status'] ?? null ) ? $row['pipeline_status'] : array();
+					foreach ( $status_filters as $status_key => $status_value ) {
+						if ( (string) ( $pipeline[ $status_key ] ?? '' ) !== $status_value ) { return false; }
+					}
+					return true;
+				},
+			) );
+			foreach ( is_array( $channel_rows ) ? $channel_rows : array() as $row ) {
+				$key = (string) ( $row['event_uuid'] ?? '' );
+				if ( $key !== '' && isset( $seen[ $key ] ) ) { continue; }
+				if ( $key !== '' ) { $seen[ $key ] = true; }
+				$rows[] = $row;
+			}
+		}
+		usort( $rows, function ( $left, $right ) {
+				$left_time = (string) ( $left['occurred_at'] ?? $left['ts'] ?? '' );
+				$right_time = (string) ( $right['occurred_at'] ?? $right['ts'] ?? '' );
+				return strcmp( $right_time, $left_time );
+			} );
+		return array_slice( $rows, 0, $limit );
+	}
+
+	/**
 	 * List available log dates for a channel (most recent first).
 	 *
 	 * @param string $channel
@@ -229,6 +513,13 @@ class BizCity_Channel_File_Logger {
 	 */
 	public static function list_dates( $channel, $max = 30 ) {
 		try {
+			$contract_id = self::contract_id( $channel );
+			if ( $contract_id !== '' && class_exists( 'BizCity_JSONL_File_Logger' ) && class_exists( 'BizCity_Log_Contract_Registry' ) ) {
+				$contract = BizCity_Log_Contract_Registry::get( $contract_id );
+				if ( is_array( $contract ) ) {
+					return BizCity_JSONL_File_Logger::list_dates( $contract['jsonl_folder'], $contract['jsonl_module'], $max );
+				}
+			}
 			$dir   = self::get_log_dir( $channel );
 			if ( $dir === '' ) { return array(); }
 			$files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
@@ -249,6 +540,11 @@ class BizCity_Channel_File_Logger {
 		// [2026-08-01 Johnny Chu] PHASE-1.27-CHANNEL-RETENTION — keep channel
 		// evidence bounded without deleting individual append-only JSONL rows.
 		try {
+			$contract_id = self::contract_id( $channel );
+			if ( $contract_id !== '' && class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'purge_contract' ) ) {
+				// [2026-08-27 Johnny Chu] R-LOG-HYBRID — registered channel retention uses the canonical contract policy.
+				return (int) BizCity_JSONL_File_Logger::purge_contract( $contract_id, $days );
+			}
 			$dir = self::get_log_dir( $channel );
 			if ( $dir === '' ) {
 				return 0;
@@ -278,6 +574,13 @@ class BizCity_Channel_File_Logger {
 	// ──────────────────────────────────────────────────────────────────
 	// Internal helpers
 	// ──────────────────────────────────────────────────────────────────
+
+	private static function contract_id( $channel ) {
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — resolve only registry-owned channel identities; unregistered compatibility channels retain their legacy facade path.
+		$channel = sanitize_key( (string) $channel );
+		$contract_id = 'core.channel_gateway.' . $channel;
+		return class_exists( 'BizCity_Log_Contract_Registry' ) && BizCity_Log_Contract_Registry::has( $contract_id ) ? $contract_id : '';
+	}
 
 	/**
 	 * Resolve (and create if needed) the filesystem directory for a channel's logs.

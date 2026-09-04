@@ -25,7 +25,7 @@
  *   tools      → /tools-map/            (intent tool map)
  *   skills     → /skills/               (skills page)
  *   gateway    → admin: bizchat-gateway                  (mode=link)
- *   explore    → admin: bizcity-marketplace              (mode=link)
+ *   marketplace → admin: index.php?page=bizcity-marketplace (mode=link)
  *
  * ── Activation gating (2026-06-02) ─────────────────────────────────────
  * Each entry MAY declare `requires`:
@@ -34,7 +34,7 @@
  *   [ 'function' => 'fn_name'     ]   — function_exists(...)
  *   [ 'plugin'   => 'slug/file.php' ] — is_plugin_active(...)
  * Entries WITHOUT `requires` are considered **core** and ALWAYS show:
- *   twinchat · gateway · scheduler · workflow · skills · settings · account.
+ *   twinchat · gateway · crm · scheduler · workflow · skills · settings · account.
  * Non-core entries whose requirement fails are hidden from the ActivityBar.
  * Bookmarked URLs (`/twin/?plugin=xxx`) hitting a locked entry render the
  * “Plugin chưa được kích hoạt / gói Pro” notice (see class-twin-shell-page).
@@ -58,11 +58,12 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 	$td = 'bizcity-twin-ai';
 
 	$defaults = [
-		// ── Core workspace ────────────────────────────────────────────
+		// ── Operating center ─────────────────────────────────────────
 		[
 			'id'          => 'twinchat',
 			'label'       => __( 'Twin Chat',                     $td ),
-			'icon'        => 'home',
+			// [2026-08-29 Johnny Chu] PHASE-TWINSHELL-NAV — identify Twin Chat with the brain icon in the shared ActivityBar.
+			'icon'        => 'brain',
 			'emoji'       => '💬',
 			'mode'        => 'embed',
 			'public_slug' => '/twinchat/',
@@ -73,34 +74,64 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			// bar (admin.php?page=bizcity-twinchat&plugin=twinchat&session_id=…),
 			// y như cách `notebook_id` đang hoạt động cho notebook deep-link.
 			'params'      => [ 'session', 'session_id', 'notebook', 'notebook_id', 'thread' ],
-			'desc'        => __( 'Workspace chat & notebooks.',   $td ),
-		],	// [2026-07-04 Johnny Chu] PHASE-FAA2-FE — BizCoach Pro Astrology (/astro/) in ActivityBar.
-	// Placed right after twinchat so it's the second icon from top.
-	[
-		'id'          => 'astro',
-		'label'       => __( 'Astrology',                     $td ),
-		'icon'        => 'astro',
-		'emoji'       => '🌙',
-		'mode'        => 'embed',
-		'public_slug' => '/astro/',
-		'capability'  => 'read',
-		'section'     => 'top',
-		'params'      => [ 'id', 'tab', 'hash' ],
-		'desc'        => __( 'Western & Vedic natal charts, transit calendar.', $td ),
-		'requires'    => [ 'class' => 'BizCoach_Pro_Self_Service_Page' ],
-	],		// ── Authoring ─────────────────────────────────────────────────
+			'desc'        => __( 'Central business brain for chat, knowledge and work.', $td ),
+		],
+		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — channels are the
+		// second operating layer: bring every external conversation into the brain.
 		[
-			'id'          => 'creator',
-			'label'       => __( 'Brain Factory',                $td ),
-			'icon'        => 'creator',
-			'emoji'       => '🧠',
-			'mode'        => 'embed',
-			'public_slug' => '/creator/',
+			'id'          => 'gateway',
+			'label'       => __( 'Channels',                      $td ),
+			'icon'        => 'gateway',
+			'emoji'       => '🔌',
+			'mode'        => 'link',
+			'target_url'  => admin_url( 'admin.php?page=bizchat-gateway-spa' ),
 			'capability'  => 'read',
 			'section'     => 'top',
-			'params'      => [ 'id', 'tab', 'session_id' ],
-			// [2026-06-03 Johnny Chu] HOTFIX — gate bằng hằng BZCC_VERSION (plugin dùng prefix BZCC_*, không có class BizCity_Content_Creator) để menu Brain Factory không bị ẩn.
-			'requires'    => [ 'const' => 'BZCC_VERSION' ],
+		],
+		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — CRM is the third
+		// operating layer for channel data, inboxes and customer context.
+		// [2026-08-27 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — CRM is a default
+		// capability of BizCity Twin AI, available on the Free plan.
+		[
+			'id'          => 'crm',
+			'label'       => __( 'Twin CRM',                       $td ),
+			'icon'        => 'funnel',
+			'emoji'       => '📥',
+			'mode'        => 'embed',
+			'public_slug' => '/crm/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'params'      => [ 'id', 'tab', 'inbox', 'thread', 'contact_id' ],
+			'desc'        => __( 'Unified multi-channel inbox (Facebook / Zalo / WebChat) with Twin Brain trace.', $td ),
+		],
+		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — PageBuilder is
+		// fourth: turn the brain and CRM context into landing pages and campaigns.
+		[
+			'id'          => 'web',
+			'label'       => __( 'Page Builder',                  $td ),
+			'icon'        => 'web',
+			'emoji'       => '🌐',
+			'mode'        => 'embed',
+			'public_slug' => '/tool-pagebuilder/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'params'      => [ 'id', 'page' ],
+			'requires'    => [ 'class' => 'BZPB_Rest_API' ],
+		],
+		// ── Extensions ────────────────────────────────────────────────
+		// Extensions remain available after the four core operating layers.
+		[
+			'id'          => 'astro',
+			'label'       => __( 'Astrology',                     $td ),
+			'icon'        => 'astro',
+			'emoji'       => '🌙',
+			'mode'        => 'embed',
+			'public_slug' => '/astro/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'params'      => [ 'id', 'tab', 'hash' ],
+			'desc'        => __( 'Western & Vedic natal charts, transit calendar.', $td ),
+			'requires'    => [ 'class' => 'BizCoach_Pro_Self_Service_Page' ],
 		],
 		[
 			'id'          => 'doc',
@@ -114,105 +145,108 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'params'      => [ 'doc', 'id', 'tab' ],
 			'requires'    => [ 'const' => 'BZDOC_VERSION' ],
 		],
-		// ── Customer Operations ───────────────────────────────────────
 		[
-			'id'          => 'gateway',
-			'label'       => __( 'Channels',                      $td ),
-			'icon'        => 'gateway',
-			'emoji'       => '🔌',
-			'mode'        => 'link',
-			'target_url'  => admin_url( 'admin.php?page=bizchat-gateway-spa' ),
-			'capability'  => 'read',
-			'section'     => 'top',
-		],
-		// [2026-06-27 Johnny Chu] HOTFIX — moved Web Builder before CRM per UX request
-		[
-			'id'          => 'web',
-			'label'       => __( 'Web Builder',                   $td ),
-			'icon'        => 'web',
-			'emoji'       => '🌐',
+			'id'          => 'creator',
+			'label'       => __( 'Brain Factory',                $td ),
+			'icon'        => 'creator',
+			'emoji'       => '🧠',
 			'mode'        => 'embed',
-			'public_slug' => '/tool-pagebuilder/',
+			'public_slug' => '/creator/',
 			'capability'  => 'read',
 			'section'     => 'top',
-			'params'      => [ 'id', 'page' ],
-			'requires'    => [ 'class' => 'BZPB_Rest_API' ],
+			'params'      => [ 'id', 'tab', 'session_id' ],
+			'requires'    => [ 'const' => 'BZCC_VERSION' ],
 		],
 		[
-			'id'          => 'crm',
-			'label'       => __( 'Twin CRM',                       $td ),
-			'icon'        => 'funnel',
-			'emoji'       => '📥',
+			'id'          => 'image',
+			'label'       => __( 'Product Images',                $td ),
+			'icon'        => 'image',
+			'emoji'       => '🎨',
 			'mode'        => 'embed',
-			'public_slug' => '/crm/',
+			'public_slug' => '/tool-image/',
 			'capability'  => 'read',
 			'section'     => 'top',
-			'params'      => [ 'id', 'tab', 'inbox', 'thread', 'contact_id' ],
-			'desc'        => __( 'Unified multi-channel inbox (Facebook / Zalo / WebChat) with Twin Brain trace.', $td ),
-			// [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan gate: PRO badge in ActivityBar,
-			// clicking shows upgrade notice when user plan < pro.
-			// `requires` is evaluated only when plan gate passes (plugin_locked check).
-			'plan'        => 'pro',
-			'requires'    => [ 'class' => 'BizCity_Twin_CRM' ],
+			'params'      => [ 'id', 'tab' ],
+			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
 		],
-		// ── Visual / Design ───────────────────────────────────────────
-		// [2026-08-19 Johnny Chu] HOTFIX — ẩn Product Images, Portrait Studio và Video Studio khỏi ActivityBar.
-		// [
-		// 	'id'          => 'image',
-		// 	'label'       => __( 'Product Images',                $td ),
-		// 	'icon'        => 'image',
-		// 	'emoji'       => '🎨',
-		// 	'mode'        => 'embed',
-		// 	'public_slug' => '/tool-image/',
-		// 	'capability'  => 'read',
-		// 	'section'     => 'top',
-		// 	'params'      => [ 'id', 'tab' ],
-		// 	'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
-		// ],
-		// [
-		// 	'id'          => 'profile',
-		// 	'label'       => __( 'Portrait Studio',               $td ),
-		// 	'icon'        => 'profile',
-		// 	'emoji'       => '🧑‍🎨',
-		// 	'mode'        => 'embed',
-		// 	'public_slug' => '/profile-studio/',
-		// 	'capability'  => 'read',
-		// 	'section'     => 'top',
-		// 	'params'      => [ 'id', 'tab' ],
-		// 	'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
-		// ],
-		// [
-		// 	'id'          => 'video',
-		// 	'label'       => __( 'Video Studio',                  $td ),
-		// 	'icon'        => 'video',
-		// 	'emoji'       => '🎬',
-		// 	'mode'        => 'embed',
-		// 	'public_slug' => '/kling-video/',
-		// 	'capability'  => 'read',
-		// 	'section'     => 'top',
-		// 	'params'      => [ 'id', 'tab', 'mode' ],
-		// 	'requires'    => [ 'const' => 'BIZCITY_VIDEO_KLING_VERSION' ],
-		// ],
-		// ── Knowledge ─────────────────────────────────────────────────
-		// Mindmap & Notebook entries removed from ActivityBar (still reachable
-		// from Workspace / inline tools); keep registry lean per UX feedback.
-		// 2026-05-13 — twin-builder removed from ActivityBar per UX feedback
-		// (still reachable via /wp-admin/?page=bizcity-twin-builder direct URL).
-		// [2026-06-24 Johnny Chu] PHASE-HOME — Trợ lý cá nhân (bizcity-personal)
+		[
+			'id'          => 'video',
+			'label'       => __( 'Video Studio',                  $td ),
+			'icon'        => 'video',
+			'emoji'       => '🎬',
+			'mode'        => 'embed',
+			'public_slug' => '/kling-video/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'params'      => [ 'id', 'tab', 'mode' ],
+			'requires'    => [ 'const' => 'BIZCITY_VIDEO_KLING_VERSION' ],
+		],
+		[
+			'id'          => 'profile',
+			'label'       => __( 'Portrait Studio',               $td ),
+			'icon'        => 'profile',
+			'emoji'       => '🧑‍🎨',
+			'mode'        => 'embed',
+			'public_slug' => '/profile-studio/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'params'      => [ 'id', 'tab' ],
+			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
+		],
+		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — expose the existing
+		// QR Studio page in the shared TwinShell ActivityBar.
+		[
+			'id'          => 'qr',
+			'label'       => __( 'QR Studio',                    $td ),
+			'icon'        => 'qr',
+			'emoji'       => '🔳',
+			'mode'        => 'embed',
+			'public_slug' => '/qr-studio/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
+		],
 		[
 			'id'          => 'personal',
 			'label'       => __( 'Personal Assistant',            $td ),
-			'icon'        => 'home',
+			// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — use a profile
+			// silhouette for the personal assistant entry instead of the home icon.
+			'icon'        => 'profile',
 			'emoji'       => '🏠',
 			'mode'        => 'embed',
-			'public_slug' => '/personal/',
+			// [2026-08-29 Johnny Chu] PHASE-TWINSHELL-NAV — Personal Assistant is served by the canonical /profile/ route.
+			'public_slug' => '/profile/',
 			'capability'  => 'read',
 			'section'     => 'top',
 			'params'      => [ 'ref' ],
 			'desc'        => __( 'Personal calendar, tasks, budget & journal.', $td ),
 			'requires'    => [ 'const' => 'BIZCITY_PERSONAL_VERSION' ],
 		],
+		[
+			'id'          => 'profile-public',
+			'label'       => __( 'Public Profile QR',              $td ),
+			'icon'        => 'qr',
+			'emoji'       => '🔳',
+			'mode'        => 'embed',
+			'public_slug' => '/profile-public/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'requires'    => [ 'const' => 'BIZCITY_PERSONAL_VERSION' ],
+		],
 		// ── Operations (bottom — utilities & system links) ────────────
+		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-MARKET — keep Marketplace
+		// inside the Twin workspace, immediately before Reminders.
+		[
+			'id'          => 'marketplace',
+			'label'       => __( 'Marketplace',                    $td ),
+			'icon'        => 'marketplace',
+			'emoji'       => '🏪',
+			'mode'        => 'link',
+			'target_url'  => admin_url( 'index.php?page=bizcity-marketplace' ),
+			'capability'  => 'read',
+			'section'     => 'bottom',
+			'desc'        => __( 'Browse and manage BizCity extensions.', $td ),
+		],
 		// [2026-06-17 Johnny Chu] UX — removed Account & Billing button from ActivityBar
 		[
 			'id'          => 'scheduler',

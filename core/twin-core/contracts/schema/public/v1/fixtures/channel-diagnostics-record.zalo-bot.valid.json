@@ -1,0 +1,33 @@
+{
+  "contract": "channel-diagnostics-record",
+  "version": "1.0.0",
+  "event_uuid": "0190abc1-1234-7abc-8def-0123456789bc",
+  "trace_id": "trace_zalobot_001",
+  "occurred_at": "2026-09-01T08:32:00Z",
+  "blog_id": 1258,
+  "channel": "zalo_bot",
+  "zone": "admin",
+  "account": {
+    "scope": "exact",
+    "account_id": "bot_account_B",
+    "account_key": "a_bot_82c74f10",
+    "label": "Bot điều hành B"
+  },
+  "direction": "inbound",
+  "level": "info",
+  "event": "admin_command_received",
+  "stage": "dispatch",
+  "producer": {
+    "module": "plugins/bizcity-zalo-bot",
+    "version": "1.0.0"
+  },
+  "pipeline_status": {
+    "operational_logged": "success",
+    "context_captured": "not_applicable",
+    "ledger_indexed": "not_applicable",
+    "kg_candidate": "not_applicable"
+  },
+  "context": {
+    "reason_bucket": "ok"
+  }
+}

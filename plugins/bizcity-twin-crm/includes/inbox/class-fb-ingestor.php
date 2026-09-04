@@ -44,7 +44,7 @@ class BizCity_CRM_Facebook_Ingestor {
 		'bizcity_facebook_message_received'  => 'facebook',
 		'bizcity_facebook_image_received'    => 'facebook',
 		'bizcity_facebook_comment_received'  => 'facebook',
-		'bizcity_zalo_message_received'      => 'zalo',
+		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - map the legacy Bot trigger to the canonical Bot adapter.
 		// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — Zone 1 OA path → adapter zalo_oa
 		'bizcity_zalo_oa_message_received'   => 'zalo_oa',
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — Personal customer-care path uses its own adapter code.
@@ -99,15 +99,22 @@ class BizCity_CRM_Facebook_Ingestor {
 	public function on_workflow_trigger( $trigger_key, $trigger_data = array() ): void {
 		// New Zalo Bot path: bizcity_gateway_fire_trigger() fires waic_twf_process_flow with
 		// an ARRAY trigger (not a string key). Detect via $trigger_key['platform']==='zalo_bot'.
-		if ( is_array( $trigger_key ) && ( $trigger_key['platform'] ?? '' ) === 'zalo_bot' ) {
+		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - normalize the array discriminator before Bot dispatch.
+		if ( is_array( $trigger_key ) && sanitize_key( (string) ( $trigger_key['platform'] ?? '' ) ) === 'zalo_bot' ) {
 			$this->ingest_zalo_bot_trigger( $trigger_key );
 			return;
 		}
 		if ( ! is_string( $trigger_key ) ) { return; }
-		$code = self::KEY_MAP[ $trigger_key ] ?? null;
+		$code = self::resolve_trigger_code( $trigger_key, $trigger_data );
 		// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P2 trace
 		error_log( '[bizcity-crm-trace] P2 on_workflow_trigger key=' . $trigger_key . ' code=' . ( $code ?? 'NULL' ) );
-		if ( ! $code ) { return; }
+		if ( ! $code ) {
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - record a reason bucket when a shared trigger lacks a trusted channel discriminator.
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+				BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_WARN, 'crm_trigger_code_unresolved', 'CRM trigger rejected because channel identity was not explicit.', array( 'trigger_key' => sanitize_key( $trigger_key ), 'reason' => 'missing_channel_discriminator' ) );
+			}
+			return;
+		}
 		if ( ! is_array( $trigger_data ) ) { return; }
 
 		$adapter = BizCity_CRM_Channel_Registry::get( $code );
@@ -129,16 +136,46 @@ class BizCity_CRM_Facebook_Ingestor {
 	}
 
 	/**
+	 * Resolve the shared Zalo action by its explicit payload discriminator.
+	 *
+	 * @param string $trigger_key  Workflow action key.
+	 * @param mixed  $trigger_data Adapter payload.
+	 * @return string|null
+	 */
+	private static function resolve_trigger_code( string $trigger_key, $trigger_data ): ?string {
+		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - prevent generic Zalo action cross-routing by requiring platform/code identity.
+		if ( 'bizcity_zalo_message_received' !== $trigger_key ) {
+			return self::KEY_MAP[ $trigger_key ] ?? null;
+		}
+		if ( ! is_array( $trigger_data ) ) {
+			return null;
+		}
+		$payload_code = sanitize_key( (string) ( $trigger_data['code'] ?? '' ) );
+		$platform = strtoupper( (string) ( $trigger_data['platform'] ?? '' ) );
+		$platform_map = array(
+			'ZALO_BOT'      => 'zalo_bot',
+			'ZALO_PERSONAL' => 'zalo_personal',
+			'ZALO_OA'       => 'zalo_oa',
+		);
+		if ( $payload_code !== '' && isset( $platform_map[ $platform ] ) && $payload_code !== $platform_map[ $platform ] ) {
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - refuse conflicting platform/code provenance before adapter lookup.
+			return null;
+		}
+		return isset( $platform_map[ $platform ] ) ? $platform_map[ $platform ] : ( in_array( $payload_code, array( 'zalo_bot', 'zalo_personal', 'zalo_oa' ), true ) ? $payload_code : null );
+	}
+
+	/**
 	 * Ingest a Zalo Bot trigger emitted with the new array-shape payload.
 	 * Trigger fields (see bizcity-zalo-bot/includes/class-webhook-handler.php):
 	 *   { platform=zalo_bot, chat_id=zalobot_{bot}_{uid}, user_id, message_id,
 	 *     text, display_name, bot_id, bot_name, source_blog_id, raw, ... }
-	 * We map them onto the Zalo adapter's normalize_inbound() shape.
+	 * We map them onto the Zalo Bot adapter's normalize_inbound() shape.
 	 * Inbox channel_ref_id is the numeric bot_id so resolve_chat_id() can
 	 * later compose `zalobot_{bot}_{uid}` for the gateway.
 	 */
 	private function ingest_zalo_bot_trigger( array $t ): void {
-		$adapter = BizCity_CRM_Channel_Registry::get( 'zalo' );
+		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - never route Bot payloads through the legacy Zalo adapter.
+		$adapter = BizCity_CRM_Channel_Registry::get( 'zalo_bot' );
 		if ( ! $adapter ) { return; }
 		$bot_id  = (string) ( $t['bot_id'] ?? '' );
 		$uid     = (string) ( $t['user_id'] ?? '' );
@@ -157,6 +194,9 @@ class BizCity_CRM_Facebook_Ingestor {
 			'from_user_name'  => (string) ( $t['display_name'] ?? '' ),
 			'message_text'    => $text,
 			'message_id'      => (string) ( $t['message_id'] ?? '' ),
+			'chat_id'         => (string) ( $t['chat_id'] ?? '' ),
+			'thread_kind'     => (string) ( $t['thread_kind'] ?? '' ),
+			'group_id'        => (string) ( $t['group_id'] ?? $t['thread_id'] ?? '' ),
 			'image_url'       => ( $attachment_type === 'image' || $image_url !== '' ) ? $image_url : '',
 			'file_url'        => ( $attachment_type === 'file' || $file_url !== '' ) ? $file_url : '',
 			'file_name'       => (string) ( $t['file_name'] ?? '' ),
@@ -419,6 +459,8 @@ class BizCity_CRM_Facebook_Ingestor {
 		$adapter_code = '';
 		$inbox_ref    = '';
 		$source_id    = '';
+		$thread_kind  = '';
+		$group_id     = '';
 		if ( $platform === 'FB_MESS' && strpos( $chat_id, 'fb_' ) === 0 ) {
 			$parts = explode( '_', $chat_id, 3 );
 			if ( count( $parts ) === 3 ) {
@@ -426,10 +468,15 @@ class BizCity_CRM_Facebook_Ingestor {
 				$adapter_code = 'facebook';
 			}
 		} elseif ( $platform === 'ZALO_BOT' && strpos( $chat_id, 'zalobot_' ) === 0 ) {
-			$parts = explode( '_', $chat_id, 3 );
-			if ( count( $parts ) === 3 ) {
-				[ , $inbox_ref, $source_id ] = $parts;
-				$adapter_code = 'zalo';
+			$chat = class_exists( 'BizCity_CRM_Adapter_ZaloBot' )
+				? BizCity_CRM_Adapter_ZaloBot::parse_chat_id( $chat_id )
+				: null;
+			if ( is_array( $chat ) ) {
+				$inbox_ref    = (string) $chat['bot_id'];
+				$source_id    = (string) $chat['source_id'];
+				$thread_kind  = (string) $chat['thread_kind'];
+				$group_id     = (string) ( $chat['group_id'] ?? '' );
+				$adapter_code = 'zalo_bot';
 			}
 		} elseif ( $platform === 'WEBCHAT' && strpos( $chat_id, 'webchat_' ) === 0 ) {
 			// PHASE 0.37 — local widget mirror. inbox_ref = blog_id,
@@ -443,7 +490,7 @@ class BizCity_CRM_Facebook_Ingestor {
 
 		try {
 			$inbox_label = 'FB Page ' . $inbox_ref;
-			if ( $adapter_code === 'zalo' ) {
+			if ( $adapter_code === 'zalo_bot' ) {
 				$inbox_label = 'Zalo Bot ' . $inbox_ref;
 			} elseif ( $adapter_code === 'webchat' ) {
 				$site_name   = function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'name' ) : '';
@@ -459,6 +506,9 @@ class BizCity_CRM_Facebook_Ingestor {
 				'external_source_id' => (string) ( $payload['extra']['mid'] ?? ( $payload['extra']['message_id'] ?? '' ) ),
 				'received_at'        => current_time( 'mysql' ),
 				'sender_type'        => 'agent_bot',
+				'thread_kind'        => $thread_kind,
+				'group_id'           => $group_id,
+				'ai_metadata'        => $thread_kind !== '' ? array( 'thread_kind' => $thread_kind ) : array(),
 			) );
 		} catch ( \Throwable $e ) {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
@@ -473,6 +523,17 @@ class BizCity_CRM_Facebook_Ingestor {
 	 * @return int message_id (0 if invalid / dedupe-skipped)
 	 */
 	public function ingest_outbound( string $adapter_code, array $norm ): int {
+		if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
+			return 0;
+		}
+		$descriptor = BizCity_CRM_Channel_Contract::require_crm_enabled( $adapter_code );
+		if ( is_wp_error( $descriptor ) ) {
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - refuse outbound CRM writes for disabled or unknown channel codes before SQL.
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+				BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_WARN, 'crm_outbound_rejected', 'CRM outbound mirror rejected by channel contract.', array( 'channel' => sanitize_key( $adapter_code ), 'reason' => sanitize_key( $descriptor->get_error_code() ) ) );
+			}
+			return 0;
+		}
 		// 1. Inbox (auto-create on the fly).
 		$inbox_id = BizCity_CRM_Repository::upsert_inbox(
 			$adapter_code,
@@ -510,6 +571,15 @@ class BizCity_CRM_Facebook_Ingestor {
 		}
 		if ( $stamp_kind === null ) { $stamp_kind = 'auto'; }
 
+		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - retain the shared thread identity on outbound CRM rows.
+		$outbound_metadata = isset( $norm['ai_metadata'] ) && is_array( $norm['ai_metadata'] ) ? $norm['ai_metadata'] : array();
+		if ( ! empty( $norm['thread_kind'] ) ) {
+			$outbound_metadata['thread_kind'] = sanitize_key( (string) $norm['thread_kind'] );
+		}
+		if ( ! empty( $norm['group_id'] ) ) {
+			$outbound_metadata['group_id'] = sanitize_text_field( (string) $norm['group_id'] );
+		}
+
 		// 4. Outbound message.
 		$msg_id = BizCity_CRM_Repository::insert_message( array(
 			'conversation_id'    => $conv_id,
@@ -521,7 +591,7 @@ class BizCity_CRM_Facebook_Ingestor {
 			'sender_type'        => (string) ( $norm['sender_type'] ?? 'agent_bot' ),
 			'sender_id'          => 0,
 			'status'             => (string) ( $norm['status'] ?? 'sent' ),
-			'ai_metadata'        => isset( $norm['ai_metadata'] ) && is_array( $norm['ai_metadata'] ) ? $norm['ai_metadata'] : null,
+			'ai_metadata'        => $outbound_metadata ? $outbound_metadata : null,
 			'responder_kind'     => $stamp_kind,
 			'responder_user_id'  => $stamp_uid,
 			'character_id'       => $stamp_cid,

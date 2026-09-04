@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="3" failures="0" skipped="0" time="0.551">
+  <testsuite name="diagnostics" tests="3" failures="0" skipped="0" time="0.551">
+    <testcase classname="bizcity.diagnostics" name="core.knowledge.kg_source_progress_parity" time="0.099">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.knowledge.kg_cleanup_audit_parity" time="0.153">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.knowledge.kg_usage_ledger_parity" time="0.123">
+    </testcase>
+  </testsuite>
+</testsuites>

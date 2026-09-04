@@ -1,5 +1,11 @@
 # Changelog
 
+> **ALL CHANNEL - ONE BRAIN**
+> 
+> Mọi thay đổi được ghi dưới đây phải củng cố một channel intake, một canonical
+> owner và một Context Bank/KG/One Brain evidence path.
+> **Stamp:** `[2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh]`
+
 All notable changes to **BizCity Twin AI** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -12,6 +18,408 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [Unreleased]
+
+### Legacy memory and WebChat storage consolidation - 2026-09-03
+
+| Area | Change | Status |
+|---|---|---|
+| Memory family ownership | User, episodic, rolling, session and notes payloads now use their canonical encrypted business filestore/Context Bank owners; legacy SQL readers are fail-closed and legacy schema installers are no longer registered for WebChat, episodic or rolling projections. | Focused local diagnostics PASS: 5/5 probes, including Context Bank references/tombstones and all memory filestore owners; production zero-growth and cleanup evidence remain pending |
+| Notes ownership | WebChat workflow, AJAX and KG notebook pinned-note readers use `BizCity_TwinChat_Notes_Service`; `bizcity_twinchat_notes` is catalogued as a deprecated alias of `modules.twinchat.memory_notes`. | Focused `core.memory.notes_filestore_parity` PASS; source/loader/runtime validation complete for this slice |
+| WebChat conversation consolidation | `bizcity_webchat_conversations` is explicitly quarantined for future message-owned identity/list/count/status/title unification; `bizcity_webchat_messages` remains the active shared message projection. | Conversation parity probe and caller cutover remain open |
+
+### Context Bank REST and reconciliation hardening - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| REST ownership boundary | Context Bank list reads now pass only server-authorized tenant/owner filters into the bounded Search owner; list rows use the same metadata-only public projection as single-record reads. | PHP 7.4.4 lint and editor diagnostics PASS; live HTTP permission matrix remains pending behind the mapped runtime bootstrap blocker |
+| Reconcile observability | Added bounded `R-CRON-META` start, failure-reason and completion events to the file-to-ledger reconciler without advancing checkpoints on failure or creating a cron schedule. | PHP 7.4.4 lint and editor diagnostics PASS; failure injection, concurrent append and production aggregate evidence remain pending |
+| Reconcile checkpoint safety | Refuse a regressed source cursor, confirm checkpoint persistence before reporting advancement, and emit bounded `reconcile_checkpoint_advanced` or `reconcile_checkpoint_persist_failed` events. Added the focused reconciler probe. | `core.context_bank.reconciler` PASS 6/6 on blog 1526 with PHP 7.4.4; injected file/SQL failure, retention and complete aggregate evidence remain pending |
+| Reconcile exception safety | Reader, ledger-admission and checkpoint-option exceptions now become bounded failed batches; the prior checkpoint is returned and no cursor advancement is reported. | Focused `core.context_bank.reconciler` PASS 6/6 on blog 1526 with PHP 7.4.4; real failure injection and production aggregate evidence remain pending |
+| REST exception safety | Context Bank REST search, ledger dependency and pointer-follow exceptions now return the canonical four-field error envelope instead of escaping as a fatal. Added focused REST boundary probe coverage. | Focused `core.context_bank.rest` PASS 7/7 on blog 1526 with PHP 7.4.4, including unauthenticated/admin/valid-owner/modified-owner branches and disposable-user cleanup; mapped-domain and browser/UI evidence remain pending |
+| Mapped REST probe | Exact unauthenticated request to `https://libedemo.bizcity.vn/wp-json/bizcity-context/v1/records?limit=1` returned HTTP 401 with `code/message` only; deployed artifact parity is not yet proven for the new four-field handler response. | Observed HTTP response only; no VPS PHP/log conclusion. Redeploy current REST controller and rerun authenticated plus unauthenticated mapped matrix |
+
+### Context Bank Commerce and diagnostics gate closure - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Commerce probe verdict | Commerce diagnostics aggregate now includes the canonical shipment hook/redaction contract instead of allowing that check to be omitted from the final PASS calculation. | PHP 7.4.4 lint and mapped tenant `1526` focused probe PASS: 14/14 steps, including linked/unlinked relations, replay, shipment/delivery, verified follow and cleanup |
+| Provisioning stamp | Context Bank ledger and rollup-state installers now share module stamp `1.3.0`; ledger provisioning no longer downgrades the option from `1.3.0` to `1.1.0`. | Focused KG and Commerce diagnostics output confirmed both installer rows remain at `1.3.0` |
+| G4 precondition | Standalone KG fixture was retried on mapped blog `1526` and stopped before mutation because no same-tenant canonical notebook exists. | `status=partial`, `reason=g4_notebook_unavailable`, zero KG/ledger mutations and cleanup PASS; G4 remains deferred |
+| G3 correction safety | The standalone Commerce fixture now verifies a late refund correction's `parent_record_id`, deterministic replay, forbidden-field exclusion and cleanup across eight derived pointers. | Mapped blog `1526` fixture PASS for correction/replay/payload safety; overall result remains `partial` only for the missing canonical inventory producer |
+
+### Context Bank retrieval scope evidence - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Scope resolver | Verified posted owner/tenant hints are ignored, current tenant is enforced and retrieval budgets are explicit. | Focused `core.context_bank.scope` probe PASS: 3/3 steps on mapped blog `1526` |
+| Retrieval source layer | Verified group-private and unknown-vertical denial, server-owned vertical/hybrid policy, bounded budgets, pre-follow filtering and retrieval-safe owner excerpt dedupe. | Focused `core.context_bank.retrieval` probe PASS: 7/7 steps on mapped blog `1526`; `coverage.complete=false` because this was a filtered component run |
+
+### Context Bank G4 notebook ownership gate - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Notebook authorization | KG bridge and standalone G4 fixture now require the canonical `BizCity_KG_Notebook_Service` owner allowlist before any Context Bank rollup reaches KG source/passage ingestion. | PHP 7.4.4 lint and editor diagnostics PASS; focused KG bridge probe PASS with notebook-authorization ordering and tampered-replay checks |
+| Tenant precondition | Read-only lookup found no `bizcity_kg_notebooks` rows on mapped blogs `1511` or `1526`; G4 fixture stopped before mutation on both. | G4 remains `DEFERRED` until an approved same-tenant notebook owned by the explicit operator is supplied |
+
+### Context Bank KG provenance reconciliation - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| CB6.4 reconcile | Added bounded `reconcile_provenance()` through the Context Bank ledger and `BizCity_KG::lookup_xref()`; deleted pointers or missing reverse xrefs mark only ledger provenance `stale`, with no direct KG-row deletion. | Focused KG bridge probe PASS 10/10; promoted-row stale/rebuild runtime remains pending until an approved KG notebook canary exists |
+| Cron evidence | Added bounded `kg_provenance_stale` reason-bucket event through `BizCity_Cron_Manager::note_event()` when a parent run exists. | PHP 7.4.4 lint/editor diagnostics PASS; retention/legal-hold and full operational aggregate remain pending |
+
+### Payment surface loader isolation - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Woo endpoint detection | Main and compat loaders identify payment/confirmation requests by canonical paths, `pay_for_order=true` plus `key`, and Woo endpoint semantics, so customized customer endpoint slugs do not accidentally boot Twin Brain runtime. | PHP 7.4.4 lint PASS; custom-slug semantic guard smoke PASS; VPS deployment pending |
+| Customer plugin isolation | Payment/confirmation requests return before optional Brain, bundled-plugin and legacy helper loading; customer plugin slugs are not scanned or overridden on this path. | Source implemented; production rerun pending |
+
+### Context Bank durable rollup worker - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Rollup state | Added tenant-scoped lease/checkpoint metadata, Site Provisioner/Schema Registry wiring, resumable worker entry and direct diagnostics CLI isolation. | Local and mapped-host worker loading/CLI isolation PASS; standalone local physical lease/checkpoint/resume/cleanup fixture PASS; late-event reopen, interruption recovery, correction replay and synthetic Cron Meta PASS; two-shard and production worker evidence deferred |
+| Rollup reducer | Added deterministic event UUID deduplication after canonical ordering, delivery-only exclusion from conversation evidence, first/last message timestamps, channel dimensions and order lifecycle state coverage. | Local and mapped-host focused reducer/worker-isolation probe PASS on blog 1511; standalone physical fixture PASS 12/12; two-shard and production evidence deferred |
+
+### Context Bank worker interruption, replay and Cron Meta - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Interruption recovery | Added bounded checkpoint fault injection and idempotent reuse of a durable rollup pointer when file/ledger success precedes checkpoint persistence. | PHP 7.4 lint PASS; standalone local fixture PASS on blog 1511 |
+| Correction replay | Replayed a late correction from canonical source evidence and reused the same output hash/pointer without duplicate ledger admission. | Standalone local fixture PASS; two-shard and production worker evidence remain pending |
+| Cron Meta | Added bounded worker `note_event()` records and inspected them through `BizCity_Cron_Manager::with_synthetic_run()`; no production schedule was created. | Synthetic R-CRON-META runtime PASS; production cron aggregate remains pending |
+
+### Context Bank two-shard fixture precondition - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| G1 isolation fixture | Added a fail-closed two-blog fixture that verifies router/keymeta physical identities before provisioning or pointer mutation, then tests per-shard pointer follow, cross-read refusal and cleanup when two distinct shards are available. | PHP 7.4 lint PASS; local blogs 1/2 under mapped host returned `shard_route_mismatch` with the same physical fingerprint, so fixture stopped before mutation; G1 remains blocked pending an approved second shard |
+
+### Context Bank late-event correction worker - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Dirty window | Added schema v1.3.0 dirty metadata and `mark_dirty()` so an older source event reopens one bounded rollup dimension after checkpoint. | R-DCL validator PASS across 36 JSON files; local standalone physical fixture PASS |
+| Superseded state | Rebuild reads canonical source pointers, emits a new output hash and preserves the previous rollup via `parent_record_id`; cleanup removes both derived outputs and source fixtures. | PHP 7.4 lint PASS; local blog 1511 fixture PASS 12/12 including interruption recovery, correction replay idempotency and synthetic Cron Meta; two-shard and production worker evidence pending |
+
+### Context Bank standalone physical worker fixture - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Worker validation | Added an explicitly authorized standalone fixture path that can invoke only the registered rollup-state Site Provisioner installer, then runs bounded worker interruption/retry, late-event correction, checkpoint resume and tombstone cleanup outside Diagnostics CLI. | PHP `7.4.4` lint PASS; local blog `1511` fixture PASS 12/12 with `user=3539`; no provider transport or production worker claim |
+| Filestore contract | Registered `core.context_bank.rollup` in the shared encrypted business filestore registry so durable rollup output can be admitted before checkpoint advancement. | PHP `7.4.4` lint PASS; fixture encrypted write, ledger admission and checkpoint ordering PASS |
+
+### Context Bank Rule/Skill reference loader - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Adapter loading | Context Bank bootstrap now loads and boots the canonical Rule/Skill reference adapter through Safe Loader, attaching Skill lifecycle hooks without creating a second registry. | PHP `7.4.4` lint PASS; local `core.context_bank.references` probe PASS 4/4 on blog `1526`; MPR owner navigation and live Skill lifecycle write evidence remain pending |
+
+### Context Bank KG and MPR boundaries - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| KG provenance | Added a feature-gated Context Bank to KG-Hub bridge that requires verified stable rollups, routes ingestion through `BizCity_KG`, verifies reverse xref provenance and stamps the original ledger pointer only after the chain succeeds. | PHP 7.4 lint and default-path probe wiring pass; physical-shard canary deferred |
+| TwinBrain retrieval | Added bounded authorized Context Bank retrieval metadata to the canonical W0.20 pack with lazy loading and all retrieval-round propagation; notebook top30/top8 selection remains the sole reranker. | PHP 7.4 lint pass; runtime MPR canary deferred |
+| Scope safety | Manifest registry is now mandatory for channel admission, and archive tombstones preserve tenant/account/peer/conversation metadata. | PHP 7.4 lint pass; local runtime probe deferred by missing LocalWP DB config |
+
+### Context Bank WooCommerce projection - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Commerce projection | Added the feature-gated `BizCity_Context_Bank_Commerce_Adapter` for Woo payment, status and refund lifecycle events. It writes bounded encrypted order/product metadata and a rebuildable Context Bank pointer; WooCommerce remains canonical. | PHP 7.4 lint, capture-off, local disposable Woo lifecycle fixture and mapped-host disposable lifecycle fixture PASS; explicit unlinked-order no-conversation guard PASS locally; warehouse and shipment/delivery contracts deferred |
+| Diagnostics loader | Commerce probe precondition now loads the canonical Context Bank bootstrap through Safe Loader, recovers a partially mounted package by loading only the requested Commerce artifact, and calls idempotent `boot()` before checking the adapter on headless Diagnostics requests. | Local and mapped-host focused rerun PASS; historical precondition skips retained as superseded evidence |
+
+### Context Bank Commerce relationship safety - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Order relation | Commerce projection reads exact `_bizcity_crm_contact_id` and `_bizcity_crm_conversation_id` metadata from the Woo order, records bounded relation dimensions and never performs a latest-ID lookup. | PHP `7.4.4` lint PASS; local `core.context_bank.commerce` probe PASS 11/11 on blog `1526`, including unlinked-order no-conversation behavior; linked relation fixture and warehouse events remain pending |
+
+### Context Bank channel admission continuity - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Channel admission | Added a disposable archive receipt -> Context Bank pointer -> verified follow -> tombstone -> derived-pointer cleanup fixture to the canonical `core.context_bank.channel_admission` probe. The fixture does not create CRM business rows, copy plaintext or call providers. | Local and deployed Runtime PASS on blog 1511 |
+| Ledger follow | Translated the ledger's canonical `source_contract_id` to the archive reader's `contract_id` at the verification boundary, preserving pointer-only storage and strict receipt validation. | PHP 7.4 lint, local focused probe and deployed VPS focused probe PASS |
+
+### Context Bank CRM message continuity probe - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| CRM continuity | Added `core.context_bank.channel_crm_continuity`, exercising normalized Facebook CRM ingest, encrypted archive receipt, pointer-only Context Bank admission, verified follow, tombstone and disposable cleanup. | Local and mapped-host Runtime PASS on blog 1511; production/provider delivery remains separate |
+| Diagnostics isolation | Added the `BIZCITY_DIAGNOSTICS_CLI` callback guard to the CRM autoreply listener after the first fixture run exposed an unintended LLM/outbound path. | PHP 7.4 lint and focused local/mapped-host reruns PASS |
+
+### Diagnostics metadata scan containment - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Diagnostics hot path | Removed physical all-table schema inspection from the standard dashboard widget and repeated critical notice; full inventory remains explicit on the Diagnostics surface. | Implemented locally; VPS Query Monitor comparison pending |
+| Schema snapshot | Added a five-minute blog/database/prefix-scoped object-cache with explicit invalidation after additive schema repair and admin Fix actions. | PHP 7.4 lint and IDE diagnostics pass |
+
+### Context Bank memory storage decision - 2026-09-01
+
+| Area | Change | Status |
+|---|---|---|
+| Memory storage | Declared every `bizcity_memory_*` family and legacy `bizcity_memory` SQL payload table as a retirement target. New memory context must use encrypted JSONL/business filestore payloads plus Context Bank references. | Documentation/canonical decision updated; runtime migration and DDV remain pending |
+| Context Bank | Clarified that `bizcity_context_bank` is a pointer/correlation ledger only and must not store memory text, decrypted payloads, embeddings or copied JSON. | Canon documented in R-CONTEXT-BANK and Phase 1.33 |
+
+### Retire obsolete Zalo Bot memory builder - 2026-09-01
+
+| Area | Change | Status |
+|---|---|---|
+| Zalo memory | Removed `BizCity_Zalo_Bot_Memory`, its LLM extraction/upsert functions, admin memory page/AJAX action, cron path, and legacy table migration. Zalo memory continues through canonical TwinBrain `Memory_Writer` and `BizCity_User_Memory`. | Implemented locally; runtime/shard zero-row cleanup evidence remains pending |
+| Lifecycle | Classified `bizcity_zalo_bot_memory` as retire-only and kept only fail-closed lifecycle metadata for explicit owner-approved cleanup. | Implemented locally; physical table is not dropped automatically |
+
+### Zalo Bot CRM Admin Operations contract - 2026-08-30
+
+| Area | Change | Status |
+|---|---|---|
+| CRM contract | Added `zalo_bot` Admin Operations adapter with `crm_enabled=true`, contract v1.1.0, private/group identity normalization and Automation-owned reply policy. | Implemented locally; WordPress Runtime DDV pending |
+| Cross-zone routing | Shared Zalo trigger now resolves Bot, Personal and OA from explicit `platform/code`; unknown payloads fail closed. | Implemented locally; read-only probe updated |
+| CRM UI/API | Separated Internal Operations sidebar, added Bot badge, and redacted Contact Care PII/Guru projections for Bot context at the REST boundary. | Implemented locally; browser/runtime smoke pending |
+| Log index | Made duplicate `(blog_id,event_uuid)` pointers idempotent, including the concurrent insert race. | Implemented locally; production log verification pending |
+| Legacy data | Added evidence-first reconciliation checklist for conversation #13; no data mutation performed. | Pending tenant/shard read-only evidence |
+
+### Cross-channel CRM contract hardening - 2026-09-01
+
+| Area | Change | Status |
+|---|---|---|
+| Registry | Registry cache is blog-scoped, adapter filter key must equal `adapter->code()`, and mismatches are exposed to diagnostics. | Implemented locally; multisite runtime DDV pending |
+| Write gate | Added the canonical `require_crm_enabled()` gate to outbound mirrors and made disabled Telegram webhook handling explicit. | Implemented locally; provider/runtime DDV pending |
+| Repository write owner | Added a final `incoming/outgoing` channel contract gate in `BizCity_CRM_Repository::insert_message()` so automation, campaign and REST writers cannot bypass channel enablement. | Implemented locally; WordPress Runtime DDV pending |
+| UCL identity | Shared Zalo discriminator routing now resolves before identity lookup, and Bot fallback chat IDs use the canonical `_private_` segment. | Implemented locally; channel runtime DDV pending |
+| Provenance safety | Conflicting `platform` and `code` discriminators now fail closed at both UCL and CRM ingestor boundaries; a channel label without a registered adapter also cannot write CRM state. | Implemented locally; focused Runtime DDV pending |
+| Identity semantics | Documented and gated the distinction between `conversation_chat_id` delivery targets and sender-owned `canonical_session_key` memory identity, especially for group conversations. | Source contract documented; owner-continuity Runtime DDV pending |
+| Automation zone routing | Replaced substring `ZALO` matching and ambiguous direct fallback behavior with exact `ZALO_BOT`/legacy `ZALO` admin automation matching; OA/Personal and missing/conflicting discriminators fail closed. | Implemented locally; focused Runtime DDV pending |
+| Cross-channel write owner | `upsert_inbox()` and `insert_message()` now require a CRM-enabled registered adapter for new channel/incoming/outgoing state; private notes/system projections remain non-delivery records. | Implemented locally; WordPress Runtime DDV pending |
+| Multisite registry | Adapter cache is keyed by current blog plus routed database, and the compatibility `adapter_for()` API now resolves through the validated registry. | Implemented locally; multisite Runtime DDV pending |
+| AI policy | CRM auto-reply now derives ownership from the channel contract instead of a hardcoded Zone 2 list. | Implemented locally |
+| Safety | Removed the unreferenced duplicate CRM ingestor and parameterized inbox purge subqueries. | Implemented locally; PHP runtime lint pending |
+
+### Controlled legacy SQL writer-stop wave - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Lifecycle policy | Added a six-table JSONL replacement cohort that defaults to `draining`; schema/install and SQL writes are blocked while bounded read fallback remains available during cutover. | Implemented and PHP 7.4 linted |
+| Diagnostics | Lifecycle probe now validates the draining read/write matrix, and CRUD-stop rows expose `writer_stop` separately from full SQL read retirement. | Implemented; focused VPS rerun required |
+| Automation writer boundary | Generic `action.db_write` now checks `BizCity_Legacy_Table_Policy` before issuing SQL, so the automation whitelist cannot bypass the legacy writer stop. | Implemented and PHP 7.4 linted |
+| Memory filestore parity | User, episodic, rolling, session and notes filestore probes now validate canonical owner/file parity independently; unified SQL mirror evidence remains in the separate dual-write probe. | Implemented and PHP 7.4 linted; runtime rerun deferred by bootstrap/shard failure |
+| Safety | No `ready_to_drop`, DROP, purge, or destructive cleanup was introduced. | No destructive mutation |
+
+### Vibe Framework Wave 5 runtime adoption - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Reference plugin | Added a real typed KG Source Adapter that ingests a source and passage through the central KG Hub tables without creating a parallel schema. | Runtime PASS: `examples.reference_plugin.wave5` |
+| JSONL and pointer ledger | Added reference evidence through `BizCity_JSONL_File_Logger::write_contract()` with a searchable `bizcity_log_index` pointer and exact row hash/offset verification. | Runtime PASS on blog 1526 |
+| Diagnostics | Wave 5 probe now passes Disk/Loader/Runtime, including queryable KG rows and pointer follow-through. | PASS 1/1, exit 0, PHP 8.1.34 / WordPress 6.9 |
+| Provisioning note | The full provisioning runner remains sensitive to the existing test tenant's missing `wp_1526_options`; Wave 5 evidence was rerun with `--skip-provision --skip-network` after the canonical `log_index` installer provisioned `wp_1526_bizcity_log_index`. | Environment limitation, outside the Wave 5 slice |
+
+### Canonical metadata cache helper - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Core helper | Added `BizCity_Table_Metadata` as the single table/type/column metadata owner with blog/database-scoped static plus object caching, finite TTL and DDL generation invalidation. | Implemented locally; isolated helper smoke passed, WordPress Runtime DDV deferred by an unrelated bootstrap blocker |
+| Compatibility | Converted `includes/helpers-table-cache.php` and the knowledge bootstrap polyfill to delegates; `bizcity_known_tables` is no longer metadata truth. | Implemented locally |
+| Diagnostics | Added and queued `core.helper.table_metadata` to verify true/false cache hits, database-scoped keys and invalidation. | Source wired; focused probe blocked before execution by existing `class-user-memory.php` runtime error (`undefine()`); no PASS claimed |
+
+### PHASE-1.30 installer metadata invalidation - 2026-09-02
+
+| Area | Change | Status |
+|---|---|---|
+| Site Provisioner | `BizCity_CG_Flow_Installer::ensure_table()` and `BizCity_Log_Index::ensure()` now invalidate the canonical table metadata cache after `dbDelta()` and before checking physical table existence. This prevents a cached false result from hiding a newly created tenant table and leaving the installer version unset. | Implemented locally; target-shard provisioning rerun required |
+| Runtime safety | The fix keeps DDL ownership in Site Provisioner and does not add a direct production DROP or SQL fallback. | No destructive mutation |
+
+### Table metadata wrapper load-order fix - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Core helper | Replaced the file-scope `return` before `BizCity_Table_Metadata` wrappers. PHP compile-time class registration made that return execute during the first include, so `bizcity_tbl_exists()` was never defined when Knowledge loaded the canonical helper directly. | Fixed locally; direct PHP wrapper smoke and runtime diagnostics rerun pending |
+
+### SQL CRUD-stop evidence - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Diagnostics | Added `core.legacy_table.crud_stop` for the 23 non-exempt replacement targets. It reports static writer/reader references, lifecycle read/write/install blocking, request-local `SAVEQUERIES` mutation deltas, and per-table blockers without mutating data. | Source wired and PHP 7.4 linted; runtime evidence now executes with `SAVEQUERIES` enabled before `wp-load.php`; current run proves six targets and leaves the remaining targets explicitly blocked/pending |
+
+### Replacement catalog SQL-stop gate - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Diagnostics catalog | `BizCity_Diagnostics_Orphan_Cleaner::preview()` now requires the matching per-table `core.legacy_table.crud_stop` result to be `pass` before a JSONL, filestore, repository, or event-stream replacement can display `DONE`. Parity/file evidence alone no longer produces a green replacement badge. | Implemented locally; runtime catalog refresh uses the latest persisted probe result |
+
+### Step-by-step legacy smoke - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| CLI diagnostics | Legacy batch execution now streams each probe result and each CRUD-stop row, reports the independent zero-mutation observation status, persists a checkpoint after every probe, and prints an exact `--resume=<run_id>` command when the bounded run defers. | Implemented locally; PHP 7.4 lint and runtime narrow probe pass for the streaming path |
+
+### CI health verdict diagnostics - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| WP-CLI health | Intentional health precondition skips now produce `warn` with `health_degraded` and explicit skip reasons; executed probe failures remain `fail`. | Implemented locally; prevents a valid degraded health envelope from being rejected as an unexpected verdict |
+| GitHub Actions | Health validation now prints the actual verdict, counts and bounded per-probe result when the envelope is rejected. | Implemented locally; next CI run will identify the exact failing/skipped health probe |
+
+### CRUD-stop dynamic reference evidence - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Legacy table audit | Active PHP table references that cannot be tied to an inline SQL operation are now recorded as `indeterminate` instead of being silently treated as `writer_zero=true` and `reader_zero=true`. | Implemented locally; latest probe still records `runtime_mutations_zero=true` while refusing unsupported zero-reader/writer claims |
+| Owner parity | Routed the nine-table owner-parity markers to CRUD-stop evidence where the migration decision requires explicit zero-reader/writer or fallback-blocked proof. | Implemented locally; no PASS claimed until the runtime probe executes |
+
+### Twin GPT C-surface identity and CRM PII hardening - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| C-surface scope | `/gpt/` CRM scope is now explicitly resolved as C/customer, so `manage_options` does not inherit tenant-wide Inbox scope. | Implemented locally; two-member Runtime DDV pending |
+| Zalo Personal Inbox | Added C-safe conversation/message DTOs and removed the CRM admin serializer from `/gpt/` Personal routes; raw provider/admin metadata is omitted. | Implemented locally; browser and Runtime DDV pending |
+| OA projection | Managed Zalo OA projection sync updates only the current member's local owner projection. | Implemented locally; two-key Hub isolation pending |
+| Diagnostics | Extended the My Channels probe with C-surface projection/scope markers. | Source wired; WordPress Diagnostics run pending |
+
+### PHASE-0.45 customer-care versus internal operations channel split - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Customer-care UI group | Facebook, Tiktok, Zalo OA and Zalo Personal are now separate customer-care channel items; Web remains planned in the same group. | Implemented locally; provider/runtime smoke pending |
+| Internal UI line | Twin GPT and Zalo Bot now share one clearly labelled internal administration line. Zalo Bot is no longer semantically nested as a customer-care Zalo account. | Implemented locally; browser smoke pending |
+| Connection ownership | Removed the duplicate Facebook connection panel and duplicate Zalo Bot connect/link controls from the lower My Channels view; `ChannelConnectHub` is now the single connection owner, while the lower panels remain operational-only. Updated the page copy to distinguish customer care from internal operations. | Implemented locally; browser smoke pending |
+| Facebook | Existing member-owned Page OAuth/selection stays in the customer-care group with no transport/API contract change. | Existing source retained; production OAuth/DDV pending |
+| Zalo Bot | Existing Zone 2 bot-link and automation behavior is preserved, but its placement and explanation now reflect internal administration. | Implemented locally; Zone 2 runtime DDV pending |
+| Group lifecycle audit | Added canonical `zalo_bot` JSONL events for group receive, mention match, reply attempt, and reply outcome with hashed chat/message identifiers. | Source complete; webhook/API Runtime DDV pending |
+| Group identity privacy | Preserved sender identity for server-side resolution while blocking group `login`, `unlink`, `info`, and `memory` commands from private link/PII handling. | Source complete; group Runtime DDV pending |
+| Group linker fallback | Forwarded `chat_kind`, `provider_chat_id`, and `conversation_chat_id` into no-owner memory context; group unlinked traffic now receives public guidance only and cannot trigger a private login URL. Group intake evidence is written before the Zalo Bot database event. | Source complete; group Runtime DDV pending |
+| My Workflows checklist reconciliation | Confirmed the existing customer catalog, card-level ON/OFF, preflight, deterministic user-owned copy, and My Channels default injection; kept publish controls, safe settings sheet, and Runtime DDV explicitly open. | Source complete; remaining W9 gates pending |
+| My Workflow safe settings sheet | Added owner-scoped `GET /myworkflows/settings` and a responsive read-only customer sheet showing validated channel targets, schedule, copy summary, and recent runs without graph or credential fields. | Source complete; browser/tenant Runtime DDV pending |
+| Customer workflow publication | Reconciled PHASE-0.45 with the existing admin-only Customer ON/OFF control that creates a global, customer-default template while keeping customer responses card-based and graph-free. | Source complete; browser/tenant Runtime DDV pending |
+| Owner continuity checklist | Confirmed matcher inbound provenance, run `user_id`, runner `_owner_user_id`, and scheduler CRM bridge forwarding; the PHASE-0.45 row is source-complete rather than missing. | Source complete; scheduler completion Runtime DDV pending |
+| W4/W5 completion reconciliation | Added the canonical unlinked-user workflow route, AskBrain parity deep-research action/template, parity pack forwarding, and read-only DDV probe; focused Runtime evidence now runs on PHP 7.4.4 / WordPress 6.9 / blog 1526. | Focused Runtime PASS; provider group E2E and tenant/shard aggregate pending |
+| Zalo Bot W4/W5 automation | Added canonical unlinked-user workflow routing, `action.ensure_linked_user`, group deep-research template, `action.twinbrain_deep_research`, non-stream Web Deep dispatch, citation preservation, and Runtime forwarding of the AskBrain parity pack. | Focused `web.zalobot.deep_research` PASS; provider/tenant aggregate pending |
+| Automation owner continuity | Reconciled the checklist with existing matcher, run repository, runner, and CRM bridge propagation of `_owner_user_id` plus `metadata.inbound` into scheduler events. | Source complete; scheduler completion Runtime DDV pending |
+| Connected users and scoped logs | Added admin-only `GET /bizcity-channel/v1/connected-users` with bounded Zalo Bot/Facebook filters and canonical `log_scope` links into the shared Log Explorer. | Source complete; admin/browser/tenant Runtime DDV pending |
+| Connected users filter fix | Corrected the unfiltered Facebook projection to include both member-owned and site-shared connections; `wp_user_id` remains an optional narrowing filter. | Source complete; admin/browser/tenant Runtime DDV pending |
+| CRM adapter contract matrix | Added `core.channel.crm_adapter_matrix`, a read-only matrix over every registered adapter covering registry provenance, descriptor, minimum normalization, contract acceptance/rejection, and normalized outbound result shape. | Focused Runtime PASS: 11 adapters on PHP 7.4.4 / WordPress 6.9 / blog 1526; provider E2E and tenant aggregate pending |
+| Unregistered CRM channel gate | Removed `messenger` from CRM-enabled descriptors because Facebook Messenger is canonically stored under `facebook`; marked it legacy/quarantine and added matrix assertions that `messenger`/`tiktok` stay disabled until an active adapter is registered. | Focused Runtime PASS on blog 1526; dedicated Messenger/TikTok adapter work remains planned |
+| Disabled CRM channel REST UX | Added fail-closed `channel_not_configured` envelopes to disabled-channel detail/verify/create wizard paths and Telegram webhook intake, with standard `message`, `hint`, and `help_code=channel_setup`; the adapter matrix now exercises Telegram detail/verify/create synthetically. | Focused Runtime PASS on blog 1526; no CRM/provider side effect observed |
+| Disabled writer isolation | Added `core.channel.crm_disabled_writer` with a disposable schema-compatible Telegram fixture; repository incoming/outgoing writers and manual REST writer are proven to stop before message mutation or provider event dispatch. | Focused Runtime PASS on PHP 7.4.4 / WordPress 6.9 / blog 1526; provider E2E remains pending |
+| Legacy conversation reconciliation preview | Added a current-tenant, read-only preview runner and admin REST route with exact Bot/OA evidence classification, unknown quarantine, canonical metadata/routing gate, and `dry_run=false` rejection; no reconciliation mutation is shipped. | Focused Runtime PASS on PHP 7.4.4 / WordPress 6.9 / blog 1526; zero legacy candidates in this tenant, #13 reconciliation remains pending |
+| F8 Repository table-helper fix | Corrected member CRM task/contact/order-care reads to resolve table names through `BizCity_CRM_DB_Installer_V2` instead of undefined Repository methods. | `modules.twin_gpt.crm_member_scope` and `modules.crm.team_assignment_kanban` focused Runtime PASS on blog 1526 |
+| Internal PHPUnit recheck | Ran PHPUnit 9.6.36 with the repository bootstrap and `ABSPATH` preloaded before Composer autoload; repaired upload-root cache isolation, shared multisite test stubs, `ARRAY_A` compatibility and the exact-account assertion. | PASS: 32 tests / 138 assertions on PHP 7.4.4 |
+| TwinWeb narrow probe recheck | Re-ran member scope, customer channels/automation, owner continuity, app catalog and shortcode surfaces; fixed the stale Profile Care deeplink expectation and enabled Safe Loader CLI loading for TwinWeb probes. | Focused Runtime PASS on PHP 7.4.4 / WordPress 6.9 / blog 1526; provider/browser/aggregate gates remain pending |
+| TwinWeb UIS Runtime recheck | Ran Appearance, Skin Renderer and Shortcode Surfaces probes through the PHP CLI after enabling direct CLI probe loading; corrected explicit Profile Care parent-path expectation. | Focused Runtime PASS on PHP 7.4.4 / WordPress 6.9 / blog 1526; browser/mobile smoke remains pending |
+| Zalo Bot provider side-effect matrix | Added diagnostics-only mock transport and rollback-safe `core.channel.zalobot_crm_provider_matrix` covering inbound retry dedupe, exact Bot/private outbound routing, CRM mirror, delivery status/retryable outcome and two-Bot isolation. | PASS: PHP 7.4.4 / WordPress 6.9 / blog 1526 with `--skip-network`; live provider E2E remains pending |
+| Twin GPT CSS scope boundary | Applied the `bizcity-twin-embed` scope class to every Twin GPT mount root so Tailwind utilities generated with `important: '.bizcity-twin-embed'` match in Vite and production bundles. | PASS: Vite build; styled desktop/mobile browser artifact with no horizontal overflow |
+| PHASE-0.41 CRM One Brain roadmap | Added the all-channel manifest/SDK/Context Bank roadmap, current Zalo/Messenger assessment, future Slack/TikTok/Shopee acceptance kit and `/gpt/` employee Woo order/payment/shipping/lead-time waves. Restored bare `messenger` and generic `zalo` to legacy/quarantine because no matching Messenger adapter manifest exists. | Public contract suite PASS (19); CRM adapter matrix PASS (11 adapters); Context Bank ledger focused Runtime PASS on blog 1526; roadmap remains PRE-IMPLEMENTATION |
+| Roadmap | Updated PHASE-0.45 and project tracker with the two-group information architecture and release gates. | Documented |
+| Contract hardening follow-up | Corrected the canonical Zone rule so `zalo_bot` may persist in CRM Admin Operations while remaining outside Customer Care; made `core.channel.zone_isolation` the sole canonical probe ID and marked source-only checklist rows as Runtime-DDV pending. | Source/probe wiring complete; tenant-safe WordPress Runtime DDV pending |
+
+### PHASE-0.49 CRM employee Inbox readiness documentation gate - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Canonical checklist | Added the employee readiness checklist for Inbox menu/capability, read/write scope, managed versus self-managed Zalo OA routing, canonical OA identity, redacted logging and the admin/employee A/B/provider/self-echo matrix. | Documentation canonical; no Runtime PASS claimed |
+| CRM roadmap | Linked PHASE-0.49 from CRM Operating Suite, CRM Roadmap and the master Project Roadmap. | Documented; employee browser/runtime smoke pending |
+| Release decision | Kept CRM employee usage PRE-RELEASE until T1-T12, Diagnostics Disk/Loader/Runtime and production Zalo OA evidence pass. | PRE-RELEASE |
+
+### Enterprise Brain Context Accumulation Loop - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Architecture | Defined the canonical `CRM/Woo truth -> encrypted context archive -> bounded digest/source -> Notebook -> selective KG promotion -> MPR/TwinBrain retrieval` loop. The existing Channel Conversation Archive remains the recovery/context precursor; no parallel conversation store is permitted. | Documented; runtime bridge remains an explicit implementation gap |
+| Storage contract | Added `context_corpus` to the storage decision gate and required contract ownership, tenant scope, provenance, bounded batch relearning, and no full archive scan in the MPR hot path. | Documented; archive contract registration and DDV remain pending |
+
+### CRM context accumulation roadmap - 2026-08-29
+
+| Area | Change | Status |
+|---|---|---|
+| Roadmap | Added `PHASE-1.31-CRM-CONTEXT-ACCUMULATION.md` covering the existing archive contract adapter, canonical CRM/Woo correlation event, digest/source lifecycle, selective KG promotion, contact/order-scoped MPR projection, rollback and DDV acceptance. | Design only; no runtime bridge or schema change shipped |
+
+### TwinShell core CRM and Channels availability - 2026-08-27
+
+| Area | Change | Status |
+|---|---|---|
+| TwinShell | CRM is now a default Free-plan core capability alongside Channels; removed the stale `pro` plan and `BizCity_Twin_CRM` dependency gates that sent Free users to the upgrade notice. | Implemented locally; TwinShell browser smoke pending |
+| Documentation | Updated TwinShell membership/activity examples to use the Free-plan core CRM contract. | Implemented locally |
+
+### TwinShell F5 and API settings single-frame fix - 2026-08-27
+
+| Area | Change | Status |
+|---|---|---|
+| Admin route | Registered the legacy `bizcity-twinchat` redirect during bootstrap so it runs at `admin_init`, before wp-admin output. | Implemented locally |
+| Deployed compatibility | Added a TwinShell guard that escapes an already-rendered legacy admin wrapper and preserves the active deep-link. | Implemented locally |
+| API settings | Preserved `bizcity_iframe=1` after saving LLM settings and hid duplicate wp-admin chrome in the embedded settings document. | Implemented locally; browser smoke pending |
+
+### Marketplace fallback logo and TwinShell single-frame routing - 2026-08-27
+
+| Area | Change | Status |
+|---|---|---|
+| Marketplace | Added a local default plugin logo for bundle cards and detail views when cover/icon metadata is missing. | Implemented locally |
+| Lifecycle | Loaded the WordPress plugin API before checking `is_plugin_active()` during activation. | Implemented locally |
+| TwinShell | Changed the legacy `bizcity-twinchat` admin route to redirect to `/twin/` instead of embedding a second TwinShell iframe. | Implemented locally; browser smoke pending |
+| Documentation | Recorded the Marketplace, optional-plugin, namespace, channel-ownership, and TwinShell decisions in `docs/architecture/PHASE-1.29-MARKETPLACE-TWINSHELL.md`. | Implemented locally |
+
+### PHASE-1.30 legacy table lifecycle controls - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Runtime policy | Added `BizCity_Legacy_Table_Policy` with per-blog `quarantine`, `draining`, `ready_to_drop` and `dropped` states; retired tables return before install/read/write. | Implemented locally; runtime DDV pending |
+| Drop gate | Orphan Cleaner now requires explicit `ready_to_drop` plus approval reference and zero rows; `Force re-run` cannot bypass the gate. | Implemented locally; runtime DDV pending |
+| Uninstall | Added main-plugin `uninstall.php`; uninstall delegates only approved empty legacy-table cleanup and is idempotent. | Implemented locally; runtime DDV pending |
+| Diagnostics | Added `core.legacy_table.lifecycle` read-only DDV and displays policy state/approval in quarantine review. | Source wired; WordPress Diagnostics pending |
+| Roadmap | Added multi-sprint wave plan and per-table completion checklist in `docs/roadmaps/PHASE-1.30-LEGACY-TABLE-LIFECYCLE.md`. | Active / pre-release |
+
+### Deprecated table quarantine audit - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Quarantine gates | Added explicit owner/migration gates for legacy memory, Zalo memory, KG progress and legacy automation tables; active log, billing and usage tables remain quarantine-only. | Implemented locally; Diagnostics page verification pending |
+| Cleanup state | Invalidate table metadata after a successful orphan-table DROP so the catalog does not show stale `exists=true` state in the same request. | Implemented locally; Diagnostics page verification pending |
+| UI policy | Clarified that quarantine entries require owner sign-off, while non-quarantine orphan candidates require physical existence and `COUNT(*)=0`. | Implemented locally; Diagnostics page verification pending |
+
+### Nested optional plugin lifecycle from plugins.php - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Plugin management | Added management-only virtual rows for installed `bizcity-tool-content`, `bizcity-tool-image`, and `bizcity-content-creator` artifacts; lifecycle actions use normal WordPress `active_plugins` state without auto-loading them. | Implemented locally; WordPress admin smoke pending |
+| Deactivation | Deactivation now preserves plugin-owned data. All three optional extensions use WordPress's manual `active_plugins` state. | Implemented locally; WordPress admin smoke pending |
+| Uninstall | Explicit Uninstall runs the guarded plugin teardown before removing the nested artifact directory. | Implemented locally; WordPress admin smoke pending |
+
+### TwinShell Marketplace workspace entry - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| TwinShell | Added Marketplace as an embedded Activity Bar entry immediately before Reminders, targeting `index.php?page=bizcity-marketplace`. | Implemented locally; TwinShell browser smoke pending |
+| Market surface | Main loader now loads the canonical Market bootstrap on Marketplace requests while retaining the lightweight `plugins.php` path. | Implemented locally; deployed runtime smoke pending |
+
+### Nested Video Kling catalog discovery - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Market catalog | Bumped the agent-plugin sync cache to `v4` so the explicit nested-plugin scan discovers `plugins/bizcity-video-kling` without activating it or adding it to `must_load`. | Implemented locally; deploy and Sync Agent Plugins pending |
+
+### Automatic nested bundle catalog reconciliation - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Market catalog | Nested bundle entrypoints are fingerprinted before the 24-hour throttle; adding or replacing an inactive bundled plugin now triggers catalog sync automatically. | Implemented locally; deployed Marketplace smoke pending |
+
+### Marketplace render-time bundle reconciliation - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Market catalog | Local Marketplace now reconciles nested bundle artifacts immediately before rendering, accepts a valid agent/tool entrypoint even when its filename differs from the directory slug, and bumps the sync stamp to `v5` to force the first post-deploy rescan. | Implemented locally; deployed Marketplace smoke pending |
+
+### Diagnostics schema cascade and dist-only evidence - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Provisioning | Registered the native Automation installer with the central Site Provisioner and exposed bounded installer outcomes in the CLI runner. | Implemented locally; CI rerun pending |
+| Schema cache | Invalidated negative table metadata after Auto-Create and fresh Scheduler DDL, preventing newly created tables from being reported as missing in the same request. | Implemented locally; CI rerun pending |
+| CRM schema | Let Diagnostics CLI reconcile CRM additive column/index drift from the canonical changelog, including when the stored schema version is already current. | Implemented locally; CI rerun pending |
+| Diagnostics evidence | Report missing schema columns and publish bounded JUnit failure details in the GitHub Actions Step Summary. | Implemented locally; CI rerun pending |
+| Dist-only deployments | PageBuilder, CRM F5/F6 and Twin GPT CRM probes now require backend/built artifacts while treating absent development-only React source as `SKIP`. | Implemented locally; CI rerun pending |
 
 ### PHASE-0.39F F5 inbound assignment and F6 conversation board — 2026-08-25
 
@@ -78,6 +486,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Inbox UI | Added shared group/private selector for list and board, group DTO/card fields and export filter parity. | CRM build passed; browser/runtime evidence pending |
 | Outbound | Propagated `thread_kind=group` through client, Hub client and ZCA route so Group replies do not target a user recipient. | ZCA build and regression suite passed; deployed bridge evidence pending |
 | Diagnostics | Added read-only `modules.crm.group_inbox` probe and queued it in central Diagnostics. | Source wired; WordPress Diagnostics run pending |
+
+### PHASE-0.39F Group Inbox self-echo contract - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Self-echo | Native Zalo Personal group self-echo mappings now retain `thread_kind=group` alongside the `group:<thread_id>` source key. | Implemented locally; Runtime self-echo fixture pending |
+| Probe | `modules.crm.group_inbox` now verifies group identity and sender metadata survive the shared pre-SQL CRM contract. | Source wired; WordPress Diagnostics run pending |
+| Release gate | Two-sender one-conversation, outbound Group delivery and old flattened-contact reconciliation remain open. | ACTIVE / PRE-RELEASE |
+
+### PHASE-0.39F Group Inbox Runtime checklist and master follow-up - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| 6B checklist | Made Group Inbox a canonical operational checklist with an authenticated `confirm=GROUP_INBOX` Diagnostics command, transaction rollback expectations and five Runtime/reconciliation gates. | Implemented locally; Runtime execution blocked on local environment |
+| Master roadmap | Added G1-G5 follow-up table for one group thread, native self-echo, outbound Group, legacy-contact decision and evidence/rollback closure. | Tracker updated to v3.15 |
+| Execution result | Local attempt cannot run because PHP CLI and a reachable WordPress HTTP listener are unavailable; no Runtime PASS is claimed. | BLOCKED/SKIP; run on deployed tenant |
+
+### PHASE-0.39F Group Inbox fixture safety gate - 2026-08-26
+
+| Area | Change | Status |
+|---|---|---|
+| Runtime fixture | Tightened `confirm=GROUP_INBOX` so full PASS requires the actual native emitter branch with a mapped diagnostic account; without it, normalization/native-mirror checks may pass but the fixture is `SKIP`. | Implemented locally; deployed WordPress fixture pending |
+| Safety | Synthetic CRM writes remain inside a transaction and roll back; no production message is sent by the standard Diagnostics fixture. | Source validated; Runtime evidence pending |
+| Master follow-up | Registered `SPRINT-69 PHASE-0.39F-GROUP-INBOX-RUNTIME-CHECKLIST` and canonical G1-G5 tracking in the master roadmap. | ACTIVE / PRE-RELEASE |
 
 ### CI clean checkout and diagnostics activation gate - 2026-08-25
 
@@ -635,6 +1067,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Area | Canonical record | Change / evidence | Status | Next action |
 |---|---|---|---|---|
+| Safe Loader diff gate | `R-SAFE-LOADER` | Increased the aggregate Git diff buffer and added per-bootstrap diff fallback so a large diff does not produce exit 1 while the report has `new_violations: []` and `status: PASS`. | Fixed locally 2026-08-26 | Rerun the GitHub Actions public-contract job on the new SHA. |
 | Bundled plugin activation boundary | `R-SAFE-LOADER` + `R-AUTO-MU` | Removed nested bundled-plugin injection into WordPress `get_plugins()`/`all_plugins`, added stale activation-entry cleanup, and made `bizcity-twin-compat.php` source/version drift auto-sync from `mu-plugin/`. | Fixed locally 2026-08-26 | Deploy both compat/main loader artifacts and verify a clean host lists only the top-level plugin; rerun Diagnostics on the deployed runtime. |
 | Diagnostics probe lazy queue | `R-PERF-LOADER` + `R-DDV` | Removed an early `bizcity_diagnostics_load_probes_once()` flush from `core/diagnostics/bootstrap.php`; it could mark the loader complete before the remaining probe queue declarations were registered, leaving the Diagnostics catalog empty or incomplete. | Fixed locally 2026-08-16 | Deploy to the affected site and verify `GET /wp-json/bizcity-diagnostics/v1/smoke/probes` returns a non-empty catalog as an admin. |
 | Canonical loader rule | `R-PERF-LOADER` + `R-DDV` | Codified PHASE-1.23 lessons: surface-scoped loading, pre-`plugins_loaded` evidence, compat/main/bundle parity, shell iframe isolation, file/class delta as primary signal, and QM A/B instrumentation. The observed shell gates reduced approximately 6 MB and are now mandatory guidance for new core/module/plugin loaders. | Fixed locally | Read `docs/rules/PHASE-0-RULE-PERFORMANCE-LOADER.md` before any loader/context-gate change. |

@@ -1,0 +1,23 @@
+{
+  "contract": "channel-payload",
+  "version": "1.1.0",
+  "direction": "inbound",
+  "platform": "zalo_oa",
+  "zone": "customer",
+  "identity": {
+    "account_id": "oa_938271",
+    "user_id": "customer_1024",
+    "chat_id": "zalooa_938271_customer_1024",
+    "message_id": "msg_oa_123"
+  },
+  "message": {
+    "text": "Tôi cần kiểm tra tồn kho.",
+    "timestamp": "2026-09-01T08:30:00Z",
+    "attachments": []
+  },
+  "signature": {
+    "algorithm": "hmac-sha256",
+    "header": "x-zalo-signature",
+    "verified": true
+  }
+}

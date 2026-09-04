@@ -121,6 +121,152 @@ final class BizCity_KG {
 	}
 
 	/**
+	 * Ingest one typed extension passage into the central KG source layer.
+	 *
+	 * This is the generic bridge for plugins that expose a
+	 * BizCity_KG_Source_Adapter_Interface. It keeps the extension source and
+	 * passage in the existing tenant-scoped KG tables without creating a
+	 * plugin-owned knowledge store.
+	 *
+	 * @param array<string,mixed> $scope   plugin, notebook_id, user_id?
+	 * @param array<string,mixed> $payload type, title, content, source_id?, url?, metadata?
+	 * @return array|WP_Error
+	 */
+	public static function ingest_extension_source( array $scope, array $payload ) {
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB6.3 — make extension source ingestion idempotent for a stable origin pointer before creating KG rows.
+		$plugin = trim( (string) ( $scope['plugin'] ?? '' ) );
+		$notebook_id = (int) ( $scope['notebook_id'] ?? $scope['scope_id'] ?? 0 );
+		$content = trim( (string) ( $payload['content'] ?? '' ) );
+		if ( '' === $plugin || $notebook_id <= 0 || '' === $content ) {
+			return new WP_Error( 'kg_extension_payload_invalid', 'Extension KG payload is incomplete.' );
+		}
+		if ( ! class_exists( 'BizCity_KG_Database' ) || ! function_exists( 'get_current_blog_id' ) ) {
+			return new WP_Error( 'kg_extension_unavailable', 'Central KG service is unavailable.' );
+		}
+
+		global $wpdb;
+		$db = BizCity_KG_Database::instance();
+		$notebook_table = $db->tbl_notebooks();
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $notebook_table ) ) {
+			return new WP_Error( 'kg_notebook_table_missing', 'Central KG notebook storage is unavailable.' );
+		}
+		$notebook_exists = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$notebook_table} WHERE id = %d LIMIT 1", $notebook_id ) );
+		if ( $notebook_exists <= 0 ) {
+			return new WP_Error( 'kg_notebook_not_found', 'Target KG notebook was not found.' );
+		}
+
+		$source_uuid = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : md5( $plugin . '|' . $notebook_id . '|' . $content );
+		$source_table = $db->tbl_sources();
+		$origin_id = isset( $payload['origin_id'] ) ? (int) $payload['origin_id'] : 0;
+		if ( $origin_id > 0 ) {
+			$existing_source = $wpdb->get_row( $wpdb->prepare( "SELECT id, uuid FROM {$source_table} WHERE blog_id = %d AND origin_plugin = %s AND origin_id = %d AND scope_type = %s AND scope_id = %s LIMIT 1", (int) get_current_blog_id(), substr( $plugin, 0, 64 ), $origin_id, 'notebook', (string) $notebook_id ), ARRAY_A );
+			if ( is_array( $existing_source ) && (int) ( $existing_source['id'] ?? 0 ) > 0 ) {
+				$existing_passage = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM {$db->tbl_passages()} WHERE source_id = %d AND notebook_id = %d LIMIT 1", (int) $existing_source['id'], $notebook_id ), ARRAY_A );
+				if ( is_array( $existing_passage ) && (int) ( $existing_passage['id'] ?? 0 ) > 0 ) {
+					$vector_check = self::extension_passage_vector_status( $notebook_id, (int) $existing_passage['id'] );
+					if ( empty( $vector_check['ok'] ) ) {
+						return new WP_Error( 'kg_extension_vector_missing', 'Existing extension passage has no validated canonical vector.' );
+					}
+					return array( 'source_id' => (int) $existing_source['id'], 'source_uuid' => (string) ( $existing_source['uuid'] ?? '' ), 'passage_ids' => array( (int) $existing_passage['id'] ), 'passage_count' => 1, 'vector_registered' => true, 'vector_dimension' => (int) ( $vector_check['dimension'] ?? 0 ), 'notebook_id' => $notebook_id, 'plugin' => $plugin, 'replayed' => true );
+				}
+			}
+		}
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB6.3 — create the canonical passage vector before committing an extension passage so a logical candidate cannot silently become passage-only.
+		if ( ! class_exists( 'BizCity_KG_Vector_Index' ) || ! class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+			return new WP_Error( 'kg_extension_vector_unavailable', 'Central KG vector owner is unavailable.' );
+		}
+		$vector = BizCity_KG_Vector_Index::instance()->embed( $content );
+		if ( is_wp_error( $vector ) || ! is_array( $vector ) || empty( $vector ) ) {
+			return new WP_Error( 'kg_extension_embedding_failed', 'Central KG vector creation failed.' );
+		}
+		$source_data = array(
+			'uuid'          => $source_uuid,
+			'blog_id'       => (int) get_current_blog_id(),
+			'origin_plugin' => substr( $plugin, 0, 64 ),
+			'origin_kind'   => substr( (string) ( $payload['type'] ?? 'extension' ), 0, 32 ),
+			'origin_id'     => $origin_id > 0 ? $origin_id : null,
+			'title'         => substr( (string) ( $payload['title'] ?? 'Extension source' ), 0, 512 ),
+			'origin_url'    => isset( $payload['url'] ) ? (string) $payload['url'] : null,
+			'content_text'  => $content,
+			'status'        => 'active',
+			'scope_type'    => 'notebook',
+			'scope_id'      => (string) $notebook_id,
+			'user_id'       => isset( $scope['user_id'] ) ? (int) $scope['user_id'] : ( get_current_user_id() ?: null ),
+		);
+		if ( false === $wpdb->insert( $source_table, $source_data ) ) {
+			return new WP_Error( 'kg_extension_source_insert_failed', 'Central KG source could not be created.' );
+		}
+		$source_id = (int) $wpdb->insert_id;
+		$passage_table = $db->tbl_passages();
+		$metadata = isset( $payload['metadata'] ) && is_array( $payload['metadata'] ) ? $payload['metadata'] : array();
+		$metadata['origin_plugin'] = $plugin;
+		$metadata['source_uuid'] = $source_uuid;
+		$passage_data = array(
+			'notebook_id'       => $notebook_id,
+			'source_id'         => $source_id,
+			'origin'            => 'plugin:' . preg_replace( '/[^a-zA-Z0-9_.-]/', '', substr( $plugin, 0, 80 ) ),
+			'content'           => $content,
+			'content_hash'      => hash( 'sha256', $content ),
+			'token_count'       => str_word_count( $content ),
+			'extraction_status' => 'pending',
+			'metadata'          => wp_json_encode( $metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ),
+		);
+		if ( false === $wpdb->insert( $passage_table, $passage_data ) ) {
+			$wpdb->delete( $source_table, array( 'id' => $source_id ), array( '%d' ) );
+			return new WP_Error( 'kg_extension_passage_insert_failed', 'Central KG passage could not be created.' );
+		}
+		$passage_id = (int) $wpdb->insert_id;
+		$wpdb->update( $source_table, array( 'passage_count' => 1 ), array( 'id' => $source_id ), array( '%d' ), array( '%d' ) );
+		$vector_result = BizCity_KG_Embedding_Writer::instance()->register_chunk( $notebook_id, $passage_id, $vector, null, $source_id );
+		if ( is_wp_error( $vector_result ) || true !== $vector_result ) {
+			// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB6.3 — remove only the just-created KG rows when vector persistence fails; do not leave a passage without its canonical vector.
+			$wpdb->delete( $passage_table, array( 'id' => $passage_id ), array( '%d' ) );
+			$wpdb->delete( $source_table, array( 'id' => $source_id ), array( '%d' ) );
+			return new WP_Error( 'kg_extension_vector_persist_failed', 'Central KG vector could not be persisted.' );
+		}
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'bizcity_kg_after_extension_ingest', $source_id, $passage_id, $scope, $payload, $source_uuid );
+		}
+		return array(
+			'source_id'     => $source_id,
+			'source_uuid'   => $source_uuid,
+			'passage_ids'   => array( $passage_id ),
+			'passage_count' => 1,
+			'vector_registered' => true,
+			'vector_dimension' => count( $vector ),
+			'notebook_id'   => $notebook_id,
+			'plugin'        => $plugin,
+		);
+	}
+
+	private static function extension_passage_vector_status( $notebook_id, $passage_id ) {
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB6.3 — acknowledge extension replay only after the canonical notebook vector bundle indexes the exact passage once.
+		$notebook_id = (int) $notebook_id;
+		$passage_id = (int) $passage_id;
+		if ( $notebook_id <= 0 || $passage_id <= 0 || ! class_exists( 'BizCity_KG_Notebook_Folder' ) || ! class_exists( 'BizCity_KG_Vector_File_Store' ) || ! function_exists( 'bizcity_kg_vector_bin_path' ) ) {
+			return array( 'ok' => false, 'reason' => 'vector_owner_unavailable' );
+		}
+		$uuid = BizCity_KG_Notebook_Folder::instance()->notebook_uuid( $notebook_id );
+		if ( is_wp_error( $uuid ) || ! is_string( $uuid ) || $uuid === '' ) {
+			return array( 'ok' => false, 'reason' => 'notebook_vector_scope_missing' );
+		}
+		$path = bizcity_kg_vector_bin_path( 'notebooks', $uuid );
+		$store = BizCity_KG_Vector_File_Store::instance();
+		$header = $store->header_validate( $path );
+		$index = ! is_wp_error( $header ) ? $store->load_idx( $path . '.idx.json' ) : array();
+		if ( is_wp_error( $header ) || is_wp_error( $index ) || ! is_array( $index ) ) {
+			return array( 'ok' => false, 'reason' => 'vector_bundle_invalid' );
+		}
+		$matches = 0;
+		foreach ( (array) ( $index['rows'] ?? array() ) as $row ) {
+			if ( is_array( $row ) && (int) ( $row['chunk_id'] ?? 0 ) === $passage_id ) {
+				$matches++;
+			}
+		}
+		return array( 'ok' => $matches === 1 && (int) ( $header['dim'] ?? 0 ) > 0, 'dimension' => (int) ( $header['dim'] ?? 0 ), 'matches' => $matches );
+	}
+
+	/**
 	 * List sources for a scope (Layer 1 — raw sources, not passages).
 	 *
 	 * Phase 0.6 Wave C — when option `bizcity_kg_unified_read_enabled` is on

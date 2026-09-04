@@ -1,0 +1,26 @@
+{
+  "contract": "context-retrieval-pack",
+  "version": "1.0.0",
+  "query_id": "query_01hzy7m9qk",
+  "scope": {
+    "mode": "hybrid",
+    "blog_id": 1258,
+    "vertical_id": "sales",
+    "notebook_id": 42,
+    "case_id": "case_789"
+  },
+  "authorization": { "allowed": true, "identity_scope": "case", "denied_count": 0 },
+  "budget": { "max_records": 50, "max_bytes": 200000, "max_ms": 150, "max_tokens": 3000 },
+  "matched_count": 12,
+  "returned_count": 8,
+  "truncated": true,
+  "records": [{ "record_id": "ctx_event_01hzy7m9qk", "kind": "event" }],
+  "rollups": [{ "record_id": "affinity:customer:c_001928:product:bosch_gsb550" }],
+  "references": [{ "contract_id": "core.intent.episodic_memory", "record_id": "ep_12345678" }],
+  "relations": [{ "relation_id": "rel_customer_order_789", "predicate": "placed_order" }],
+  "evidence_refs": ["ctx_event_01hzy7m9qk", "ctx_order_789"],
+  "kg_candidates": [{ "record_id": "ctx_rollup_01hzy7m9qk", "policy": "summary_only" }],
+  "degraded": false,
+  "incomplete": false,
+  "reason_bucket": "ok"
+}

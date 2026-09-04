@@ -3,7 +3,8 @@
  * Bizcity TwinChat — Notes (Pin Request) REST Controller
  *
  * Phase 0.7 Wave B1 — surfaces pinned notes endpoints for TwinChat.
- * Notes persist to bizcity_memory_notes via BCN_Notes (Companion Notebook).
+ * Notes persist through the filestore-backed Notes Service; legacy
+ * bizcity_memory_notes rows are read/migration state only.
  *
  *   POST   /messages/(?P<id>\d+)/pin   → pin a chat message as a note
  *   POST   /notes                      → create a manual note
@@ -152,13 +153,15 @@ class BizCity_TwinChat_Notes_Controller {
 		// Same (project_id, message_id) already pinned? Return existing instead
 		// of creating a duplicate (user may click 📌 multiple times).
 		if ( $message_id > 0 ) {
-			global $wpdb;
-			$table = $wpdb->prefix . 'bizcity_memory_notes';
-			$existing = $wpdb->get_var( $wpdb->prepare(
-				"SELECT id FROM {$table} WHERE project_id = %s AND message_id = %d AND note_type = %s ORDER BY id DESC LIMIT 1",
-				$project_id, $message_id, 'chat_pinned'
-			) );
-			if ( $existing ) {
+			// [2026-09-01 Johnny Chu] PHASE-CB4.5 — note deduplication reads the canonical Context Bank-backed Notes service.
+			$existing = 0;
+			foreach ( (array) $svc->get_by_project( $project_id ) as $existing_note ) {
+				if ( (int) ( $existing_note->message_id ?? 0 ) === $message_id && (string) ( $existing_note->note_type ?? '' ) === 'chat_pinned' ) {
+					$existing = (int) ( $existing_note->id ?? 0 );
+					break;
+				}
+			}
+			if ( $existing > 0 ) {
 				// Sprint 5.3 — re-pin click on already-pinned message: still emit
 				// the v2 event (mode=duplicate) so timeline / observers see the action.
 				$this->dispatch_note_pinned_event( (int) $existing, $message_id, $session_id, $notebook_id, 'duplicate' );

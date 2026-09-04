@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="1" failures="1" skipped="0" time="74.820">
+  <testsuite name="diagnostics" tests="1" failures="1" skipped="0" time="74.820">
+    <testcase classname="bizcity.diagnostics" name="modules.twin_gpt.tool_registry" time="74.584">
+      <failure message="twinweb_tool_registry_contract_failed">Twin GPT tool registry contract failed one or more checks. | Failed steps: Disk - Session Workspace sources and unified artifact progress contract: Missing Session Workspace source CRUD or unified artifact progress markers. || Disk - optional artifact canvas + MPR tool event dev-source markers: Artifact canvas or MPR tool event source markers are missing or drifted.</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -9,7 +9,8 @@
     "contract": { "const": "channel-payload" },
     "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
     "direction": { "enum": ["inbound", "outbound"] },
-    "platform": { "enum": ["facebook", "messenger", "zalo_oa", "zalo_bot", "telegram", "webchat", "email", "twinchat_be", "custom"] },
+    "platform": { "enum": ["facebook", "messenger", "zalo_oa", "zalo_bot", "zalo_personal", "zalo_zns", "telegram", "webchat", "email", "cf7", "instagram", "whatsapp", "twinchat_be", "custom"] },
+    "zone": { "enum": ["customer", "admin", "system"] },
     "identity": {
       "type": "object",
       "additionalProperties": false,

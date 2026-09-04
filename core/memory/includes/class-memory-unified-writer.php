@@ -2,8 +2,8 @@
 /**
  * BizCity Memory — Unified Mirror Writer (Wave 2.8d TBR.MEM-D5).
  *
- * Dual-write helper: mirror writes from legacy 5 tables into unified
- * `bizcity_memory` table while we transition (D5 → D6 → D7).
+	 * Compatibility event bridge for memory owners during the Context Bank
+	 * migration. It no longer writes memory payloads to `bizcity_memory`.
  *
  * Listens on action `bizcity_memory_mirror_write` emitted by legacy writers:
  *
@@ -13,8 +13,8 @@
  *   $row    = canonical fields cho row legacy vừa ghi (assoc array)
  *   $result = 'insert' | 'update' | int row id | bool
  *
- * Hook is a NO-OP unless filter `bizcity_memory_unified_enabled` returns TRUE.
- * Failures NEVER throw — caught + error_log only.
+	 * Receipt-bearing events are reduced to references and forwarded to the
+	 * Context Bank adapter hook. Failures NEVER throw.
  *
  * Schema reference: core/memory/PHASE-MEMORY-CONSOLIDATION.md §2.1
  *
@@ -29,9 +29,6 @@ class BizCity_Memory_Unified_Writer {
 
 	/** @var self|null */
 	private static $instance = null;
-
-	/** Dedupe seen unique-keys within one request to avoid pingpong. */
-	private $seen = [];
 
 	public static function instance(): self {
 		if ( self::$instance === null ) {
@@ -54,31 +51,48 @@ class BizCity_Memory_Unified_Writer {
 	 * @param string|int|bool    $result Legacy writer result for context.
 	 */
 	public function on_mirror_write( $class, $row, $result = null ): void {
-		if ( ! BizCity_Memory_Unified_Installer::is_enabled() ) {
-			return;
-		}
 		if ( ! is_array( $row ) || ! is_string( $class ) || $class === '' ) {
 			return;
 		}
-		// Allow filter to skip / override per call.
-		$row = apply_filters( 'bizcity_memory_mirror_row', $row, $class, $result );
-		if ( ! is_array( $row ) || empty( $row ) ) {
+		$receipt = isset( $row['filestore_receipt'] ) && is_array( $row['filestore_receipt'] )
+			? $row['filestore_receipt']
+			: array();
+		if ( empty( $receipt ) ) {
 			return;
 		}
 
 		try {
-			switch ( $class ) {
-				case 'user':     $this->mirror_user( $row );     break;
-				case 'episodic': $this->mirror_episodic( $row ); break;
-				case 'rolling':  $this->mirror_rolling( $row );  break;
-				case 'session':  $this->mirror_session( $row );  break;
-				case 'note':     $this->mirror_note( $row );     break;
-				default:
-					// Unknown class — ignore silently.
-					return;
+			// [2026-09-01 Johnny Chu] PHASE-CB4.5 — load the Context Bank boundary lazily at the actual memory admission point.
+			$this->load_context_bank_runtime();
+			// [2026-09-01 Johnny Chu] PHASE-CB4.4 — forward only a filestore pointer; never mirror payload fields into SQL.
+			$reference = array(
+				'memory_class' => sanitize_key( $class ),
+				'record_kind'  => 'memory',
+				'source_contract_id' => (string) ( $receipt['contract_id'] ?? '' ),
+				'operation'    => is_scalar( $result ) ? (string) $result : 'upsert',
+				'blog_id'      => (int) ( $row['blog_id'] ?? get_current_blog_id() ),
+				'user_id'      => (int) ( $row['user_id'] ?? 0 ),
+				'identity_uuid' => (string) ( $row['identity_uuid'] ?? '' ),
+				'session_id'   => (string) ( $row['session_id'] ?? '' ),
+				'memory_tier'  => (string) ( $row['memory_tier'] ?? '' ),
+				'memory_type'  => (string) ( $row['memory_type'] ?? '' ),
+				'memory_key'   => (string) ( $row['memory_key'] ?? '' ),
+				'conversation_id' => (string) ( $row['conversation_id'] ?? '' ),
+				'notebook_id' => (int) ( $row['notebook_id'] ?? 0 ),
+				'entity_type' => (string) ( $row['entity_type'] ?? sanitize_key( $class ) ),
+				'entity_key'  => (string) ( $row['entity_key'] ?? $row['conversation_id'] ?? $row['session_id'] ?? $row['memory_key'] ?? '' ),
+				'trace_id'    => (string) ( $row['trace_id'] ?? '' ),
+				'record_id'    => (string) ( $receipt['record_id'] ?? $row['record_id'] ?? '' ),
+				'receipt'      => $receipt,
+			);
+			// [2026-09-01 Johnny Chu] PHASE-CB4.5 — synchronously admit the receipt so a memory write cannot be mistaken for Context Bank completion when the hook is absent.
+			if ( class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) {
+				BizCity_Context_Bank_Memory_Adapter::admit( $class, $reference );
 			}
+			// Preserve the compatibility event for diagnostics and non-ledger listeners.
+			do_action( 'bizcity_context_bank_reference_write', $reference );
 		} catch ( \Throwable $e ) {
-			error_log( '[BizCity_Memory_Unified_Writer] mirror ' . $class . ' failed: ' . $e->getMessage() );
+			error_log( '[BizCity_Memory_Unified_Writer] reference ' . $class . ' failed: ' . $e->getMessage() );
 		}
 	}
 
@@ -90,227 +104,56 @@ class BizCity_Memory_Unified_Writer {
 	 * @param array|null $scope  Optional blog/identity scope.
 	 */
 	public function on_mirror_delete( $class, $id, $scope = null ): void {
-		if ( ! BizCity_Memory_Unified_Installer::is_enabled() ) {
-			return;
-		}
 		$class = sanitize_key( (string) $class );
 		$id    = (int) $id;
-		if ( $class === '' || $id <= 0 ) {
+		$record_id = is_array( $scope ) ? (string) ( $scope['record_id'] ?? '' ) : '';
+		$receipt = is_array( $scope ) && is_array( $scope['filestore_receipt'] ?? null ) ? $scope['filestore_receipt'] : array();
+		if ( $class === '' || ( $id <= 0 && $record_id === '' ) || empty( $receipt ) ) {
 			return;
 		}
 
 		try {
-			global $wpdb;
-			$table   = BizCity_Memory_Unified_Installer::table();
+			// [2026-09-01 Johnny Chu] PHASE-CB4.5 — load the same boundary for receipt-bearing tombstones.
+			$this->load_context_bank_runtime();
 			$blog_id = is_array( $scope ) && isset( $scope['blog_id'] )
 				? (int) $scope['blog_id']
 				: (int) get_current_blog_id();
-			$wpdb->query( $wpdb->prepare(
-				"DELETE FROM {$table} WHERE blog_id = %d AND memory_class = %s AND legacy_id = %d",
-				$blog_id,
-				$class,
-				$id
-			) );
-		} catch ( \Throwable $e ) {
-			error_log( '[BizCity_Memory_Unified_Writer] delete ' . $class . ' failed: ' . $e->getMessage() );
-		}
-	}
-
-	/* ─── Class-specific mirrors ────────────────────────────────── */
-
-	private function mirror_user( array $row ): void {
-		// [2026-07-28 Johnny Chu] R-CH-IDMEM — mirror the durable identity owner with legacy memory rows.
-		$this->upsert_unified( [
-			'memory_class' => 'user',
-			'legacy_id'    => (int) ( $row['id'] ?? 0 ),
-			'blog_id'      => (int) ( $row['blog_id']    ?? get_current_blog_id() ),
-			'user_id'      => (int) ( $row['user_id']    ?? 0 ),
-			'session_id'   => (string) ( $row['session_id'] ?? '' ),
-			'identity_uuid' => (string) ( $row['identity_uuid'] ?? '' ),
-			'memory_tier'  => (string) ( $row['memory_tier'] ?? 'extracted' ),
-			'memory_type'  => (string) ( $row['memory_type'] ?? 'fact' ),
-			'memory_key'   => (string) ( $row['memory_key']  ?? '' ),
-			'memory_text'  => (string) ( $row['memory_text'] ?? '' ),
-			'score'        => (int) ( $row['score']      ?? 50 ),
-			'source_log_ids' => (string) ( $row['source_log_ids'] ?? '' ),
-			'metadata'     => (string) ( $row['metadata'] ?? '' ),
-		] );
-	}
-
-	private function mirror_episodic( array $row ): void {
-		$key = (string) ( $row['event_key'] ?? '' );
-		if ( $key === '' ) return;
-		$this->upsert_unified( [
-			'memory_class'      => 'episodic',
-			'legacy_id'         => (int) ( $row['id'] ?? 0 ),
-			'blog_id'           => (int) ( $row['blog_id']    ?? get_current_blog_id() ),
-			'user_id'           => (int) ( $row['user_id']    ?? 0 ),
-			'session_id'        => (string) ( $row['session_id'] ?? '' ),
-			'conversation_id'   => (string) ( $row['source_conversation_id'] ?? '' ),
-			'memory_type'       => (string) ( $row['event_type'] ?? 'fact' ),
-			'event_type'        => (string) ( $row['event_type'] ?? 'fact' ),
-			'memory_key'        => 'ep:' . $key,
-			'memory_text'       => (string) ( $row['event_text'] ?? '' ),
-			'score'             => (int) ( $row['importance'] ?? 50 ),
-			'importance'        => (int) ( $row['importance'] ?? 50 ),
-			'goal'              => (string) ( $row['source_goal'] ?? '' ),
-			'metadata'          => (string) ( $row['metadata'] ?? '' ),
-		] );
-	}
-
-	private function mirror_rolling( array $row ): void {
-		$conv = (string) ( $row['conversation_id'] ?? '' );
-		if ( $conv === '' ) return;
-		$this->upsert_unified( [
-			'memory_class'           => 'rolling',
-			'legacy_id'              => (int) ( $row['id'] ?? 0 ),
-			'blog_id'                => (int) ( $row['blog_id'] ?? get_current_blog_id() ),
-			'user_id'                => (int) ( $row['user_id'] ?? 0 ),
-			'session_id'             => (string) ( $row['session_id'] ?? '' ),
-			'conversation_id'        => $conv,
-			'memory_type'            => 'rolling',
-			'memory_key'             => 'rl:' . $conv,
-			'memory_text'            => (string) ( $row['window_summary'] ?? '' ),
-			'goal'                   => (string) ( $row['goal'] ?? '' ),
-			'goal_label'             => (string) ( $row['goal_label'] ?? '' ),
-			'window_summary'         => (string) ( $row['window_summary'] ?? '' ),
-			'window_turn_count'      => (int) ( $row['window_turn_count'] ?? 0 ),
-			'user_goal_score'        => (int) ( $row['user_goal_score'] ?? 0 ),
-			'bot_satisfaction_score' => (int) ( $row['bot_satisfaction_score'] ?? 0 ),
-			'status'                 => (string) ( $row['status'] ?? 'active' ),
-			'score'                  => 60,
-		] );
-	}
-
-	private function mirror_session( array $row ): void {
-		$key = (string) ( $row['memory_key'] ?? '' );
-		if ( $key === '' ) return;
-		$this->upsert_unified( [
-			'memory_class' => 'session',
-			'legacy_id'    => (int) ( $row['id'] ?? 0 ),
-			'blog_id'      => (int) ( $row['blog_id']    ?? get_current_blog_id() ),
-			'user_id'      => (int) ( $row['user_id']    ?? 0 ),
-			'session_id'   => (string) ( $row['session_id'] ?? '' ),
-			'memory_type'  => (string) ( $row['memory_type'] ?? 'fact' ),
-			'memory_key'   => 'ws:' . $key,
-			'memory_text'  => (string) ( $row['memory_text'] ?? '' ),
-			'score'        => (int) ( $row['score'] ?? 50 ),
-			'metadata'     => (string) ( $row['metadata'] ?? '' ),
-		] );
-	}
-
-	private function mirror_note( array $row ): void {
-		$id = (int) ( $row['id'] ?? 0 );
-		$pid = (string) ( $row['project_id'] ?? '' );
-		if ( $id <= 0 && $pid === '' ) return;
-		$key = $id > 0 ? ( 'nt:' . $pid . ':' . $id ) : ( 'nt:' . $pid . ':' . md5( (string) ( $row['title'] ?? '' ) ) );
-		$this->upsert_unified( [
-			'memory_class' => 'note',
-			'legacy_id'    => $id,
-			'blog_id'      => (int) ( $row['blog_id'] ?? get_current_blog_id() ),
-			'user_id'      => (int) ( $row['user_id'] ?? 0 ),
-			'session_id'   => (string) ( $row['session_id'] ?? '' ),
-			'memory_type'  => (string) ( $row['note_type'] ?? 'manual' ),
-			'memory_tier'  => 'manual',
-			'memory_key'   => $key,
-			'memory_text'  => (string) ( $row['title'] ?? '' )
-				. ( ! empty( $row['content'] ) ? "\n\n" . (string) $row['content'] : '' ),
-			'score'        => ! empty( $row['is_starred'] ) ? 80 : 50,
-			'metadata'     => (string) ( $row['metadata'] ?? '' ),
-		] );
-	}
-
-	/* ─── Generic upsert into unified table ─────────────────────── */
-
-	private function upsert_unified( array $data ): void {
-		global $wpdb;
-		$table = BizCity_Memory_Unified_Installer::table();
-
-		// Required keys.
-		$class = (string) ( $data['memory_class'] ?? '' );
-		$key   = (string) ( $data['memory_key']   ?? '' );
-		if ( $class === '' || $key === '' ) return;
-
-		$blog_id    = (int) ( $data['blog_id']    ?? get_current_blog_id() );
-		$user_id    = (int) ( $data['user_id']    ?? 0 );
-		$session_id = (string) ( $data['session_id'] ?? '' );
-		$identity_uuid = (string) ( $data['identity_uuid'] ?? '' );
-		// [2026-07-28 Johnny Chu] R-CH-IDMEM — keep mirror dedupe and lookup scoped to identity UUID.
-
-		$dedupe_key = $blog_id . '|' . $user_id . '|' . $session_id . '|' . $identity_uuid . '|' . $class . '|' . $key;
-		if ( isset( $this->seen[ $dedupe_key ] ) ) return;
-		$this->seen[ $dedupe_key ] = true;
-
-		$now = current_time( 'mysql' );
-
-		// Build column data — only include keys that exist.
-		$cols = [
-			'blog_id'         => $blog_id,
-			'user_id'         => $user_id,
-			'session_id'      => $session_id,
-			'identity_uuid'   => $identity_uuid,
-			'conversation_id' => (string) ( $data['conversation_id'] ?? '' ),
-			'notebook_id'     => (int) ( $data['notebook_id'] ?? 0 ),
-			'memory_class'    => $class,
-			'legacy_id'       => (int) ( $data['legacy_id'] ?? 0 ),
-			'memory_tier'     => (string) ( $data['memory_tier'] ?? 'explicit' ),
-			'memory_type'     => (string) ( $data['memory_type'] ?? 'fact' ),
-			'memory_key'      => $key,
-			'memory_text'     => (string) ( $data['memory_text'] ?? '' ),
-			'event_type'      => isset( $data['event_type'] ) ? (string) $data['event_type'] : null,
-			'importance'      => (int) ( $data['importance'] ?? 0 ),
-			'goal'            => isset( $data['goal'] ) ? (string) $data['goal'] : null,
-			'goal_label'      => isset( $data['goal_label'] ) ? (string) $data['goal_label'] : null,
-			'window_summary'  => isset( $data['window_summary'] ) ? (string) $data['window_summary'] : null,
-			'window_turn_count'      => (int) ( $data['window_turn_count'] ?? 0 ),
-			'user_goal_score'        => (int) ( $data['user_goal_score'] ?? 0 ),
-			'bot_satisfaction_score' => (int) ( $data['bot_satisfaction_score'] ?? 0 ),
-			'status'                 => (string) ( $data['status'] ?? 'active' ),
-			'score'                  => (int) ( $data['score'] ?? 50 ),
-			'source_log_ids'         => (string) ( $data['source_log_ids'] ?? '' ),
-			'metadata'               => (string) ( $data['metadata'] ?? '' ),
-			'last_seen'              => $now,
-			'updated_at'             => $now,
-		];
-
-		// Check existing via unique key.
-		$exists_id = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$table} WHERE blog_id=%d AND user_id=%d AND session_id=%s AND identity_uuid=%s AND memory_class=%s AND memory_key=%s LIMIT 1",
-			$blog_id, $user_id, $session_id, $identity_uuid, $class, $key
-		) );
-
-		if ( $exists_id > 0 ) {
-			$update = [
-				'memory_text'      => $cols['memory_text'],
-				'memory_tier'      => $cols['memory_tier'],
-				'memory_type'      => $cols['memory_type'],
-				'event_type'       => $cols['event_type'],
-				'importance'       => $cols['importance'],
-				'goal'             => $cols['goal'],
-				'goal_label'       => $cols['goal_label'],
-				'window_summary'   => $cols['window_summary'],
-				'window_turn_count'      => $cols['window_turn_count'],
-				'user_goal_score'        => $cols['user_goal_score'],
-				'bot_satisfaction_score' => $cols['bot_satisfaction_score'],
-				'status'                 => $cols['status'],
-				'score'                  => $cols['score'],
-				'source_log_ids'         => $cols['source_log_ids'],
-				'metadata'               => $cols['metadata'],
-				'last_seen'              => $now,
-				'updated_at'             => $now,
-			];
-			// Preserve legacy_id only if we now know it (don't overwrite with 0).
-			if ( (int) $cols['legacy_id'] > 0 ) {
-				$update['legacy_id'] = (int) $cols['legacy_id'];
+			// [2026-09-01 Johnny Chu] PHASE-CB4.5 — represent deletes as receipt-bearing Context Bank tombstones, never SQL deletes.
+			$reference = array(
+				'memory_class' => $class,
+				'record_id'   => $record_id,
+				'receipt'     => $receipt,
+				'record_kind' => 'memory',
+				'source_contract_id' => (string) ( $receipt['contract_id'] ?? '' ),
+				'legacy_id'   => $id,
+				'blog_id'     => $blog_id,
+				'scope'       => is_array( $scope ) ? $scope : array(),
+			);
+			if ( class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) {
+				BizCity_Context_Bank_Memory_Adapter::tombstone( $class, $reference );
 			}
-			$wpdb->update( $table, $update, [ 'id' => $exists_id ] );
-			// Bump times_seen.
-			$wpdb->query( $wpdb->prepare( "UPDATE {$table} SET times_seen = times_seen + 1 WHERE id = %d", $exists_id ) );
-			return;
+			do_action( 'bizcity_context_bank_reference_delete', $reference );
+		} catch ( \Throwable $e ) {
+			error_log( '[BizCity_Memory_Unified_Writer] tombstone reference ' . $class . ' failed: ' . $e->getMessage() );
 		}
-
-		$cols['times_seen'] = 1;
-		$cols['created_at'] = $now;
-		$wpdb->insert( $table, $cols );
 	}
+
+	private function load_context_bank_runtime(): bool {
+		if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+			return (bool) bizcity_context_bank_load_memory_runtime();
+		}
+		if ( class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) {
+			return true;
+		}
+		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/';
+		$bootstrap = rtrim( $root, '/\\' ) . '/core/context-bank/bootstrap.php';
+		if ( ! class_exists( 'BizCity_Safe_Loader', false )
+			|| ! is_file( $bootstrap )
+			|| ! is_readable( $bootstrap ) ) {
+			return false;
+		}
+		BizCity_Safe_Loader::require_file( $bootstrap, 'context_bank.memory_writer' );
+		return class_exists( 'BizCity_Context_Bank_Memory_Adapter' );
+	}
+
 }

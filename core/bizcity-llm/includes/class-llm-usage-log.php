@@ -3,7 +3,8 @@
  * BizCity LLM — Usage Logging (File-based JSONL)
  *
  * Wave 1 (client): migrate per-blog usage trace from SQL table
- * `{prefix}bizcity_llm_usage_clients` to uploads JSONL files.
+ * `{prefix}bizcity_llm_usage_clients` and the legacy `bizcity_llm_usage`
+ * projections to uploads JSONL files.
  *
  * @package BizCity_LLM
  * @since   2026-07-25
@@ -17,6 +18,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_LLM_Usage_File_Log {
 
     const BASE_FOLDER = 'bizcity-usage-logs';
+    const JSONL_MODULE = 'client-usage';
 
     // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — runtime cleanup version gate for legacy SQL tables.
     const CLEANUP_VER_OPT = 'bizcity_llm_usage_sql_cleanup_ver';
@@ -35,6 +37,10 @@ class BizCity_LLM_Usage_File_Log {
      * Keep compatibility with old bootstrap call sites.
      */
     public static function maybe_install(): void {
+        // [2026-08-27 Johnny Chu] R-LOG-HYBRID — shared logger owns usage directory creation.
+        if ( class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+            BizCity_JSONL_File_Logger::location( self::BASE_FOLDER, self::JSONL_MODULE );
+        }
         self::ensure_hooks_registered();
         self::maybe_schedule_cleanup_for_current_blog();
     }
@@ -128,7 +134,8 @@ class BizCity_LLM_Usage_File_Log {
             'error'             => mb_substr( sanitize_text_field( (string) ( $data['error'] ?? '' ) ), 0, 500 ),
         );
 
-        return self::append_line( $entry );
+        // [2026-08-27 Johnny Chu] R-LOG-HYBRID — usage rows are written by the one framework JSONL CRUD class.
+        return self::write_canonical_entry( $entry );
     }
 
     /**
@@ -145,32 +152,23 @@ class BizCity_LLM_Usage_File_Log {
         $limit  = max( 1, min( $limit, 200 ) );
         $offset = max( 0, $offset );
 
-        $dates = self::list_dates( 120 );
-        if ( empty( $dates ) ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
             return array();
         }
-
         $rows = array();
-        foreach ( $dates as $date ) {
-            $lines = self::read_raw_lines_for_date( $date );
-            if ( empty( $lines ) ) {
-                continue;
-            }
-            foreach ( array_reverse( $lines ) as $raw ) {
-                $obj = json_decode( $raw, true );
-                if ( ! is_array( $obj ) ) {
-                    continue;
-                }
-                if ( $user_id > 0 && (int) ( $obj['user_id'] ?? 0 ) !== $user_id ) {
-                    continue;
-                }
-                $rows[] = self::normalize_row( $obj );
-                if ( count( $rows ) >= ( $offset + $limit ) ) {
-                    break 2;
-                }
+        $raw_rows = BizCity_JSONL_File_Logger::query_contract( 'core.bizcity_llm.client_usage', array(
+            'days'   => 120,
+            'limit'  => $offset + $limit,
+            'filter' => static function ( $row ) use ( $user_id ) {
+                $ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+                return $user_id <= 0 || (int) ( $ctx['user_id'] ?? $row['user_id'] ?? 0 ) === $user_id;
+            },
+        ) );
+        foreach ( (array) $raw_rows as $row ) {
+            if ( is_array( $row ) ) {
+                $rows[] = self::normalize_row( $row );
             }
         }
-
         if ( empty( $rows ) ) {
             return array();
         }
@@ -306,6 +304,33 @@ class BizCity_LLM_Usage_File_Log {
     }
 
     /**
+     * Return daily call/token totals from the canonical usage filestore.
+     *
+     * @param string $period 1h|24h|7d|30d|90d|all.
+     * @param array  $filters Optional blog_id, user_id, surface, flow, channel.
+     * @return array<int,array{date:string,calls:int,tokens:int}>
+     */
+    public static function get_daily_history( string $period = '30d', array $filters = array() ): array {
+        $bucket = array();
+
+        // [2026-09-01 Johnny Chu] R-LLM-USAGE-FILESTORE — derive report history from bounded JSONL rows, never from the retired SQL ledger.
+        self::scan_period_rows( $period, function ( array $row ) use ( &$bucket ) {
+            $date = substr( (string) ( $row['created_at'] ?? '' ), 0, 10 );
+            if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+                return;
+            }
+            if ( ! isset( $bucket[ $date ] ) ) {
+                $bucket[ $date ] = array( 'date' => $date, 'calls' => 0, 'tokens' => 0 );
+            }
+            $bucket[ $date ]['calls']++;
+            $bucket[ $date ]['tokens'] += (int) ( $row['tokens_prompt'] ?? 0 ) + (int) ( $row['tokens_completion'] ?? 0 );
+        }, $filters );
+
+        ksort( $bucket );
+        return array_values( $bucket );
+    }
+
+    /**
      * Top models by call count.
      */
     public static function get_top_models( int $limit = 10, string $period = '7d', array $filters = array() ): array {
@@ -360,35 +385,11 @@ class BizCity_LLM_Usage_File_Log {
      * Purge old daily files.
      */
     public static function purge( int $days = 7 ): int { // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep client usage files for one week.
-        $days = max( 1, $days );
-        $dir  = self::get_base_log_dir();
-        if ( $dir === '' || ! is_dir( $dir ) ) {
+        // [2026-08-27 Johnny Chu] R-LOG-HYBRID — usage retention is owned by the shared JSONL CRUD class.
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
             return 0;
         }
-
-        $threshold = strtotime( gmdate( 'Y-m-d', strtotime( '-' . $days . ' day' ) ) );
-        if ( false === $threshold ) {
-            return 0;
-        }
-
-        $deleted = 0;
-        $files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
-        if ( ! is_array( $files ) ) {
-            return 0;
-        }
-
-        foreach ( $files as $f ) {
-            $date = basename( $f, '.jsonl' );
-            $ts = strtotime( $date . ' 00:00:00' );
-            if ( false === $ts || $ts >= $threshold ) {
-                continue;
-            }
-            if ( @unlink( $f ) ) {
-                $deleted++;
-            }
-        }
-
-        return $deleted;
+        return (int) BizCity_JSONL_File_Logger::purge_older_than( self::BASE_FOLDER, self::JSONL_MODULE, max( 1, $days ) );
     }
 
     /**
@@ -439,7 +440,13 @@ class BizCity_LLM_Usage_File_Log {
             $table_clients = $wpdb->prefix . 'bizcity_llm_usage_clients';
             $table_legacy  = $wpdb->prefix . 'bizcity_llm_usage';
 
-            $wpdb->query( "DROP TABLE IF EXISTS `{$table_clients}`" );
+            // [2026-08-27 Johnny Chu] PHASE-1.30-APPROVED-DROP — legacy client usage cleanup cannot DROP without explicit policy approval and zero rows.
+            if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+                return;
+            }
+            if ( ! BizCity_Legacy_Table_Policy::drop_approved_empty( $table_clients ) ) {
+                return;
+            }
             // [2026-07-31 Johnny Chu] PHASE-1.22-QUARANTINE — keep legacy usage storage while Membership reports still read it; deprecated_tables tracks it until reader migration sign-off.
 
             delete_option( 'bizcity_llm_usage_clients_db_ver' );
@@ -508,77 +515,58 @@ class BizCity_LLM_Usage_File_Log {
      * Scan normalized rows for a period.
      */
     private static function scan_period_rows( string $period, callable $cb, array $filters = array() ): void {
-        $dates = self::dates_for_period( $period );
-        if ( empty( $dates ) ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
             return;
         }
-
         $range = self::period_time_range( $period );
         $from_ts = (int) $range['from'];
         $want_surface = isset( $filters['surface'] ) ? sanitize_key( (string) $filters['surface'] ) : '';
         $want_flow = isset( $filters['flow'] ) ? sanitize_key( (string) $filters['flow'] ) : '';
         $want_channel = isset( $filters['channel'] ) ? sanitize_key( (string) $filters['channel'] ) : '';
-
-        foreach ( $dates as $date ) {
-            $lines = self::read_raw_lines_for_date( $date );
-            if ( empty( $lines ) ) {
+        $want_blog_id = isset( $filters['blog_id'] ) ? (int) $filters['blog_id'] : 0;
+        $want_user_id = isset( $filters['user_id'] ) ? (int) $filters['user_id'] : 0;
+        $want_date_from = isset( $filters['date_from'] ) ? preg_replace( '/[^0-9-]/', '', (string) $filters['date_from'] ) : '';
+        $want_date_to = isset( $filters['date_to'] ) ? preg_replace( '/[^0-9-]/', '', (string) $filters['date_to'] ) : '';
+		$days = strtolower( trim( $period ) ) === 'all' ? 365 : ( strtolower( trim( $period ) ) === '30d' ? 31 : ( strtolower( trim( $period ) ) === '7d' ? 8 : 2 ) );
+        if ( strtolower( trim( $period ) ) === '90d' ) {
+            $days = 91;
+        }
+        $rows = BizCity_JSONL_File_Logger::query_contract( 'core.bizcity_llm.client_usage', array( 'days' => $days, 'limit' => 50000 ) );
+		foreach ( (array) $rows as $raw_row ) {
+			if ( ! is_array( $raw_row ) ) {
+				continue;
+			}
+			if ( $from_ts > 0 ) {
+				$row_ts = self::row_timestamp( $raw_row );
+				if ( $row_ts <= 0 || $row_ts < $from_ts ) {
+					continue;
+				}
+			}
+			$row = self::normalize_row( $raw_row );
+            if ( $want_blog_id > 0 && (int) ( $row['blog_id'] ?? 0 ) !== $want_blog_id ) {
                 continue;
             }
-            foreach ( $lines as $raw ) {
-                $obj = json_decode( $raw, true );
-                if ( ! is_array( $obj ) ) {
-                    continue;
-                }
-                if ( $from_ts > 0 ) {
-                    $row_ts = self::row_timestamp( $obj );
-                    if ( $row_ts <= 0 || $row_ts < $from_ts ) {
-                        continue;
-                    }
-                }
-                $row = self::normalize_row( $obj );
-                if ( $want_surface !== '' && sanitize_key( (string) ( $row['surface'] ?? '' ) ) !== $want_surface ) {
-                    continue;
-                }
-                if ( $want_flow !== '' && sanitize_key( (string) ( $row['flow'] ?? '' ) ) !== $want_flow ) {
-                    continue;
-                }
-                if ( $want_channel !== '' && sanitize_key( (string) ( $row['channel'] ?? '' ) ) !== $want_channel ) {
-                    continue;
-                }
-                $cb( $row );
+            if ( $want_user_id > 0 && (int) ( $row['user_id'] ?? 0 ) !== $want_user_id ) {
+                continue;
             }
+                $row_date = substr( (string) ( $row['created_at'] ?? '' ), 0, 10 );
+                if ( $want_date_from !== '' && $row_date < $want_date_from ) {
+                    continue;
+                }
+                if ( $want_date_to !== '' && $row_date > $want_date_to ) {
+                    continue;
+                }
+			if ( $want_surface !== '' && sanitize_key( (string) ( $row['surface'] ?? '' ) ) !== $want_surface ) {
+				continue;
+			}
+			if ( $want_flow !== '' && sanitize_key( (string) ( $row['flow'] ?? '' ) ) !== $want_flow ) {
+				continue;
+			}
+			if ( $want_channel !== '' && sanitize_key( (string) ( $row['channel'] ?? '' ) ) !== $want_channel ) {
+				continue;
+            }
+			$cb( $row );
         }
-    }
-
-    /**
-     * Compute date list for period.
-     *
-     * @return string[]
-     */
-    private static function dates_for_period( string $period ): array {
-        $period = strtolower( trim( $period ) );
-        $days = 0;
-
-        if ( $period === '1h' || $period === '24h' ) {
-            $days = 2;
-        } elseif ( $period === '7d' ) {
-            $days = 8;
-        } elseif ( $period === '30d' ) {
-            $days = 31;
-        } elseif ( $period === 'all' ) {
-            return self::list_dates( 365 );
-        }
-
-        if ( $days <= 0 ) {
-            $days = 2;
-        }
-
-        $out = array();
-        for ( $i = 0; $i < $days; $i++ ) {
-            $out[] = gmdate( 'Y-m-d', strtotime( '-' . $i . ' day' ) );
-        }
-
-        return array_reverse( $out );
     }
 
     /**
@@ -590,6 +578,9 @@ class BizCity_LLM_Usage_File_Log {
         $period = strtolower( trim( $period ) );
         $now = time();
 
+        if ( $period === 'today' ) {
+            return array( 'from' => strtotime( gmdate( 'Y-m-d' ) . ' 00:00:00' ), 'to' => $now );
+        }
         if ( $period === '1h' ) {
             return array( 'from' => $now - HOUR_IN_SECONDS, 'to' => $now );
         }
@@ -627,6 +618,10 @@ class BizCity_LLM_Usage_File_Log {
      * Normalize a row shape to legacy SQL-compatible keys.
      */
     private static function normalize_row( array $row ): array {
+        $ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+        if ( ! empty( $ctx ) ) {
+            $row = array_merge( $ctx, array( 'ts' => (string) ( $row['ts'] ?? '' ) ) );
+        }
         $ts = (string) ( $row['ts'] ?? '' );
         $created = $ts !== '' ? str_replace( 'T', ' ', $ts ) : '';
 
@@ -654,105 +649,19 @@ class BizCity_LLM_Usage_File_Log {
         );
     }
 
-    /**
-     * Read raw JSONL lines for one date.
-     *
-     * @return string[]
-     */
-    private static function read_raw_lines_for_date( string $date ): array {
-        $dir = self::get_base_log_dir();
-        if ( $dir === '' ) {
-            return array();
-        }
 
-        $file = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $date . '.jsonl';
-        if ( ! file_exists( $file ) ) {
-            return array();
-        }
-
-        $lines = file( $file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES );
-        return is_array( $lines ) ? $lines : array();
-    }
-
-    /**
-     * List available date files desc.
-     *
-     * @return string[]
-     */
-    private static function list_dates( int $max = 60 ): array {
-        $dir = self::get_base_log_dir();
-        if ( $dir === '' ) {
-            return array();
-        }
-
-        $files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
-        if ( ! is_array( $files ) ) {
-            return array();
-        }
-
-        $dates = array();
-        foreach ( $files as $f ) {
-            $dates[] = basename( $f, '.jsonl' );
-        }
-
-        rsort( $dates );
-        return array_slice( $dates, 0, max( 1, $max ) );
-    }
-
-    /**
-     * Append one JSON line.
-     */
-    private static function append_line( array $entry ): bool {
-        $dir = self::get_base_log_dir();
-        if ( $dir === '' ) {
+    private static function write_canonical_entry( array $entry ): bool {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
             return false;
         }
-
-        $date = substr( (string) ( $entry['ts'] ?? '' ), 0, 10 );
-        if ( $date === '' ) {
-            $date = function_exists( 'wp_date' ) ? wp_date( 'Y-m-d' ) : gmdate( 'Y-m-d' );
-        }
-
-        $line = json_encode( $entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-        if ( false === $line ) {
-            return false;
-        }
-
-        $file = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $date . '.jsonl';
-        return false !== @file_put_contents( $file, $line . "\n", FILE_APPEND | LOCK_EX );
-    }
-
-    /**
-     * Resolve/create base log dir.
-     */
-    private static function get_base_log_dir(): string {
-        $blog_id = (int) get_current_blog_id();
-        if ( isset( self::$dir_cache[ (string) $blog_id ] ) ) {
-            return self::$dir_cache[ (string) $blog_id ];
-        }
-
-        $upload = wp_upload_dir();
-        $base = (string) ( $upload['basedir'] ?? '' );
-        if ( $base === '' ) {
-            return '';
-        }
-
-        $dir = $base . DIRECTORY_SEPARATOR . self::BASE_FOLDER;
-        if ( ! file_exists( $dir ) ) {
-            @mkdir( $dir, 0755, true );
-        }
-
-        $htaccess = $dir . DIRECTORY_SEPARATOR . '.htaccess';
-        if ( file_exists( $dir ) && ! file_exists( $htaccess ) ) {
-            @file_put_contents( $htaccess, "Deny from all\nOptions -Indexes\n" );
-        }
-
-        if ( ! is_dir( $dir ) || ! is_writable( $dir ) ) {
-            return '';
-        }
-
-        self::$dir_cache[ (string) $blog_id ] = $dir;
-        return $dir;
+        $event = ! empty( $entry['success'] ) ? 'usage_done' : 'usage_failed';
+        return (bool) BizCity_JSONL_File_Logger::write_contract(
+            'core.bizcity_llm.client_usage',
+            ! empty( $entry['success'] ) ? 'info' : 'error',
+            $event,
+            (string) ( $entry['endpoint'] ?? 'llm' ),
+            $entry
+        );
     }
 }
 

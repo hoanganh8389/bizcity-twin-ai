@@ -426,27 +426,11 @@ class BizCity_TwinChat_Welcome_Runner {
 			return 'sess_' . wp_generate_password( 12, false, false );
 		}
 		$db      = BizCity_TwinChat_Database::instance();
-		$ses_tbl = $db->table_sessions();
-
-		$ses_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $ses_tbl ) );
-		if ( $ses_exists === $ses_tbl ) {
-			$cols = $wpdb->get_col( "DESCRIBE {$ses_tbl}", 0 ) ?: [];
-			if ( in_array( 'user_id', $cols, true ) && $user_id > 0 ) {
-				$sid = $wpdb->get_var( $wpdb->prepare(
-					"SELECT session_id FROM {$ses_tbl}
-					   WHERE project_id=%s AND platform_type=%s AND user_id=%d
-					   ORDER BY last_message_at DESC LIMIT 1",
-					(string) $notebook_id, BizCity_TwinChat_Database::PLATFORM, (int) $user_id
-				) );
-				if ( $sid ) { return (string) $sid; }
+		if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			$states = BizCity_WebChat_Session_State::instance()->list_for_user( $user_id > 0 ? $user_id : null, BizCity_TwinChat_Database::PLATFORM, 1, (string) $notebook_id, 'all' );
+			if ( ! empty( $states ) ) {
+				return (string) $states[0]->session_id;
 			}
-			$sid = $wpdb->get_var( $wpdb->prepare(
-				"SELECT session_id FROM {$ses_tbl}
-				   WHERE project_id=%s AND platform_type=%s
-				   ORDER BY last_message_at DESC LIMIT 1",
-				(string) $notebook_id, BizCity_TwinChat_Database::PLATFORM
-			) );
-			if ( $sid ) { return (string) $sid; }
 		}
 		// Mirror the FE id pattern (sess_<base36>_<rand>) so DB lookups by
 		// prefix continue to work uniformly.

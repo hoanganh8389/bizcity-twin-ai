@@ -137,6 +137,12 @@ class BizCoach_Pro_Legacy_Adopter {
 		$loaded = 0;
 		$failed = array();
 		foreach ( self::file_list() as $rel ) {
+			// [2026-09-02 02:35 PM Johnny Chu - Chu Hoàng Anh] R-PERF-LOADER — diagnostics CLI does not need public Astro timeline renderers; skip their legacy chain so unrelated Context Bank probes can complete.
+			if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI
+				&& in_array( $rel, array( 'lib/astro-transit-report.php', 'lib/astro-transit-timeline.php' ), true ) ) {
+				self::$boot_trace[] = 'skip:diagnostics_cli:' . $rel;
+				continue;
+			}
 			$path = self::shadow_dir() . $rel;
 			if ( file_exists( $path ) ) {
 				require_once $path;

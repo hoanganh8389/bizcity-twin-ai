@@ -31,6 +31,7 @@ class BizCity_Skill_Database {
 	const RETENTION_HOOK = 'bizcity_skill_logs_retention';
 	const RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep skill usage telemetry for one week.
 	const RETENTION_BATCH = 500;
+	const USAGE_CONTRACT_ID = 'core.skills.usage_audit';
 
 	private static $instance = null;
 
@@ -68,7 +69,8 @@ class BizCity_Skill_Database {
 		}
 		$table  = $wpdb->prefix . 'bizcity_skill_logs';
 		$deleted = 0;
-		if ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) {
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — retention SQL path must honor legacy-table delete gates and fail closed when table is unavailable.
+		if ( self::allow_skill_logs_sql( 'delete' ) ) {
 			$result = $wpdb->query( $wpdb->prepare(
 				"DELETE FROM {$table} WHERE created_at < (CURRENT_TIMESTAMP - INTERVAL %d DAY) ORDER BY id ASC LIMIT %d",
 				self::RETENTION_DAYS,
@@ -98,7 +100,7 @@ class BizCity_Skill_Database {
 		$skills_table = $wpdb->prefix . 'bizcity_skills';
 		$logs_table   = $wpdb->prefix . 'bizcity_skill_logs';
 
-		$sql = "CREATE TABLE {$skills_table} (
+		$skills_sql = "CREATE TABLE {$skills_table} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			skill_key VARCHAR(191) NOT NULL,
 			title VARCHAR(255) NOT NULL,
@@ -125,9 +127,9 @@ class BizCity_Skill_Database {
 			KEY status (status),
 			KEY category (category),
 			KEY priority (priority)
-		) {$charset};
+		) {$charset};";
 
-		CREATE TABLE {$logs_table} (
+		$logs_sql = "CREATE TABLE {$logs_table} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			skill_id BIGINT UNSIGNED NOT NULL,
 			user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -143,9 +145,47 @@ class BizCity_Skill_Database {
 		) {$charset};";
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-		dbDelta( $sql );
+		dbDelta( $skills_sql );
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — install path for legacy skill logs must pass policy gate before creating SQL table.
+		if ( self::allow_skill_logs_sql( 'install' ) ) {
+			dbDelta( $logs_sql );
+		}
 
 		update_option( self::DB_VERSION_KEY, self::DB_VERSION );
+	}
+
+	/**
+	 * Lifecycle/physical gate for legacy skill-log SQL access.
+	 */
+	private static function allow_skill_logs_sql( string $operation = 'read' ): bool {
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return false;
+		}
+		$table = $wpdb->prefix . 'bizcity_skill_logs';
+
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			if ( ! BizCity_Legacy_Table_Policy::allow_sql( $table, $operation ) ) {
+				return false;
+			}
+			if ( $operation === 'read' && ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'write' ) ) {
+				// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — once writes are blocked, read from canonical JSONL only.
+				return false;
+			}
+		}
+
+		if ( $operation !== 'install' && function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	private static function query_usage_rows( array $args = array() ): array {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+			return array();
+		}
+		return (array) BizCity_JSONL_File_Logger::query_contract( self::USAGE_CONTRACT_ID, $args );
 	}
 
 	/* ================================================================
@@ -252,6 +292,10 @@ class BizCity_Skill_Database {
 			$id = (int) $data['id'];
 			$save_data['updated_at'] = current_time( 'mysql' );
 			$result = $wpdb->update( $table, $save_data, [ 'id' => $id ] );
+			if ( $result !== false ) {
+				// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — expose the canonical Skill save event for reference-only Context Bank projection.
+				do_action( 'bizcity_skill_saved', $id, 'update' );
+			}
 			return $result !== false ? $id : false;
 		}
 
@@ -259,6 +303,10 @@ class BizCity_Skill_Database {
 		$save_data['created_at'] = current_time( 'mysql' );
 		$save_data['updated_at'] = current_time( 'mysql' );
 		$result = $wpdb->insert( $table, $save_data );
+		if ( $result ) {
+			// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — expose the canonical Skill insert event for reference-only Context Bank projection.
+			do_action( 'bizcity_skill_saved', (int) $wpdb->insert_id, 'insert' );
+		}
 		return $result ? $wpdb->insert_id : false;
 	}
 
@@ -268,7 +316,12 @@ class BizCity_Skill_Database {
 	public function delete( int $id ): bool {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_skills';
-		return (bool) $wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] );
+		$result = (bool) $wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] );
+		if ( $result ) {
+			// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — expose the canonical Skill delete event for a receipt-bearing Context Bank tombstone.
+			do_action( 'bizcity_skill_deleted', $id );
+		}
+		return $result;
 	}
 
 	/**
@@ -386,21 +439,43 @@ class BizCity_Skill_Database {
 		global $wpdb;
 		$log_table   = $wpdb->prefix . 'bizcity_skill_logs';
 		$skill_table = $wpdb->prefix . 'bizcity_skills';
+		$created_at  = current_time( 'mysql' );
 
-		$wpdb->insert( $log_table, [
-			'skill_id'   => $skill_id,
-			'user_id'    => $ctx['user_id'] ?? get_current_user_id(),
-			'session_id' => $ctx['session_id'] ?? '',
-			'goal'       => $ctx['goal'] ?? '',
-			'mode'       => $ctx['mode'] ?? '',
-			'matched_by' => $ctx['matched_by'] ?? '',
-			'created_at' => current_time( 'mysql' ),
-		] );
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — emit canonical skill usage telemetry before compatibility SQL write.
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			BizCity_JSONL_File_Logger::write_contract(
+				self::USAGE_CONTRACT_ID,
+				'info',
+				'skill_usage',
+				'Skill usage event',
+				array(
+					'skill_id'    => (int) $skill_id,
+					'user_id'     => (int) ( $ctx['user_id'] ?? get_current_user_id() ),
+					'session_id'  => (string) ( $ctx['session_id'] ?? '' ),
+					'goal'        => (string) ( $ctx['goal'] ?? '' ),
+					'mode'        => (string) ( $ctx['mode'] ?? '' ),
+					'matched_by'  => (string) ( $ctx['matched_by'] ?? '' ),
+					'created_at'  => (string) $created_at,
+				)
+			);
+		}
+
+		if ( self::allow_skill_logs_sql( 'write' ) ) {
+			$wpdb->insert( $log_table, [
+				'skill_id'   => $skill_id,
+				'user_id'    => $ctx['user_id'] ?? get_current_user_id(),
+				'session_id' => $ctx['session_id'] ?? '',
+				'goal'       => $ctx['goal'] ?? '',
+				'mode'       => $ctx['mode'] ?? '',
+				'matched_by' => $ctx['matched_by'] ?? '',
+				'created_at' => $created_at,
+			] );
+		}
 
 		// Increment use_count + last_used_at
 		$wpdb->query( $wpdb->prepare(
 			"UPDATE {$skill_table} SET use_count = use_count + 1, last_used_at = %s WHERE id = %d",
-			current_time( 'mysql' ),
+			$created_at,
 			$skill_id
 		) );
 	}
@@ -411,6 +486,53 @@ class BizCity_Skill_Database {
 	public function get_usage_stats( int $skill_id, int $days = 30 ): array {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_skill_logs';
+		$days = max( 1, $days );
+
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — serve stats from canonical JSONL first, then fall back to SQL while compatibility gate remains open.
+		$jsonl_rows = self::query_usage_rows( array(
+			'days'  => $days,
+			'limit' => 5000,
+			'filter' => static function ( array $row ) use ( $skill_id ) {
+				$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				return (int) ( $ctx['skill_id'] ?? 0 ) === (int) $skill_id;
+			},
+		) );
+		if ( ! empty( $jsonl_rows ) ) {
+			$by_mode_map = array();
+			foreach ( $jsonl_rows as $row ) {
+				$ctx  = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				$mode = trim( (string) ( $ctx['mode'] ?? '' ) );
+				if ( $mode === '' ) {
+					$mode = 'unknown';
+				}
+				if ( ! isset( $by_mode_map[ $mode ] ) ) {
+					$by_mode_map[ $mode ] = 0;
+				}
+				$by_mode_map[ $mode ]++;
+			}
+			arsort( $by_mode_map );
+			$by_mode = array();
+			foreach ( $by_mode_map as $mode => $count ) {
+				$by_mode[] = array(
+					'mode' => (string) $mode,
+					'cnt'  => (int) $count,
+				);
+			}
+
+			return array(
+				'total_last_n_days' => count( $jsonl_rows ),
+				'days'              => $days,
+				'by_mode'           => $by_mode,
+			);
+		}
+
+		if ( ! self::allow_skill_logs_sql( 'read' ) ) {
+			return array(
+				'total_last_n_days' => 0,
+				'days'              => $days,
+				'by_mode'           => array(),
+			);
+		}
 
 		$total = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM {$table} WHERE skill_id = %d AND created_at >= DATE_SUB(NOW(), INTERVAL %d DAY)",

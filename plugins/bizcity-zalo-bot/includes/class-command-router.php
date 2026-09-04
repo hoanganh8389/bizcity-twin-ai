@@ -141,6 +141,8 @@ class BizCity_Zalobot_Command_Router {
 		$text       = trim( (string) ( $msg['message'] ?? $msg['message_text_clean'] ?? $msg['raw_text'] ?? '' ) );
 		$message_id = trim( (string) ( $msg['message_id'] ?? '' ) );
 		$chat_id    = trim( (string) ( $msg['chat_id'] ?? '' ) );
+		$chat_kind  = sanitize_key( (string) ( $msg['chat_kind'] ?? 'private' ) );
+		$reply_chat_id = trim( (string) ( $msg['conversation_chat_id'] ?? $chat_id ) );
 		if ( $bot_id <= 0 || $zalo_uid === '' || $text === '' || $message_id === '' || $chat_id === '' ) {
 			return;
 		}
@@ -151,6 +153,8 @@ class BizCity_Zalobot_Command_Router {
 			'from_user_name' => (string) ( $msg['display_name'] ?? '' ),
 			'message_text'   => $text,
 			'message_id'     => $message_id,
+			'chat_kind'      => $chat_kind,
+			'reply_chat_id'  => $reply_chat_id,
 		) );
 	}
 
@@ -171,6 +175,8 @@ class BizCity_Zalobot_Command_Router {
 		$display    = (string) ( $msg['from_user_name'] ?? '' );
 		$text       = trim( (string) ( $msg['message_text'] ?? '' ) );
 		$message_id = (string) ( $msg['message_id']     ?? '' );
+		$chat_kind  = sanitize_key( (string) ( $msg['chat_kind'] ?? 'private' ) );
+		$reply_chat_id = trim( (string) ( $msg['reply_chat_id'] ?? $msg['conversation_chat_id'] ?? $msg['chat_id'] ?? $zalo_uid ) );
 
 		if ( $bot_id <= 0 || $zalo_uid === '' || $text === '' ) { return; }
 
@@ -235,6 +241,12 @@ class BizCity_Zalobot_Command_Router {
 		}
 		if ( $message_id !== '' ) {
 			self::$handled_message_ids[ $message_id ] = true;
+		}
+		if ( $chat_kind === 'group' && in_array( $cmd, array( 'login', 'unlink', 'info', 'memory' ), true ) ) {
+			// [2026-09-01 Johnny Chu] PHASE-0.45-W4 — never expose or consume private identity/link state in a group; sender identity remains available only to server-side resolution.
+			self::send( $bot, $reply_chat_id, '🔒 Thao tác liên kết tài khoản và thông tin riêng tư cần thực hiện trong chat riêng với Bot BizCity. Vui lòng mở chat riêng rồi nhắn “đăng nhập”.' );
+			$GLOBALS['bizcity_zalobot_unlinked_skip'] = true;
+			return;
 		}
 
 		$wp_user_id = class_exists( 'BizCity_Zalobot_User_Linker' )

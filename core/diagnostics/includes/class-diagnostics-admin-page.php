@@ -42,6 +42,24 @@ final class BizCity_Diagnostics_Admin_Page {
 			wp_die( esc_html__( 'Insufficient permissions.', 'bizcity-twin-ai' ) );
 		}
 
+		// [2026-08-26 Johnny Chu] PHASE-1.30-STATE-MACHINE — quarantine-only rows must enter draining before ready approval.
+		if ( isset( $_POST['bizcity_legacy_draining_table'], $_POST['bizcity_legacy_draining_ref'] )
+			&& check_admin_referer( 'bizcity_legacy_draining', 'bizcity_legacy_draining_nonce' )
+			&& class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			$draining_table = sanitize_key( (string) wp_unslash( $_POST['bizcity_legacy_draining_table'] ) );
+			$draining_ref   = sanitize_text_field( (string) wp_unslash( $_POST['bizcity_legacy_draining_ref'] ) );
+			BizCity_Legacy_Table_Policy::mark_draining( $draining_table, $draining_ref );
+		}
+
+		// [2026-08-26 Johnny Chu] PHASE-LEGACY-TABLES — require an explicit approval reference before a deprecated table can enter ready_to_drop state.
+		if ( isset( $_POST['bizcity_legacy_ready_table'], $_POST['bizcity_legacy_approval_ref'] )
+			&& check_admin_referer( 'bizcity_legacy_ready_to_drop', 'bizcity_legacy_nonce' )
+			&& class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			$legacy_table = sanitize_key( (string) wp_unslash( $_POST['bizcity_legacy_ready_table'] ) );
+			$approval_ref = sanitize_text_field( (string) wp_unslash( $_POST['bizcity_legacy_approval_ref'] ) );
+			BizCity_Legacy_Table_Policy::mark_ready_to_drop( $legacy_table, $approval_ref );
+		}
+
 		// ── Per-row "🔧 Fix" / "🔧 Repair" action handler ───────────────
 		// URL shape: ?page=bizcity-diagnostics&bizcity_run_installer=<id>&_wpnonce=...
 		$run_one_result = null;
@@ -52,6 +70,10 @@ final class BizCity_Diagnostics_Admin_Page {
 				$run_one_result = BizCity_Site_Provisioner::run_one( $req_id, true );
 				// Flush memos so the freshly created/altered tables show up immediately.
 				BizCity_Diagnostics_Table_Registry::flush();
+				if ( class_exists( 'BizCity_Diagnostics_Table_Inspector' ) ) {
+					// [2026-09-02 Johnny Chu] R-PERF-DIAG — invalidate dashboard-safe inventory after an explicit installer action.
+					BizCity_Diagnostics_Table_Inspector::flush_cache();
+				}
 				if ( class_exists( 'BizCity_Diagnostics_Column_Inspector' ) ) {
 					BizCity_Diagnostics_Column_Inspector::flush();
 				}
@@ -70,6 +92,10 @@ final class BizCity_Diagnostics_Admin_Page {
 			if ( $nonce_ok && $suffix ) {
 				$auto_create_result = BizCity_Diagnostics_Auto_Create::run( $suffix );
 				BizCity_Diagnostics_Table_Registry::flush();
+				if ( class_exists( 'BizCity_Diagnostics_Table_Inspector' ) ) {
+					// [2026-09-02 Johnny Chu] R-PERF-DIAG — invalidate dashboard-safe inventory after an explicit auto-create action.
+					BizCity_Diagnostics_Table_Inspector::flush_cache();
+				}
 				if ( class_exists( 'BizCity_Diagnostics_Column_Inspector' ) ) {
 					BizCity_Diagnostics_Column_Inspector::flush();
 				}
@@ -974,7 +1000,7 @@ final class BizCity_Diagnostics_Admin_Page {
 		<hr style="margin:32px 0">
 		<h2><?php esc_html_e( 'Deprecated Table Quarantine Review', 'bizcity-twin-ai' ); ?></h2>
 		<p class="description">
-			<?php esc_html_e( 'Theo dõi các bảng deprecated trên từng shard. Mọi entry mặc định được quarantine và không bị DROP cho đến khi owner migration/sign-off cho phép.', 'bizcity-twin-ai' ); ?>
+			<?php esc_html_e( 'Theo dõi các bảng deprecated trên từng shard. Entry quarantine bắt buộc owner migration/sign-off; entry orphan chỉ được DROP khi bảng tồn tại và COUNT(*)=0.', 'bizcity-twin-ai' ); ?>
 			· <a href="<?php echo esc_url( $force_url ); ?>"><?php esc_html_e( 'Force re-run now', 'bizcity-twin-ai' ); ?></a>
 		</p>
 
@@ -1030,6 +1056,7 @@ final class BizCity_Diagnostics_Admin_Page {
 					<th><?php esc_html_e( 'Module', 'bizcity-twin-ai' ); ?></th>
 					<th><?php esc_html_e( 'Function / Class', 'bizcity-twin-ai' ); ?></th>
 					<th><?php esc_html_e( 'Related Tables / Gate', 'bizcity-twin-ai' ); ?></th>
+					<th><?php esc_html_e( 'Framework Replacement', 'bizcity-twin-ai' ); ?></th>
 					<th><?php esc_html_e( 'Status', 'bizcity-twin-ai' ); ?></th>
 					<th style="text-align:right"><?php esc_html_e( 'Rows', 'bizcity-twin-ai' ); ?></th>
 					<th style="text-align:right"><?php esc_html_e( 'Size', 'bizcity-twin-ai' ); ?></th>
@@ -1042,8 +1069,16 @@ final class BizCity_Diagnostics_Admin_Page {
 				// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-ORPHAN-GATE — surface dependency gates for staged _log(s) retirement.
 				$related_tables = is_array( $r['related_tables'] ?? null ) ? $r['related_tables'] : array();
 				$orphan_gate    = (string) ( $r['orphan_gate'] ?? '' );
+				$policy_state   = (string) ( $r['policy_state'] ?? 'quarantine' );
+				$quarantine_only = ! empty( $r['quarantine_only'] );
+				$absent_verified = ! empty( $r['absent_verified'] );
+				// [2026-08-27 Johnny Chu] R-LOG-HYBRID — display runtime replacement evidence without treating planned migration as success.
+				$jsonl_replacement = is_array( $r['jsonl_replacement'] ?? null ) ? $r['jsonl_replacement'] : array();
+				$replacement_status = (string) ( $r['replacement_status'] ?? 'not_applicable' );
+				$replacement_mode = (string) ( $r['replacement_mode'] ?? ( $jsonl_replacement['mode'] ?? 'retire_only' ) );
+				$replacement_detail = (string) ( $r['replacement_detail'] ?? 'No replacement log; retire after zero-row audit.' );
 				?>
-				<tr style="background:<?php echo $r['safe_to_drop'] ? '#e8f5e9' : ( $r['exists'] ? '#fff3e0' : '#f5f5f5' ); ?>">
+				<tr style="background:<?php echo ( $r['safe_to_drop'] || $absent_verified ) ? '#e8f5e9' : ( $r['exists'] ? '#fff3e0' : '#f5f5f5' ); ?>">
 					<td><code><?php echo esc_html( $r['physical'] ); ?></code></td>
 					<td><code><?php echo esc_html( $r['module'] ?? 'deprecated' ); ?></code><br><small><?php echo esc_html( $r['feature'] ?? 'legacy cleanup' ); ?></small></td>
 					<td>
@@ -1061,9 +1096,43 @@ final class BizCity_Diagnostics_Admin_Page {
 						<?php if ( $orphan_gate !== '' ) : ?>
 							<div style="margin-top:4px;color:#b26a00"><strong><?php esc_html_e( 'Gate:', 'bizcity-twin-ai' ); ?></strong> <?php echo esc_html( $orphan_gate ); ?></div>
 						<?php endif; ?>
+						<?php if ( ! empty( $r['exists'] ) && $quarantine_only && $policy_state === 'quarantine' && class_exists( 'BizCity_Legacy_Table_Policy' ) ) : ?>
+							<form method="post" style="margin-top:6px">
+								<?php wp_nonce_field( 'bizcity_legacy_draining', 'bizcity_legacy_draining_nonce' ); ?>
+								<input type="hidden" name="bizcity_legacy_draining_table" value="<?php echo esc_attr( $r['name'] ); ?>">
+								<input type="text" name="bizcity_legacy_draining_ref" placeholder="evidence / ticket" required style="width:130px">
+								<button type="submit" class="button button-small"><?php esc_html_e( 'Mark draining', 'bizcity-twin-ai' ); ?></button>
+							</form>
+						<?php endif; ?>
+						<?php if ( ! empty( $r['exists'] ) && class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::can_drop( $r['name'] ) && ( ! $quarantine_only || $policy_state === 'draining' ) ) : ?>
+							<form method="post" style="margin-top:6px">
+								<?php wp_nonce_field( 'bizcity_legacy_ready_to_drop', 'bizcity_legacy_nonce' ); ?>
+								<input type="hidden" name="bizcity_legacy_ready_table" value="<?php echo esc_attr( $r['name'] ); ?>">
+								<input type="text" name="bizcity_legacy_approval_ref" placeholder="approval / ticket" required style="width:130px">
+								<button type="submit" class="button button-small"><?php esc_html_e( 'Mark ready', 'bizcity-twin-ai' ); ?></button>
+							</form>
+						<?php endif; ?>
+					</td>
+					<td style="font-size:12px">
+						<?php if ( $replacement_status === 'pass' ) : ?>
+							<strong style="color:#00674e">✓ DONE — <?php echo esc_html( strtoupper( $replacement_mode ) ); ?> PASS</strong>
+						<?php elseif ( $replacement_status === 'pending' ) : ?>
+							<strong style="color:#b26a00">⚠ PENDING — <?php echo esc_html( strtoupper( $replacement_mode ) ); ?></strong>
+						<?php else : ?>
+							<span style="color:#666">N/A — <?php echo esc_html( (string) ( $jsonl_replacement['mode'] ?? 'retire_only' ) ); ?></span>
+						<?php endif; ?>
+						<br><small><?php echo esc_html( $replacement_detail ); ?></small>
+						<?php if ( ! empty( $jsonl_replacement['contract_id'] ) ) : ?>
+							<br><code><?php echo esc_html( (string) $jsonl_replacement['contract_id'] ); ?></code>
+						<?php endif; ?>
+						<?php if ( ! empty( $jsonl_replacement['folder'] ) && ! empty( $jsonl_replacement['module'] ) ) : ?>
+							<br><small><code><?php echo esc_html( (string) $jsonl_replacement['folder'] . '/' . (string) $jsonl_replacement['module'] ); ?></code></small>
+						<?php endif; ?>
 					</td>
 					<td>
-						<?php if ( ! $r['exists'] ) : ?>
+						<?php if ( $absent_verified ) : ?>
+							<span style="color:#00674e;font-weight:bold">✓ absent / audit PASS / no DROP needed</span>
+						<?php elseif ( ! $r['exists'] ) : ?>
 							<span style="color:#666">— absent</span>
 						<?php elseif ( ! empty( $r['quarantine_only'] ) ) : ?>
 							<span style="color:#b26a00;font-weight:bold">⚠ quarantine (kept)</span>
@@ -1071,6 +1140,9 @@ final class BizCity_Diagnostics_Admin_Page {
 							<span style="color:#00674e;font-weight:bold">✓ eligible after sign-off</span>
 						<?php else : ?>
 							<span style="color:#b26a00;font-weight:bold">⚠ has data (kept)</span>
+						<?php endif; ?>
+						<?php if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) : ?>
+							<br><small>state=<?php echo esc_html( (string) ( $r['policy_state'] ?? 'quarantine' ) ); ?><?php if ( ! empty( $r['approval_ref'] ) ) : ?> · approval=<?php echo esc_html( (string) $r['approval_ref'] ); ?><?php endif; ?></small>
 						<?php endif; ?>
 					</td>
 					<td style="text-align:right"><?php echo $r['exists'] ? number_format_i18n( $r['rows'] ) : '—'; ?></td>

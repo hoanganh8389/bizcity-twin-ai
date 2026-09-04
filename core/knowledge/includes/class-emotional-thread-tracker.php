@@ -142,11 +142,7 @@ class BizCity_Emotional_Thread_Tracker {
      * @return bool
      * ================================================================ */
     public function resolve_thread( $user_id, $topic ) {
-        global $wpdb;
-
         $key     = self::MEMORY_TYPE . ':' . sanitize_key( $topic );
-        $table   = $wpdb->prefix . 'bizcity_memory_users';
-        $blog_id = get_current_blog_id();
 
         // [2026-07-28 Johnny Chu] R-CH-IDMEM — resolve threads through the shared UUID-first read scope.
         $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
@@ -155,40 +151,38 @@ class BizCity_Emotional_Thread_Tracker {
         if ( ! $scope ) {
             return false;
         }
-
-        $where  = [ 'blog_id = %d', 'memory_key = %s' ];
-        $params = [ $blog_id, $key ];
-        if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — emotional-thread state is folded through encrypted user-memory records and admitted to Context Bank.
+        if ( class_exists( 'BizCity_User_Memory' ) ) {
+            $rows = BizCity_User_Memory::instance()->get_memories( array(
+                'user_id' => (int) $user_id,
+                'identity_uuid' => (string) $scope['identity_uuid'],
+                'memory_type' => self::MEMORY_TYPE,
+                'limit' => 100,
+            ) );
+            foreach ( $rows as $memory ) {
+                if ( (string) ( $memory->memory_key ?? '' ) !== $key ) {
+                    continue;
+                }
+                $meta = json_decode( (string) ( $memory->metadata ?? '' ), true );
+                $meta = is_array( $meta ) ? $meta : array();
+                $meta['status'] = self::STATUS_RESOLVED;
+                $meta['resolved_at'] = current_time( 'mysql' );
+                return (bool) BizCity_User_Memory::instance()->upsert_public( array(
+                    'user_id' => (int) $user_id,
+                    'identity_uuid' => (string) $scope['identity_uuid'],
+                    'session_id' => (string) ( $memory->session_id ?? '' ),
+                    'memory_tier' => (string) ( $memory->memory_tier ?? 'extracted' ),
+                    'memory_type' => self::MEMORY_TYPE,
+                    'memory_key' => $key,
+                    'memory_text' => '[Thread: resolved] ' . (string) ( $meta['topic'] ?? $topic ),
+                    'score' => 40,
+                    'metadata' => wp_json_encode( $meta ),
+                ) );
+            }
             return false;
         }
 
-        $row = $wpdb->get_row( $wpdb->prepare(
-            "SELECT id, metadata FROM {$table} WHERE " . implode( ' AND ', $where ) . ' LIMIT 1',
-            $params
-        ) );
-
-        if ( ! $row ) {
-            return false;
-        }
-
-        $meta               = json_decode( $row->metadata, true ) ?: [];
-        $meta['status']     = self::STATUS_RESOLVED;
-        $meta['resolved_at'] = current_time( 'mysql' );
-
-        $wpdb->update(
-            $table,
-            [
-                'metadata'   => wp_json_encode( $meta ),
-                'memory_text' => "[Thread: resolved] {$meta['topic']}",
-                'score'      => 40,
-                'updated_at' => current_time( 'mysql' ),
-            ],
-            [ 'id' => $row->id ],
-            [ '%s', '%s', '%d', '%s' ],
-            [ '%d' ]
-        );
-
-        return true;
+		return false;
     }
 
     /* ================================================================
@@ -220,34 +214,38 @@ class BizCity_Emotional_Thread_Tracker {
         }
         set_transient( $lock_key, 1, HOUR_IN_SECONDS );
 
-        global $wpdb;
-        $table      = $wpdb->prefix . 'bizcity_memory_users';
-        $blog_id    = get_current_blog_id();
-        $cutoff     = date( 'Y-m-d H:i:s', time() - self::EXPIRE_DAYS * DAY_IN_SECONDS );
-
-        $where  = [ 'blog_id = %d', 'memory_type = %s', 'updated_at < %s' ];
-        $params = [ $blog_id, self::MEMORY_TYPE, $cutoff ];
-        if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — expire only Context Bank-backed user-memory records; no legacy SQL scan/update remains.
+        if ( ! class_exists( 'BizCity_User_Memory' ) ) {
             return;
         }
-
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, metadata FROM {$table} WHERE " . implode( ' AND ', $where ),
-            $params
+        $cutoff = time() - self::EXPIRE_DAYS * DAY_IN_SECONDS;
+        $rows = BizCity_User_Memory::instance()->get_memories( array(
+            'user_id' => $user_id,
+            'identity_uuid' => (string) $scope['identity_uuid'],
+            'memory_type' => self::MEMORY_TYPE,
+            'limit' => 500,
         ) );
 
         foreach ( (array) $rows as $row ) {
-            $meta = json_decode( $row->metadata, true ) ?: [];
+            if ( strtotime( (string) ( $row->updated_at ?? '' ) ) >= $cutoff ) {
+                continue;
+            }
+            $meta = json_decode( (string) ( $row->metadata ?? '' ), true );
+            $meta = is_array( $meta ) ? $meta : array();
             if ( isset( $meta['status'] ) && $meta['status'] === self::STATUS_OPEN ) {
                 $meta['status']     = self::STATUS_EXPIRED;
                 $meta['expired_at'] = current_time( 'mysql' );
-                $wpdb->update(
-                    $table,
-                    [ 'metadata' => wp_json_encode( $meta ), 'score' => 20, 'updated_at' => current_time( 'mysql' ) ],
-                    [ 'id' => $row->id ],
-                    [ '%s', '%d', '%s' ],
-                    [ '%d' ]
-                );
+				BizCity_User_Memory::instance()->upsert_public( array(
+					'user_id' => $user_id,
+					'identity_uuid' => (string) $scope['identity_uuid'],
+					'session_id' => (string) ( $row->session_id ?? '' ),
+					'memory_tier' => (string) ( $row->memory_tier ?? 'extracted' ),
+					'memory_type' => self::MEMORY_TYPE,
+					'memory_key' => (string) ( $row->memory_key ?? '' ),
+					'memory_text' => (string) ( $row->memory_text ?? '' ),
+					'score' => 20,
+					'metadata' => wp_json_encode( $meta ),
+				) );
             }
         }
     }

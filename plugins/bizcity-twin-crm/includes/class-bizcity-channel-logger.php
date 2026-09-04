@@ -78,24 +78,48 @@ class BizCity_Channel_File_Logger {
 				'channel' => (string) $channel,
 				'level'   => (string) $level,
 				'event'   => (string) $event,
-				'event_uuid' => (string) ( $ctx['event_uuid'] ?? '' ),
+				'event_uuid' => (string) ( $ctx['event_uuid'] ?? self::new_event_uuid() ),
 				'trace_id' => (string) ( $ctx['trace_id'] ?? '' ),
 				'parent_event_uuid' => (string) ( $ctx['parent_event_uuid'] ?? '' ),
 				'msg'     => substr( (string) $message, 0, 500 ),
 				'ctx'     => $ctx,
 			);
 
-			$line = json_encode( $entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "\n";
+			$line = json_encode( $entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 			$file = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $date . '.jsonl';
-
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			file_put_contents( $file, $line, FILE_APPEND | LOCK_EX );
-			return true;
+			$append = self::append_line( $file, $line );
+			if ( ! empty( $append['written'] ) && class_exists( 'BizCity_Log_Index' ) ) {
+				BizCity_Log_Index::record( 'core.channel_gateway.' . sanitize_key( (string) $channel ), $entry, array(
+					'byte_offset' => (int) ( $append['offset'] ?? 0 ),
+					'row_hash' => hash( 'sha256', $line ),
+					'relative_file' => self::BASE_FOLDER . '/' . sanitize_key( (string) $channel ) . '/' . $date . '.jsonl',
+				) );
+			}
+			return ! empty( $append['written'] );
 		} catch ( \Throwable $e ) {
 			// Logger must NEVER throw. Last-resort: native error_log.
 			error_log( '[bizcity-channel-logger] write() failed: ' . $e->getMessage() );
 			return false;
 		}
+	}
+
+	private static function append_line( $file, $line ) {
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — capture channel pointer offset inside the exclusive append lock.
+		$handle = @fopen( $file, 'ab' );
+		if ( false === $handle || ! @flock( $handle, LOCK_EX ) ) {
+			if ( is_resource( $handle ) ) { fclose( $handle ); }
+			return array( 'written' => false, 'offset' => 0 );
+		}
+		$offset = (int) ftell( $handle );
+		$written = false !== @fwrite( $handle, $line . "\n" );
+		@fflush( $handle );
+		@flock( $handle, LOCK_UN );
+		fclose( $handle );
+		return array( 'written' => $written, 'offset' => $offset );
+	}
+
+	private static function new_event_uuid() {
+		return function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : sprintf( '%s-%s-4%s-8%s-%s', substr( sha1( uniqid( '', true ) ), 0, 8 ), substr( sha1( uniqid( '', true ) ), 8, 4 ), substr( sha1( uniqid( '', true ) ), 13, 3 ), substr( sha1( uniqid( '', true ) ), 17, 3 ), substr( sha1( uniqid( '', true ) ), 20, 12 ) );
 	}
 
 	/**

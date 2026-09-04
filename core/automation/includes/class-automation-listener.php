@@ -171,7 +171,8 @@ final class BizCity_Automation_Listener {
 				: ( ! empty( $entry['changes'] ) ? 'feed' : 'unknown' );
 		}
 		$codes = array();
-		if ( strpos( $platform, 'ZALO' ) !== false )     { $codes[] = 'zalo_inbound'; }
+		// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - only Bot/legacy Zalo platforms enter admin automation capture.
+		if ( in_array( $platform, array( 'ZALO_BOT', 'ZALO' ), true ) ) { $codes[] = 'zalo_inbound'; }
 		if ( strpos( $platform, 'TELEGRAM' ) !== false ) { $codes[] = 'telegram_inbound'; }
 		if ( $platform === 'FACEBOOK' ) {
 			$codes[] = $event_subtype === 'feed' ? 'fb_comment' : 'fb_message';
@@ -285,8 +286,8 @@ final class BizCity_Automation_Listener {
 		// tin khách hàng. Chỉ ZALO_BOT (Zone 2) mới được phép kích automation.
 		$_code     = (string) ( $message_data['code']     ?? '' );
 		$_platform = (string) ( $message_data['platform'] ?? '' );
-		if ( $_code === 'zalo_oa' || $_code === 'zalo_personal'
-			|| $_platform === 'ZALO_OA' || $_platform === 'ZALO_PERSONAL' ) {
+		if ( $_code !== 'zalo_bot' || $_platform !== 'ZALO_BOT' ) {
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - reject missing or cross-zone Zalo provenance in the legacy direct listener.
 			return;
 		}
 		$mid = (string) ( $message_data['message_id'] ?? $message_data['msg_id'] ?? '' );
@@ -416,7 +417,8 @@ final class BizCity_Automation_Listener {
 
 	private static function map_platform_to_codes( string $platform, string $event_type = 'message' ): array {
 		$codes = array();
-		if ( strpos( $platform, 'ZALO' )     !== false ) { $codes[] = 'zalo_inbound'; }
+		// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - keep OA/Personal out of the Zalo Bot automation capture code.
+		if ( in_array( $platform, array( 'ZALO_BOT', 'ZALO' ), true ) ) { $codes[] = 'zalo_inbound'; }
 		if ( strpos( $platform, 'TELEGRAM' ) !== false ) { $codes[] = 'telegram_inbound'; }
 		if ( $platform === 'FB_MESS' || $platform === 'FACEBOOK' ) {
 			$codes[] = $event_type === 'comment' ? 'fb_comment' : 'fb_message';

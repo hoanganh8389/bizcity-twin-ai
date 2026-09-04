@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/context-bank-record.schema.json",
+  "title": "BizCity Twin Context Bank Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "record_id",
+    "record_kind",
+    "source_contract_id",
+    "tenant",
+    "identity",
+    "occurred_at",
+    "provenance",
+    "payload"
+  ],
+  "properties": {
+    "contract": { "const": "context-bank-record" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "record_id": { "type": "string", "minLength": 8, "maxLength": 191 },
+    "record_kind": { "enum": ["event", "rollup", "memory", "rule", "relation"] },
+    "schema_ref": { "type": "string", "minLength": 3, "maxLength": 191 },
+    "source_contract_id": { "type": "string", "minLength": 3, "maxLength": 191 },
+    "event_uuid": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "parent_record_id": { "type": "string", "minLength": 8, "maxLength": 191 },
+    "root_record_id": { "type": "string", "minLength": 8, "maxLength": 191 },
+    "tenant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["site_id", "blog_id"],
+      "properties": {
+        "site_id": { "type": "integer", "minimum": 1 },
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "scope": { "enum": ["tenant", "site", "user"] }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity_uuid"],
+      "properties": {
+        "identity_uuid": { "type": "string", "minLength": 8, "maxLength": 191 },
+        "wp_user_id": { "type": "integer", "minimum": 0 },
+        "contact_id": { "type": "integer", "minimum": 1 },
+        "conversation_id": { "type": "integer", "minimum": 1 },
+        "account_key": { "type": "string", "minLength": 8, "maxLength": 191 }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "key"],
+        "properties": {
+          "type": { "type": "string", "minLength": 2, "maxLength": 80 },
+          "key": { "type": "string", "minLength": 3, "maxLength": 191 },
+          "role": { "type": "string", "minLength": 2, "maxLength": 80 }
+        }
+      }
+    },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "ingested_at": { "type": "string", "format": "date-time" },
+    "idempotency_key": { "type": "string", "minLength": 8, "maxLength": 200 },
+    "content_hash": { "type": "string", "minLength": 16, "maxLength": 128 },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_record_id", "trace_id"],
+      "properties": {
+        "source_record_id": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "trace_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+        "causation_id": { "type": "string", "minLength": 8, "maxLength": 191 }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "value"],
+      "properties": {
+        "mode": { "enum": ["encrypted", "reference", "none"] },
+        "value": { "type": "string", "minLength": 3, "maxLength": 2000 }
+      }
+    }
+  }
+}

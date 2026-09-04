@@ -132,6 +132,7 @@ class BizCity_TwinBrain_Synthesizer {
 			}
 			$tools_block = "\n\n### TOOL RESULTS\n" . implode( "\n", $tool_lines );
 		}
+		$owner_block = $this->render_context_bank_owner_block( (array) ( $opts['context_bank_owner_records'] ?? array() ) );
 
 		/* PHASE-0.35 / F7.E3 — deeper answer when guru bound. Tarot-style
 		 * answers need ~800 words to fit ImEN · ý nghĩa · thuận · nghịch ·
@@ -184,12 +185,40 @@ SCHEMA OUTPUT (BẮT BUỘC):
 }
 SYS;
 
-		$user = "## CÂU HỐI\n{$prompt}\n\n## CÁC LĂNG KÍNH (LOCAL)\n{$perspectives_block}{$web_block}{$tools_block}\n\nTrả về JSON theo schema.";
+		$user = "## CÂU HỐI\n{$prompt}\n\n## CÁC LĂNG KÍNH (LOCAL)\n{$perspectives_block}{$web_block}{$tools_block}{$owner_block}\n\nTrả về JSON theo schema.";
 
 		return [
 			[ 'role' => 'system', 'content' => $system ],
 			[ 'role' => 'user',   'content' => $user ],
 		];
+	}
+
+	private function render_context_bank_owner_block( array $owner_records ): string {
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — let MPR consume bounded Skill bodies only after canonical pointer authorization and owner resolution.
+		$lines = array();
+		$count = 0;
+		foreach ( $owner_records as $owner_record ) {
+			if ( ! is_array( $owner_record ) || (string) ( $owner_record['owner'] ?? '' ) !== 'core/skills' || ! is_array( $owner_record['record'] ?? null ) ) {
+				continue;
+			}
+			$record = $owner_record['record'];
+			$content = trim( wp_strip_all_tags( (string) ( $record['content'] ?? $record['content_md'] ?? '' ) ) );
+			if ( $content === '' ) {
+				continue;
+			}
+			$lines[] = sprintf(
+				"### Skill owner reference (%s)\n- KEY: %s\n- VERSION: %s\n- CONTENT:\n%s",
+				(string) ( $record['title'] ?? $record['slug'] ?? $record['skill_key'] ?? 'Skill' ),
+				(string) ( $record['skill_key'] ?? '' ),
+				(string) ( $record['version'] ?? '' ),
+				mb_substr( $content, 0, 2000 )
+			);
+			$count++;
+			if ( $count >= 10 ) {
+				break;
+			}
+		}
+		return empty( $lines ) ? '' : "\n\n## CANONICAL SKILL OWNER REFERENCES\n" . implode( "\n\n", $lines );
 	}
 
 	/**

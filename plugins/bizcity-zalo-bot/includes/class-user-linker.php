@@ -461,6 +461,9 @@ class BizCity_Zalobot_User_Linker {
 			'from_user_id'   => (string) ( $envelope['user_id'] ?? '' ),
 			'from_user_name' => (string) ( $envelope['display_name'] ?? $raw['from_user_name'] ?? '' ),
 			'message_id'     => (string) ( $envelope['message_id'] ?? '' ),
+			'chat_kind'      => (string) ( $envelope['chat_kind'] ?? 'private' ),
+			'provider_chat_id' => (string) ( $envelope['provider_chat_id'] ?? '' ),
+			'conversation_chat_id' => (string) ( $envelope['conversation_chat_id'] ?? $envelope['chat_id'] ?? '' ),
 		) );
 	}
 
@@ -475,6 +478,10 @@ class BizCity_Zalobot_User_Linker {
 		}
 		$platform = strtoupper( (string) ( $context['platform'] ?? $context['channel'] ?? '' ) );
 		if ( $platform !== 'ZALO_BOT' ) {
+			return;
+		}
+		if ( sanitize_key( (string) ( $context['chat_kind'] ?? 'private' ) ) === 'group' ) {
+			// [2026-09-01 Johnny Chu] PHASE-0.45-W4 — memory no-owner fallback must never DM a private auth URL into a group.
 			return;
 		}
 		$bot_id   = (int) ( $context['account_id'] ?? 0 );
@@ -496,40 +503,15 @@ class BizCity_Zalobot_User_Linker {
 	}
 
 	/**
-	 * On every inbound message: if user not linked → send login link and mark
-	 * the request so downstream handlers (Guru Bridge) skip AI processing.
+	 * Compatibility hook retained for older callers; normal unlinked messages
+	 * are now owned by the canonical automation login-required workflow.
 	 *
 	 * @param array $msg  bizcity_zalo_message_received payload.
 	 */
 	public static function maybe_auto_send_link( $msg ): void {
 		if ( ! is_array( $msg ) ) { return; }
-
-		// Zone 2 only (ZALO_BOT). Zone 1 OA handled separately.
-		$code = (string) ( $msg['code'] ?? '' );
-		if ( $code !== 'zalo_bot' && $code !== '' ) { return; }
-
-		$bot_id      = (int)    ( $msg['bot_id']        ?? 0 );
-		$zalo_uid    = (string) ( $msg['from_user_id']  ?? '' );
-		$display     = (string) ( $msg['from_user_name'] ?? '' );
-
-		if ( $bot_id <= 0 || $zalo_uid === '' ) { return; }
-
-		// Already linked? Nothing to do.
-		if ( self::resolve_wp_user( $zalo_uid, $bot_id ) > 0 ) { return; }
-
-		// Fetch bot row so we can call the API.
-		global $wpdb;
-		$tbl = $wpdb->prefix . 'bizcity_zalo_bots';
-		$bot = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$tbl} WHERE id = %d LIMIT 1",
-			$bot_id
-		) );
-		if ( ! $bot ) { return; }
-
-		self::maybe_send_login_link( $zalo_uid, $bot_id, $bot, $display );
-
-		// Signal downstream: user is not linked, skip AI reply for this turn.
-		$GLOBALS['bizcity_zalobot_unlinked_skip'] = true;
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W4 — normal unlinked messages are owned by the automation login-required workflow; do not send a second link from this compatibility hook.
+		return;
 	}
 
 	/**

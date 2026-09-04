@@ -55,11 +55,12 @@ require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log-projector.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-manager.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-rest-api.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-admin-page.php';
-// Wave 2.8d (TBR.MEM-D4 2026-05-24) — unified `bizcity_memory` table installer
-// (behind flag `bizcity_memory_unified_enabled`, default FALSE).
+// [2026-09-01 Johnny Chu] PHASE-CB4.4 — retain the obsolete unified installer
+// for migration diagnostics only; it is hard-blocked and cannot create SQL
+// memory payload storage. Context Bank owns the replacement.
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-installer.php';
-// Wave 2.8d (TBR.MEM-D5 2026-05-24) — dual-write mirror writer (listens on
-// action `bizcity_memory_mirror_write`, NO-OP unless flag enabled).
+// [2026-09-01 Johnny Chu] PHASE-CB4.4 — compatibility bridge forwards only
+// filestore receipts to the Context Bank reference adapter hook.
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-writer.php';
 // Wave 2.8d (TBR.MEM-D6.7 2026-05-24) — admin toggle UI for the unified flag
 // + staging timer + D7 readiness checklist (replaces hardcoded filter).

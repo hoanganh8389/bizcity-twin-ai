@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.zalo-bot",
+  "name": "BizCity Zalo Bot Integration",
+  "version": "1.0.0",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.3"
+  },
+  "capabilities": {
+    "channels": [
+      {
+        "id": "zalo-bot.oa",
+        "label": "Zalo OA Bot webhook",
+        "description": "Zalo Official Account Bot API webhook listener bridged to the gateway/Intent Engine for command-style automation.",
+        "zone": "admin"
+      }
+    ]
+  }
+}

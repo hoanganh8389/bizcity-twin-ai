@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.zalo-personal",
+  "name": "BizCity Zalo Personal & OA Gateway",
+  "version": "1.1.0",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.0"
+  },
+  "capabilities": {
+    "channels": [
+      {
+        "id": "zalo-personal.bridge",
+        "label": "Zalo Personal & OA bridge",
+        "description": "Personal Zalo account (QR login via the zca-bridge sidecar) and Zalo Official Account (OAuth v4 + webhook MAC) bridged into Channel Gateway and the CRM Inbox.",
+        "zone": "customer"
+      }
+    ]
+  }
+}

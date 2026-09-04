@@ -70,22 +70,7 @@ add_action('init', function () {
   add_rewrite_endpoint('life-map', EP_ROOT | EP_PAGES);
 });
 
-// 3b. Add tab to My Account menu - insert after dashboard (priority 10)
-add_filter('woocommerce_account_menu_items', function ($items) {
-  // Insert life-map right after dashboard
-  $new_items = [];
-  foreach ($items as $key => $label) {
-    $new_items[$key] = $label;
-    if ($key === 'dashboard') {
-      $new_items['life-map'] = '🗺️ Bản đồ cá nhân';
-    }
-  }
-  // If dashboard key not found, prepend
-  if (!isset($new_items['life-map'])) {
-    $new_items = array_merge(['life-map' => '🗺️ Bản đồ cá nhân'], $new_items);
-  }
-  return $new_items;
-}, 10);
+// [2026-08-29 Johnny Chu] PHASE-0-B2B2C-ACCOUNT-OWNER — retire the Life Map My Account menu item; keep the direct endpoint for existing bookmarks.
 
 // 3c. Enqueue CSS for life-map endpoint (phải chạy trước khi render content)
 add_action('wp_enqueue_scripts', function () {

@@ -13,6 +13,26 @@ They provide four practical benefits:
 3. A server can evolve internal storage without silently changing public behavior.
 4. Security and reliability requirements become testable fields, not prose.
 
+## Layer 0: Route Trace Before Contract Tests
+
+For a cross-domain or B2B2C change, contract testing starts with a route trace
+before schema or UI work:
+
+```text
+domain/surface → blog_id/shard → exact key_id → tier/capability
+  → tenant owner → canonical storage → callback/provider → response reason
+```
+
+The trace fixture must retain `domain`, `blog_id`, `key_id`, `tier`,
+`capability`, `owner`, and `route`, and include one allowed case and one denied
+case for the same boundary. A denied case preserves its reason code and the
+four-field user error envelope; HTTP 200, an empty collection, or a stale cache
+is not sufficient evidence of success.
+
+Before implementation, record one falsifiable hypothesis and one cheap
+discriminating check. Classify the failure before patching as transport, auth,
+entitlement, domain, tenant, mapping, side effect, or presentation/cache.
+
 ## Contract Roles
 
 | Contract | Role | Primary consumers |

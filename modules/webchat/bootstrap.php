@@ -66,8 +66,8 @@ if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
     unset( $_webchat_root, $_webchat_safe_loader );
 }
 
-// Skip class loading if already loaded by legacy mu-plugin
-if ( class_exists( 'BizCity_WebChat_Database' ) ) {
+// [2026-09-02 10:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-DDV — continue loading missing WebChat artifacts when a legacy loader provided Database but not Timeline.
+if ( class_exists( 'BizCity_WebChat_Database', false ) && class_exists( 'BizCity_WebChat_Timeline', false ) ) {
     return;
 }
 
@@ -250,6 +250,7 @@ $_wc_admin_ctx = is_admin()
 // Always load — float widget, shortcodes, login page (needed on every frontend page)
     // Admin / REST / AJAX / webhook context only — gate heavy files (~547 KB source)
     if ( $_wc_admin_ctx ) {
+    bizcity_webchat_require_safe( BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-session-state.php', 'webchat.session_state' );
         bizcity_webchat_require_safe( BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-database.php', 'webchat.database' );
     // Register expected columns for diagnostics column-drift inspector.
     // Catches regressions where a shard's `bizcity_webchat_sources` is missing

@@ -71,6 +71,26 @@ class BizCity_KG_Skeleton_REST {
 				'cb'      => [ __CLASS__, 'post_rebuild' ],
 				'perm'    => [ __CLASS__, 'require_owner' ],
 			],
+			// Phase 6.6 S3.4 — history version picker.
+			[
+				'route'   => '/notebook/(?P<id>\d+)/skeleton/versions',
+				'methods' => 'GET',
+				'cb'      => [ __CLASS__, 'list_versions' ],
+				'perm'    => [ __CLASS__, 'require_owner' ],
+				'args'    => [
+					'limit' => [
+						'type'              => 'integer',
+						'required'          => false,
+						'sanitize_callback' => 'absint',
+					],
+				],
+			],
+			[
+				'route'   => '/notebook/(?P<id>\d+)/skeleton/versions/(?P<version>\d+)',
+				'methods' => 'GET',
+				'cb'      => [ __CLASS__, 'get_skeleton_at_version' ],
+				'perm'    => [ __CLASS__, 'require_owner' ],
+			],
 		];
 
 		foreach ( [ self::NS, self::NS_LEGACY ] as $ns ) {
@@ -177,8 +197,50 @@ class BizCity_KG_Skeleton_REST {
 
 	public static function post_rebuild( WP_REST_Request $req ) {
 		$nb = (int) $req->get_param( 'id' );
-		BizCity_KG_Skeleton_Adapter::mark_dirty( $nb );
+		// Phase 6.6 — user contract: immediate trigger, not cron debounce.
+		if ( class_exists( 'BizCity_KG_Skeleton_Service' )
+		     && method_exists( 'BizCity_KG_Skeleton_Service', 'trigger_now' ) ) {
+			BizCity_KG_Skeleton_Service::trigger_now( $nb, 'manual' );
+		} else {
+			BizCity_KG_Skeleton_Adapter::mark_dirty( $nb );
+		}
 		return new WP_REST_Response( [ 'queued' => true, 'notebook_id' => $nb ], 202 );
+	}
+
+	/**
+	 * Phase 6.6 S3.4 — GET /notebook/{id}/skeleton/versions
+	 */
+	public static function list_versions( WP_REST_Request $req ) {
+		$nb    = (int) $req->get_param( 'id' );
+		$limit = (int) ( $req->get_param( 'limit' ) ?: 5 );
+		$items = BizCity_KG_Skeleton_Adapter::list_versions( $nb, $limit );
+		return new WP_REST_Response( [
+			'notebook_id' => $nb,
+			'current'     => BizCity_KG_Skeleton_Adapter::get_version( $nb ),
+			'items'       => $items,
+		], 200 );
+	}
+
+	/**
+	 * Phase 6.6 S3.4 — GET /notebook/{id}/skeleton/versions/{version}
+	 */
+	public static function get_skeleton_at_version( WP_REST_Request $req ) {
+		$nb  = (int) $req->get_param( 'id' );
+		$ver = (int) $req->get_param( 'version' );
+		$sk  = BizCity_KG_Skeleton_Adapter::get_skeleton_at_version( $nb, $ver );
+		if ( ! $sk ) {
+			return new WP_REST_Response( [
+				'notebook_id' => $nb,
+				'version'     => $ver,
+				'found'       => false,
+			], 404 );
+		}
+		return new WP_REST_Response( [
+			'notebook_id' => $nb,
+			'version'     => $ver,
+			'found'       => true,
+			'skeleton'    => $sk,
+		], 200 );
 	}
 
 	private static function status_string( int $notebook_id ): string {

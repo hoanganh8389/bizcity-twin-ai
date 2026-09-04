@@ -5512,27 +5512,22 @@ PROMPT;
 
         global $wpdb;
         $projects_table = $wpdb->prefix . 'bizcity_webchat_projects';
-        $sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
+        // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not inspect the retired project projection during fallback provisioning.
+        $projects_retired = class_exists( 'BizCity_Legacy_Table_Policy' )
+            && BizCity_Legacy_Table_Policy::install_blocked( $projects_table );
 
         // Quick check — if either V3 table doesn't exist, run create_tables()
         // [2026-06-22 Johnny Chu] R-SHOW-TABLES — use information_schema + dual cache
         $blog_id_key  = (int) get_current_blog_id();
         $ck_proj      = 'bz_tbl_' . $blog_id_key . '_' . crc32( $projects_table );
-        $ck_sess      = 'bz_tbl_' . $blog_id_key . '_' . crc32( $sessions_table );
         $p_cached     = wp_cache_get( $ck_proj, 'bizcity_tbl' );
-        $s_cached     = wp_cache_get( $ck_sess, 'bizcity_tbl' );
-        if ( false === $p_cached ) {
+        if ( ! $projects_retired && false === $p_cached ) {
             $p_cached = (int) (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1', $projects_table ) );
             wp_cache_set( $ck_proj, $p_cached, 'bizcity_tbl', HOUR_IN_SECONDS );
         }
-        if ( false === $s_cached ) {
-            $s_cached = (int) (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1', $sessions_table ) );
-            wp_cache_set( $ck_sess, $s_cached, 'bizcity_tbl', HOUR_IN_SECONDS );
-        }
-        $projects_exists = $p_cached ? $projects_table : null;
-        $sessions_exists = $s_cached ? $sessions_table : null;
+        $projects_exists = $projects_retired ? $projects_table : ( $p_cached ? $projects_table : null );
 
-        if ( $projects_exists !== $projects_table || $sessions_exists !== $sessions_table ) {
+        if ( ! $projects_retired && $projects_exists !== $projects_table ) {
             if ( method_exists( $wc_db, 'create_tables' ) ) {
                 $wc_db->create_tables();
             }
@@ -5670,13 +5665,12 @@ PROMPT;
 
         // Unassign webchat sessions from deleted project
         if ( class_exists( 'BizCity_WebChat_Database' ) ) {
-            global $wpdb;
-            $table = $wpdb->prefix . 'bizcity_webchat_conversations';
-            $wpdb->query( $wpdb->prepare(
-                "UPDATE {$table} SET project_id = '' WHERE project_id = %s AND user_id = %d",
-                $project_id,
-                $user_id
-            ) );
+            // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — unassign marker-backed sessions through the canonical adapter.
+            $webchat_db = BizCity_WebChat_Database::instance();
+            $sessions = $webchat_db->get_sessions_for_user( $user_id, null, 1000, $project_id );
+            foreach ( $sessions as $session ) {
+                $webchat_db->update_session_project( $session->id, '' );
+            }
         }
 
         wp_send_json_success( [ 'ok' => true ] );

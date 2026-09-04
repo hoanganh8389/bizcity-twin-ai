@@ -219,6 +219,7 @@ class BizCity_WebChat_Timeline {
      * Complete task
      */
     public function complete_task($task_id, $summary = []) {
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — report the retired task projection as unavailable instead of claiming a successful write.
         $db = BizCity_WebChat_Database::instance();
         
         // Update task stats
@@ -242,56 +243,14 @@ class BizCity_WebChat_Timeline {
             ]);
         }
         
-        return true;
+        return false;
     }
     
     /**
      * Get linked tools (for timeline sidebar)
      */
     public function get_linked_tools($task_id) {
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — missing task-step projection returns an empty tool list.
-        if ( ! class_exists( 'BizCity_WebChat_Database' )
-            || ! BizCity_WebChat_Database::table_exists_for_policy( 'bizcity_webchat_task_steps' ) ) {
-            return [];
-        }
-        global $wpdb;
-        $steps_table = $wpdb->prefix . 'bizcity_webchat_task_steps';
-        
-        // Get tools used in task steps
-        $tool_ids = $wpdb->get_col($wpdb->prepare(
-            "SELECT DISTINCT JSON_UNQUOTE(JSON_EXTRACT(meta, '$.tool_id')) 
-             FROM {$steps_table} 
-             WHERE task_id = %s AND step_type = 'tool'",
-            $task_id
-        ));
-        
-        if (empty($tool_ids)) {
-            return [];
-        }
-        
-        // [2026-07-31 Johnny Chu] PHASE-1.22-TOOL-CATALOG — read display metadata from the canonical unified registry.
-        if ( ! class_exists( 'BizCity_Tool_Registry' ) ) {
-            return [];
-        }
-
-        $tools = [];
-        foreach ( $tool_ids as $tool_id ) {
-            $tool_id = sanitize_key( $tool_id );
-            if ( $tool_id === '' ) {
-                continue;
-            }
-            $tool = BizCity_Tool_Registry::get( $tool_id );
-            if ( ! is_array( $tool ) ) {
-                continue;
-            }
-            $tools[] = [
-                'id'   => $tool_id,
-                'name' => (string) ( $tool['label'] ?? $tool_id ),
-                'icon' => (string) ( $tool['icon'] ?? '🔧' ),
-                'type' => (string) ( $tool['tool_type'] ?? 'atomic' ),
-            ];
-        }
-
-        return $tools;
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — linked tools cannot be read from the retired task-step projection.
+        return [];
     }
 }

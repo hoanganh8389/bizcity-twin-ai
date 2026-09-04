@@ -51,6 +51,21 @@ BizCity_Cron_MCP::register();
 // [2026-07-15 Johnny Chu] R-CRON-TIER — Network Admin settings page.
 BizCity_Cron_Tier_Admin_Page::register();
 
+// [2026-08-27 Johnny Chu] PHASE-DIAG-CI-MOCK — register cron schema repair
+// with Site Provisioner so headless Diagnostics provisions cron tables before
+// probes execute, without relying on admin_init or activation hooks.
+add_filter( 'bizcity_register_installers', static function ( $list ) {
+	$list = is_array( $list ) ? $list : array();
+	$list[] = array(
+		'id'           => 'cron',
+		'label'        => 'Core Cron Registry',
+		'callback'     => array( 'BizCity_Cron_Manager', 'maybe_install' ),
+		'version_opt'  => BizCity_Cron_Manager::DB_VERSION_OPTION,
+		'expected_ver' => (string) BizCity_Cron_Manager::DB_VERSION,
+	);
+	return $list;
+}, 20, 1 );
+
 /**
  * Register cron tables into the diagnostics Table Registry so they appear in
  * the Tools → BizCity Diagnostics inventory (with auto-create button).
@@ -59,9 +74,15 @@ add_filter( 'bizcity_diagnostics_register_tables', static function ( $tables ) {
 	$tables   = is_array( $tables ) ? $tables : [];
 	$tables[] = [ 'name' => 'bizcity_cron_registry', 'owner' => 'core/cron', 'group' => 'cron', 'critical' => true,  'class' => 'BizCity_Cron_Manager', 'installer' => 'cron' ];
 	$tables[] = [ 'name' => 'bizcity_cron_runs',     'owner' => 'core/cron', 'group' => 'cron', 'class' => 'BizCity_Cron_Manager', 'installer' => 'cron' ];
-	$tables[] = [ 'name' => 'bizcity_cron_retries',  'owner' => 'core/cron', 'group' => 'cron', 'class' => 'BizCity_Cron_Manager', 'installer' => 'cron' ];
+	$tables[] = [ 'name' => 'bizcity_cron_retries',  'owner' => 'core/cron', 'group' => 'cron', 'class' => 'BizCity_Cron_Manager', 'installer' => 'cron',
+		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — annotate: active retry queue, not a log. Do not migrate to JSONL (dispatch_retries() scans status+next_run_at with SQL).
+		'feature' => 'retry queue', 'purpose' => 'Pending/dead cron retry queue scanned every 5 minutes. Self-bounded by in-flight job count — keep SQL.',
+		'readers' => [ 'BizCity_Cron_Manager::dispatch_retries', 'BizCity_Cron_REST', 'BizCity_Cron_MCP' ], 'writers' => [ 'BizCity_Cron_Manager' ] ];
 	// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — runtime mutex table.
-	$tables[] = [ 'name' => 'bizcity_cron_locks',    'owner' => 'core/cron', 'group' => 'cron', 'class' => 'BizCity_Cron_Manager', 'installer' => 'cron' ];
+	$tables[] = [ 'name' => 'bizcity_cron_locks',    'owner' => 'core/cron', 'group' => 'cron', 'class' => 'BizCity_Cron_Manager', 'installer' => 'cron',
+		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — annotate: distributed mutex, not a log. Must NEVER migrate to JSONL — atomic INSERT...ON DUPLICATE KEY UPDATE guards concurrent cron runs.
+		'feature' => 'distributed mutex', 'purpose' => 'Per-job lock preventing duplicate concurrent cron execution. Self-bounded by concurrent job count — keep SQL.',
+		'readers' => [ 'BizCity_Cron_Manager::wrap_start' ], 'writers' => [ 'BizCity_Cron_Manager::try_lock' ] ];
 	return $tables;
 }, 10 );
 

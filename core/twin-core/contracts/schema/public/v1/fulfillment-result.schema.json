@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/fulfillment-result.schema.json",
+  "title": "BizCity Twin Fulfillment Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "result_id",
+    "operation",
+    "order_ref",
+    "status",
+    "idempotency_key",
+    "occurred_at"
+  ],
+  "properties": {
+    "contract": { "const": "fulfillment-result" },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "result_id": { "type": "string", "minLength": 8, "maxLength": 120 },
+    "operation": { "enum": ["quote", "create", "track", "eta_update"] },
+    "order_ref": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "status": { "enum": ["success", "failed", "deferred", "replayed"] },
+    "idempotency_key": { "type": "string", "minLength": 8, "maxLength": 200 },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter_id"],
+      "properties": {
+        "adapter_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,80}$" },
+        "external_ref": { "type": "string", "maxLength": 191 }
+      }
+    },
+    "fulfillment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": { "enum": ["quoted", "created", "in_transit", "delivered", "cancelled"] },
+        "eta_at": { "type": "string", "format": "date-time" },
+        "tracking_ref": { "type": "string", "maxLength": 191 },
+        "milestone": { "type": "string", "maxLength": 120 }
+      }
+    },
+    "retryable": { "type": "boolean" },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "hint", "help_code"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "hint": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "help_code": { "type": "string", "minLength": 1, "maxLength": 120 }
+      }
+    },
+    "occurred_at": { "type": "string", "format": "date-time" }
+  }
+}

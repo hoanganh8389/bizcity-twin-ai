@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/business-action.schema.json",
+  "title": "BizCity Twin Governed Business Action",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "action_id",
+    "action",
+    "resource",
+    "actor",
+    "idempotency_key",
+    "authorization",
+    "confirmation",
+    "status",
+    "occurred_at"
+  ],
+  "properties": {
+    "contract": { "const": "business-action" },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "action_id": { "type": "string", "minLength": 8, "maxLength": 120 },
+    "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{2,80}$"
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "scope"],
+      "properties": {
+        "type": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "scope": { "enum": ["tenant", "site", "user", "assigned_resource"] }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id"],
+      "properties": {
+        "user_id": { "type": "integer", "minimum": 0 },
+        "surface": { "enum": ["admin", "gpt_member", "system"] }
+      }
+    },
+    "idempotency_key": { "type": "string", "minLength": 8, "maxLength": 200 },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "scope", "policy_version"],
+      "properties": {
+        "decision": { "enum": ["allowed", "denied", "deferred"] },
+        "scope": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "policy_version": { "type": "string", "minLength": 1, "maxLength": 40 }
+      }
+    },
+    "confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "status"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "status": { "enum": ["not_required", "pending", "confirmed", "expired"] },
+        "confirmation_ref": { "type": "string", "maxLength": 191 }
+      }
+    },
+    "arguments": { "type": "object" },
+    "status": { "enum": ["proposed", "accepted", "applied", "rejected", "replayed", "deferred"] },
+    "result": { "type": "object" },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "hint", "help_code"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "hint": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "help_code": { "type": "string", "minLength": 1, "maxLength": 120 }
+      }
+    },
+    "occurred_at": { "type": "string", "format": "date-time" }
+  }
+}

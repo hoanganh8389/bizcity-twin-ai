@@ -45,6 +45,20 @@ class BizCity_KG_Skeleton_Service {
 	/** Last build-fail reason set by sub-methods, read by run_job() for store_fail(). */
 	private static $_last_build_fail = '';
 
+	/**
+	 * [2026-08-01 Johnny Chu] R-CH-FILE-LOG-STYLE — write skeleton reflect evidence
+	 * into the shared JSONL file logger (uploads/sites/{blog_id}/bizcity-kg-logs/skeleton/
+	 * YYYY-MM-DD.jsonl) instead of only the plain PHP error log, so KG skeleton has the
+	 * same per-site JSON evidence trail as every other module.
+	 */
+	private static function write_skeleton_log( string $level, string $event, string $message, array $ctx = array() ): void {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			return;
+		}
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — write KG skeleton evidence through the registered contract.
+		BizCity_JSONL_File_Logger::write_contract( 'core.knowledge.kg_skeleton_trace', $level, $event, $message, $ctx );
+	}
+
 	public static function bind(): void {
 		add_action( self::CRON_HOOK, [ __CLASS__, 'run_job' ], 10, 1 );
 
@@ -191,6 +205,7 @@ class BizCity_KG_Skeleton_Service {
 					self::run_job( $notebook_id );
 				} catch ( \Throwable $e ) {
 					error_log( '[bizcity-kg-skeleton] trigger_now shutdown failed nb=' . $notebook_id . ' msg=' . $e->getMessage() );
+					self::write_skeleton_log( 'error', 'trigger_now_shutdown_failed', $e->getMessage(), array( 'notebook_id' => $notebook_id ) );
 				} finally {
 					if ( $_switched ) {
 						restore_current_blog();
@@ -238,6 +253,7 @@ class BizCity_KG_Skeleton_Service {
 					$msg = $guard->get_error_message();
 					error_log( '[bizcity-kg-skeleton] cost-guard blocked notebook=' . $notebook_id
 					           . ' owner=' . $owner_id . ' reason=' . $msg );
+					self::write_skeleton_log( 'warn', 'cost_guard_blocked', $msg, array( 'notebook_id' => $notebook_id, 'owner_id' => $owner_id ) );
 					self::cron_meta_event( 'skeleton_cost_guard_block', [
 						'notebook_id' => $notebook_id,
 						'owner_id'    => $owner_id,
@@ -272,6 +288,7 @@ class BizCity_KG_Skeleton_Service {
 					self::store_fail( $notebook_id, $fail_reason, '' );
 					error_log( '[bizcity-kg-skeleton] build returned null notebook=' . $notebook_id
 					           . ' trigger=' . $trigger_reason . ' reason=' . $fail_reason );
+					self::write_skeleton_log( 'warn', 'build_returned_null', 'reason=' . $fail_reason, array( 'notebook_id' => $notebook_id, 'trigger_reason' => $trigger_reason, 'reason' => $fail_reason ) );
 					self::cron_meta_event( 'skeleton_build_failed', [
 						'notebook_id'    => $notebook_id,
 						'trigger_reason' => $trigger_reason,
@@ -288,6 +305,7 @@ class BizCity_KG_Skeleton_Service {
 			self::store_fail( $notebook_id, 'exception', $e->getMessage() );
 			error_log( '[bizcity-kg-skeleton] exception notebook=' . $notebook_id
 			           . ' msg=' . $e->getMessage() );
+			self::write_skeleton_log( 'error', 'run_job_exception', $e->getMessage(), array( 'notebook_id' => $notebook_id, 'trigger_reason' => $trigger_reason ) );
 			self::cron_meta_event( 'skeleton_build_failed', [
 				'notebook_id'    => $notebook_id,
 				'trigger_reason' => $trigger_reason,
@@ -312,6 +330,7 @@ class BizCity_KG_Skeleton_Service {
 			if ( $trigger_reason !== 'notes_pinned' ) {
 				error_log( '[bizcity-kg-skeleton] no chunks loaded notebook=' . $notebook_id
 				           . ' trigger=' . $trigger_reason );
+				self::write_skeleton_log( 'warn', 'no_chunks_loaded', 'trigger=' . $trigger_reason, array( 'notebook_id' => $notebook_id, 'trigger_reason' => $trigger_reason ) );
 			}
 			self::cron_meta_event( 'skeleton_chunks_empty', [
 				'notebook_id'    => $notebook_id,
@@ -364,15 +383,23 @@ class BizCity_KG_Skeleton_Service {
 			if ( empty( $resp['success'] ) ) {
 				$last_err = $resp['error'] ?? 'llm_failed';
 				error_log( '[bizcity-kg-skeleton] single_pass llm_error attempt=' . $attempt . ' msg=' . $last_err );
+				self::write_skeleton_log( 'warn', 'single_pass_llm_error', $last_err, array( 'attempt' => $attempt, 'model' => (string) ( $resp['model'] ?? '' ) ) );
 				self::cron_meta_event( 'skeleton_llm_error', [ 'attempt' => $attempt, 'error' => $last_err ] );
 				continue;
 			}
 			$content = (string) ( $resp['message'] ?? '' );
 			$out = BizCity_KG_Skeleton_Prompt::validate( $content );
-			if ( $out ) { return $out; }
+			if ( $out ) {
+				self::write_skeleton_log( 'info', 'single_pass_llm_ok', 'Skeleton JSON validated.', array(
+					'attempt' => $attempt,
+					'model'   => (string) ( $resp['model'] ?? '' ),
+				) );
+				return $out;
+			}
 			$is_parse_fail = true;
 			$last_err = 'validate_failed (len=' . strlen( $content ) . ')';
 			error_log( '[bizcity-kg-skeleton] single_pass parse failed attempt=' . $attempt . ' ' . $last_err );
+			self::write_skeleton_log( 'warn', 'single_pass_parse_failed', $last_err, array( 'attempt' => $attempt ) );
 			self::cron_meta_event( 'skeleton_llm_parse_error', [ 'attempt' => $attempt, 'preview' => substr( $content, 0, 200 ) ] );
 			// On parse-fail, add a correction turn for the next attempt.
 			if ( $attempt === 1 ) {
@@ -406,6 +433,7 @@ class BizCity_KG_Skeleton_Service {
 			if ( empty( $resp['success'] ) ) {
 				$map_err = $resp['error'] ?? 'llm_failed';
 				error_log( '[bizcity-kg-skeleton] map_reduce llm_error group=' . $idx . ' msg=' . $map_err );
+				self::write_skeleton_log( 'warn', 'map_reduce_llm_error', $map_err, array( 'phase' => 'map', 'group' => $idx, 'model' => (string) ( $resp['model'] ?? '' ) ) );
 				self::cron_meta_event( 'skeleton_llm_error', [ 'phase' => 'map', 'group' => $idx, 'error' => $map_err ] );
 				continue;
 			}
@@ -413,8 +441,14 @@ class BizCity_KG_Skeleton_Service {
 			$out = BizCity_KG_Skeleton_Prompt::validate( $content );
 			if ( $out ) {
 				$mini[] = $out;
+				self::write_skeleton_log( 'info', 'map_reduce_map_ok', 'Map skeleton JSON validated.', array(
+					'phase' => 'map',
+					'group' => $idx,
+					'model' => (string) ( $resp['model'] ?? '' ),
+				) );
 			} else {
 				error_log( '[bizcity-kg-skeleton] map_reduce parse failed group=' . $idx );
+				self::write_skeleton_log( 'warn', 'map_reduce_parse_failed', 'group=' . $idx, array( 'phase' => 'map', 'group' => $idx ) );
 				self::cron_meta_event( 'skeleton_llm_parse_error', [ 'phase' => 'map', 'group' => $idx ] );
 			}
 		}
@@ -439,6 +473,7 @@ class BizCity_KG_Skeleton_Service {
 		if ( empty( $resp['success'] ) ) {
 			$reduce_err = $resp['error'] ?? 'llm_failed';
 			error_log( '[bizcity-kg-skeleton] reduce llm_error msg=' . $reduce_err );
+			self::write_skeleton_log( 'warn', 'reduce_llm_error', $reduce_err, array( 'phase' => 'reduce', 'model' => (string) ( $resp['model'] ?? '' ) ) );
 			self::cron_meta_event( 'skeleton_llm_error', [ 'phase' => 'reduce', 'error' => $reduce_err ] );
 			return null;
 		}
@@ -446,9 +481,15 @@ class BizCity_KG_Skeleton_Service {
 		$out = BizCity_KG_Skeleton_Prompt::validate( $content );
 		if ( ! $out ) {
 			error_log( '[bizcity-kg-skeleton] reduce parse failed' );
+			self::write_skeleton_log( 'warn', 'reduce_parse_failed', 'reduce parse failed', array( 'phase' => 'reduce' ) );
 			self::cron_meta_event( 'skeleton_llm_parse_error', [ 'phase' => 'reduce' ] );
 			// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON.
 			self::$_last_build_fail = 'llm_parse_failed';
+		} else {
+			self::write_skeleton_log( 'info', 'map_reduce_reduce_ok', 'Reduce skeleton JSON validated.', array(
+				'phase' => 'reduce',
+				'model' => (string) ( $resp['model'] ?? '' ),
+			) );
 		}
 		return $out;
 	}
@@ -481,14 +522,14 @@ class BizCity_KG_Skeleton_Service {
 			$notebook_id, $max
 		), ARRAY_A );
 
-		// Diagnostic: log table name + row count so we can trace multisite prefix bugs.
-		error_log( sprintf(
-			'[bizcity-kg-skeleton] load_chunks tbl=%s nb=%d blog_id=%d rows=%d last_sql=%s',
-			$tbl,
-			$notebook_id,
-			function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : 0,
-			is_array( $rows ) ? count( $rows ) : -1,
-			$wpdb->last_query
+		// [2026-08-01 Johnny Chu] R-CH-FILE-LOG-STYLE — this fires on every rebuild attempt (can be
+		// every ~10s while a notebook keeps retrying); route to file-only debug evidence instead of
+		// the PHP error log to stop repeated-line spam while still keeping a full JSON trace.
+		self::write_skeleton_log( 'debug', 'load_chunks_query', 'tbl=' . $tbl . ' rows=' . ( is_array( $rows ) ? count( $rows ) : -1 ), array(
+			'notebook_id' => $notebook_id,
+			'blog_id'     => function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : 0,
+			'rows'        => is_array( $rows ) ? count( $rows ) : -1,
+			'table'       => $tbl,
 		) );
 
 		// Resolve notebook UUID once — needed for filestore reads.
@@ -540,10 +581,7 @@ class BizCity_KG_Skeleton_Service {
 		}
 
 		if ( $dbg_filestore > 0 ) {
-			error_log( sprintf(
-				'[bizcity-kg-skeleton] load_chunks filestore_reads=%d nb=%d',
-				$dbg_filestore, $notebook_id
-			) );
+			self::write_skeleton_log( 'debug', 'load_chunks_filestore_reads', 'filestore_reads=' . $dbg_filestore, array( 'notebook_id' => $notebook_id, 'filestore_reads' => $dbg_filestore ) );
 		}
 
 		// F-1 — let other cortexes (bzdoc_chunks, bcn_*) contribute.
@@ -575,9 +613,12 @@ class BizCity_KG_Skeleton_Service {
 			if ( count( $out ) >= $max ) { break; }
 		}
 		if ( $dbg_empty > 0 || $dbg_ok === 0 ) {
-			error_log( sprintf(
-				'[bizcity-kg-skeleton] load_chunks filter nb=%d raw=%d empty_content=%d ok=%d (content column may be NULL/empty in passages table)',
-				$notebook_id, count( $chunks ), $dbg_empty, $dbg_ok
+			$level = ( $dbg_ok === 0 ) ? 'warn' : 'debug';
+			self::write_skeleton_log( $level, 'load_chunks_empty_content', 'raw=' . count( $chunks ) . ' empty_content=' . $dbg_empty . ' ok=' . $dbg_ok, array(
+				'notebook_id' => $notebook_id,
+				'raw'         => count( $chunks ),
+				'empty_content' => $dbg_empty,
+				'ok'          => $dbg_ok,
 			) );
 		}
 		// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — propagate fine-grained reason to run_job.
@@ -632,37 +673,29 @@ class BizCity_KG_Skeleton_Service {
 	 * @return array<int, array{title:string, content:string, note_type:string, created_at:?string}>
 	 */
 	private static function load_pinned_notes( int $notebook_id ): array {
-		global $wpdb;
-		$tbl = $wpdb->prefix . 'bizcity_memory_notes';
-
 		$limit = (int) apply_filters( 'bizcity_kg_skeleton_pinned_notes_limit', 10, $notebook_id );
 		$limit = max( 1, min( 50, $limit ) );
 
 		$project_id = 'tc_' . $notebook_id;
 
-		$prev = $wpdb->suppress_errors( true );
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT title, content, note_type, created_at
-			   FROM {$tbl}
-			  WHERE project_id = %s
-			  ORDER BY (is_starred = 1) DESC, id DESC
-			  LIMIT %d",
-			$project_id, $limit
-		), ARRAY_A );
-		$wpdb->suppress_errors( $prev );
+		// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-NOTES-FILESTORE — notebook skeleton reads pinned notes through the canonical encrypted notes owner.
+		$rows = class_exists( 'BizCity_TwinChat_Notes_Service' )
+			? BizCity_TwinChat_Notes_Service::instance()->get_by_project( $project_id )
+			: array();
+		$rows = array_slice( (array) $rows, 0, $limit );
 
 		$out = [];
 		if ( is_array( $rows ) ) {
 			foreach ( $rows as $r ) {
-				$content = (string) ( $r['content'] ?? '' );
+				$content = (string) ( is_object( $r ) ? ( $r->content ?? '' ) : ( $r['content'] ?? '' ) );
 				if ( strlen( $content ) > 1500 ) {
 					$content = mb_substr( $content, 0, 1500 ) . '…';
 				}
 				$out[] = [
-					'title'      => (string) ( $r['title'] ?? '' ),
+					'title'      => (string) ( is_object( $r ) ? ( $r->title ?? '' ) : ( $r['title'] ?? '' ) ),
 					'content'    => $content,
-					'note_type'  => (string) ( $r['note_type'] ?? '' ),
-					'created_at' => $r['created_at'] ?: null,
+					'note_type'  => (string) ( is_object( $r ) ? ( $r->note_type ?? '' ) : ( $r['note_type'] ?? '' ) ),
+					'created_at' => is_object( $r ) ? ( $r->created_at ?? null ) : ( $r['created_at'] ?? null ),
 				];
 			}
 		}
@@ -746,6 +779,7 @@ class BizCity_KG_Skeleton_Service {
 		if ( false === $ok && ! empty( $wpdb->last_error ) ) {
 			error_log( '[bizcity-kg-skeleton] history insert skipped notebook=' . $notebook_id
 			           . ' v=' . $version . ' err=' . $wpdb->last_error );
+			self::write_skeleton_log( 'warn', 'history_insert_skipped', $wpdb->last_error, array( 'notebook_id' => $notebook_id, 'version' => $version ) );
 		}
 	}
 

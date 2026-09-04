@@ -57,6 +57,14 @@ final class BizCity_Automation_Action_DB_Write extends BizCity_Automation_Block_
 			return new WP_Error( 'invalid_payload', 'db_write: payload không phải JSON object.' );
 		}
 
+		// [2026-08-29 Johnny Chu] PHASE-1.30-WRITER-STOP — enforce the lifecycle gate before generic automation SQL can write a legacy table.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' )
+			&& ! BizCity_Legacy_Table_Policy::allow_sql( $wpdb->prefix . $table_suffix, 'write' ) ) {
+			return new WP_Error( 'legacy_table_writer_stopped', 'db_write: bảng legacy đã dừng ghi SQL.', array(
+				'table' => $table_suffix,
+			) );
+		}
+
 		// PG-S9 — dry-run mock (skip wpdb->insert).
 		if ( ! empty( $ctx['_dry_run'] ) ) {
 			return array( 'inserted_id' => 0, 'dry' => true, 'table' => $table_suffix, 'columns' => array_keys( $payload ) );

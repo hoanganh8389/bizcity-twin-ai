@@ -2,7 +2,7 @@
 /**
  * BizCity CRM — WebChat (local widget) channel adapter.
  *
- * Bridges the LOCAL `extensions/bizcity-webchat/` float widget into the unified CRM Inbox:
+ * Bridges the LOCAL `modules/webchat/` float widget into the unified CRM Inbox:
  *
  *   Inbound  (visitor → CRM):
  *     widget POST → BizCity_WebChat_Trigger → do_action('bizcity_webchat_message_received', $twf, $raw)
@@ -197,7 +197,7 @@ class BizCity_CRM_Adapter_WebChat extends BizCity_CRM_Adapter_Base {
 			'webhook'  => array(
 				'method' => 'LOCAL',
 				'url'    => '',
-				'note'   => 'WebChat là widget chạy trực tiếp trên site (extensions/bizcity-webchat). Không cần webhook hay wizard — inbox tự sinh lần đầu visitor nhắn. Gán Guru tại Channel Gateway → Web Chat → 🤖 Guru & Chế độ.',
+				'note'   => 'WebChat là widget chạy trực tiếp trên site (modules/webchat). Không cần webhook hay wizard — inbox tự sinh lần đầu visitor nhắn. Gán Guru tại Channel Gateway → Web Chat → 🤖 Guru & Chế độ.',
 			),
 			'docs_url' => '',
 		);

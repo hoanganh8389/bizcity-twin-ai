@@ -83,12 +83,7 @@ class BizCity_WebChat_Admin_Dashboard {
     public function redirect_dashboard() {
         global $pagenow;
 
-        // 2026-05-06 — Twin (TwinChat) is the default dashboard, not WebChat.
-        // Redirect index.php → TwinChat dashboard.
-        if ($pagenow === 'index.php' && !isset($_GET['page'])) {
-            wp_redirect(admin_url('admin.php?page=bizcity-twinchat'));
-            exit;
-        }
+        // [2026-08-29 Johnny Chu] HOTFIX — keep /wp-admin/ on the native WordPress dashboard; TwinChat remains available from its explicit menu route.
 
         // Fix: /wp-admin/admin.php?chat=wcs_xxx → add page= param (still routes via TwinChat)
         if ($pagenow === 'admin.php' && isset($_GET['chat']) && !isset($_GET['page'])) {

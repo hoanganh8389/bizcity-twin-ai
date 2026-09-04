@@ -100,13 +100,6 @@
   color: var(--ts-fg);
 }
 
-.ts-ab-activity-log {
-  color: #7bc7ff;
-}
-.ts-ab-activity-log:hover {
-  color: #eaf7ff;
-}
-
 /* Context-toggle (admin ⇄ standalone) — sits at very top, visually separated. */
 .ts-ab-context-toggle {
   margin-bottom: 6px;

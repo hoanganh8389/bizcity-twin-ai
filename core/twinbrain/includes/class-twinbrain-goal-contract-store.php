@@ -507,16 +507,8 @@ final class BizCity_TwinBrain_Goal_Contract_Store {
 
 	private static function append_jsonl_event( string $event_type, array $payload, array $ctx ): bool {
 		// [2026-08-03 Johnny Chu] G12.4 — immutable per-goal JSONL envelope with stable retry identity and scrubbed payload.
-		$path = self::jsonl_path( (string) $ctx['goal_id'] );
-		if ( $path === '' ) {
-			self::operational_log( 'trace_missing', $ctx, 'jsonl_path_unavailable' );
-			return false;
-		}
 		$payload = self::scrub_payload( $payload );
 		$event_id = sha1( (string) $ctx['source_event_uuid'] . '|' . $event_type . '|' . self::encode( $payload ) );
-		if ( self::jsonl_event_exists( $path, $event_id ) ) {
-			return true;
-		}
 		$now = function_exists( 'wp_date' ) ? wp_date( 'c' ) : gmdate( 'c' );
 		$row = array(
 			'schema_version' => 'goal_contract.v1',
@@ -530,33 +522,26 @@ final class BizCity_TwinBrain_Goal_Contract_Store {
 			'recorded_at' => $now,
 			'payload' => $payload,
 		);
-		$line = self::encode( $row );
-		$written = false !== @file_put_contents( $path, $line . "\n", FILE_APPEND | LOCK_EX );
-		if ( ! $written ) {
-			self::operational_log( 'trace_missing', $ctx, 'jsonl_append_failed' );
-		}
-		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_scoped' ) ) {
-			BizCity_JSONL_File_Logger::write_scoped( self::JSONL_FOLDER, array( self::JSONL_MODULE, self::goal_path_key( (string) $ctx['goal_id'] ) ), $written ? 'info' : 'warn', $event_type, 'Goal Contract event observed.', array(
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_scoped_contract' ) ) {
+			$written = BizCity_JSONL_File_Logger::write_scoped_contract( 'core.twinbrain.goal_contract_trace', array( self::JSONL_MODULE, self::goal_path_key( (string) $ctx['goal_id'] ) ), 'info', $event_type, 'Goal Contract event observed.', array(
 				'event_id' => $event_id,
+				'event_identity' => $event_id,
+				'event_uuid' => self::event_uuid_from_identity( $event_id ),
 				'goal_id' => (string) $ctx['goal_id'],
 				'source_event_id' => (string) $ctx['source_event_uuid'],
 			) );
+			if ( ! $written ) {
+				self::operational_log( 'trace_missing', $ctx, 'jsonl_append_failed' );
+			}
+			return (bool) $written;
 		}
-		return $written;
+		self::operational_log( 'trace_missing', $ctx, 'shared_logger_unavailable' );
+		return false;
 	}
 
-	private static function jsonl_event_exists( string $path, string $event_id ): bool {
-		if ( ! file_exists( $path ) ) {
-			return false;
-		}
-		$lines = @file( $path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES );
-		foreach ( (array) $lines as $line ) {
-			$row = json_decode( (string) $line, true );
-			if ( is_array( $row ) && (string) ( $row['event_id'] ?? '' ) === $event_id ) {
-				return true;
-			}
-		}
-		return false;
+	private static function event_uuid_from_identity( string $identity ): string {
+		$hash = sha1( $identity );
+		return substr( $hash, 0, 8 ) . '-' . substr( $hash, 8, 4 ) . '-5' . substr( $hash, 13, 3 ) . '-8' . substr( $hash, 17, 3 ) . '-' . substr( $hash, 20, 12 );
 	}
 
 	private static function decode_row( array $row ): array {
@@ -725,9 +710,10 @@ final class BizCity_TwinBrain_Goal_Contract_Store {
 	}
 
 	private static function operational_log( string $event, array $ctx, string $detail = '' ): void {
-		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			$ctx['detail'] = sanitize_key( $detail );
-			BizCity_JSONL_File_Logger::write( self::JSONL_FOLDER, self::JSONL_MODULE, 'warn', $event, 'Goal Contract projection degraded.', $ctx );
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — Goal Contract diagnostics use the registered contract identity.
+			BizCity_JSONL_File_Logger::write_contract( 'core.twinbrain.goal_contract_trace', 'warn', $event, 'Goal Contract projection degraded.', $ctx );
 		}
 	}
 }

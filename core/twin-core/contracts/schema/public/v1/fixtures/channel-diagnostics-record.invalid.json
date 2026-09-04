@@ -1,0 +1,25 @@
+{
+  "contract": "channel-diagnostics-record",
+  "version": "1.0.0",
+  "event_uuid": "short",
+  "occurred_at": "not-a-date",
+  "blog_id": 0,
+  "channel": "zalo",
+  "zone": "mixed",
+  "account": {
+    "scope": "exact"
+  },
+  "direction": "both",
+  "level": "notice",
+  "event": "x",
+  "stage": "unknown",
+  "producer": {
+    "module": "cg",
+    "version": "dev"
+  },
+  "pipeline_status": {
+    "operational_logged": true,
+    "context_captured": "yes"
+  },
+  "context": {}
+}

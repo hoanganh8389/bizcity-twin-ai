@@ -52,6 +52,47 @@ if ( isset( $manifest['version'] ) && ! preg_match( '/^[0-9]+\\.[0-9]+\\.[0-9]+$
 	$errors[] = 'version must be semver major.minor.patch';
 }
 
+// [2026-08-29 Johnny Chu] PHASE-VIBE-MANIFEST — validate optional taxonomy and observability metadata without breaking legacy manifests.
+$taxonomy = isset( $manifest['taxonomy'] ) && is_array( $manifest['taxonomy'] ) ? array_values( array_unique( $manifest['taxonomy'] ) ) : array();
+if ( array_key_exists( 'taxonomy', $manifest ) ) {
+	if ( empty( $taxonomy ) ) {
+		$errors[] = 'taxonomy must contain at least one value';
+	}
+	foreach ( $taxonomy as $index => $taxonomy_id ) {
+		if ( ! is_string( $taxonomy_id ) || ! in_array( $taxonomy_id, array( 'act', 'channel', 'view' ), true ) ) {
+			$errors[] = "taxonomy[{$index}] must be act/channel/view";
+		}
+	}
+}
+if ( array_key_exists( 'primary_taxonomy', $manifest ) ) {
+	$primary_taxonomy = (string) $manifest['primary_taxonomy'];
+	if ( ! in_array( $primary_taxonomy, array( 'act', 'channel', 'view' ), true ) ) {
+		$errors[] = 'primary_taxonomy must be act/channel/view';
+	} elseif ( ! in_array( $primary_taxonomy, $taxonomy, true ) ) {
+		$errors[] = 'primary_taxonomy must be included in taxonomy';
+	}
+}
+if ( array_key_exists( 'diagnostics', $manifest ) && ! is_bool( $manifest['diagnostics'] ) ) {
+	$errors[] = 'diagnostics must be boolean';
+}
+if ( array_key_exists( 'logging', $manifest ) ) {
+	$logging = $manifest['logging'];
+	if ( ! is_array( $logging ) ) {
+		$errors[] = 'logging must be an object';
+	} elseif ( array_key_exists( 'contracts', $logging ) ) {
+		$logging_contracts = $logging['contracts'];
+		if ( ! is_array( $logging_contracts ) ) {
+			$errors[] = 'logging.contracts must be an array';
+		} else {
+			foreach ( $logging_contracts as $index => $contract_id ) {
+				if ( ! is_string( $contract_id ) || ! preg_match( '/^[a-z][a-z0-9._-]{2,100}$/', $contract_id ) ) {
+					$errors[] = "logging.contracts[{$index}] must use contract id syntax";
+				}
+			}
+		}
+	}
+}
+
 // [2026-07-30 Johnny Chu] PHASE-1.22-SEC — enforce explicit permission scope syntax.
 $permissions = isset( $manifest['permissions'] ) && is_array( $manifest['permissions'] )
 	? array_values( array_unique( $manifest['permissions'] ) )

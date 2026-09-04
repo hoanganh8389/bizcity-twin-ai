@@ -69,6 +69,8 @@ class BizCity_CRM_Conversation_Identity_Resolver {
 			'canonical_chat_id'       => (string) $keys['canonical_chat_id'],
 			'llm_session_id'          => (string) $keys['llm_session_id'],
 			'platform_type_hint'      => (string) $keys['platform_type_hint'],
+			// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - retain private/group identity for operational sessions.
+			'thread_kind'             => (string) ( $keys['thread_kind'] ?? '' ),
 			'legacy_session_key'      => 'crm_' . $conv_id,
 		);
 	}
@@ -98,14 +100,27 @@ class BizCity_CRM_Conversation_Identity_Resolver {
 					'llm_session_id'        => $chat_id,
 				);
 
-			case 'zalo':
+			// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - keep Bot sessions distinct from legacy Zalo sessions.
 			case 'zalo_bot':
+				$is_group = strpos( $client_id, 'group:' ) === 0;
+				$group_id = $is_group ? substr( $client_id, 6 ) : '';
+				$chat_id = $is_group ? 'zalobot_' . $account_id . '_group_' . $group_id : 'zalobot_' . $account_id . '_private_' . $client_id;
+				return array(
+					'platform_type_hint'    => 'ZALO_BOT',
+					'canonical_chat_id'     => $chat_id,
+					'canonical_session_key' => $chat_id,
+					'llm_session_id'        => $chat_id,
+					'thread_kind'           => $is_group ? 'group' : 'personal',
+				);
+
+			case 'zalo':
 				$chat_id = 'zalobot_' . $account_id . '_' . $client_id;
 				return array(
 					'platform_type_hint'    => 'ZALO_BOT',
 					'canonical_chat_id'     => $chat_id,
 					'canonical_session_key' => $chat_id,
 					'llm_session_id'        => $chat_id,
+					'thread_kind'           => 'legacy',
 				);
 
 			case 'zalo_oa':

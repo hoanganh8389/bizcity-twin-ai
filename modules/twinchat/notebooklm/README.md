@@ -12,7 +12,7 @@ This folder contains everything that gives TwinChat its **NotebookLM-style** exp
 
 | File | Class | REST routes | Writes |
 |---|---|---|---|
-| `class-twinchat-notes-controller.php` | `BizCity_TwinChat_Notes_Controller` | `POST /messages/{id}/pin`, `POST /notes`, `GET /notes`, `DELETE /notes/{id}` | `bizcity_memory_notes` (write) + `Event_Bus::dispatch_v2('note_pinned', …)` |
+| `class-twinchat-notes-controller.php` | `BizCity_TwinChat_Notes_Controller` | `POST /messages/{id}/pin`, `POST /notes`, `GET /notes`, `DELETE /notes/{id}` | Encrypted business filestore via `BizCity_TwinChat_Notes_Service`; legacy `bizcity_memory_notes` is not a runtime reader/writer and remains only for gated cleanup + `Event_Bus::dispatch_v2('note_pinned', …)` |
 
 > Loaded from [bootstrap.php](../bootstrap.php) (search for `notebooklm/includes/`).
 

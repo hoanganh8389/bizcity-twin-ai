@@ -91,7 +91,9 @@ final class BizCity_Diagnostics_REST {
 			'permission_callback' => $admin_only,
 			'callback'            => [ $this, 'run_smoke_probe' ],
 			'args'                => [
-				'id' => [ 'type' => 'string', 'required' => true ],
+				'id'                => [ 'type' => 'string', 'required' => true ],
+				'confirm'           => [ 'type' => 'string', 'required' => false ],
+				'bridge_account_id' => [ 'type' => 'string', 'required' => false ],
 			],
 		] );
 
@@ -267,7 +269,13 @@ final class BizCity_Diagnostics_REST {
 		if ( ! isset( $catalog[ $id ] ) ) {
 			return new WP_Error( 'unknown_probe', sprintf( 'Probe id "%s" không tồn tại.', $id ), [ 'status' => 404 ] );
 		}
-		$res = BizCity_Diagnostics_Smoke_Runner::run_probe( $id );
+		// [2026-08-26 Johnny Chu] PHASE-0.39F-GROUP-INBOX-RUNTIME — pass only explicit fixture options; ordinary probes remain unchanged.
+		$options = array();
+		$confirm = sanitize_text_field( (string) $req->get_param( 'confirm' ) );
+		if ( $confirm !== '' ) { $options['confirm'] = $confirm; }
+		$bridge_account_id = sanitize_text_field( (string) $req->get_param( 'bridge_account_id' ) );
+		if ( $bridge_account_id !== '' ) { $options['bridge_account_id'] = $bridge_account_id; }
+		$res = BizCity_Diagnostics_Smoke_Runner::run_probe( $id, $options );
 		return rest_ensure_response( $res );
 	}
 

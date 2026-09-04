@@ -116,6 +116,100 @@ class BizCity_Notify_Dispatcher {
 		self::dispatch_email_only( $event_code, $subject, $message );
 	}
 
+	/**
+	 * Apply the independent QR operation alert policy.
+	 *
+	 * @param array $payload Normalized QR operation result metadata.
+	 * @return void
+	 */
+	public static function on_qr_operation_result( $payload ) {
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — alert on two consecutive QR operation failures and recover after two consecutive successes without using Zalo Personal as the notifier.
+		if ( ! is_array( $payload ) ) {
+			return;
+		}
+		$state = sanitize_key( (string) ( $payload['state'] ?? '' ) );
+		if ( ! in_array( $state, array( 'qr_operation_failed', 'qr_operation_success' ), true ) ) {
+			return;
+		}
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$scope = sanitize_key( (string) ( $payload['account_id_hash'] ?? 'unknown' ) );
+		if ( $scope === '' ) {
+			$scope = 'unknown';
+		}
+		$state_key = 'bizcity_zalo_qr_state_' . substr( md5( $blog_id . '|' . $scope ), 0, 24 );
+		$record = get_transient( $state_key );
+		if ( ! is_array( $record ) ) {
+			$record = array( 'failures' => 0, 'successes' => 0, 'incident_active' => false, 'last_alert_at' => 0 );
+		}
+		$now = time();
+		if ( $state === 'qr_operation_failed' ) {
+			$record['failures'] = (int) ( $record['failures'] ?? 0 ) + 1;
+			$record['successes'] = 0;
+			if ( $record['failures'] >= 2 ) {
+				$record['incident_active'] = true;
+				$last_alert_at = (int) ( $record['last_alert_at'] ?? 0 );
+				if ( $last_alert_at <= 0 || ( $now - $last_alert_at ) >= 900 ) {
+					$record['last_alert_at'] = $now;
+					self::dispatch_qr_email( 'bridge_qr_operation_failed', $payload, $record['failures'] );
+				}
+			}
+		} else {
+			$record['successes'] = (int) ( $record['successes'] ?? 0 ) + 1;
+			$record['failures'] = 0;
+			if ( $record['successes'] >= 2 && ! empty( $record['incident_active'] ) ) {
+				$record['incident_active'] = false;
+				$record['last_alert_at'] = 0;
+				self::dispatch_qr_email( 'bridge_qr_operation_recovered', $payload, $record['successes'] );
+			}
+		}
+		set_transient( $state_key, $record, DAY_IN_SECONDS );
+	}
+
+	/** Dispatch a QR alert through the existing email-only owner and record delivery failures. */
+	private static function dispatch_qr_email( $event_code, $payload, $consecutive_count ) {
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — keep QR alerts independent from bridge control health and record failed email delivery.
+		$is_recovery = 'bridge_qr_operation_recovered' === $event_code;
+		$reason = sanitize_key( (string) ( $payload['reason'] ?? ( $is_recovery ? 'qr_recovered' : 'qr_operation_failed' ) ) );
+		$stage = sanitize_key( (string) ( $payload['stage'] ?? 'qr_generation' ) );
+		$account_hash = sanitize_text_field( (string) ( $payload['account_id_hash'] ?? '' ) );
+		$operation_id = sanitize_text_field( (string) ( $payload['operation_id'] ?? '' ) );
+		$request_id = sanitize_text_field( (string) ( $payload['request_id'] ?? '' ) );
+		$subject = $is_recovery
+			? '[BizCity] Zalo Personal QR đã hoạt động lại'
+			: '[BizCity] Zalo Personal QR operation bị gián đoạn';
+		$message = sprintf(
+			"QR operation: %s\nSố lần liên tiếp: %d\nAccount hash: %s\nStage: %s\nReason: %s\nOperation ID: %s\nRequest ID: %s\nThời gian: %s\n\nMở Channel Gateway → Zalo Personal → Bridge Diagnostics để xem trace và Recovery Runbook.",
+			$is_recovery ? 'RECOVERED' : 'FAILED',
+			(int) $consecutive_count,
+			$account_hash !== '' ? $account_hash : '—',
+			$stage !== '' ? $stage : 'qr_generation',
+			$reason !== '' ? $reason : 'qr_operation_failed',
+			$operation_id !== '' ? $operation_id : '—',
+			$request_id !== '' ? $request_id : '—',
+			current_time( 'mysql' )
+		);
+		$sent = self::dispatch_email_only( $event_code, $subject, $message );
+		if ( null === $sent ) {
+			return;
+		}
+		self::trace_notification( $sent ? 'notification_sent' : 'notification_delivery_failed', array(
+			'event_code' => $event_code,
+			'account_id_hash' => $account_hash,
+			'operation_id' => $operation_id,
+			'request_id' => $request_id,
+			'reason' => $reason,
+		) );
+	}
+
+	/** Write notification delivery evidence without recipients or message content. */
+	private static function trace_notification( $event, $context ) {
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — persist bounded QR notification evidence through the canonical channel logger.
+		$context['blog_id'] = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_ZALO_PERSONAL, BizCity_Channel_File_Logger::LEVEL_INFO, sanitize_key( $event ), 'Zalo Personal QR notification delivery trace.', $context );
+		}
+	}
+
 	// -------------------------------------------------------------------------
 	// Hook handlers
 	// -------------------------------------------------------------------------
@@ -358,25 +452,21 @@ class BizCity_Notify_Dispatcher {
 			self::send_zalo( $bot_id, $chat_id, $msg );
 		}
 
-		// Email channel.
-		$smtp_uid = isset( $settings['email_smtp_uid'] ) ? (string) $settings['email_smtp_uid'] : '';
-		if ( '' !== $smtp_uid ) {
-			$recipients = isset( $settings['email_recipients'] ) && is_array( $settings['email_recipients'] ) && count( $settings['email_recipients'] ) > 0
-				? $settings['email_recipients']
-				: array( get_bloginfo( 'admin_email' ) );
-			self::send_email( $recipients, $msg );
-		}
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — delegate email delivery to WordPress wp_mail() and do not require a sidecar SMTP UID.
+		$recipients = isset( $settings['email_recipients'] ) && is_array( $settings['email_recipients'] ) && count( $settings['email_recipients'] ) > 0
+			? $settings['email_recipients']
+			: array( get_bloginfo( 'admin_email' ) );
+		self::send_email( $recipients, $msg );
 	}
 
 	private static function dispatch_email_only( $event_code, $subject, $msg ) {
 		$settings = self::get_settings();
-		if ( empty( $settings['notify_events'] ) || ! in_array( $event_code, (array) $settings['notify_events'], true ) ) { return; }
-		$smtp_uid = isset( $settings['email_smtp_uid'] ) ? (string) $settings['email_smtp_uid'] : '';
-		if ( $smtp_uid === '' ) { return; }
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — distinguish an intentionally disabled event from a failed WordPress mail transport.
+		if ( empty( $settings['notify_events'] ) || ! in_array( $event_code, (array) $settings['notify_events'], true ) ) { return null; }
 		$recipients = isset( $settings['email_recipients'] ) && is_array( $settings['email_recipients'] ) && count( $settings['email_recipients'] ) > 0
 			? $settings['email_recipients']
 			: array( get_bloginfo( 'admin_email' ) );
-		self::send_email( $recipients, $subject . ' — ' . wp_strip_all_tags( mb_substr( $msg, 0, 100 ) ), $msg );
+		return self::send_email( $recipients, $subject . ' — ' . wp_strip_all_tags( mb_substr( $msg, 0, 100 ) ), $msg );
 	}
 
 	// -------------------------------------------------------------------------
@@ -463,6 +553,7 @@ class BizCity_Notify_Dispatcher {
 		if ( ! $sent ) {
 			error_log( 'BizCity_Notify_Dispatcher (Email): wp_mail returned false.' );
 		}
+		return (bool) $sent;
 	}
 
 	// -------------------------------------------------------------------------

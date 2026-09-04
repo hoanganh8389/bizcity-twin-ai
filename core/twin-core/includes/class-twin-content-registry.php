@@ -33,8 +33,13 @@ if ( ! class_exists( 'BizCity_Twin_Content_Registry' ) ) {
 			self::$loaded = true;
 			$groups = apply_filters( 'bizcity_twin_register_extension_capabilities', array() );
 			if ( ! is_array( $groups ) ) {
-				return;
+				$groups = array();
 			}
+			// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — expose typed skill/source verbs without replacing the grouped compatibility filter.
+			$skills = apply_filters( 'bizcity_twin_register_skill', array() );
+			$sources = apply_filters( 'bizcity_twin_register_source', array() );
+			$groups['skills'] = array_merge( isset( $groups['skills'] ) && is_array( $groups['skills'] ) ? $groups['skills'] : array(), is_array( $skills ) ? $skills : array() );
+			$groups['kg_source_adapters'] = array_merge( isset( $groups['kg_source_adapters'] ) && is_array( $groups['kg_source_adapters'] ) ? $groups['kg_source_adapters'] : array(), is_array( $sources ) ? $sources : array() );
 			foreach ( $groups as $kind => $providers ) {
 				if ( ! is_array( $providers ) ) {
 					continue;

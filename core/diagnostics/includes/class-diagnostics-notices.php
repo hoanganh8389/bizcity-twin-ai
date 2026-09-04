@@ -124,72 +124,8 @@ final class BizCity_Diagnostics_Notices {
 	 * dismissed banner re-appears the next day if regression persists.
 	 */
 	public function render_critical_regression_notice(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return;
-		}
-		if ( ! class_exists( 'BizCity_Diagnostics_Table_Inspector' ) ) {
-			return;
-		}
-
-		// Dismissal cap — re-show 24h after last dismissal.
-		$dismiss_key = 'bizcity_diag_critical_dismissed_at';
-		// [2026-07-27 Johnny Chu] R-PERF — read dismissal state without priming all user meta.
-		$last = (int) ( class_exists( 'BizCity_User_Meta_Cache' )
-			? BizCity_User_Meta_Cache::get( get_current_user_id(), $dismiss_key, 0 )
-			: get_user_meta( get_current_user_id(), $dismiss_key, true ) );
-		if ( $last && ( time() - $last ) < DAY_IN_SECONDS ) {
-			return;
-		}
-
-		// Quickly bail if a soft-guard already rendered above (avoid duplicate).
-		// We only want the entry-point banner; details live in the diagnostics page.
-		$rows = BizCity_Diagnostics_Table_Inspector::inspect_all();
-		$critical_missing = [];
-		foreach ( $rows as $r ) {
-			if ( ! empty( $r['critical'] ) && empty( $r['exists'] ) ) {
-				$critical_missing[] = $r['physical'];
-			}
-		}
-		if ( ! $critical_missing ) {
-			return;
-		}
-
-		$diag_url = admin_url( 'tools.php?page=bizcity-diagnostics#smoke-test' );
-		$dismiss_url = wp_nonce_url(
-			add_query_arg( [ 'bizcity_diag_dismiss_critical' => '1' ], admin_url() ),
-			'bizcity_diag_dismiss_critical'
-		);
-		$count = count( $critical_missing );
-		$preview = implode( ', ', array_slice( $critical_missing, 0, 3 ) );
-		if ( $count > 3 ) {
-			$preview .= sprintf( ' (+%d)', $count - 3 );
-		}
-		?>
-		<div class="notice notice-error" style="border-left-color:#b32d2e">
-			<p style="margin:8px 0">
-				<strong>🩺 <?php esc_html_e( 'BizCity Health Check — Critical regression detected', 'bizcity-twin-ai' ); ?></strong><br>
-				<?php
-				printf(
-					/* translators: 1: count, 2: comma list */
-					esc_html__( '%1$d bảng critical đang thiếu trên shard hiện tại: %2$s', 'bizcity-twin-ai' ),
-					(int) $count,
-					'<code>' . esc_html( $preview ) . '</code>'
-				);
-				?>
-			</p>
-			<p style="margin:8px 0">
-				<a class="button button-primary" href="<?php echo esc_url( $diag_url ); ?>">
-					▶ <?php esc_html_e( 'Run Health Check (Smoke Test)', 'bizcity-twin-ai' ); ?>
-				</a>
-				<a class="button" href="<?php echo esc_url( $diag_url ); ?>" style="margin-left:6px">
-					<?php esc_html_e( 'Xem chi tiết bảng thiếu', 'bizcity-twin-ai' ); ?>
-				</a>
-				<a class="button-link" href="<?php echo esc_url( $dismiss_url ); ?>" style="margin-left:12px;color:#666">
-					<?php esc_html_e( 'Ẩn 24h', 'bizcity-twin-ai' ); ?>
-				</a>
-			</p>
-		</div>
-		<?php
+		// [2026-09-02 Johnny Chu] R-PERF-DIAG — critical notices must use soft-guard state, never scan information_schema on every admin request.
+		return;
 	}
 
 	/**

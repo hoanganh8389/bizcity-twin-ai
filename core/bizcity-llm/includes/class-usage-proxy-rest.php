@@ -1,6 +1,6 @@
 <?php
 /**
- * BizCity Twin AI — Usage Stats Proxy REST Controller
+ * BizCity Twin Brain — Usage Stats Proxy REST Controller
  *
  * [2026-06-10 Johnny Chu] USAGE-ROLLUP-SPEC Phase 3 (R-GW-8)
  *

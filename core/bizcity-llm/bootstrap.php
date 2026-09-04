@@ -11,7 +11,7 @@
 /**
  * BizCity LLM — Unified AI Gateway Client
  *
- * Thin client for all LLM calls across the BizCity Twin AI platform.
+ * Thin client for all LLM calls across the BizCity Twin Brain platform.
  * Supports two connection modes:
  *   • Gateway (default) — proxies through bizcity.vn / bizcity.ai REST API
  *   • Direct  — user's own OpenRouter API key (self-hosted, no gateway)

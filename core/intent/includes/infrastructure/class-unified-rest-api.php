@@ -869,8 +869,6 @@ class BizCity_Unified_REST_API {
 
         global $wpdb;
         $tbl_msg  = $wpdb->prefix . 'bizcity_webchat_messages';
-        $tbl_conv = $wpdb->prefix . 'bizcity_webchat_conversations';
-
         $deleted = 0;
         // [2026-06-21 Johnny Chu] R-SHOW-TABLES
         if ( bizcity_tbl_exists( $tbl_msg ) ) {
@@ -880,12 +878,9 @@ class BizCity_Unified_REST_API {
             ] );
         }
 
-        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-        if ( bizcity_tbl_exists( $tbl_conv ) ) {
-            $wpdb->query( $wpdb->prepare(
-                "UPDATE `{$tbl_conv}` SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = %s",
-                $session_id, $platform_type
-            ) );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — close through the canonical message-owned adapter.
+        if ( class_exists( 'BizCity_WebChat_Database' ) ) {
+            BizCity_WebChat_Database::instance()->close_conversation( $session_id );
         }
 
         return rest_ensure_response( [

@@ -1,0 +1,605 @@
+/**
+ * BizCoach Map – Frontend Profile & Life Map CSS
+ * Đồng bộ dark/modern theme với bizcity-knowledge, bizcity-bot-webchat
+ */
+
+/* =============================================
+   BASE & UTILITIES
+   ============================================= */
+.bccm-fe-wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #1e293b;
+  line-height: 1.6;
+}
+
+.bccm-fe-wrap * {
+  box-sizing: border-box;
+}
+
+/* Notices */
+.bccm-notice {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.bccm-notice-info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+.bccm-notice-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+.bccm-notice-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+.bccm-notice a {
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* =============================================
+   SECTIONS
+   ============================================= */
+.bccm-fe-section {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  border: 1px solid #e2e8f0;
+}
+
+.bccm-fe-title {
+  margin: 0 0 20px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.bccm-fe-subtitle {
+  margin: 24px 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.bccm-fe-desc {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+/* =============================================
+   FORM
+   ============================================= */
+.bccm-fe-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .bccm-fe-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bccm-fe-field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.bccm-fe-field input,
+.bccm-fe-field select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1e293b;
+  background: #f8fafc;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.bccm-fe-field input:focus,
+.bccm-fe-field select:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245,158,11,0.12);
+}
+
+/* Hint text under fields */
+.bccm-fe-hint {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* Secondary button (e.g., "Tìm tọa độ") */
+.bccm-fe-btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  font-weight: 500;
+}
+.bccm-fe-btn-secondary:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+.bccm-fe-btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* =============================================
+   ANSWERS
+   ============================================= */
+.bccm-fe-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bccm-fe-answer-row {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  transition: border-color 0.2s;
+}
+
+.bccm-fe-answer-row:hover {
+  border-color: #e2e8f0;
+}
+
+.bccm-fe-q-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.bccm-fe-q-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.bccm-fe-q-text {
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.bccm-fe-q-content input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #1e293b;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.bccm-fe-q-content input:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245,158,11,0.12);
+}
+
+/* =============================================
+   BUTTONS
+   ============================================= */
+.bccm-fe-actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bccm-fe-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+}
+
+.bccm-fe-btn-primary {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(245,158,11,0.3);
+}
+
+.bccm-fe-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(245,158,11,0.4);
+  color: #fff;
+}
+
+/* =============================================
+   LIFE MAP CARDS
+   ============================================= */
+.bccm-fe-map-section {
+  background: linear-gradient(180deg, #fffbeb 0%, #fff 40%);
+  border-color: #fde68a;
+}
+
+.bccm-fe-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.bccm-fe-card h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.bccm-fe-card-highlight {
+  background: linear-gradient(135deg, #fef3c7 0%, #fff 100%);
+  border-color: #fde68a;
+}
+
+/* Identity badges */
+.bccm-fe-identity-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bccm-fe-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.bccm-fe-badge-accent {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.bccm-fe-badge-info {
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+/* Dimensions */
+.bccm-fe-dims {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bccm-fe-dim-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.bccm-fe-progress-track {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bccm-fe-progress-fill,
+.bccm-fe-progress-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+  position: relative;
+  z-index: 1;
+  background: linear-gradient(90deg, #7c3aed, #ec4899);
+}
+
+/* Pain points */
+.bccm-fe-pain {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border-left: 4px solid;
+}
+
+.bccm-fe-pain-high {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
+
+.bccm-fe-pain-medium {
+  background: #fffbeb;
+  border-color: #f59e0b;
+}
+
+.bccm-fe-pain-low {
+  background: #ecfdf5;
+  border-color: #10b981;
+}
+
+.bccm-fe-pain-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.bccm-fe-pain-impact {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.06);
+}
+
+.bccm-fe-pain p {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+/* Motivations */
+.bccm-fe-motivations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bccm-fe-motivation-item {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.bccm-fe-motivation-item:last-child {
+  border-bottom: none;
+}
+
+.bccm-fe-motivation-type {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #eff6ff;
+  color: #3b82f6;
+  white-space: nowrap;
+}
+
+/* Vision */
+.bccm-fe-vision-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.bccm-fe-vision-item {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+}
+
+.bccm-fe-vision-period {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f59e0b;
+  margin-bottom: 8px;
+}
+
+.bccm-fe-vision-item ul {
+  margin: 0;
+  padding: 0 0 0 18px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.bccm-fe-vision-item li {
+  margin-bottom: 4px;
+}
+
+/* Empty state */
+.bccm-fe-empty-map {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.bccm-fe-empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.bccm-fe-empty-map h3 {
+  margin: 0 0 8px;
+  color: #475569;
+}
+
+.bccm-fe-empty-map p {
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* =============================================
+   PROGRESS TRACKER - WRAPPER & CARD
+   ============================================= */
+.bccm-fe-progress-wrap {
+  margin-bottom: 24px;
+}
+
+.bccm-fe-progress-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.bccm-fe-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.bccm-fe-progress-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.bccm-fe-progress-pct {
+  font-size: 14px;
+  font-weight: 700;
+  color: #7c3aed;
+  background: #f3f0ff;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+/* =============================================
+   PROGRESS TRACKER - STEPS GRID (2 cards)
+   ============================================= */
+.bccm-fe-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-top: 20px;
+}
+
+@media (max-width: 640px) {
+  .bccm-fe-steps-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bccm-fe-step-card {
+  position: relative;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+  transition: all 0.3s ease;
+  cursor: default;
+}
+
+.bccm-fe-step-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+}
+
+/* Step card states */
+.bccm-fe-step-card.done {
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  border-color: #86efac;
+}
+
+.bccm-fe-step-card.in-progress {
+  background: linear-gradient(135deg, #fffbeb, #fef3c7);
+  border-color: #fcd34d;
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+.bccm-fe-step-card.pending {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border-color: #e2e8f0;
+  opacity: 0.7;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: #fcd34d; }
+  50% { border-color: #f59e0b; }
+}
+
+.step-card-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+
+.step-card-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.step-card-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.5;
+  margin-bottom: 12px;
+  min-height: 36px;
+}
+
+.step-card-status {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.step-card-status.done {
+  background: #10b981;
+  color: #fff;
+}
+
+.step-card-status.active {
+  background: #f59e0b;
+  color: #fff;
+}
+
+.step-card-status.pending {
+  background: #e2e8f0;
+  color: #64748b;
+}

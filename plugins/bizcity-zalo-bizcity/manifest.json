@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.zalo-bizcity",
+  "name": "BizCity Zalo Admin Hook",
+  "version": "2.0.0",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.0"
+  },
+  "capabilities": {
+    "channels": [
+      {
+        "id": "zalo-bizcity.hotline",
+        "label": "Zalo Hotline (ZNS) adapter",
+        "description": "Legacy Zalo Hotline (ZNS) channel adapter with the /bizhook/ webhook, network-activated to keep webhooks alive across the multisite network.",
+        "zone": "customer"
+      }
+    ]
+  }
+}

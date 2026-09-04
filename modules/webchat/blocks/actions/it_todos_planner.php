@@ -788,24 +788,17 @@ class WaicAction_it_todos_planner extends WaicAction {
 			return $result;
 		}
 
-		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_memory_notes';
-
-		// Check if table exists
-		if ( ! $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) ) {
-			if ( $has_messenger ) {
-				BizCity_Pipeline_Messenger::send( $exec_state,
-					"📝 **Memory Notes**: ⚠️ Bảng notes chưa tồn tại.",
-					'info', [ 'tool_name' => 'it_todos_planner', 'step_code' => 'check_notes' ]
-				);
-			}
-			return $result;
+		// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-NOTES-FILESTORE — read pinned notes through the canonical filestore owner; no SQL table probe or fallback.
+		$notes = array();
+		if ( class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+			$notes = array_values( array_filter(
+				(array) ( new BizCity_TwinChat_Notes_Service() )->get_all_by_user( get_current_user_id(), 100 ),
+				function ( $note ) use ( $session_id ) {
+					return (string) ( $note->session_id ?? '' ) === $session_id;
+				}
+			) );
+			$notes = array_slice( $notes, 0, 20 );
 		}
-
-		$notes = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, title, content, note_type, created_at FROM {$table} WHERE session_id = %s ORDER BY id DESC LIMIT 20",
-			$session_id
-		), ARRAY_A );
 
 		$count = is_array( $notes ) ? count( $notes ) : 0;
 		$result['note_count'] = $count;
@@ -814,10 +807,10 @@ class WaicAction_it_todos_planner extends WaicAction {
 		if ( $count > 0 && $spec !== null && class_exists( 'BizCity_Memory_Spec' ) ) {
 			$spec['notes'] = array_map( function ( $n ) {
 				return [
-					'id'        => (int) $n['id'],
-					'title'     => $n['title'],
-					'note_type' => $n['note_type'],
-					'excerpt'   => mb_substr( $n['content'] ?? '', 0, 200 ),
+					'id'        => (int) ( $n->id ?? 0 ),
+					'title'     => (string) ( $n->title ?? '' ),
+					'note_type' => (string) ( $n->note_type ?? '' ),
+					'excerpt'   => mb_substr( (string) ( $n->content ?? '' ), 0, 200 ),
 				];
 			}, $notes );
 			BizCity_Memory_Spec::persist( $taskId, $spec );
@@ -827,8 +820,8 @@ class WaicAction_it_todos_planner extends WaicAction {
 			if ( $count > 0 ) {
 				$msg = "📝 **Memory Notes**: Đã tìm thấy {$count} ghi chú được yêu cầu ghi nhớ gồm:\n";
 				foreach ( (array) $notes as $n ) {
-					$title = mb_substr( $n['title'] ?? 'Ghi chú', 0, 80 );
-					$type  = $n['note_type'] ?? 'note';
+					$title = mb_substr( (string) ( $n->title ?? 'Ghi chú' ), 0, 80 );
+					$type  = (string) ( $n->note_type ?? 'note' );
 					$icon  = $type === 'pin' || $type === 'chat_pinned' ? '📌' : ( $type === 'insight' ? '💡' : '📝' );
 					$msg  .= "  • {$icon} {$title}\n";
 				}

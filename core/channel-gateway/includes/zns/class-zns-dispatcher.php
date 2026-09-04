@@ -76,9 +76,9 @@ class BizCity_ZNS_Dispatcher {
 			$event_key = (string) ( $event_def['key'] ?? '' );
 
 			// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — ZNS rule evidence is CRM-owned.
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'zns',
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — ZNS dispatcher evidence resolves its channel contract.
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.zns_audit',
 				'info',
 				'zns_hook_triggered',
 				'Event triggered: ' . $event_key,
@@ -98,9 +98,8 @@ class BizCity_ZNS_Dispatcher {
 			// Step 3: guard phone
 			$phone = self::extract_phone( $ctx, (string) ( $event_def['phone_path'] ?? 'phone' ) );
 			if ( empty( $phone ) ) {
-				BizCity_JSONL_File_Logger::write(
-					BizCity_JSONL_File_Logger::CRM_FOLDER,
-					'zns',
+				BizCity_JSONL_File_Logger::write_contract(
+					'core.channel_gateway.zns_audit',
 					'warn',
 					'zns_skip_no_phone',
 					'No phone for event: ' . $event_key,
@@ -135,9 +134,8 @@ class BizCity_ZNS_Dispatcher {
 			}
 
 		} catch ( \Exception $e ) {
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'zns',
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.zns_audit',
 				'error',
 				'zns_dispatch_exception',
 				'ZNS rule dispatch raised an exception.',

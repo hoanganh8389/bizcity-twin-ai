@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/channel-diagnostics-record.schema.json",
+  "title": "BizCity Channel Diagnostics Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "event_uuid",
+    "occurred_at",
+    "blog_id",
+    "channel",
+    "zone",
+    "account",
+    "direction",
+    "level",
+    "event",
+    "stage",
+    "producer",
+    "pipeline_status",
+    "context"
+  ],
+  "properties": {
+    "contract": { "const": "channel-diagnostics-record" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "event_uuid": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "trace_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "parent_event_uuid": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "blog_id": { "type": "integer", "minimum": 1 },
+    "channel": {
+      "enum": [
+        "email",
+        "facebook",
+        "messenger",
+        "zalo_oa",
+        "zalo_bot",
+        "zalo_personal",
+        "zalo_zns",
+        "telegram",
+        "webchat",
+        "cf7",
+        "instagram",
+        "whatsapp",
+        "channel_gateway",
+        "custom"
+      ]
+    },
+    "zone": { "enum": ["customer", "admin", "system"] },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "account_id"],
+      "properties": {
+        "scope": { "enum": ["exact", "platform", "system"] },
+        "account_id": { "type": "string", "minLength": 1, "maxLength": 190 },
+        "account_key": { "type": "string", "minLength": 8, "maxLength": 191 },
+        "label": { "type": "string", "maxLength": 120 }
+      }
+    },
+    "direction": { "enum": ["inbound", "outbound", "internal"] },
+    "level": { "enum": ["debug", "info", "warn", "error"] },
+    "event": { "type": "string", "minLength": 2, "maxLength": 120 },
+    "stage": {
+      "enum": [
+        "intake",
+        "normalize",
+        "persist",
+        "dispatch",
+        "delivery",
+        "archive",
+        "context",
+        "ledger",
+        "kg",
+        "reconcile",
+        "system"
+      ]
+    },
+    "message": { "type": "string", "maxLength": 500 },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module", "version"],
+      "properties": {
+        "module": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" }
+      }
+    },
+    "pipeline_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operational_logged", "context_captured", "ledger_indexed", "kg_candidate"],
+      "properties": {
+        "operational_logged": { "enum": ["success", "failed", "pending", "skipped", "not_applicable"] },
+        "context_captured": { "enum": ["success", "failed", "pending", "skipped", "not_applicable"] },
+        "ledger_indexed": { "enum": ["success", "failed", "pending", "skipped", "not_applicable"] },
+        "kg_candidate": { "enum": ["pending", "approved", "rejected", "deferred", "not_candidate", "not_applicable"] }
+      }
+    },
+    "record_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "context_record_id": { "type": "string", "minLength": 8, "maxLength": 191 },
+        "conversation_id": { "type": "integer", "minimum": 1 },
+        "message_id": { "type": "integer", "minimum": 1 },
+        "case_id": { "type": "string", "minLength": 2, "maxLength": 191 }
+      }
+    },
+    "context": { "type": "object" }
+  }
+}

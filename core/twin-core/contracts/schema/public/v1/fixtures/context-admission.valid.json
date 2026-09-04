@@ -1,0 +1,43 @@
+{
+  "contract": "context-admission",
+  "version": "1.0.0",
+  "admission_id": "adm_01hzy7m9qk",
+  "record_id": "ctx_event_01hzy7m9qk",
+  "record_kind": "event",
+  "tenant": {
+    "blog_id": 1258,
+    "scope": "tenant"
+  },
+  "source": {
+    "contract_id": "channel-payload",
+    "channel": "facebook",
+    "account_key": "a_7a3c9f10",
+    "event_uuid": "0190abc1-1234-7abc-8def-0123456789ab",
+    "external_id": "crm_message_456"
+  },
+  "identity": {
+    "scope": "guest_channel",
+    "identity_key": "facebook:a_7a3c9f10:contact_c001928",
+    "contact_ref": "customer:c_001928",
+    "conversation_ref": "conversation:8821"
+  },
+  "provenance": {
+    "source_record_id": "crm_message_456",
+    "trace_id": "trace_01hzy7m9qk"
+  },
+  "receipt": {
+    "contract_id": "core.channel_gateway.facebook",
+    "relative_file": "channel-conversations/facebook/a_7a3c9f10/2026-08.jsonl",
+    "byte_offset": 4096,
+    "row_hash": "0123456789abcdef0123456789abcdef",
+    "content_hash": "abcdef0123456789abcdef0123456789",
+    "occurred_at": "2026-08-30T12:00:00Z",
+    "operation": "append"
+  },
+  "policy": {
+    "sensitivity": "internal",
+    "retention_days": 365,
+    "kg_candidate": false
+  },
+  "status": "admitted"
+}

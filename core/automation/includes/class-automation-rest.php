@@ -1057,18 +1057,22 @@ final class BizCity_Automation_REST {
 	}
 
 	public static function workflow_file_log_download( WP_REST_Request $req ) {
-		$id   = (int) $req['id'];
-		$path = class_exists( 'BizCity_Automation_File_Logger' )
-			? BizCity_Automation_File_Logger::path_for( $id )
-			: '';
-		if ( ! $path || ! file_exists( $path ) ) {
+		$id = (int) $req['id'];
+		$rows = class_exists( 'BizCity_Automation_File_Logger' )
+			? BizCity_Automation_File_Logger::tail( $id, 2000 )
+			: array();
+		if ( empty( $rows ) ) {
 			return new WP_Error( 'no_log', 'Workflow chưa có log file nào.', array( 'status' => 404 ) );
 		}
 		nocache_headers();
 		header( 'Content-Type: application/x-ndjson; charset=utf-8' );
 		header( 'Content-Disposition: attachment; filename="wf-' . $id . '-' . gmdate( 'Ymd-His' ) . '.jsonl"' );
-		header( 'Content-Length: ' . (string) filesize( $path ) );
-		readfile( $path );
+		foreach ( $rows as $row ) {
+			$line = wp_json_encode( $row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			if ( is_string( $line ) && $line !== '' ) {
+				echo $line . "\n";
+			}
+		}
 		exit;
 	}
 
@@ -2253,6 +2257,7 @@ final class BizCity_Automation_REST {
 		$code = strtolower( $code );
 		switch ( $code ) {
 			case 'zalo':           return 'ZALO_BOT';
+			case 'zalo_bot':       return 'ZALO_BOT'; // [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - expose canonical Bot code to automation REST catalog.
 			case 'zalo-personal':  return 'ZALO_PERSONAL';
 			case 'facebook':       return 'FACEBOOK';
 			case 'telegram':       return 'TELEGRAM';

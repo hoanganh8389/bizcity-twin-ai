@@ -234,6 +234,18 @@ class BizCity_TwinWeb_REST {
 			'permission_callback' => '__return_true',
 			'args'                => array( 'limit' => array( 'type' => 'integer', 'default' => 50 ) ),
 		) );
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — register the read-only exact-account CRM console endpoint behind the existing TwinWeb identity and C-surface scope owner.
+		register_rest_route( $ns, '/crm/inbox', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_crm_exact_inbox' ),
+			'permission_callback' => '__return_true',
+			'args'                => array(
+				'channel' => array( 'type' => 'string', 'required' => true, 'sanitize_callback' => 'sanitize_key' ),
+				'ref'     => array( 'type' => 'string', 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+				'limit'   => array( 'type' => 'integer', 'default' => 50, 'sanitize_callback' => 'absint' ),
+				'conversation_id' => array( 'type' => 'integer', 'default' => 0, 'sanitize_callback' => 'absint' ),
+			),
+		) );
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — owner-scoped Personal account control plane for /gpt/.
 		register_rest_route( $ns, '/mychannels/zalo-personal/accounts', array(
 			array(
@@ -253,6 +265,11 @@ class BizCity_TwinWeb_REST {
 			'callback'            => array( $this, 'start_mychannels_zalo_personal_qr' ),
 			'permission_callback' => '__return_true',
 		) );
+		register_rest_route( $ns, '/mychannels/zalo-personal/accounts/(?P<id>[A-Za-z0-9_-]+)/qr/reset', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'reset_mychannels_zalo_personal_qr' ),
+			'permission_callback' => '__return_true',
+		) );
 		register_rest_route( $ns, '/mychannels/zalo-personal/accounts/(?P<id>[A-Za-z0-9_-]+)/status', array(
 			'methods'             => 'GET',
 			'callback'            => array( $this, 'get_mychannels_zalo_personal_status' ),
@@ -261,6 +278,32 @@ class BizCity_TwinWeb_REST {
 		register_rest_route( $ns, '/mychannels/zalo-personal/accounts/(?P<id>[A-Za-z0-9_-]+)', array(
 			'methods'             => 'DELETE',
 			'callback'            => array( $this, 'delete_mychannels_zalo_personal_account' ),
+			'permission_callback' => '__return_true',
+		) );
+		// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — member-owned Branch 20 OA routes use the local registry UID as the public reference.
+		register_rest_route( $ns, '/mychannels/zalo-oa/accounts', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_mychannels_zalo_oa_accounts' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-oa/accounts/connect-url', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'connect_mychannels_zalo_oa' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-oa/accounts/(?P<id>[A-Za-z0-9_-]+)/status', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_mychannels_zalo_oa_status' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-oa/accounts/(?P<id>[A-Za-z0-9_-]+)/test', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'test_mychannels_zalo_oa' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-oa/accounts/(?P<id>[A-Za-z0-9_-]+)', array(
+			'methods'             => 'DELETE',
+			'callback'            => array( $this, 'delete_mychannels_zalo_oa' ),
 			'permission_callback' => '__return_true',
 		) );
 		register_rest_route( $ns, '/mychannels/zalo-personal/conversations', array(
@@ -400,6 +443,16 @@ class BizCity_TwinWeb_REST {
 				'template_id' => array( 'type' => 'integer', 'required' => false, 'default' => 0, 'sanitize_callback' => 'absint' ),
 				'workflow_id' => array( 'type' => 'integer', 'required' => false, 'default' => 0, 'sanitize_callback' => 'absint' ),
 				'enabled'     => array( 'type' => 'boolean', 'required' => true ),
+			),
+		) );
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W9 — safe read-only customer settings sheet for owner-scoped workflow cards.
+		register_rest_route( $ns, '/myworkflows/settings', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_myworkflow_settings' ),
+			'permission_callback' => '__return_true',
+			'args'                => array(
+				'template_id' => array( 'type' => 'integer', 'required' => false, 'default' => 0, 'sanitize_callback' => 'absint' ),
+				'workflow_id' => array( 'type' => 'integer', 'required' => false, 'default' => 0, 'sanitize_callback' => 'absint' ),
 			),
 		) );
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — customer My Content artifact list/detail for /gpt/.
@@ -2560,10 +2613,161 @@ class BizCity_TwinWeb_REST {
 			'success' => true,
 			'user_id' => $user_id,
 			'settings' => $settings,
+			'channel_catalog' => $this->build_mychannels_channel_catalog( $identity ),
 			'zalo' => array( 'policy' => $zalo['policy'], 'bots' => $zalo['items'], 'link_status' => $link_status, '_degraded' => ! empty( $zalo['_degraded'] ) ),
 			'facebook' => array( 'pages' => $facebook['items'], '_degraded' => ! empty( $facebook['_degraded'] ) ),
 			'dashboard' => $this->build_mychannels_dashboard_payload( $identity ),
 		) );
+	}
+
+	private function build_mychannels_channel_catalog( array $identity ): array {
+		// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — server owns channel grouping and availability; React only renders the catalog.
+		return array(
+			array( 'code' => 'facebook', 'label' => 'Facebook', 'group' => 'customer', 'category' => 'social', 'availability' => 'available', 'connection_kind' => 'member_oauth', 'actions' => array( 'connect', 'select', 'revoke' ) ),
+			array( 'code' => 'tiktok', 'label' => 'Tiktok', 'group' => 'customer', 'category' => 'social', 'availability' => 'planned', 'connection_kind' => 'member_oauth', 'actions' => array(), 'reason' => 'provider_contract_pending' ),
+			array( 'code' => 'zalo_oa', 'label' => 'Zalo OA', 'group' => 'customer', 'category' => 'messaging', 'availability' => 'available', 'connection_kind' => 'member_owned', 'subchannels' => array( 'zalo_oa' ), 'actions' => array( 'connect', 'status', 'revoke' ) ),
+			array( 'code' => 'zalo_personal', 'label' => 'Zalo Cá nhân', 'group' => 'customer', 'category' => 'messaging', 'availability' => 'available', 'connection_kind' => 'member_owned', 'subchannels' => array( 'zalo_personal' ), 'actions' => array( 'connect', 'status', 'revoke' ) ),
+			array( 'code' => 'web', 'label' => 'Web', 'group' => 'customer', 'category' => 'website', 'availability' => 'planned', 'connection_kind' => 'site_binding', 'actions' => array(), 'reason' => 'provider_contract_pending' ),
+			array( 'code' => 'internal', 'label' => 'Twin GPT + Zalo Bot', 'group' => 'internal', 'category' => 'operations', 'availability' => 'available', 'connection_kind' => 'workspace_admin', 'subchannels' => array( 'twinweb', 'zalo_bot' ), 'actions' => array( 'select', 'link', 'chat' ) ),
+		);
+	}
+
+	public function get_mychannels_zalo_oa_accounts( WP_REST_Request $request ) {
+		// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — list only managed OA projections owned by the current Twin GPT member.
+		unset( $request );
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem Zalo OA.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_OA_Hub_Client' ) || ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Kết nối Zalo OA chưa sẵn sàng.', 'Bật Channel Gateway và tải lại trang.', 'module_not_loaded' );
+		}
+		$remote = BizCity_Zalo_OA_Hub_Client::instance()->list_accounts();
+		if ( empty( $remote['success'] ) ) {
+			return $this->mychannels_error( (string) ( $remote['code'] ?? 'gateway_degraded' ), (string) ( $remote['message'] ?? 'Chưa đọc được trạng thái Zalo OA.' ), (string) ( $remote['hint'] ?? 'Kiểm tra kết nối BizCity rồi thử lại.' ), (string) ( $remote['help_code'] ?? 'gateway_degraded' ), array( '_degraded' => ! empty( $remote['_degraded'] ) ) );
+		}
+		$sync = $this->sync_mychannels_zalo_oa_projections( (array) ( $remote['accounts'] ?? array() ), (int) $identity['user_id'] );
+		if ( is_wp_error( $sync ) ) {
+			return $this->mychannels_error( 'crm_projection_failed', 'Zalo OA đã phản hồi nhưng chưa đồng bộ được về tài khoản của bạn.', 'Bấm Làm mới để thử đồng bộ lại trạng thái.', 'gateway_degraded', array( '_degraded' => true ) );
+		}
+		$items = array();
+		foreach ( $this->mychannels_zalo_oa_owned_accounts( (int) $identity['user_id'] ) as $account ) {
+			$items[] = $this->shape_mychannels_zalo_oa_account( $account );
+		}
+		return rest_ensure_response( array( 'success' => true, 'items' => $items, 'capability' => $remote['capability'] ?? array() ) );
+	}
+
+	public function connect_mychannels_zalo_oa( WP_REST_Request $request ) {
+		// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — issue Branch 20 OAuth through the existing B2 wrapper and persist a member-owned projection.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để kết nối Zalo OA.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_OA_Hub_Client' ) || ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Kết nối Zalo OA chưa sẵn sàng.', 'Bật Channel Gateway và tải lại trang.', 'module_not_loaded' );
+		}
+		$user_id = (int) $identity['user_id'];
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$label = sanitize_text_field( (string) ( $body['label'] ?? '' ) );
+		$requested_uid = sanitize_key( (string) ( $body['account_id'] ?? '' ) );
+		$uid = '';
+		foreach ( $this->mychannels_zalo_oa_owned_accounts( $user_id ) as $owned_account ) {
+			if ( sanitize_key( (string) ( $owned_account['_uid'] ?? '' ) ) === $requested_uid ) {
+				$uid = $requested_uid;
+				break;
+			}
+		}
+		$uid = $uid !== '' ? $uid : 'gpt_oa_' . $user_id . '_' . substr( md5( uniqid( 'gpt_oa', true ) ), 0, 12 );
+		$request_id = $uid . '_' . substr( md5( uniqid( 'oauth', true ) ), 0, 8 );
+		$result = BizCity_Zalo_OA_Hub_Client::instance()->connect_url( array(
+			'account_uid'       => $uid,
+			'client_request_id' => $request_id,
+			'return_url'        => home_url( '/gpt/mychannels/' ),
+		) );
+		if ( empty( $result['success'] ) ) {
+			return $this->mychannels_error( (string) ( $result['code'] ?? 'gateway_degraded' ), (string) ( $result['message'] ?? 'Không thể bắt đầu kết nối Zalo OA.' ), (string) ( $result['hint'] ?? 'Kiểm tra quyền BizCity rồi thử lại.' ), (string) ( $result['help_code'] ?? 'gateway_degraded' ), array( '_degraded' => ! empty( $result['_degraded'] ) ) );
+		}
+		$saved = BizCity_Integration_Registry::instance()->save_channel_account( 'zalo_oa', array(
+			'_uid'                     => $uid,
+			'connection_mode'          => 'managed_1api',
+			'owner_user_id'             => $user_id,
+			'label'                    => $label,
+			'managed_pending_id'       => (string) ( $result['pending_id'] ?? '' ),
+			'managed_client_request_id' => (string) ( $result['_client_request_id'] ?? $request_id ),
+			'managed_status'            => 'oauth_pending',
+		), false );
+		if ( is_wp_error( $saved ) ) {
+			return $this->mychannels_error( 'crm_projection_failed', 'Đã tạo phiên cấp quyền nhưng chưa lưu được kết nối vào tài khoản của bạn.', 'Bấm Thử lại để tạo phiên kết nối mới.', 'gateway_degraded', array( '_degraded' => true ) );
+		}
+		return rest_ensure_response( array(
+			'success'           => true,
+			'authorization_url' => (string) ( $result['authorization_url'] ?? '' ),
+			'qr_url'            => (string) ( $result['qr_url'] ?? '' ),
+			'pending_id'        => (int) ( $result['pending_id'] ?? 0 ),
+			'client_request_id' => (string) ( $result['_client_request_id'] ?? $request_id ),
+			'expires_at'        => (string) ( $result['expires_at'] ?? '' ),
+		) );
+	}
+
+	public function get_mychannels_zalo_oa_status( WP_REST_Request $request ) {
+		// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — reconcile the exact member-owned OA before returning status.
+		$account = $this->mychannels_zalo_oa_account( $request );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) {
+			return $account;
+		}
+		$hub_id = (int) ( $account['managed_hub_account_id'] ?? 0 );
+		if ( $hub_id <= 0 || ! class_exists( 'BizCity_Zalo_OA_Hub_Client' ) ) {
+			return rest_ensure_response( array( 'success' => true, 'account' => $this->shape_mychannels_zalo_oa_account( $account ) ) );
+		}
+		$result = BizCity_Zalo_OA_Hub_Client::instance()->account_status( $hub_id );
+		if ( empty( $result['success'] ) ) {
+			return $this->mychannels_error( (string) ( $result['code'] ?? 'gateway_degraded' ), (string) ( $result['message'] ?? 'Chưa đọc được trạng thái Zalo OA.' ), (string) ( $result['hint'] ?? 'Thử làm mới sau ít phút.' ), (string) ( $result['help_code'] ?? 'gateway_degraded' ), array( '_degraded' => ! empty( $result['_degraded'] ) ) );
+		}
+		$remote_account = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : array();
+		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — preserve the owner verified by the local account resolver during status reconciliation.
+		$sync = $this->sync_mychannels_zalo_oa_projections( $remote_account ? array( $remote_account ) : array(), (int) ( $account['owner_user_id'] ?? 0 ) );
+		if ( is_wp_error( $sync ) ) {
+			return $this->mychannels_error( 'crm_projection_failed', 'Chưa lưu được trạng thái Zalo OA về tài khoản của bạn.', 'Bấm Làm mới để thử lại.', 'gateway_degraded', array( '_degraded' => true ) );
+		}
+		$account = $this->mychannels_zalo_oa_account( $request );
+		return is_wp_error( $account ) ? $account : rest_ensure_response( array( 'success' => true, 'account' => $this->shape_mychannels_zalo_oa_account( $account ) ) );
+	}
+
+	public function test_mychannels_zalo_oa( WP_REST_Request $request ) {
+		// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — test only the Hub account resolved from the member-owned local UID.
+		$account = $this->mychannels_zalo_oa_account( $request );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) {
+			return $account;
+		}
+		$hub_id = (int) ( $account['managed_hub_account_id'] ?? 0 );
+		if ( $hub_id <= 0 || ! class_exists( 'BizCity_Zalo_OA_Hub_Client' ) ) {
+			return $this->mychannels_error( 'not_found', 'Zalo OA chưa hoàn tất cấp quyền.', 'Hoàn tất OAuth rồi thử kiểm tra lại.', 'gateway_degraded' );
+		}
+		$result = BizCity_Zalo_OA_Hub_Client::instance()->test_account( $hub_id );
+		return rest_ensure_response( is_array( $result ) ? $result : array( 'success' => false, 'code' => 'gateway_degraded', 'message' => 'Không kiểm tra được Zalo OA.', 'hint' => 'Thử lại sau ít phút.', 'help_code' => 'gateway_degraded' ) );
+	}
+
+	public function delete_mychannels_zalo_oa( WP_REST_Request $request ) {
+		// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — revoke Hub grant before marking the member-owned projection revoked.
+		$account = $this->mychannels_zalo_oa_account( $request );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) {
+			return $account;
+		}
+		$hub_id = (int) ( $account['managed_hub_account_id'] ?? 0 );
+		if ( $hub_id <= 0 || ! class_exists( 'BizCity_Zalo_OA_Hub_Client' ) ) {
+			return $this->mychannels_error( 'not_found', 'Không tìm thấy quyền Zalo OA để ngắt.', 'Tải lại danh sách rồi thử lại.', 'not_found' );
+		}
+		$result = BizCity_Zalo_OA_Hub_Client::instance()->revoke_account( $hub_id );
+		if ( empty( $result['success'] ) ) {
+			return rest_ensure_response( is_array( $result ) ? $result : array( 'success' => false, 'code' => 'gateway_degraded', 'message' => 'Không ngắt được Zalo OA.', 'hint' => 'Thử lại sau ít phút.', 'help_code' => 'gateway_degraded' ) );
+		}
+		$account['managed_status'] = 'revoked';
+		$saved = BizCity_Integration_Registry::instance()->save_channel_account( 'zalo_oa', $account, false );
+		if ( is_wp_error( $saved ) ) {
+			return $this->mychannels_error( 'crm_projection_failed', 'Đã ngắt quyền trên Hub nhưng chưa cập nhật danh sách tại site.', 'Bấm Làm mới để đồng bộ lại.', 'gateway_degraded', array( '_degraded' => true ) );
+		}
+		return rest_ensure_response( array( 'success' => true, 'revoked' => true, 'account' => $this->shape_mychannels_zalo_oa_account( $account ) ) );
 	}
 
 	public function get_crm_member_projection( WP_REST_Request $request ) {
@@ -2580,6 +2784,63 @@ class BizCity_TwinWeb_REST {
 		return rest_ensure_response( array( 'success' => true, 'data' => $projection ) );
 	}
 
+	public function get_crm_exact_inbox( WP_REST_Request $request ) {
+		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — resolve identity, exact account and C-surface membership before reading conversations.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem Inbox CRM.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		if ( ! class_exists( 'BizCity_CRM_Repository' ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Inbox CRM chưa sẵn sàng.', 'Bật module CRM rồi tải lại trang.', 'module_not_loaded' );
+		}
+		$channel = sanitize_key( (string) $request->get_param( 'channel' ) );
+		$ref = trim( sanitize_text_field( (string) $request->get_param( 'ref' ) ) );
+		if ( ! in_array( $channel, array( 'facebook', 'zalo_oa', 'zalo_personal' ), true ) || $ref === '' ) {
+			return $this->mychannels_error( 'invalid_param', 'Kênh hoặc tài khoản CRM không hợp lệ.', 'Chọn một tài khoản trong Kênh của tôi rồi thử lại.', 'invalid_param_generic' );
+		}
+		$scope = BizCity_CRM_Inbox_Access::resolve_scope( (int) $identity['user_id'], 'c' );
+		$inbox = BizCity_CRM_Repository::get_inbox_by_ref( $channel, $ref );
+		$allowed = isset( $scope['inbox_ids'] ) && is_array( $scope['inbox_ids'] ) ? $scope['inbox_ids'] : array();
+		if ( ! is_array( $inbox ) || ! in_array( (int) ( $inbox['id'] ?? 0 ), array_map( 'intval', $allowed ), true ) ) {
+			return $this->mychannels_error( 'permission_denied', 'Tài khoản CRM này không thuộc phạm vi của bạn.', 'Chọn tài khoản được phân công trong Kênh của tôi.', 'permission_denied' );
+		}
+		$limit = max( 1, min( 100, (int) ( $request->get_param( 'limit' ) ?: 50 ) ) );
+		$conversation_id = (int) $request->get_param( 'conversation_id' );
+		if ( $conversation_id > 0 ) {
+			$rows = BizCity_CRM_Repository::list_conversations( array( 'id' => $conversation_id, 'inbox_id' => (int) $inbox['id'], 'limit' => 1 ) );
+			if ( empty( $rows ) ) {
+				return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại trong Inbox này.', 'Chọn một hội thoại thuộc đúng tài khoản CRM rồi thử lại.', 'not_found' );
+			}
+			$messages = array_map( array( $this, 'shape_mychannels_zalo_personal_message' ), BizCity_CRM_Repository::list_messages( $conversation_id, $limit, 0 ) );
+			return rest_ensure_response( array(
+				'success' => true,
+				'inbox' => array(
+					'id' => (int) $inbox['id'],
+					'channel' => $channel,
+					'ref' => $ref,
+					'name' => sanitize_text_field( (string) ( $inbox['name'] ?? '' ) ),
+				),
+				'conversation' => $this->shape_mychannels_zalo_personal_conversation( $rows[0] ),
+				'messages' => $messages,
+				'items' => array(),
+				'_degraded' => false,
+			) );
+		}
+		$rows = BizCity_CRM_Repository::list_conversations( array( 'inbox_id' => (int) $inbox['id'], 'limit' => $limit ) );
+		$items = array_map( array( $this, 'shape_mychannels_zalo_personal_conversation' ), $rows );
+		return rest_ensure_response( array(
+			'success' => true,
+			'inbox' => array(
+				'id' => (int) $inbox['id'],
+				'channel' => $channel,
+				'ref' => $ref,
+				'name' => sanitize_text_field( (string) ( $inbox['name'] ?? '' ) ),
+			),
+			'items' => $items,
+			'_degraded' => false,
+		) );
+	}
+
 	private function mychannels_zalo_personal_account( WP_REST_Request $request, array $identity ) {
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — resolve only the current user's Personal account.
 		$account_id = sanitize_text_field( (string) $request->get_param( 'id' ) );
@@ -2590,6 +2851,99 @@ class BizCity_TwinWeb_REST {
 			return $this->mychannels_error( 'permission_denied', 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'permission_denied' );
 		}
 		return $account;
+	}
+
+	private function mychannels_zalo_oa_owned_accounts( int $user_id ): array {
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			return array();
+		}
+		$owned = array();
+		foreach ( BizCity_Integration_Registry::instance()->get_accounts( 'zalo_oa' ) as $account ) {
+			if ( (string) ( $account['connection_mode'] ?? '' ) !== 'managed_1api' || (int) ( $account['owner_user_id'] ?? 0 ) !== $user_id ) {
+				continue;
+			}
+			$owned[] = $account;
+		}
+		return $owned;
+	}
+
+	private function mychannels_zalo_oa_account( WP_REST_Request $request ) {
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để quản lý Zalo OA.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		$account_id = sanitize_key( (string) $request->get_param( 'id' ) );
+		foreach ( $this->mychannels_zalo_oa_owned_accounts( (int) $identity['user_id'] ) as $account ) {
+			if ( sanitize_key( (string) ( $account['_uid'] ?? '' ) ) === $account_id ) {
+				return $account;
+			}
+		}
+		return $this->mychannels_error( 'permission_denied', 'Tài khoản Zalo OA này không thuộc tài khoản của bạn.', 'Chọn một kết nối trong Kênh của tôi rồi thử lại.', 'permission_denied' );
+	}
+
+	private function shape_mychannels_zalo_oa_account( array $account ): array {
+		return array(
+			'id'                      => sanitize_key( (string) ( $account['_uid'] ?? '' ) ),
+			'oa_id'                   => sanitize_text_field( (string) ( $account['managed_oa_id'] ?? $account['oa_id'] ?? '' ) ),
+			'oa_name'                 => sanitize_text_field( (string) ( $account['managed_oa_name'] ?? $account['oa_name'] ?? $account['label'] ?? '' ) ),
+			'status'                  => sanitize_key( (string) ( $account['managed_status'] ?? 'oauth_pending' ) ),
+			'connection_mode'         => 'managed_1api',
+			'owner_user_id'           => (int) ( $account['owner_user_id'] ?? 0 ),
+			'client_request_id'       => sanitize_text_field( (string) ( $account['managed_client_request_id'] ?? '' ) ),
+			'token_expires_at'        => sanitize_text_field( (string) ( $account['managed_token_expires_at'] ?? '' ) ),
+			'managed_hub_account_id'  => 0,
+		);
+	}
+
+	private function sync_mychannels_zalo_oa_projections( array $remote_accounts, int $user_id ) {
+		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — update only the current member's local OA projections.
+		if ( $user_id <= 0 ) {
+			return new WP_Error( 'permission_denied', 'Không xác định được chủ tài khoản Zalo OA.' );
+		}
+		if ( ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Channel Gateway chưa sẵn sàng.' );
+		}
+		$registry = BizCity_Integration_Registry::instance();
+		$local_accounts = $registry->get_accounts( 'zalo_oa' );
+		foreach ( $remote_accounts as $remote ) {
+			if ( ! is_array( $remote ) ) {
+				continue;
+			}
+			$remote_request = sanitize_text_field( (string) ( $remote['client_request_id'] ?? '' ) );
+			$remote_id = (int) ( $remote['id'] ?? 0 );
+			$remote_oa = sanitize_text_field( (string) ( $remote['oa_id'] ?? '' ) );
+			if ( $remote_request === '' && $remote_oa === '' && $remote_id <= 0 ) {
+				continue;
+			}
+			foreach ( $local_accounts as $local ) {
+				if ( (string) ( $local['connection_mode'] ?? '' ) !== 'managed_1api' ) {
+					continue;
+				}
+				// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — never mutate another member's projection during a C request.
+				if ( (int) ( $local['owner_user_id'] ?? 0 ) !== $user_id ) {
+					continue;
+				}
+				$local_request = (string) ( $local['managed_client_request_id'] ?? '' );
+				$local_oa = (string) ( $local['managed_oa_id'] ?? $local['oa_id'] ?? '' );
+				$local_hub_id = (int) ( $local['managed_hub_account_id'] ?? 0 );
+				$matches = ( $remote_request !== '' && $local_request === $remote_request )
+					|| ( $remote_id > 0 && $local_hub_id === $remote_id );
+				if ( ! $matches ) {
+					continue;
+				}
+				$local['managed_hub_account_id'] = $remote_id;
+				$local['managed_oa_id'] = $remote_oa !== '' ? $remote_oa : $local_oa;
+				$local['managed_oa_name'] = sanitize_text_field( (string) ( $remote['oa_name'] ?? $local['managed_oa_name'] ?? $local['label'] ?? '' ) );
+				$local['managed_status'] = sanitize_key( (string) ( $remote['status'] ?? 'active' ) );
+				$local['managed_token_expires_at'] = sanitize_text_field( (string) ( $remote['token_expires_at'] ?? '' ) );
+				$saved = $registry->save_channel_account( 'zalo_oa', $local, false );
+				if ( is_wp_error( $saved ) ) {
+					return $saved;
+				}
+				break;
+			}
+		}
+		return true;
 	}
 
 	/** Require managed Branch 19 entitlement before any /gpt/ Personal account operation. */
@@ -2626,10 +2980,7 @@ class BizCity_TwinWeb_REST {
 			return array(
 				'id'            => (string) ( $row['bridge_account_id'] ?? '' ),
 				'label'         => (string) ( $row['label'] ?? '' ),
-				'zalo_uid'      => (string) ( $row['zalo_uid'] ?? '' ),
 				'status'        => (string) ( $row['status'] ?? 'pending_qr' ),
-				'crm_inbox_id'  => (int) ( $row['crm_inbox_id'] ?? 0 ),
-				'owner_user_id' => (int) ( $row['owner_user_id'] ?? 0 ),
 			);
 		}, $rows );
 		return rest_ensure_response( array( 'success' => true, 'items' => $items ) );
@@ -2655,6 +3006,18 @@ class BizCity_TwinWeb_REST {
 		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
 		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
 		return BizCity_Zalo_Bridge_REST::start_qr_for_owner( $account, (int) $identity['user_id'] );
+	}
+
+	public function reset_mychannels_zalo_personal_qr( WP_REST_Request $request ) {
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — owner-scoped re-login resets only the bridge session and preserves the account/mapping ID.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để tạo lại mã QR.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
+		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
+		return BizCity_Zalo_Bridge_REST::reset_qr_for_owner( $account, (int) $identity['user_id'] );
 	}
 
 	public function get_mychannels_zalo_personal_status( WP_REST_Request $request ) {
@@ -2687,7 +3050,9 @@ class BizCity_TwinWeb_REST {
 		if ( $user_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
 			return array();
 		}
-		$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id );
+		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — C /gpt/ never inherits tenant-wide admin inbox scope.
+		$c_scope = BizCity_CRM_Inbox_Access::resolve_scope( $user_id, 'c' );
+		$allowed = isset( $c_scope['inbox_ids'] ) && is_array( $c_scope['inbox_ids'] ) ? $c_scope['inbox_ids'] : array();
 		$ids = array();
 		foreach ( BizCity_CRM_Repository::list_inboxes() as $inbox ) {
 			$inbox_id = (int) ( $inbox['id'] ?? 0 );
@@ -2699,21 +3064,51 @@ class BizCity_TwinWeb_REST {
 		return array_values( array_unique( $ids ) );
 	}
 
+	private function shape_mychannels_zalo_personal_conversation( array $row ): array {
+		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — return a C-safe conversation DTO, never the CRM admin serializer.
+		return array(
+			'id'               => (int) ( $row['id'] ?? 0 ),
+			'inbox_id'         => (int) ( $row['inbox_id'] ?? 0 ),
+			'status'           => sanitize_key( (string) ( $row['status'] ?? '' ) ),
+			'priority'         => (int) ( $row['priority'] ?? 0 ),
+			'unread_count'     => (int) ( $row['unread_count'] ?? 0 ),
+			'last_activity_at' => $row['last_activity_at'] ?? null,
+			'last_message'     => isset( $row['last_message_content'] ) ? array(
+				'content'      => (string) ( $row['last_message_content'] ?? '' ),
+				'message_type' => sanitize_key( (string) ( $row['last_message_type'] ?? '' ) ),
+				'sender_type'  => sanitize_key( (string) ( $row['last_sender_type'] ?? '' ) ),
+				'created_at'   => $row['last_message_at'] ?? null,
+			) : null,
+			'contact'          => array(
+				'name'       => sanitize_text_field( (string) ( $row['contact_name'] ?? '' ) ),
+				'avatar_url' => ! empty( $row['contact_avatar'] ) ? esc_url_raw( (string) $row['contact_avatar'] ) : null,
+			),
+			'channel'          => sanitize_key( (string) ( $row['channel_type'] ?? 'zalo_personal' ) ),
+			'c_surface_safe'   => true,
+		);
+	}
+
+	private function shape_mychannels_zalo_personal_message( array $row ): array {
+		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — omit provider IDs, responder metadata, delivery payload and admin URLs from C messages.
+		return array(
+			'id'              => (int) ( $row['id'] ?? 0 ),
+			'conversation_id' => (int) ( $row['conversation_id'] ?? 0 ),
+			'content'         => (string) ( $row['content'] ?? '' ),
+			'content_type'    => sanitize_key( (string) ( $row['content_type'] ?? 'text' ) ),
+			'message_type'    => sanitize_key( (string) ( $row['message_type'] ?? '' ) ),
+			'sender_type'     => sanitize_key( (string) ( $row['sender_type'] ?? '' ) ),
+			'status'          => sanitize_key( (string) ( $row['status'] ?? '' ) ),
+			'created_at'      => $row['created_at'] ?? null,
+			'c_surface_safe'  => true,
+		);
+	}
+
 	private function mychannels_zalo_personal_inbox_connected( int $inbox_id, int $user_id ): bool {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W11 — outbound may use only a connected Personal account owned by this user or tenant admin.
 		if ( $inbox_id <= 0 || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) { return false; }
 		$rows = BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner( $user_id );
 		foreach ( $rows as $row ) {
 			if ( (int) ( $row['crm_inbox_id'] ?? 0 ) === $inbox_id && (string) ( $row['status'] ?? '' ) === 'connected' ) { return true; }
-		}
-		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id ) ) {
-			$all_rows = BizCity_CRM_Repository::list_inboxes();
-			foreach ( $all_rows as $inbox ) {
-				if ( (int) ( $inbox['id'] ?? 0 ) === $inbox_id && (string) ( $inbox['channel_type'] ?? '' ) === 'zalo_personal' ) {
-					$account = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', (string) ( $inbox['channel_ref_id'] ?? '' ) );
-					return is_array( $account ) && (string) ( $account['status'] ?? '' ) === 'connected';
-				}
-			}
 		}
 		return false;
 	}
@@ -2735,7 +3130,7 @@ class BizCity_TwinWeb_REST {
 		);
 		if ( in_array( $status, array( 'open', 'pending', 'resolved', 'snoozed' ), true ) ) { $args['status'] = $status; }
 		$rows = BizCity_CRM_Repository::list_conversations( $args );
-		$items = class_exists( 'BizCity_CRM_REST_Controller' ) ? array_map( array( 'BizCity_CRM_REST_Controller', 'shape_conversation' ), $rows ) : $rows;
+		$items = array_map( array( $this, 'shape_mychannels_zalo_personal_conversation' ), $rows );
 		return rest_ensure_response( array( 'success' => true, 'items' => $items, 'inbox_ids' => $inbox_ids ) );
 	}
 
@@ -2749,7 +3144,7 @@ class BizCity_TwinWeb_REST {
 		$inbox_ids = $this->mychannels_zalo_personal_inbox_ids( (int) $identity['user_id'] );
 		$rows = class_exists( 'BizCity_CRM_Repository' ) && $id > 0 && ! empty( $inbox_ids ) ? BizCity_CRM_Repository::list_conversations( array( 'id' => $id, 'inbox_ids' => $inbox_ids, 'limit' => 1 ) ) : array();
 		if ( empty( $rows ) ) { return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại Zalo Personal.', 'Chọn hội thoại trong Inbox của bạn rồi thử lại.', 'not_found' ); }
-		$item = class_exists( 'BizCity_CRM_REST_Controller' ) ? BizCity_CRM_REST_Controller::shape_conversation( $rows[0] ) : $rows[0];
+		$item = $this->shape_mychannels_zalo_personal_conversation( $rows[0] );
 		return rest_ensure_response( array( 'success' => true, 'conversation' => $item ) );
 	}
 
@@ -2766,7 +3161,7 @@ class BizCity_TwinWeb_REST {
 		$limit = max( 1, min( 100, (int) ( $request->get_param( 'limit' ) ?: 100 ) ) );
 		$after_id = max( 0, (int) $request->get_param( 'after_id' ) );
 		$rows = BizCity_CRM_Repository::list_messages( $id, $limit, $after_id );
-		$items = class_exists( 'BizCity_CRM_REST_Controller' ) ? array_map( array( 'BizCity_CRM_REST_Controller', 'shape_message' ), $rows ) : $rows;
+		$items = array_map( array( $this, 'shape_mychannels_zalo_personal_message' ), $rows );
 		return rest_ensure_response( array( 'success' => true, 'items' => $items, 'conversation_id' => $id ) );
 	}
 
@@ -2790,7 +3185,15 @@ class BizCity_TwinWeb_REST {
 		$crm_request->set_url_params( array( 'id' => $id ) );
 		$crm_request->set_header( 'Content-Type', 'application/json' );
 		$crm_request->set_body( wp_json_encode( array( 'content' => $content, 'content_type' => 'text', 'responder_kind' => 'manual' ) ) );
-		return BizCity_CRM_REST_Controller::post_message( $crm_request );
+		$crm_response = BizCity_CRM_REST_Controller::post_message( $crm_request );
+		if ( $crm_response instanceof WP_REST_Response ) {
+			$payload = $crm_response->get_data();
+			if ( is_array( $payload ) && isset( $payload['message'] ) && is_array( $payload['message'] ) ) {
+				$payload['message'] = $this->shape_mychannels_zalo_personal_message( $payload['message'] );
+			}
+			return rest_ensure_response( is_array( $payload ) ? $payload : array( 'success' => false, 'code' => 'crm_projection_failed', 'message' => 'Không đọc được phản hồi CRM.', 'hint' => 'Tải lại Inbox rồi thử lại.', 'help_code' => 'gateway_degraded' ) );
+		}
+		return $crm_response;
 	}
 
 	public function get_mychannels_zalo_bots( WP_REST_Request $request ) {
@@ -3242,6 +3645,111 @@ class BizCity_TwinWeb_REST {
 			return $this->mychannels_error( (string) $enabled_row->get_error_code(), 'Không bật được workflow.', 'Thử lại hoặc liên hệ quản trị viên.', 'automation_run_failed' );
 		}
 		return rest_ensure_response( array( 'success' => true, 'workflow_id' => (int) $enabled_row['id'], 'enabled' => true, 'preflight' => $preflight, 'item' => $template ? $this->build_myworkflow_card( $identity, $template ) : null ) );
+	}
+
+	public function get_myworkflow_settings( WP_REST_Request $request ) {
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W9 — expose a customer-safe settings read model without returning graph/config internals.
+		$this->ensure_customer_automation_runtime();
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem thiết lập kịch bản.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		if ( ! class_exists( 'BizCity_Automation_Repo_Templates' ) || ! class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Automation chưa sẵn sàng.', 'Tải lại trang rồi thử lại.', 'module_not_loaded' );
+		}
+
+		$user_id     = (int) ( $identity['user_id'] ?? 0 );
+		$workflow_id = absint( $request->get_param( 'workflow_id' ) );
+		$template_id = absint( $request->get_param( 'template_id' ) );
+		$workflow    = null;
+		$template    = null;
+		if ( $workflow_id > 0 ) {
+			$workflow = BizCity_Automation_Repo_Workflows::find( $workflow_id );
+			if ( ! $workflow || (int) ( $workflow['created_by'] ?? 0 ) !== $user_id ) {
+				return $this->mychannels_error( 'permission_denied', 'Kịch bản này không thuộc tài khoản của bạn.', 'Chỉ mở thiết lập của kịch bản do bạn sở hữu.', 'permission_denied' );
+			}
+		} elseif ( $template_id > 0 ) {
+			$template = BizCity_Automation_Repo_Templates::find( $template_id );
+			if ( ! $template || (string) ( $template['visibility'] ?? '' ) !== 'global' || ! $this->is_customer_default_template( $template ) ) {
+				return $this->mychannels_error( 'not_found', 'Kịch bản này chưa được public cho customer.', 'Chọn kịch bản trong danh sách My Workflows.', 'not_found_generic' );
+			}
+			$workflow = $this->find_customer_workflow_for_template( $user_id, $template );
+		} else {
+			return $this->mychannels_error( 'invalid_param', 'Thiếu kịch bản cần xem.', 'Chọn một kịch bản trong My Workflows.', 'invalid_param_generic' );
+		}
+
+		$defaults = $this->build_mychannels_automation_defaults_payload( $identity );
+		$mychannel_settings = $this->get_mychannels_settings_for_user( $user_id );
+		$selected_page_name = sanitize_text_field( (string) ( $mychannel_settings['selected_fb_page_name'] ?? '' ) );
+		$source   = $workflow ? $workflow : $template;
+		$config_raw = (string) ( $source['trigger_config_json'] ?? '' );
+		if ( $config_raw === '' && isset( $source['trigger_config'] ) && is_array( $source['trigger_config'] ) ) {
+			$config_raw = wp_json_encode( $source['trigger_config'] );
+		}
+		$config = $config_raw !== '' ? json_decode( $config_raw, true ) : array();
+		$config = is_array( $config ) ? $config : array();
+		$schedule = sanitize_text_field( (string) ( $config['schedule'] ?? $config['cron'] ?? '' ) );
+
+		$recent_runs = array();
+		$degraded    = false;
+		if ( $workflow ) {
+			global $wpdb;
+			$run_table = $wpdb->prefix . 'bizcity_automation_runs';
+			$wf_table  = $wpdb->prefix . 'bizcity_automation_workflows';
+			if ( self::table_exists( $run_table ) && self::table_exists( $wf_table ) && $this->table_has_column( $run_table, 'user_id' ) ) {
+				$run_rows = $wpdb->get_results( $wpdb->prepare(
+					"SELECT r.run_id, r.status, r.error, r.created_at, r.ended_at
+					 FROM {$run_table} r INNER JOIN {$wf_table} w ON w.id = r.workflow_id
+					 WHERE r.workflow_id = %d AND w.created_by = %d AND ( r.user_id = %d OR r.user_id = 0 )
+					 ORDER BY r.id DESC LIMIT 5",
+					(int) $workflow['id'],
+					$user_id,
+					$user_id
+				), ARRAY_A );
+				foreach ( (array) $run_rows as $run_row ) {
+					$status_meta = $this->automation_status_meta( isset( $run_row['status'] ) ? (int) $run_row['status'] : -1 );
+					$recent_runs[] = array(
+						'run_id'       => sanitize_text_field( (string) ( $run_row['run_id'] ?? '' ) ),
+						'status'       => $status_meta['key'],
+						'status_label' => $status_meta['label'],
+						'created_at'   => (string) ( $run_row['created_at'] ?? '' ),
+						'ended_at'     => (string) ( $run_row['ended_at'] ?? '' ),
+						'error'        => sanitize_text_field( (string) ( $run_row['error'] ?? '' ) ),
+					);
+				}
+			} else {
+				$degraded = true;
+			}
+		}
+
+		return rest_ensure_response( array(
+			'success'     => true,
+			'workflow_id' => $workflow ? (int) $workflow['id'] : 0,
+			'template_id' => $template ? (int) $template['id'] : 0,
+			'title'       => sanitize_text_field( (string) ( $source['name'] ?? '' ) ),
+			'enabled'     => $workflow ? ! empty( $workflow['enabled'] ) : false,
+			'basic_copy'  => array(
+				'summary'  => wp_strip_all_tags( (string) ( $source['description'] ?? '' ) ),
+				'editable' => false,
+			),
+			'channels'    => array(
+				'zalo' => array(
+					'ready'      => ! empty( $defaults['zalo']['ready'] ),
+					'bot_id'     => (int) ( $defaults['zalo']['bot_id'] ?? 0 ),
+					'chat_id'    => sanitize_text_field( (string) ( $defaults['zalo']['chat_id'] ?? '' ) ),
+					'chat_label' => sanitize_text_field( (string) ( $defaults['zalo']['chat_label'] ?? '' ) ),
+					'linked'     => ! empty( $defaults['zalo']['linked_zalo_user_id'] ),
+				),
+				'facebook' => array(
+					'ready'     => ! empty( $defaults['facebook']['ready'] ),
+					'page_id'   => sanitize_text_field( (string) ( $defaults['facebook']['page_id'] ?? '' ) ),
+					'page_name' => $selected_page_name,
+				),
+			),
+			'schedule'   => array( 'value' => $schedule, 'editable' => false ),
+			'recent_runs' => $recent_runs,
+			'_degraded'  => $degraded,
+		) );
 	}
 
 	/**
@@ -5924,6 +6432,11 @@ class BizCity_TwinWeb_REST {
 		if ( isset( $s[ $table ] ) ) {
 			return $s[ $table ];
 		}
+		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — admin health checks must not inspect retired legacy projections.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'read' ) ) {
+			$s[ $table ] = false;
+			return false;
+		}
 		global $wpdb;
 		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
 		$present = wp_cache_get( $ck, 'bizcity_tbl' );
@@ -5974,24 +6487,19 @@ class BizCity_TwinWeb_REST {
 			return;
 		}
 
-		$sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-		if ( ! self::table_exists( $sessions_table ) ) {
-			// [2026-07-15 Johnny Chu] PHASE-TWINWEB U7-HOTFIX — on some old sites,
-			// sessions table may be empty/missing while message history still exists.
-			// Fallback to messages table to recover recent threads after F5.
-			$this->maybe_backfill_threads_from_messages( $identity, $threads_table );
-			return;
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — backfill TwinWeb threads from encrypted session state, never from webchat_sessions SQL.
+		$legacy_rows = array();
+		if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			foreach ( BizCity_WebChat_Session_State::instance()->list_for_user( $user_id, 'TWINWEB', 100, null, 'all' ) as $state ) {
+				$legacy_rows[] = array(
+					'session_id' => $state->session_id,
+					'title' => $state->title,
+					'last_message_preview' => $state->last_message_preview,
+					'last_message_at' => $state->last_message_at,
+					'started_at' => $state->started_at,
+				);
+			}
 		}
-
-		$legacy_rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT session_id, title, last_message_preview, last_message_at, started_at
-			 FROM {$sessions_table}
-			 WHERE user_id = %d AND platform_type = %s
-			 ORDER BY COALESCE(last_message_at, started_at) DESC
-			 LIMIT 100",
-			$user_id,
-			'TWINWEB'
-		), ARRAY_A );
 
 		if ( empty( $legacy_rows ) ) {
 			// [2026-07-15 Johnny Chu] PHASE-TWINWEB U7-HOTFIX — fallback to messages
@@ -6284,7 +6792,7 @@ class BizCity_TwinWeb_REST {
 					'workflow_id'  => (int) ( $wf['id'] ?? 0 ),
 					'node_count'   => $node_count,
 					'trigger_kind' => (string) ( $wf['trigger_type'] ?? 'manual' ),
-					'enabled'      => true,
+					'enabled'      => ! empty( $wf['enabled'] ),
 				);
 			}
 		}
@@ -7871,12 +8379,8 @@ class BizCity_TwinWeb_REST {
 			) );
 		}
 
-		// Load admin mode policy from option (Wave 1 allowlist)
-		$stored_modes = get_option( 'bizcity_twinweb_mode_policy_' . $blog_id, array() );
-		if ( ! is_array( $stored_modes ) || empty( $stored_modes ) ) {
-			// Default policy: all known modes enabled, notebooks is default
-			$stored_modes = $this->default_mode_policy();
-		}
+		// [2026-08-28 Johnny Chu] PHASE-1.32 — merge stored mode policy with canonical registry defaults so free modes stay usable after policy/schema drift.
+		$stored_modes = $this->get_mode_policy( $blog_id );
 
 		// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W2 — no mode is returned when access policy denies current identity.
 		$effective_modes = array();
@@ -8061,26 +8565,126 @@ class BizCity_TwinWeb_REST {
 	 * @return array
 	 */
 	private function default_mode_policy() {
+		// [2026-08-28 Johnny Chu] PHASE-1.32 — derive Twin GPT modes from the canonical Vertical Bridge registry.
 		$modes = array(
 			array( 'id' => 'notebooks', 'label' => 'Notebooks', 'enabled' => true, 'is_default' => true,  'guest_allowed' => true,  'min_plan' => 'free',  'order' => 10 ),
-			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — Deep Research is the default web tool beside Notebooks; Quick stays disabled as legacy fallback.
-			array( 'id' => 'deep',      'label' => 'Deep Research', 'enabled' => true, 'is_default' => false, 'guest_allowed' => true,  'min_plan' => 'free',  'order' => 20 ),
 			array( 'id' => 'chat',      'label' => 'Chat',       'enabled' => true, 'is_default' => false, 'guest_allowed' => true,  'min_plan' => 'free',  'order' => 30 ),
-			array( 'id' => 'astro',     'label' => 'Astro',      'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'free',  'order' => 40 ),
-			array( 'id' => 'quick',     'label' => 'Quick Web',  'enabled' => false,'is_default' => false, 'guest_allowed' => true,  'min_plan' => 'free',  'order' => 50 ),
-			array( 'id' => 'social',    'label' => 'Social',     'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'plus',  'order' => 60 ),
-			array( 'id' => 'products',  'label' => 'Super-MRO',  'enabled' => true, 'is_default' => false, 'guest_allowed' => true,  'min_plan' => 'free',  'order' => 70 ),
-			// [2026-08-14 Johnny Chu] PHASE-TWB-WOO-BIZOPS — admin-only vertical; capability is rechecked by the engine.
-			array( 'id' => 'woo_bizops', 'label' => 'Woo BizOps', 'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'free', 'order' => 75 ),
-			array( 'id' => 'company',   'label' => 'Company',    'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'plus',  'order' => 80 ),
-			array( 'id' => 'med',       'label' => 'Medical',    'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'plus',  'order' => 90 ),
-			array( 'id' => 'law',       'label' => 'Law',        'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'plus',  'order' => 100 ),
-			array( 'id' => 'tax',       'label' => 'Tax',        'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'plus',  'order' => 110 ),
-			array( 'id' => 'scholar',   'label' => 'Học thuật',  'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'plus',  'order' => 120 ),
-			array( 'id' => 'nutri',     'label' => 'Dinh dưỡng', 'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'plus',  'order' => 130 ),
-			array( 'id' => 'gov',       'label' => 'Chính sách / Tin nhà nước', 'enabled' => true, 'is_default' => false, 'guest_allowed' => false, 'min_plan' => 'plus', 'order' => 140 ),
 		);
+		if ( class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) ) {
+			$verticals = BizCity_TwinBrain_Vertical_Bridge_Registry::all();
+			foreach ( $verticals as $index => $vertical ) {
+				$modes[] = array(
+					'id'           => (string) $vertical['id'],
+					'label'        => (string) $vertical['label'],
+					'enabled'      => ! array_key_exists( 'default_enabled', $vertical ) || ! empty( $vertical['default_enabled'] ),
+					'is_default'   => false,
+					'guest_allowed'=> ! empty( $vertical['guest_allowed'] ),
+					'min_plan'     => (string) $vertical['min_plan'],
+					'order'        => 40 + ( (int) $index * 10 ),
+				);
+			}
+		}
 		return (array) apply_filters( 'bizcity_twinweb_default_mode_policy', $modes );
+	}
+
+	/**
+	 * Read effective mode policy for a blog by merging stored rows with
+	 * canonical defaults from the Vertical Bridge registry.
+	 *
+	 * @param int $blog_id Blog ID.
+	 * @return array
+	 */
+	private function get_mode_policy( $blog_id ) {
+		// [2026-08-28 Johnny Chu] PHASE-1.32 — keep all free mode packages usable and auto-backfill newly introduced canonical modes.
+		$defaults = $this->default_mode_policy();
+		$allowed  = array();
+		$plans    = array( 'free', 'plus', 'pro' );
+
+		foreach ( $defaults as $mode ) {
+			if ( ! is_array( $mode ) || empty( $mode['id'] ) ) {
+				continue;
+			}
+			$id = sanitize_key( (string) $mode['id'] );
+			if ( $id === '' ) {
+				continue;
+			}
+			$min_plan = sanitize_key( (string) ( $mode['min_plan'] ?? 'free' ) );
+			if ( ! in_array( $min_plan, $plans, true ) ) {
+				$min_plan = 'free';
+			}
+			$allowed[ $id ] = array(
+				'id'            => $id,
+				'label'         => isset( $mode['label'] ) ? sanitize_text_field( (string) $mode['label'] ) : $id,
+				'enabled'       => ! empty( $mode['enabled'] ),
+				'is_default'    => ! empty( $mode['is_default'] ),
+				'guest_allowed' => ! empty( $mode['guest_allowed'] ),
+				'min_plan'      => $min_plan,
+				'order'         => isset( $mode['order'] ) ? (int) $mode['order'] : 100,
+			);
+		}
+
+		$stored = get_option( 'bizcity_twinweb_mode_policy_' . (int) $blog_id, array() );
+		if ( is_array( $stored ) ) {
+			foreach ( $stored as $mode ) {
+				if ( ! is_array( $mode ) || empty( $mode['id'] ) ) {
+					continue;
+				}
+				$id = sanitize_key( (string) $mode['id'] );
+				if ( $id === '' || ! isset( $allowed[ $id ] ) ) {
+					continue;
+				}
+				$base     = $allowed[ $id ];
+				$min_plan = sanitize_key( (string) ( $mode['min_plan'] ?? $base['min_plan'] ) );
+				if ( ! in_array( $min_plan, $plans, true ) ) {
+					$min_plan = (string) $base['min_plan'];
+				}
+				$allowed[ $id ] = array(
+					'id'            => $id,
+					'label'         => isset( $mode['label'] ) ? sanitize_text_field( (string) $mode['label'] ) : (string) $base['label'],
+					'enabled'       => array_key_exists( 'enabled', $mode ) ? ! empty( $mode['enabled'] ) : ! empty( $base['enabled'] ),
+					'is_default'    => array_key_exists( 'is_default', $mode ) ? ! empty( $mode['is_default'] ) : ! empty( $base['is_default'] ),
+					'guest_allowed' => array_key_exists( 'guest_allowed', $mode ) ? ! empty( $mode['guest_allowed'] ) : ! empty( $base['guest_allowed'] ),
+					'min_plan'      => $min_plan,
+					'order'         => isset( $mode['order'] ) ? (int) $mode['order'] : (int) $base['order'],
+				);
+			}
+		}
+
+		$modes = array_values( $allowed );
+
+		// [2026-08-28 Johnny Chu] PHASE-1.32 — enforce free mode availability regardless of stale saved toggles.
+		foreach ( $modes as &$mode ) {
+			if ( ( $mode['min_plan'] ?? 'free' ) === 'free' ) {
+				$mode['enabled'] = true;
+			}
+		}
+		unset( $mode );
+
+		$default_count = 0;
+		foreach ( $modes as $mode ) {
+			if ( ! empty( $mode['is_default'] ) && ! empty( $mode['enabled'] ) ) {
+				$default_count++;
+			}
+		}
+
+		if ( $default_count !== 1 ) {
+			$default_set = false;
+			foreach ( $modes as &$mode ) {
+				if ( ! empty( $mode['enabled'] ) && ! $default_set ) {
+					$mode['is_default'] = true;
+					$default_set = true;
+				} else {
+					$mode['is_default'] = false;
+				}
+			}
+			unset( $mode );
+		}
+
+		usort( $modes, static function ( $a, $b ) {
+			return (int) ( $a['order'] ?? 100 ) - (int) ( $b['order'] ?? 100 );
+		} );
+
+		return $modes;
 	}
 
 	/**
@@ -8167,10 +8771,8 @@ class BizCity_TwinWeb_REST {
 	 */
 	public function admin_get_modes( WP_REST_Request $request ) {
 		$blog_id = (int) get_current_blog_id();
-		$policy  = get_option( 'bizcity_twinweb_mode_policy_' . $blog_id, array() );
-		if ( ! is_array( $policy ) || empty( $policy ) ) {
-			$policy = $this->default_mode_policy();
-		}
+		// [2026-08-28 Johnny Chu] PHASE-1.32 — admin mode editor reads the merged canonical policy so free-mode backfill is visible and editable.
+		$policy  = $this->get_mode_policy( $blog_id );
 		return rest_ensure_response( array(
 			'success' => true,
 			'blog_id' => $blog_id,
@@ -8187,8 +8789,20 @@ class BizCity_TwinWeb_REST {
 		$blog_id   = (int) get_current_blog_id();
 
 		// Validate each mode entry
-		$allowed_ids = array( 'notebooks','chat','astro','quick','deep','social','products','woo_bizops','company','med','law','tax','scholar','nutri','gov' );
+		// [2026-08-28 Johnny Chu] PHASE-1.32 — derive allowed mode ids from canonical default policy so plugin-extended modes are retained.
+		$allowed_ids = array();
+		foreach ( $this->default_mode_policy() as $mode ) {
+			if ( ! is_array( $mode ) || empty( $mode['id'] ) ) {
+				continue;
+			}
+			$allowed_ids[] = sanitize_key( (string) $mode['id'] );
+		}
+		$allowed_ids = array_values( array_unique( array_filter( $allowed_ids ) ) );
+		if ( empty( $allowed_ids ) ) {
+			$allowed_ids = array( 'notebooks','chat','astro','quick','deep','social','products','woo_bizops','company','med','law','tax','scholar','nutri','gov' );
+		}
 		$allowed_ids = (array) apply_filters( 'bizcity_twinweb_allowed_mode_ids', $allowed_ids );
+		$allowed_ids = array_values( array_unique( array_filter( array_map( 'sanitize_key', $allowed_ids ) ) ) );
 
 		$clean   = array();
 		$default_count = 0;
@@ -8349,10 +8963,8 @@ class BizCity_TwinWeb_REST {
 		$bindings = class_exists( 'BizCity_Channel_Binding' )
 			? BizCity_Channel_Binding::all()
 			: array();
-		$modes    = get_option( 'bizcity_twinweb_mode_policy_' . $blog_id, array() );
-		if ( ! is_array( $modes ) || empty( $modes ) ) {
-			$modes = $this->default_mode_policy();
-		}
+		// [2026-08-28 Johnny Chu] PHASE-1.32 — expose merged mode policy to Guru control plane so free-mode availability is consistent across tabs.
+		$modes    = $this->get_mode_policy( $blog_id );
 		$access   = $this->get_access_policy( $blog_id );
 		$grounding = $this->get_twinweb_grounding_policy( $blog_id );
 		$cp_ver   = (string) get_option( 'bizcity_twinweb_cp_ver_' . $blog_id, '1' );
@@ -10299,7 +10911,7 @@ class BizCity_TwinWeb_REST {
 	/**
 	 * GET /automation/runs/{run_id}/detail — owner-scoped run timeline.
 	 *
-	 * Returns run metadata + per-step timeline from bizcity_automation_logs.
+	 * Returns run metadata + per-step timeline from the automation repository read model.
 	 * Never exposes runs owned by other users.
 	 *
 	 * @param WP_REST_Request $request REST request.
@@ -10437,7 +11049,15 @@ class BizCity_TwinWeb_REST {
 			'timeout' => 0,
 		);
 
-		if ( self::table_exists( $log_table ) ) {
+		$log_rows = array();
+		if ( class_exists( 'BizCity_Automation_Repo_Runs' ) && method_exists( 'BizCity_Automation_Repo_Runs', 'logs' ) ) {
+			// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — timeline reads from repository model so detail endpoint keeps working when legacy SQL log writes are blocked.
+			$log_rows = BizCity_Automation_Repo_Runs::logs( $run_id );
+			if ( count( $log_rows ) > 300 ) {
+				$log_rows = array_slice( $log_rows, -300 );
+			}
+		} elseif ( self::table_exists( $log_table ) ) {
+			$degraded_reasons[] = 'automation_repo_logs_unavailable';
 			$log_rows = $wpdb->get_results( $wpdb->prepare(
 				"SELECT id, node_id, block_id, step, status, output_json, error, started_at, ended_at
 				 FROM {$log_table}
@@ -10446,56 +11066,63 @@ class BizCity_TwinWeb_REST {
 				 LIMIT 300",
 				$run_id
 			), ARRAY_A );
-
-			foreach ( (array) $log_rows as $log_row ) {
-				$node_id  = isset( $log_row['node_id'] ) ? (string) $log_row['node_id'] : '';
-				$block_id = isset( $log_row['block_id'] ) ? sanitize_key( (string) $log_row['block_id'] ) : '';
-				if ( $block_id === '' && isset( $node_meta[ $node_id ]['block_id'] ) ) {
-					$block_id = (string) $node_meta[ $node_id ]['block_id'];
-				}
-
-				$label = '';
-				if ( isset( $node_meta[ $node_id ]['label'] ) ) {
-					$label = (string) $node_meta[ $node_id ]['label'];
-				}
-				if ( $label === '' ) {
-					$label = $block_id !== '' ? $block_id : ( $node_id !== '' ? $node_id : 'Step' );
-				}
-
-				$log_status_code = isset( $log_row['status'] ) ? (int) $log_row['status'] : -1;
-				$log_status_meta = $this->automation_log_status_meta( $log_status_code );
-				if ( isset( $timeline_counts[ $log_status_meta['workflow_status'] ] ) ) {
-					$timeline_counts[ $log_status_meta['workflow_status'] ]++;
-				}
-
-				$started_at = isset( $log_row['started_at'] ) ? (string) $log_row['started_at'] : '';
-				$ended_at   = isset( $log_row['ended_at'] ) ? (string) $log_row['ended_at'] : '';
-				$duration_ms = null;
-				$started_ts = strtotime( $started_at );
-				$ended_ts   = strtotime( $ended_at );
-				if ( false !== $started_ts && false !== $ended_ts && $ended_ts > $started_ts ) {
-					$duration_ms = (int) ( ( $ended_ts - $started_ts ) * 1000 );
-				}
-
-				$timeline_steps[] = array(
-					'log_id'          => isset( $log_row['id'] ) ? (int) $log_row['id'] : 0,
-					'step'            => isset( $log_row['step'] ) ? (int) $log_row['step'] : 0,
-					'node_id'         => $node_id,
-					'block_id'        => $block_id,
-					'label'           => $label,
-					'status_code'     => $log_status_code,
-					'status'          => $log_status_meta['key'],
-					'status_label'    => $log_status_meta['label'],
-					'workflow_status' => $log_status_meta['workflow_status'],
-					'started_at'      => $started_at,
-					'ended_at'        => $ended_at,
-					'duration_ms'     => $duration_ms,
-					'output_summary'  => $this->automation_log_output_summary( isset( $log_row['output_json'] ) ? (string) $log_row['output_json'] : '' ),
-					'error'           => isset( $log_row['error'] ) ? sanitize_text_field( (string) $log_row['error'] ) : '',
-				);
-			}
 		} else {
 			$degraded_reasons[] = 'automation_log_table_missing';
+		}
+
+		foreach ( (array) $log_rows as $log_row ) {
+			$node_id  = isset( $log_row['node_id'] ) ? (string) $log_row['node_id'] : '';
+			$block_id = isset( $log_row['block_id'] ) ? sanitize_key( (string) $log_row['block_id'] ) : '';
+			if ( $block_id === '' && isset( $node_meta[ $node_id ]['block_id'] ) ) {
+				$block_id = (string) $node_meta[ $node_id ]['block_id'];
+			}
+
+			$label = '';
+			if ( isset( $node_meta[ $node_id ]['label'] ) ) {
+				$label = (string) $node_meta[ $node_id ]['label'];
+			}
+			if ( $label === '' ) {
+				$label = $block_id !== '' ? $block_id : ( $node_id !== '' ? $node_id : 'Step' );
+			}
+
+			$log_status_code = isset( $log_row['status'] ) ? (int) $log_row['status'] : -1;
+			$log_status_meta = $this->automation_log_status_meta( $log_status_code );
+			if ( isset( $timeline_counts[ $log_status_meta['workflow_status'] ] ) ) {
+				$timeline_counts[ $log_status_meta['workflow_status'] ]++;
+			}
+
+			$started_at = isset( $log_row['started_at'] ) ? (string) $log_row['started_at'] : '';
+			$ended_at   = isset( $log_row['ended_at'] ) ? (string) $log_row['ended_at'] : '';
+			$duration_ms = null;
+			$started_ts = strtotime( $started_at );
+			$ended_ts   = strtotime( $ended_at );
+			if ( false !== $started_ts && false !== $ended_ts && $ended_ts > $started_ts ) {
+				$duration_ms = (int) ( ( $ended_ts - $started_ts ) * 1000 );
+			}
+
+			$output_json = '';
+			if ( isset( $log_row['output_json'] ) ) {
+				$output_json = (string) $log_row['output_json'];
+			} elseif ( isset( $log_row['output'] ) && is_array( $log_row['output'] ) ) {
+				$output_json = wp_json_encode( $log_row['output'] );
+			}
+
+			$timeline_steps[] = array(
+				'log_id'          => isset( $log_row['id'] ) ? (int) $log_row['id'] : 0,
+				'step'            => isset( $log_row['step'] ) ? (int) $log_row['step'] : 0,
+				'node_id'         => $node_id,
+				'block_id'        => $block_id,
+				'label'           => $label,
+				'status_code'     => $log_status_code,
+				'status'          => $log_status_meta['key'],
+				'status_label'    => $log_status_meta['label'],
+				'workflow_status' => $log_status_meta['workflow_status'],
+				'started_at'      => $started_at,
+				'ended_at'        => $ended_at,
+				'duration_ms'     => $duration_ms,
+				'output_summary'  => $this->automation_log_output_summary( $output_json ),
+				'error'           => isset( $log_row['error'] ) ? sanitize_text_field( (string) $log_row['error'] ) : '',
+			);
 		}
 
 		return rest_ensure_response( array(

@@ -281,6 +281,9 @@ class BizCity_CRM_REST_Controller {
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_contact' ),
 			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'args'                => array(
+				'context_inbox_id' => array( 'type' => 'integer', 'default' => 0 ),
+			),
 		) );
 
 		// PHASE-0.35-GURU-SERVICES — Persona infrastructure endpoints.
@@ -803,6 +806,15 @@ class BizCity_CRM_REST_Controller {
 				'dry_run'  => array( 'type' => 'boolean', 'default' => true ),
 				'batch'    => array( 'type' => 'integer', 'default' => 500 ),
 				'max_rows' => array( 'type' => 'integer', 'default' => 0 ),
+			),
+		) );
+		register_rest_route( $ns, '/admin/reconcile-conversations', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_reconcile_conversations' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+			'args'                => array(
+				'dry_run' => array( 'type' => 'boolean', 'default' => true ),
+				'limit'   => array( 'type' => 'integer', 'default' => 100, 'minimum' => 1, 'maximum' => 100 ),
 			),
 		) );
 		register_rest_route( $ns, '/csat/(?P<id>\d+)', array(
@@ -2653,6 +2665,8 @@ class BizCity_CRM_REST_Controller {
 
 	/** M7.W1 — return full setup_form_schema for one channel code. */
 	public static function get_channel_detail( WP_REST_Request $req ) {
+		$blocked = self::channel_setup_error( (string) $req['code'] );
+		if ( $blocked ) { return $blocked; }
 		return self::wrap( static function () use ( $req ) {
 			$code = (string) $req['code'];
 			$a = BizCity_CRM_Channel_Registry::get( $code );
@@ -2672,6 +2686,8 @@ class BizCity_CRM_REST_Controller {
 
 	/** M7.W1 — verify wizard form submission against the channel API. */
 	public static function post_channel_verify( WP_REST_Request $req ) {
+		$blocked = self::channel_setup_error( (string) $req['code'] );
+		if ( $blocked ) { return $blocked; }
 		return self::wrap( static function () use ( $req ) {
 			$code   = (string) $req['code'];
 			$config = $req->get_param( 'config' );
@@ -2690,6 +2706,8 @@ class BizCity_CRM_REST_Controller {
 
 	/** M7.W1 — create inbox row from wizard. Re-runs verify for safety. */
 	public static function post_inbox_create( WP_REST_Request $req ) {
+		$blocked = self::channel_setup_error( (string) $req->get_param( 'channel_type' ) );
+		if ( $blocked ) { return $blocked; }
 		return self::wrap( static function () use ( $req ) {
 			$code   = (string) $req->get_param( 'channel_type' );
 			$config = $req->get_param( 'config' );
@@ -2941,6 +2959,8 @@ class BizCity_CRM_REST_Controller {
 
 	/** POST /webhooks/telegram — inbound update. */
 	public static function webhook_telegram_receive( WP_REST_Request $req ) {
+		$blocked = self::channel_setup_error( 'telegram' );
+		if ( $blocked ) { return $blocked; }
 		$payload = $req->get_json_params();
 		if ( ! is_array( $payload ) ) {
 			return new WP_Error( 'bad_request', 'expected JSON body', array( 'status' => 400 ) );
@@ -2948,6 +2968,13 @@ class BizCity_CRM_REST_Controller {
 		$adapter = BizCity_CRM_Channel_Registry::get( 'telegram' );
 		if ( ! $adapter ) {
 			return new WP_Error( 'not_ready', 'adapter not registered', array( 'status' => 503 ) );
+		}
+		$telegram_contract = class_exists( 'BizCity_CRM_Channel_Contract' )
+			? BizCity_CRM_Channel_Contract::require_crm_enabled( 'telegram' )
+			: new WP_Error( 'channel_contract_not_loaded', 'CRM channel contract chưa sẵn sàng.', array( 'status' => 503 ) );
+		if ( is_wp_error( $telegram_contract ) ) {
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - do not acknowledge a Telegram webhook that CRM is intentionally not storing.
+			return new WP_Error( 'channel_zone_not_crm', 'Telegram chưa được bật cho CRM Inbox.', array( 'status' => 400, 'reason' => 'crm_disabled', 'channel' => 'telegram' ) );
 		}
 		// Auth: optional X-Telegram-Bot-Api-Secret-Token header per inbox.
 		$header_secret = (string) $req->get_header( 'x_telegram_bot_api_secret_token' );
@@ -6112,6 +6139,9 @@ class BizCity_CRM_REST_Controller {
 	private static function wrap( callable $fn ) {
 		try {
 			$data = $fn();
+			if ( $data instanceof WP_REST_Response ) {
+				return $data;
+			}
 			return new WP_REST_Response( array(
 				'ok'   => true,
 				'data' => $data,
@@ -6127,6 +6157,36 @@ class BizCity_CRM_REST_Controller {
 				'ts'    => (int) round( microtime( true ) * 1000 ),
 			), 500 );
 		}
+	}
+
+	/** Return a catalogued REST error when a channel has no CRM runtime owner. */
+	private static function channel_setup_error( string $code ) {
+		if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
+			return null;
+		}
+		$descriptor = BizCity_CRM_Channel_Contract::describe( $code );
+		if ( ! empty( $descriptor['crm_enabled'] ) ) {
+			return null;
+		}
+		// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-REST-UX — fail closed before wizard/webhook work and expose the standard help envelope.
+		$label = $code === 'telegram' ? 'Telegram' : 'Channel này';
+		$payload = class_exists( 'BizCity_Error_Payload' )
+			? BizCity_Error_Payload::make(
+				'channel_not_configured',
+				$label . ' chưa được bật cho CRM Inbox.',
+				'Chọn channel có adapter CRM hoặc triển khai adapter trước khi tiếp tục.',
+				'channel_setup',
+				array( 'channel' => sanitize_key( $code ), 'reason' => 'crm_disabled' )
+			)
+			: array(
+				'success' => false,
+				'_degraded' => true,
+				'code' => 'channel_not_configured',
+				'message' => $label . ' chưa được bật cho CRM Inbox.',
+				'hint' => 'Chọn channel có adapter CRM hoặc triển khai adapter trước khi tiếp tục.',
+				'help_code' => 'channel_setup',
+			);
+		return new WP_REST_Response( $payload, 400 );
 	}
 
 	/* ------- write handlers (PHASE 0.34 FE-M4/M5) ------- */
@@ -6186,10 +6246,19 @@ class BizCity_CRM_REST_Controller {
 
 			$conv = BizCity_CRM_Repository::get_conversation( $conv_id );
 			if ( ! $conv ) { throw new \RuntimeException( 'conversation_not_found' ); }
+			$inbox_row = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
+			$channel_descriptor = class_exists( 'BizCity_CRM_Channel_Contract' )
+				? BizCity_CRM_Channel_Contract::require_crm_enabled( (string) ( $inbox_row['channel_type'] ?? '' ) )
+				: new WP_Error( 'channel_contract_not_loaded', 'CRM channel contract chưa sẵn sàng.', array( 'status' => 503 ) );
+			if ( is_wp_error( $channel_descriptor ) ) {
+				// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - refuse provider dispatch before any CRM insert or external side effect.
+				$disabled_response = self::channel_setup_error( (string) ( $inbox_row['channel_type'] ?? '' ) );
+				if ( $disabled_response ) { return $disabled_response; }
+				throw new \RuntimeException( $channel_descriptor->get_error_code() );
+			}
 
 			// [2026-08-04 Johnny Chu] PHASE-0.48-ATTACHMENT-POLICY — reject unsupported media before message insert/adapter dispatch.
 			if ( $attachments ) {
-				$inbox_row = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
 				$channel_type = $inbox_row ? strtolower( (string) $inbox_row['channel_type'] ) : '';
 				$attachment = $attachments[0];
 				$mime = strtolower( (string) ( $attachment['meta']['mime'] ?? '' ) );
@@ -6242,7 +6311,6 @@ class BizCity_CRM_REST_Controller {
 			// Prefer the CRM channel adapter when one is registered for this inbox's channel
 			// (`facebook`, `zalo`, …). The CRM adapter knows per-page/per-OA tokens, branches
 			// for comment-replies, and never falls through Channel Gateway's UNKNOWN bucket.
-			$inbox_row     = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
 			$adapter_code  = $inbox_row ? (string) $inbox_row['channel_type'] : '';
 			$crm_adapter   = $adapter_code ? BizCity_CRM_Channel_Registry::get( $adapter_code ) : null;
 			if ( $crm_adapter ) {
@@ -6657,10 +6725,20 @@ class BizCity_CRM_REST_Controller {
 			$id = (int) $req['id'];
 			$contact = BizCity_CRM_Repository::get_contact( $id );
 			if ( ! $contact ) { throw new \RuntimeException( 'contact_not_found' ); }
+			$context_inbox_id = (int) $req->get_param( 'context_inbox_id' );
+			$context_inbox = $context_inbox_id > 0 ? BizCity_CRM_Repository::get_inbox( $context_inbox_id ) : null;
+			$is_operations_context = is_array( $context_inbox ) && 'zalo_bot' === strtolower( (string) ( $context_inbox['channel_type'] ?? '' ) );
+			if ( $is_operations_context ) {
+				// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - redact Customer Care PII and Guru projection in Bot Operations context.
+				$contact['email'] = null;
+				$contact['phone'] = null;
+				$contact['wp_user_id'] = null;
+				$contact['additional_attributes'] = null;
+			}
 
 			$inboxes = BizCity_CRM_Repository::list_inboxes_for_contact( $id );
 			$convs   = BizCity_CRM_Repository::list_conversations_for_contact( $id, 10 );
-			$gurus   = BizCity_CRM_Repository::list_gurus_for_contact( $id );
+			$gurus   = $is_operations_context ? array() : BizCity_CRM_Repository::list_gurus_for_contact( $id );
 
 			return array(
 				'contact'       => self::shape_contact( $contact ),
@@ -8180,6 +8258,26 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	/** R-CRM-LEGACY-PREVIEW — preview only; reconciliation mutation is a separate gated phase. */
+	public static function post_reconcile_conversations( WP_REST_Request $req ) {
+		$dry_run = $req->get_param( 'dry_run' );
+		if ( false === $dry_run || '0' === (string) $dry_run ) {
+			$payload = class_exists( 'BizCity_Error_Payload' )
+				? BizCity_Error_Payload::make( 'invalid_param', 'Chức năng này hiện chỉ hỗ trợ xem trước.', 'Giữ dry_run=true và kiểm tra báo cáo trước khi yêu cầu reconcile.', 'invalid_param_generic' )
+				: array( 'success' => false, '_degraded' => true, 'code' => 'invalid_param', 'message' => 'Chức năng này hiện chỉ hỗ trợ xem trước.', 'hint' => 'Giữ dry_run=true và kiểm tra báo cáo trước khi yêu cầu reconcile.', 'help_code' => 'invalid_param_generic' );
+			return new WP_REST_Response( $payload, 400 );
+		}
+		return self::wrap( static function () use ( $req ) {
+			if ( ! class_exists( 'BizCity_CRM_Conversation_Reconciliation_Preview' ) ) {
+				return new WP_Error( 'module_not_loaded', 'Bộ xem trước reconcile chưa được load.', array( 'status' => 503 ) );
+			}
+			return BizCity_CRM_Conversation_Reconciliation_Preview::preview( array(
+				'blog_id' => (int) get_current_blog_id(),
+				'limit' => max( 1, min( 100, (int) ( $req->get_param( 'limit' ) ?: 100 ) ) ),
+			) );
+		} );
+	}
+
 	public static function post_csat( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			$cid   = (int) $req->get_param( 'id' );
@@ -8340,7 +8438,7 @@ class BizCity_CRM_REST_Controller {
 	}
 
 	/**
-	 * GET /reports/ai — AI usage summary from bizcity_llm_usage.
+	 * GET /reports/ai — AI usage summary from the canonical client usage JSONL ledger.
 	 * Returns: {total_tokens, total_calls, by_service[], by_day[]}.
 	 */
 	public static function get_reports_ai( WP_REST_Request $req ) {
@@ -8349,18 +8447,27 @@ class BizCity_CRM_REST_Controller {
 			// [2026-06-07 Johnny Chu] PHASE-0.40 fix OWASP A03
 			$from = self::safe_date( $req->get_param( 'from' ), date( 'Y-m-d', strtotime( "-{$days} days" ) ) );
 			$to   = self::safe_date( $req->get_param( 'to' ),   date( 'Y-m-d' ) );
-			global $wpdb;
-			$usage_tbl = $wpdb->prefix . 'bizcity_llm_usage';
-			if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $usage_tbl ) ) !== $usage_tbl ) {
+			if ( ! class_exists( 'BizCity_LLM_Usage_File_Log' ) ) {
 				return array( 'total_tokens' => 0, 'total_calls' => 0, '_degraded' => true );
 			}
-			$total_calls  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$usage_tbl}` WHERE DATE(created_at) BETWEEN '{$from}' AND '{$to}'" );
-			$total_tokens = (int) $wpdb->get_var( "SELECT COALESCE(SUM(tokens_prompt + tokens_completion), 0) FROM `{$usage_tbl}` WHERE DATE(created_at) BETWEEN '{$from}' AND '{$to}'" );
-			$by_service   = $wpdb->get_results( "SELECT service, COUNT(*) AS calls, SUM(tokens_prompt+tokens_completion) AS tokens FROM `{$usage_tbl}` WHERE DATE(created_at) BETWEEN '{$from}' AND '{$to}' GROUP BY service ORDER BY calls DESC", ARRAY_A );
-			$by_day       = $wpdb->get_results( "SELECT DATE(created_at) AS day, COUNT(*) AS calls FROM `{$usage_tbl}` WHERE DATE(created_at) BETWEEN '{$from}' AND '{$to}' GROUP BY day ORDER BY day ASC", ARRAY_A );
+			$period = $days >= 365 ? 'all' : ( $days >= 90 ? '90d' : ( $days >= 30 ? '30d' : '7d' ) );
+			$filters = array( 'blog_id' => (int) get_current_blog_id(), 'date_from' => $from, 'date_to' => $to );
+			$stats = BizCity_LLM_Usage_File_Log::get_stats( $period, $filters );
+			$service_stats = BizCity_LLM_Usage_File_Log::get_stats_by_service( $period, $filters );
+			$by_service = array();
+			foreach ( (array) $service_stats as $service_row ) {
+				if ( (int) ( $service_row['total_calls'] ?? 0 ) <= 0 ) { continue; }
+				$by_service[] = array(
+					'service' => (string) ( $service_row['service'] ?? '' ),
+					'calls'   => (int) ( $service_row['total_calls'] ?? 0 ),
+					'tokens'  => (int) ( $service_row['total_tokens'] ?? 0 ),
+				);
+			}
+			$by_day = BizCity_LLM_Usage_File_Log::get_daily_history( $period, $filters );
 			return array(
-				'total_tokens' => $total_tokens,
-				'total_calls'  => $total_calls,
+				// [2026-09-01 Johnny Chu] R-LLM-USAGE-FILESTORE — CRM report totals come from the canonical usage filestore.
+				'total_tokens' => (int) ( $stats['total_tokens'] ?? 0 ),
+				'total_calls'  => (int) ( $stats['total_calls'] ?? 0 ),
 				'by_service'   => $by_service ?: array(),
 				'by_day'       => $by_day ?: array(),
 			);

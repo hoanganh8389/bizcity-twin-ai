@@ -72,34 +72,17 @@ class BizCoach_Pro_Usage_Report {
 	 * @return array { prompt, completion, total }
 	 */
 	private static function token_totals_today( $uid ) {
-		global $wpdb;
-		// [2026-07-14 Johnny Chu] R-LLM-USAGE — prefer per-blog bizcity_llm_usage_clients.
-		$table = self::resolve_llm_usage_table();
-		if ( $table === '' ) {
-			return array(
-				'prompt'     => 0,
-				'completion' => 0,
-				'total'      => 0,
-				'calls'      => 0,
-			);
-		}
-		$today = gmdate( 'Y-m-d' );
-		$row   = $wpdb->get_row( $wpdb->prepare(
-			"SELECT
-				COALESCE(SUM(tokens_prompt),0)     AS prompt,
-				COALESCE(SUM(tokens_completion),0) AS completion,
-				COUNT(*)                           AS calls
-			 FROM {$table}
-			 WHERE user_id = %d AND DATE(created_at) = %s",
-			$uid, $today
-		), ARRAY_A );
-		$prompt     = isset( $row['prompt'] )     ? (int) $row['prompt']     : 0;
-		$completion = isset( $row['completion'] ) ? (int) $row['completion'] : 0;
+		// [2026-09-01 Johnny Chu] R-LLM-USAGE-FILESTORE — read today's client usage from the canonical JSONL ledger.
+		$stats = class_exists( 'BizCity_LLM_Usage_File_Log' )
+			? BizCity_LLM_Usage_File_Log::get_stats( 'today', array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $uid ) )
+			: array();
+		$prompt     = (int) ( $stats['total_prompt_tokens'] ?? 0 );
+		$completion = (int) ( $stats['total_completion_tokens'] ?? 0 );
 		return array(
 			'prompt'     => $prompt,
 			'completion' => $completion,
 			'total'      => $prompt + $completion,
-			'calls'      => isset( $row['calls'] ) ? (int) $row['calls'] : 0,
+			'calls'      => (int) ( $stats['total_calls'] ?? 0 ),
 		);
 	}
 
@@ -127,33 +110,21 @@ class BizCoach_Pro_Usage_Report {
 	 * @return array  service => { calls, tokens }
 	 */
 	private static function service_breakdown_today( $uid ) {
-		global $wpdb;
-		// [2026-07-14 Johnny Chu] R-LLM-USAGE — use client table; fallback legacy if present.
-		$table    = self::resolve_llm_usage_table();
-		$today    = gmdate( 'Y-m-d' );
+		// [2026-09-01 Johnny Chu] R-LLM-USAGE-FILESTORE — aggregate today's service usage from bounded JSONL rows.
 		$services = array( 'llm', 'embedding', 'search', 'video', 'image', 'astro', 'market', 'tools' );
 		$out      = array();
 		foreach ( $services as $svc ) {
 			$out[ $svc ] = array( 'calls' => 0, 'tokens' => 0 );
 		}
-		if ( $table === '' ) {
-			return $out;
-		}
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT service,
-				COUNT(*) AS calls,
-				COALESCE(SUM(tokens_prompt + tokens_completion),0) AS tokens
-			 FROM {$table}
-			 WHERE user_id = %d AND DATE(created_at) = %s
-			 GROUP BY service",
-			$uid, $today
-		), ARRAY_A );
-		if ( is_array( $rows ) ) {
-			foreach ( $rows as $r ) {
-				$svc = (string) $r['service'];
+		$rows = class_exists( 'BizCity_LLM_Usage_File_Log' )
+			? BizCity_LLM_Usage_File_Log::get_stats_by_service( 'today', array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $uid ) )
+			: array();
+		foreach ( (array) $rows as $r ) {
+			$svc = (string) ( $r['service'] ?? '' );
+			if ( isset( $out[ $svc ] ) ) {
 				$out[ $svc ] = array(
-					'calls'  => (int) $r['calls'],
-					'tokens' => (int) $r['tokens'],
+					'calls'  => (int) ( $r['total_calls'] ?? 0 ),
+					'tokens' => (int) ( $r['total_tokens'] ?? 0 ),
 				);
 			}
 		}
@@ -169,24 +140,13 @@ class BizCoach_Pro_Usage_Report {
 	 */
 	private static function daily_history( $uid, $days ) {
 		global $wpdb;
-		// [2026-07-14 Johnny Chu] R-LLM-USAGE — use client table; fallback legacy if present.
-		$llm_table = self::resolve_llm_usage_table();
 		$kg_table  = $wpdb->prefix . 'bizcity_kg_usage_log';
 
 		// LLM daily
-		$llm_rows = array();
-		if ( $llm_table !== '' ) {
-			$llm_rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT DATE(created_at) AS dt,
-					COUNT(*) AS calls,
-					COALESCE(SUM(tokens_prompt + tokens_completion),0) AS tokens
-				 FROM {$llm_table}
-				 WHERE user_id = %d AND created_at >= DATE_SUB(CURDATE(), INTERVAL %d DAY)
-				 GROUP BY dt
-				 ORDER BY dt ASC",
-				$uid, $days
-			), ARRAY_A );
-		}
+		$period = $days >= 90 ? '90d' : ( $days >= 30 ? '30d' : '7d' );
+		$llm_rows = class_exists( 'BizCity_LLM_Usage_File_Log' )
+			? BizCity_LLM_Usage_File_Log::get_daily_history( $period, array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $uid ) )
+			: array();
 
 		// KG daily cost
 		$kg_rows = array();
@@ -205,11 +165,11 @@ class BizCoach_Pro_Usage_Report {
 		$by_date = array();
 		if ( is_array( $llm_rows ) ) {
 			foreach ( $llm_rows as $r ) {
-				$dt = (string) $r['dt'];
+				$dt = (string) ( $r['date'] ?? '' );
 				$by_date[ $dt ] = array(
 					'date'     => $dt,
-					'calls'    => (int) $r['calls'],
-					'tokens'   => (int) $r['tokens'],
+					'calls'    => (int) ( $r['calls'] ?? 0 ),
+					'tokens'   => (int) ( $r['tokens'] ?? 0 ),
 					'cost_usd' => 0.0,
 				);
 			}
@@ -260,25 +220,6 @@ class BizCoach_Pro_Usage_Report {
 			case '90d': return 90;
 			default:    return 30;
 		}
-	}
-
-	/**
-	 * [2026-07-14 Johnny Chu] R-LLM-USAGE — resolve canonical client usage table,
-	 * fallback to legacy table for backward compatibility.
-	 */
-	private static function resolve_llm_usage_table() {
-		global $wpdb;
-		$client = $wpdb->prefix . 'bizcity_llm_usage_clients';
-		if ( self::table_exists( $client ) ) {
-			return $client;
-		}
-
-		$legacy = $wpdb->prefix . 'bizcity_llm_usage';
-		if ( self::table_exists( $legacy ) ) {
-			return $legacy;
-		}
-
-		return '';
 	}
 
 	/**

@@ -3,15 +3,14 @@
  * BizCity Diagnostics — core.memory.unified.dual-write-parity probe
  * (Wave 2.8d TBR.MEM-D5e).
  *
- * Verifies dual-write contract: when feature flag `bizcity_memory_unified_enabled`
- * is enabled, legacy writers MUST mirror rows into unified `bizcity_memory` table.
+ * Verifies the migration contract: a filestore-backed memory write emits a
+ * pointer reference and never materializes a payload in unified SQL memory.
  *
  * Strategy
- *   1. Force-enable flag for this request via filter hook (priority 9999).
- *   2. Ensure unified table exists (run installer maybe_install()).
- *   3. Drive a sentinel row through BizCity_User_Memory::upsert_public().
- *   4. SELECT from `bizcity_memory` WHERE memory_class='user' + sentinel text.
- *   5. Cleanup both legacy + unified rows; release flag.
+ *   1. Capture the Context Bank reference event for this request.
+ *   2. Drive a sentinel row through BizCity_User_Memory::upsert_public().
+ *   3. Verify the event contains a filestore receipt and record pointer.
+ *   4. Cleanup the filestore record.
  *
  * @package    Bizcity_Twin_AI
  * @subpackage Core\Diagnostics\Probes
@@ -35,7 +34,7 @@ final class BizCity_Probe_Memory_Unified_Dual_Write implements BizCity_Diagnosti
 	public function id(): string          { return 'core.memory.unified.dual-write-parity'; }
 	public function label(): string       { return 'Unified Memory — dual-write parity'; }
 	public function description(): string {
-		return 'Wave 2.8d: bật flag `bizcity_memory_unified_enabled` tạm thời → drive sentinel qua BizCity_User_Memory::upsert_public() → verify mirror row xuất hiện trong `bizcity_memory` (memory_class=user). Cleanup tự động.';
+		return 'Context Bank migration: drive a sentinel through BizCity_User_Memory::upsert_public() → verify a filestore receipt reference event and no SQL payload mirror. Cleanup tự động.';
 	}
 	public function severity(): string { return 'major'; }
 	public function order(): int       { return 68; }
@@ -43,11 +42,11 @@ final class BizCity_Probe_Memory_Unified_Dual_Write implements BizCity_Diagnosti
 	public function estimate_ms(): int { return 500; }
 
 	public function precondition() {
-		if ( ! class_exists( 'BizCity_Memory_Unified_Installer' ) ) {
-			return 'BizCity_Memory_Unified_Installer chưa load — core/memory bootstrap không hoàn tất.';
-		}
 		if ( ! class_exists( 'BizCity_Memory_Unified_Writer' ) ) {
 			return 'BizCity_Memory_Unified_Writer chưa load.';
+		}
+		if ( ! class_exists( 'BizCity_File_Contract_Registry' ) || ! class_exists( 'BizCity_Business_JSONL_File_Store' ) ) {
+			return 'Business filestore contract chưa load.';
 		}
 		if ( ! class_exists( 'BizCity_User_Memory' ) ) {
 			return 'BizCity_User_Memory chưa load.';
@@ -64,42 +63,18 @@ final class BizCity_Probe_Memory_Unified_Dual_Write implements BizCity_Diagnosti
 		// Step 0 — pre-cleanup.
 		$this->cleanup();
 
-		// Step 1 — force-enable feature flag during this probe only.
-		$flag_cb = static function () { return true; };
-		add_filter( 'bizcity_memory_unified_enabled', $flag_cb, 9999 );
+		$reference = null;
+		$reference_cb = static function ( $payload ) use ( &$reference ) {
+			$reference = is_array( $payload ) ? $payload : null;
+		};
+		add_action( 'bizcity_context_bank_reference_write', $reference_cb, 9999, 1 );
 
 		try {
 			// [2026-07-28 Johnny Chu] R-CH-IDMEM — plant the dual-write sentinel under the verified UUID owner.
 			$memory_scope = class_exists( 'BizCity_Memory_Identity_Scope' )
 				? BizCity_Memory_Identity_Scope::for_write( array( 'user_id' => $user_id, 'session_id' => 'probe-unified-parity' ) )
 				: null;
-			// Step 2 — ensure unified table exists.
-			$installer = BizCity_Memory_Unified_Installer::instance();
-			$installer->maybe_install();
-
-			global $wpdb;
-			$unified_table = $installer->table();
-			// [2026-07-28 Johnny Chu] R-SHOW-TABLES — use the canonical cached information_schema helper for tenant table existence.
-			$exists = function_exists( 'bizcity_tbl_exists' )
-				? bizcity_tbl_exists( $unified_table )
-				: (bool) $wpdb->get_var( $wpdb->prepare(
-					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-					$unified_table
-				) );
-			$ctx->emit_step( [
-				'label'  => 'Unified table provisioned',
-				'status' => $exists ? 'pass' : 'fail',
-				'detail' => $unified_table,
-			] );
-			if ( ! $exists ) {
-				return [
-					'status'   => 'fail',
-					'error'    => 'Unified table ' . $unified_table . ' không tồn tại sau maybe_install().',
-					'fix_hint' => 'Kiểm tra BizCity_Memory_Unified_Installer::install() — dbDelta có lỗi không? Check `wp_options` key `bizcity_memory_unified_db_ver`.',
-				];
-			}
-
-			// Step 3 — drive sentinel row through legacy writer.
+			// Step 2 — drive sentinel row through the filestore-backed owner.
 			$blog_id = get_current_blog_id();
 			$result  = BizCity_User_Memory::instance()->upsert_public( [
 				'user_id'        => $user_id,
@@ -134,60 +109,72 @@ final class BizCity_Probe_Memory_Unified_Dual_Write implements BizCity_Diagnosti
 				];
 			}
 
-			// Step 4 — verify mirror row in unified table.
-			$mirror_row = $wpdb->get_row( $wpdb->prepare(
-				"SELECT id, memory_class, memory_tier, memory_text FROM {$unified_table}
-				 WHERE blog_id = %d AND user_id = %d AND memory_class = %s AND memory_text LIKE %s
-				 ORDER BY id DESC LIMIT 1",
-				$blog_id, $user_id, 'user', '%' . $wpdb->esc_like( self::SENTINEL ) . '%'
-			) );
+			// Step 3 — verify only a pointer reference crossed the compatibility hook.
 			$ctx->emit_step( [
-				'label'  => 'Mirror row visible (memory_class=user)',
-				'status' => $mirror_row ? 'pass' : 'fail',
-				'detail' => $mirror_row ? ( '#' . $mirror_row->id . ' · tier=' . $mirror_row->memory_tier ) : 'not found',
+				'label'  => 'Context Bank filestore reference emitted',
+				'status' => ! empty( $reference['record_id'] ) && ! empty( $reference['receipt'] ) ? 'pass' : 'fail',
+				'detail' => ! empty( $reference['record_id'] ) ? (string) $reference['record_id'] : 'not found',
 			] );
-			if ( ! $mirror_row ) {
+			if ( empty( $reference['record_id'] ) || empty( $reference['receipt'] ) ) {
 				return [
 					'status'   => 'fail',
-					'error'    => 'Mirror row không xuất hiện trong ' . $unified_table . '.',
-					'fix_hint' => 'Verify (a) flag filter trả TRUE; (b) BizCity_Memory_Unified_Writer được register vào hook bizcity_memory_mirror_write; (c) BizCity_User_Memory::upsert() phát do_action sau insert.',
+					'error'    => 'Context Bank reference event không có record_id/receipt.',
+					'fix_hint' => 'Verify BizCity_User_Memory::upsert_public() phát filestore receipt qua bizcity_memory_mirror_write và bridge Context Bank đã load.',
 				];
+			}
+			$ledger_rows = class_exists( 'BizCity_Context_Bank_Ledger' )
+				? BizCity_Context_Bank_Ledger::instance()->find( array(
+					'record_id'           => (string) $reference['record_id'],
+					'source_contract_id'  => 'core.knowledge.user_memory',
+					'record_kind'         => 'memory',
+					'blog_id'             => $blog_id,
+					'limit'               => 2,
+				) )
+				: array();
+			$ledger_admitted = ! empty( $ledger_rows[0] )
+				&& (string) ( $ledger_rows[0]['record_id'] ?? '' ) === (string) $reference['record_id']
+				&& (string) ( $ledger_rows[0]['record_kind'] ?? '' ) === 'memory';
+			$ctx->emit_step( array(
+				'label'  => 'Context Bank ledger admission',
+				'status' => $ledger_admitted ? 'pass' : 'fail',
+				'detail' => $ledger_admitted ? 'Pointer admitted with record_kind=memory.' : 'Receipt event emitted but no matching tenant ledger pointer was found.',
+			) );
+			if ( ! $ledger_admitted ) {
+				return array(
+					'status'   => 'fail',
+					'error'    => 'Context Bank ledger admission failed for the filestore receipt.',
+					'fix_hint' => 'Provision bizcity_context_bank on the routed tenant shard and inspect the admission reason bucket.',
+				);
 			}
 
 			return [
 				'status'  => 'pass',
-				'summary' => sprintf( 'Dual-write OK — mirror row #%d (memory_class=user, tier=%s)', $mirror_row->id, $mirror_row->memory_tier ),
+				'summary' => 'Context Bank reference OK — filestore receipt emitted; no SQL payload mirror.',
 			];
 		} catch ( \Throwable $e ) {
 			return [ 'status' => 'fail', 'error' => 'Exception: ' . $e->getMessage() ];
 		} finally {
-			remove_filter( 'bizcity_memory_unified_enabled', $flag_cb, 9999 );
+			remove_action( 'bizcity_context_bank_reference_write', $reference_cb, 9999 );
 		}
 	}
 
 	public function cleanup(): void {
-		global $wpdb;
-
-		$legacy = $wpdb->prefix . 'bizcity_memory_users';
-		$wpdb->query( $wpdb->prepare(
-			"DELETE FROM {$legacy} WHERE memory_text LIKE %s",
-			'%' . $wpdb->esc_like( self::SENTINEL ) . '%'
+		if ( ! class_exists( 'BizCity_Business_JSONL_File_Store' ) || ! class_exists( 'BizCity_User_Memory' ) ) {
+			return;
+		}
+		$rows = BizCity_Business_JSONL_File_Store::query( BizCity_User_Memory::BUSINESS_CONTRACT_ID, array(
+			'blog_id' => get_current_blog_id(),
+			'user_id' => get_current_user_id(),
+			'limit'   => 1000,
+			'days'    => 365,
+			'filter'  => function ( $row ) {
+				return strpos( (string) ( $row['memory_text'] ?? '' ), self::SENTINEL ) !== false;
+			},
 		) );
-
-		if ( class_exists( 'BizCity_Memory_Unified_Installer' ) ) {
-			$unified = BizCity_Memory_Unified_Installer::instance()->table();
-			// Only attempt cleanup if table exists to avoid SQL noise.
-			$exists = function_exists( 'bizcity_tbl_exists' )
-				? bizcity_tbl_exists( $unified )
-				: (bool) $wpdb->get_var( $wpdb->prepare(
-					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-					$unified
-				) );
-			if ( $exists ) {
-				$wpdb->query( $wpdb->prepare(
-					"DELETE FROM {$unified} WHERE memory_text LIKE %s",
-					'%' . $wpdb->esc_like( self::SENTINEL ) . '%'
-				) );
+		foreach ( $rows as $row ) {
+			$record_id = (string) ( $row['record_id'] ?? '' );
+			if ( $record_id !== '' ) {
+				BizCity_Business_JSONL_File_Store::delete( BizCity_User_Memory::BUSINESS_CONTRACT_ID, $record_id, array( 'blog_id' => get_current_blog_id() ) );
 			}
 		}
 	}

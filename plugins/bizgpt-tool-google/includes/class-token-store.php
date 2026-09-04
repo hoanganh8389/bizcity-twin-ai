@@ -19,8 +19,8 @@ class BZGoogle_Token_Store {
         if ( empty( $plain ) ) return '';
         $key    = hash( 'sha256', self::encryption_key(), true );
         $iv     = openssl_random_pseudo_bytes( 16 );
-        $cipher = openssl_encrypt( $plain, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
-        return base64_encode( $iv . $cipher );
+        // [2026-08-20 Johnny Chu] CODEC-CORE — preserve Google token raw storage through shared primitive.
+        return BizCity_Codec::encrypt_raw_payload( $plain, $key, $iv );
     }
 
     /**
@@ -28,13 +28,9 @@ class BZGoogle_Token_Store {
      */
     public static function decrypt( $encrypted ) {
         if ( empty( $encrypted ) ) return '';
-        $data = base64_decode( $encrypted, true );
-        if ( $data === false || strlen( $data ) < 17 ) return '';
-        $key   = hash( 'sha256', self::encryption_key(), true );
-        $iv    = substr( $data, 0, 16 );
-        $cipher = substr( $data, 16 );
-        $plain = openssl_decrypt( $cipher, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
-        return $plain !== false ? $plain : '';
+        $key = hash( 'sha256', self::encryption_key(), true );
+        $plain = BizCity_Codec::decrypt_raw_payload( $encrypted, $key, 'aes-256-cbc' );
+        return $plain;
     }
 
     /* ── CRUD ──────────────────────────────────────────────── */

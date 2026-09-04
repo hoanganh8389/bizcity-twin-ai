@@ -246,7 +246,10 @@ class BizCity_Knowledge_Database {
             UNIQUE KEY unique_memory (blog_id, user_id, session_id, identity_uuid, memory_key)
         ) {$charset_collate};";
 
-        dbDelta($sql_memory);
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — user-memory payloads belong to encrypted filestore plus Context Bank; never recreate the retired SQL table.
+        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::install_blocked( $table_memory ) ) {
+            dbDelta($sql_memory);
+        }
 
         // Migration: Add new columns for version 1.0.2+
         // Always run this migration to ensure columns exist (force run)

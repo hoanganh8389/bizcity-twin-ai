@@ -69,17 +69,18 @@ if ( ! function_exists( 'bizcity_diagnostics_require_probe' ) ) {
 }
 if ( ! function_exists( 'bizcity_diagnostics_load_probes_once' ) ) {
 	function bizcity_diagnostics_load_probes_once(): void {
-		static $loaded = false;
-		if ( $loaded ) {
-			return;
-		}
-		$loaded = true;
+		// [2026-09-01 Johnny Chu] PHASE-0.45-DDV — track loaded artifacts individually so probes queued by a late bootstrap still enter the catalog.
+		static $loaded_files = array();
 
 		$queue = isset( $GLOBALS['bizcity_diagnostics_probe_queue'] )
 			? array_keys( (array) $GLOBALS['bizcity_diagnostics_probe_queue'] )
 			: array();
 		$retired_probe_files = array( 'class-probe-automation-runtime.php', 'class-probe-automation-runtime-impl.php' );
 		foreach ( $queue as $probe_file ) {
+			if ( isset( $loaded_files[ $probe_file ] ) ) {
+				continue;
+			}
+			$loaded_files[ $probe_file ] = true;
 			// [2026-08-17 Johnny Chu] R-DDV-PROBE-RETIRE — stale queue entries must not require retired class-bearing probe artifacts.
 			if ( in_array( $probe_file, $retired_probe_files, true ) ) {
 				continue;
@@ -96,8 +97,22 @@ if ( ! function_exists( 'bizcity_diagnostics_load_probes_once' ) ) {
 					continue;
 				}
 				BizCity_Safe_Loader::require_file( $probe_path, 'diagnostics.probe.' . basename( $probe_path, '.php' ) );
+				// [2026-09-01 Johnny Chu] PHASE-0.45-DDV — notify the memoized catalog when a late probe is loaded.
+				$GLOBALS['bizcity_diagnostics_probe_generation'] = (int) ( $GLOBALS['bizcity_diagnostics_probe_generation'] ?? 0 ) + 1;
 			}
 		}
+	}
+}
+if ( ! function_exists( 'bizcity_diagnostics_should_load_probes' ) ) {
+	function bizcity_diagnostics_should_load_probes(): bool {
+		// [2026-09-02 11:35 AM Johnny Chu - Chu Hoàng Anh] B2C-D11 — restore the missing probe-load gate for CLI, diagnostics REST and the diagnostics admin page.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return true;
+		}
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST && ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/bizcity-diagnostics/' ) ) {
+			return true;
+		}
+		return is_admin() && isset( $_GET['page'] ) && 'bizcity-diagnostics' === sanitize_key( (string) $_GET['page'] );
 	}
 }
 
@@ -111,13 +126,112 @@ BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-dia
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-notices.php', 'diagnostics.notices' );
 // [2026-08-25 Johnny Chu] PHASE-1.28-LOG-RETENTION — queue the shared retention probe with the diagnostics catalog.
 bizcity_diagnostics_require_probe( 'class-probe-log-retention.php' );
+// [2026-08-27 Johnny Chu] R-LOG-HYBRID — queue pointer-index Disk/Loader/Runtime evidence.
+bizcity_diagnostics_require_probe( 'class-probe-log-index.php' );
+// [2026-09-02 Johnny Chu] PHASE-1.30-G1 — verify deployed JSONL denial artifacts and canonical Explorer/account scope.
+bizcity_diagnostics_require_probe( 'class-probe-log-security-scope.php' );
+// [2026-09-02 Johnny Chu] PHASE-1.30-G2 — verify locked concurrent append, retry idempotency and pointer conflict refusal.
+bizcity_diagnostics_require_probe( 'class-probe-log-idempotency-concurrency.php' );
+// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-G3 — verify bounded reconcile, stale-pointer rebuild and retention failure safety.
+bizcity_diagnostics_require_probe( 'class-probe-log-reconcile-retention.php' );
+// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-G4 — verify two-blog pointer isolation and reversible index rollback.
+bizcity_diagnostics_require_probe( 'class-probe-log-multisite-rollback.php' );
+// [2026-08-29 Johnny Chu] R-METADATA-CACHE — verify one canonical table/schema metadata helper and DDL invalidation contract.
+bizcity_diagnostics_require_probe( 'class-probe-table-metadata.php' );
+// [2026-08-29 Johnny Chu] PHASE-1.30-DDV — queue the pre-SQL-retirement basic JSONL query/read/search and pointer-follow evidence.
+bizcity_diagnostics_require_probe( 'class-probe-jsonl-search-query-index-parity.php' );
+// [2026-08-29 Johnny Chu] PHASE-1.30-DDV — queue the mode-aware framework contract scoreboard for legacy replacement readiness.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-contract-scoreboard.php' );
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-rest.php', 'diagnostics.rest' );
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-orphan-cleaner.php', 'diagnostics.orphan_cleaner' );
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-site-provisioner.php', 'diagnostics.site_provisioner' );
 // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — verify retained core messages and blocked legacy projection writes.
 bizcity_diagnostics_require_probe( 'class-probe-webchat-sql-lifecycle.php' );
+// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — verify message-owned conversation/session parity before retirement.
+bizcity_diagnostics_require_probe( 'class-probe-webchat-conversation-message-unify.php' );
+// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-SPEC-FILESTORE — verify session working-brief filestore ownership and platform isolation.
+bizcity_diagnostics_require_probe( 'class-probe-webchat-session-memory-spec-filestore.php' );
+// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — verify complete session CRUD/state parity and no session-table SQL.
+bizcity_diagnostics_require_probe( 'class-probe-webchat-session-filestore.php' );
+// [2026-08-29 Johnny Chu] PHASE-1.30-DDV — focused parity evidence for legacy bizcity_webchat_tools replacement by canonical BizCity_Tool_Registry.
+bizcity_diagnostics_require_probe( 'class-probe-webchat-tool-registry-parity.php' );
 // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-SURFACE — verify moved extension shortcodes and REST surface without chat writes.
 bizcity_diagnostics_require_probe( 'class-probe-webchat-surface.php' );
+// [2026-08-26 Johnny Chu] PHASE-1.30-DDV — verify legacy-table install, SQL exit, approval and uninstall gates without destructive mutation.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-lifecycle.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — verify every Group A/B installer is blocked before CREATE TABLE or dbDelta.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-install-prevention.php' );
+// [2026-08-26 Johnny Chu] PHASE-1.30-DDV — report active PHP SQL callers that still mention deprecated table names.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-callers.php' );
+// [2026-08-29 Johnny Chu] PHASE-1.30-DDV — emit independent writer/reader/fallback and request-local mutation evidence for nine proposed filestore candidates.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-crud-stop.php' );
+// [2026-08-27 Johnny Chu] PHASE-1.30-DDV — prove quarantine/draining transitions, uninstall safety, multisite scope and owner parity.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-state-machine.php' );
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-uninstall-matrix.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — verify non-empty legacy tables are refused by the shared zero-row DROP guard without destructive mutation.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-drop-zero-row.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — verify approved zero-row DROP executes through the shared policy and invalidates metadata cache on a disposable fixture.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-approved-drop.php' );
+// [2026-08-29 Johnny Chu] PHASE-1.30-DDV — verify every registered legacy JSONL replacement contract with a current-blog writer/reader sentinel.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-jsonl-source-parity.php' );
+// [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — dedicated exact channel ownership and SQL-stop evidence for the three retired log projections.
+bizcity_diagnostics_require_probe( 'class-probe-channel-log-ownership.php' );
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-multisite-scope.php' );
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-owner-parity.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — runtime evidence for filestore reader parity and unified dual-write on memory users/session owners.
+bizcity_diagnostics_require_probe( 'class-probe-memory-filestore-parity.php' );
+// [2026-08-29 Johnny Chu] PHASE-1.30-DDV — runtime parity evidence for filestore-first episodic/rolling memory owners.
+bizcity_diagnostics_require_probe( 'class-probe-memory-intent-filestore-parity.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — runtime evidence for filestore reader parity and unified dual-write on the TwinChat notes owner.
+bizcity_diagnostics_require_probe( 'class-probe-memory-notes-filestore-parity.php' );
+// [2026-09-01 Johnny Chu] CB3.4-DDV — verify the tenant pointer ledger on the current physical shard with a receipt/tombstone round-trip.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-ledger.php' );
+// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-CB3.4-DDV — verify bounded reconcile failure paths and signed checkpoint refusal.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-reconciler.php' );
+// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-CB7.3-DDV — verify metadata-only Context Bank REST namespace and error envelope.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-rest.php' );
+// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — verify fail-closed channel archive admission before enabling capture.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-channel-admission.php' );
+// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — verify normalized CRM message -> archive receipt -> Context Bank pointer continuity with disposable cleanup.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-channel-crm-continuity.php' );
+// [2026-09-01 Johnny Chu] PHASE-CB4.5-DDV — verify all five memory contracts admit, follow and tombstone Context Bank pointers.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-memory-reference.php' );
+// [2026-09-01 Johnny Chu] PHASE-CB4.1-DDV — verify allowlisted Event Stream projection, receipt admission, replay and derived tombstone.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-event-stream.php' );
+// [2026-09-01 Johnny Chu] PHASE-CB5.1-DDV — verify deterministic rollup reduction, replay hash and bounded evidence references.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-rollup.php' );
+// [2026-09-02 Johnny Chu] PHASE-CB5.1-DDV — verify resumable rollup worker wiring and direct diagnostics isolation.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-rollup-worker.php' );
+// [2026-09-01 Johnny Chu] PHASE-CB6.2-DDV — verify KG candidate policy before KG-Hub integration.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-kg-policy.php' );
+// [2026-09-02 Johnny Chu] PHASE-CB6.3-DDV — verify the guarded KG promotion bridge default path.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-kg-bridge.php' );
+// [2026-09-02 Johnny Chu] PHASE-CB4.3-DDV — verify the guarded WooCommerce Context Bank projection default path.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-commerce.php' );
+// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5-DDV — verify pointer-only Skill reference lifecycle and capture-off safety.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-rule-reference.php' );
+// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB-W4-DDV — expose the W4 owner-chain gate without converting structural wiring into two-tenant Runtime PASS.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-w4-chain.php' );
+// [2026-09-01 Johnny Chu] PHASE-CB7.1-DDV — verify server-owned Context Bank retrieval scope and bounded budgets.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-scope.php' );
+// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7-DDV — verify vertical/notebook/hybrid retrieval policy and pre-follow contract filtering.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-retrieval.php' );
+// [2026-09-01 Johnny Chu] PHASE-CB-CH.7-DDV — verify exact Zalo Bot/OA/Personal accounts, zones, group scope and route parity.
+bizcity_diagnostics_require_probe( 'class-probe-zalo-multi-account-isolation.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — source-progress JSONL owner/reader parity evidence; no business-filestore migration.
+bizcity_diagnostics_require_probe( 'class-probe-kg-source-progress-parity.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — Google usage audit reader/writer parity; OAuth/connect evidence is a separate probe.
+bizcity_diagnostics_require_probe( 'class-probe-google-usage-parity.php' );
+// [2026-09-01 Johnny Chu] R-LLM-USAGE-FILESTORE — client legacy usage ledger is operational JSONL, separate from the Hub SQL billing ledger.
+bizcity_diagnostics_require_probe( 'class-probe-llm-usage-filestore-parity.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — KG cleanup audit reader parity; async source lifecycle evidence is a separate probe.
+bizcity_diagnostics_require_probe( 'class-probe-kg-cleanup-audit-parity.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — skill usage JSONL writer/stats reader parity; Journal isolation is a separate probe.
+bizcity_diagnostics_require_probe( 'class-probe-skill-usage-parity.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — SQL KG billing-ledger structural parity; KG notebook skeleton evidence is a separate probe.
+bizcity_diagnostics_require_probe( 'class-probe-kg-usage-ledger-parity.php' );
+// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — SQL LLM usage-ledger/report structural parity; key-scoped identity remains explicit governance follow-up.
+bizcity_diagnostics_require_probe( 'class-probe-llm-usage-ledger-parity.php' );
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/installer-registry.php', 'diagnostics.installer_registry' );
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-error-reporter.php', 'diagnostics.error_reporter' );
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/trait-rest-error.php', 'diagnostics.rest_error_trait' );
@@ -270,6 +384,18 @@ bizcity_diagnostics_require_probe( 'class-probe-client-plan-sync.php' );
 // [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — DDV probes for Hub commerce and
 // license branches from Branch 18 API catalog.
 bizcity_diagnostics_require_probe( 'class-probe-commerce-hub-checkout.php' );
+// [2026-09-02 Johnny Chu] B2C-F5/D5-D8 — disposable exact-key paid checkout, activation and replay fixture.
+bizcity_diagnostics_require_probe( 'class-probe-b2b2c-commerce-exact-key.php' );
+// [2026-09-02 Johnny Chu] B2C-F3 — read-only route/loader/runtime probe for six canonical product pages.
+bizcity_diagnostics_require_probe( 'class-probe-b2b2c-product-pages.php' );
+// [2026-09-02 Johnny Chu] B2C-D11 — read-only exact-key selector/create contract for paid Woo product pages.
+bizcity_diagnostics_require_probe( 'class-probe-b2b2c-product-key-context.php' );
+// [2026-09-02 08:55 PM Johnny Chu - Chu Hoàng Anh] B2C-H1/H2 - read-only checkout-first billing context and snapshot boundary evidence.
+bizcity_diagnostics_require_probe( 'class-probe-b2b2c-checkout-billing-context.php' );
+// [2026-09-02 09:45 PM Johnny Chu - Chu Hoàng Anh] B2C-H3 - read-only Global ledger table/routing/idempotency evidence.
+bizcity_diagnostics_require_probe( 'class-probe-b2b2c-license-ledger.php' );
+// [2026-09-03 10:35 AM Johnny Chu - Chu Hoàng Anh] B2C-H4 — verify cumulative exact-key projector wiring and fixture readiness.
+bizcity_diagnostics_require_probe( 'class-probe-b2b2c-entitlement-projector.php' );
 
 bizcity_diagnostics_require_probe( 'class-probe-license-hub-entitlement-issue.php' );
 
@@ -343,7 +469,7 @@ bizcity_diagnostics_require_probe( 'class-probe-memory-unified-dual-write.php' )
 // Wave 2.8d TBR.MEM-D6 (2026-05-24) — Unified memory recall parity probe
 // (legacy vs unified Memory_Recall tokens overlap ≥ 95%).
 bizcity_diagnostics_require_probe( 'class-probe-memory-unified-recall-parity.php' );
-// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — non-destructive W2 ZaloBot staging contract probe.
+// [2026-09-01 Johnny Chu] PHASE-1.30-ZALO-MEMORY-REMOVE — verify obsolete ZaloBot memory owner removal and canonical memory availability.
 bizcity_diagnostics_require_probe( 'class-probe-zalobot-memory-unify.php' );
 
 // Phase 0.41 L9.b — Schema Changelog Ledger + Auto-Create.
@@ -356,6 +482,12 @@ bizcity_diagnostics_require_probe( 'class-probe-module-registry.php' );
 
 // Phase 0.41 L9.b+ — Schema inventory meta-probe (drives Auto-Fix-All UX).
 bizcity_diagnostics_require_probe( 'class-probe-schema-inventory.php' );
+// [2026-09-01 Johnny Chu] B2C-G7.4 — runtime contract probe for DNS TTL, batch safety and retention warn-mode.
+bizcity_diagnostics_require_probe( 'class-probe-router-domain-policy-runtime.php' );
+// [2026-09-01 Johnny Chu] B2C-F4 — runtime account onboarding route and denial-envelope probe.
+bizcity_diagnostics_require_probe( 'class-probe-b2b2c-account-onboarding.php' );
+// [2026-09-02 Johnny Chu] B2C-F5 — read-only exact-key plan/checkout ownership probe.
+bizcity_diagnostics_require_probe( 'class-probe-b2b2c-plan-context.php' );
 // [2026-08-01 Johnny Chu] PHASE-1.23-TABLE-ACTIVITY — DDV for runtime table activity telemetry and enriched inventory fields.
 bizcity_diagnostics_require_probe( 'class-probe-table-activity.php' );
 // [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — read-only DDV for the shared
@@ -439,6 +571,9 @@ bizcity_diagnostics_require_probe( 'class-probe-cg-flows.php' );
 // [2026-08-20 Johnny Chu] CODEC-CORE-DDV — shared codec Disk/Loader/Runtime,
 // tamper rejection, legacy wire round-trip, and active twf_* call sweep.
 bizcity_diagnostics_require_probe( 'class-probe-codec-standard.php' );
+
+// [2026-08-28 Johnny Chu] PHASE-1.31 - register the three-boundary CLI parity probe.
+bizcity_diagnostics_require_probe( 'class-probe-cli-verdict-parity.php' );
 
 // AUTOMATION BE-1 (2026-05-29) — Native xyflow automation backend smoke.
 // 3-layer (disk/loader/runtime) + create workflow + enqueue run round-trip.
@@ -553,6 +688,8 @@ bizcity_diagnostics_require_probe( 'class-probe-twinweb-owner-continuity.php' );
 
 // [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — DDV probe for /gpt/mychannels customer channels MVP.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-customer-channels.php' );
+// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — DDV for unified My Channels Zalo/OA/Bot/Web/Tiktok shell and member-scoped OA routes.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-zalo-connect-ui.php' );
 // [2026-08-25 Johnny Chu] PHASE-0.39F-F8-DDV — verify identity-first member CRM projection and field redaction.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-member-scope.php' );
 
@@ -595,6 +732,20 @@ bizcity_diagnostics_require_probe( 'class-probe-admin-router.php' );
 bizcity_diagnostics_require_probe( 'class-probe-error-ux.php' );
 // [2026-07-30 Johnny Chu] PHASE-1.22-DDV — register the core security/reliability production contract probe.
 bizcity_diagnostics_require_probe( 'class-probe-framework-production-contract.php' );
+// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — register the public plugin SDK boundary probe.
+bizcity_diagnostics_require_probe( 'class-probe-twin-plugin-sdk.php' );
+// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — register the public extension manifest contract probe.
+bizcity_diagnostics_require_probe( 'class-probe-framework-extension-manifest.php' );
+// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — register the request-local manifest registry/facade probe.
+bizcity_diagnostics_require_probe( 'class-probe-framework-manifest-registry.php' );
+// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W6 — register missing-credential degradation evidence without invoking a provider.
+bizcity_diagnostics_require_probe( 'class-probe-framework-credential-degradation.php' );
+// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — register current CRM channel manifest/adapter parity probe.
+bizcity_diagnostics_require_probe( 'class-probe-channel-manifest-registration.php' );
+// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — register legacy adapter versus manifest envelope parity probe.
+bizcity_diagnostics_require_probe( 'class-probe-channel-manifest-compat.php' );
+// [2026-08-29 Johnny Chu] PHASE-VIBE-WAVE5 — register reference JSONL/index and KG Hub ingestion evidence.
+bizcity_diagnostics_require_probe( 'class-probe-reference-plugin-wave5.php' );
 // [2026-08-11 Johnny Chu] PHASE-1.26-CONTRACT — register the unified admin navigation contract probe.
 bizcity_diagnostics_require_probe( 'class-probe-admin-navigation.php' );
 // [2026-08-10 Johnny Chu] PHASE-1.25-PIAPI-DDV — mock submit/poll/header contract.
@@ -666,8 +817,20 @@ bizcity_diagnostics_require_probe( 'class-probe-crm-public-tracking.php' );
 bizcity_diagnostics_require_probe( 'class-probe-crm-shipping-tracker.php' );
 
 // [2026-06-07 Johnny Chu] PHASE-0.40 G0.4 — Zone Isolation DDV (order=43).
-// Verifies R-ZONE-2: ZALO_BOT stays in Zone 2 (admin/automation); zalo_oa routes to Zone 1 (CRM).
+// Verifies R-ZONE-2: ZALO_BOT uses CRM Admin Operations but stays out of Customer Care; zalo_oa remains Zone 1.
 bizcity_diagnostics_require_probe( 'class-probe-channel-zone-isolation.php' );
+// [2026-09-01 Johnny Chu] PHASE-0.45-W4/W5 — login branch and AskBrain parity contract probe.
+bizcity_diagnostics_require_probe( 'class-probe-zalobot-group-automation.php' );
+// [2026-09-01 Johnny Chu] PHASE-0.45-W5 — real-call action proof for citations and AskBrain parity.
+bizcity_diagnostics_require_probe( 'class-probe-zalobot-deep-research-runtime.php' );
+// [2026-09-01 Johnny Chu] R-CRM-ADAPTER-MATRIX — contract matrix for every registered CRM adapter.
+bizcity_diagnostics_require_probe( 'class-probe-crm-adapter-matrix.php' );
+// [2026-09-01 Johnny Chu] PHASE-0.45-PROVIDER-DDV — rollback-safe Bot provider and CRM side-effect matrix.
+bizcity_diagnostics_require_probe( 'class-probe-zalobot-crm-provider-matrix.php' );
+// [2026-09-01 Johnny Chu] R-CRM-DISABLED-WRITER — prove disabled-channel direct writers stop before CRM/provider side effects.
+bizcity_diagnostics_require_probe( 'class-probe-crm-disabled-writer.php' );
+// [2026-09-01 Johnny Chu] R-CRM-LEGACY-PREVIEW — read-only conversation reconciliation preview DDV.
+bizcity_diagnostics_require_probe( 'class-probe-crm-reconciliation-preview.php' );
 // [2026-08-22 Johnny Chu] PHASE-0.39B-DDV — load the existing Zone UI probe referenced by curated P0 groups.
 bizcity_diagnostics_require_probe( 'class-probe-zone-ui.php' );
 // [2026-07-27 Johnny Chu] PHASE-0.52 W6 — load channel identity/memory ownership DDV probe.
@@ -689,6 +852,10 @@ bizcity_diagnostics_require_probe( 'class-probe-crm-qr-link.php' );
 bizcity_diagnostics_require_probe( 'class-probe-crm-team-assignment-kanban.php' );
 // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX-DDV — verify one group source key for multiple senders without mutation.
 bizcity_diagnostics_require_probe( 'class-probe-crm-group-inbox.php' );
+// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — register the canonical exact-account inbox reader probe before the /gpt/crm/ route slice.
+bizcity_diagnostics_require_probe( 'class-probe-crm-inbox-by-ref.php' );
+// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — register the read-only Twin GPT exact-account CRM console scope probe.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-inbox-console.php' );
 
 // [2026-07-10 Johnny Chu] PHASE-0.47 — Broadcast import smoke matrix probe
 // for csv/xls/xlsx/google_sheet_url REST path.
@@ -698,6 +865,10 @@ bizcity_diagnostics_require_probe( 'class-probe-channel-broadcast-import-matrix.
 // 7-row probe: bridge health, catalog filter, integration registry, inbound emitter,
 // schema tables (3 bảng), OA window logic, zone isolation.
 bizcity_diagnostics_require_probe( 'class-probe-zalo-personal.php' );
+// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — register focused QR operation readiness fixtures without provider transport.
+bizcity_diagnostics_require_probe( 'class-probe-zalo-personal-bridge-diagnostics.php' );
+// [2026-09-03 03:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H6-GROUP-DDV — queue the read-only experimental group-history contract probe.
+bizcity_diagnostics_require_probe( 'class-probe-zalo-personal-group-history-contract.php' );
 
 // M-CRM.M4.Inbox (2026-05-28) — Broadcast + Lead Classification smoke.
 // 3-layer: tables (bizcity_crm_broadcasts, recipients), lead_score/segment cols, REST routes.

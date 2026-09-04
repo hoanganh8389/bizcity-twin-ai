@@ -452,6 +452,14 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		
 		// Use user_id as client_id (canonical identifier)
 		$client_id = $user_id;
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W3 — capture group intake before any database call, with hashes only.
+		$provider_chat_id     = $chat_id !== '' ? (string) $chat_id : (string) $user_id;
+		$provider_chat_type   = isset( $message['chat']['chat_type'] ) ? strtoupper( (string) $message['chat']['chat_type'] ) : 'PRIVATE';
+		$chat_kind            = $provider_chat_type === 'GROUP' ? 'group' : 'private';
+		$conversation_chat_id = 'zalobot_' . $bot->id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id;
+		if ( $chat_kind === 'group' ) {
+			$this->log_group_channel_event( 'group_message_received', $bot->id, $provider_chat_id, $conversation_chat_id, $message_id, $event_name );
+		}
 		
 		// Log the event with all fields
 		$db = BizCity_Zalo_Bot_Database::instance();
@@ -471,10 +479,6 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		// Prepare trigger data for workflow automation
 		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — route replies by conversation target, not sender identity.
 		$identity_user_id     = (string) $user_id;
-		$provider_chat_id     = $chat_id !== '' ? (string) $chat_id : $identity_user_id;
-		$provider_chat_type   = isset( $message['chat']['chat_type'] ) ? strtoupper( (string) $message['chat']['chat_type'] ) : 'PRIVATE';
-		$chat_kind            = $provider_chat_type === 'GROUP' ? 'group' : 'private';
-		$conversation_chat_id = 'zalobot_' . $bot->id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id;
 		$bot_chat_id          = $conversation_chat_id;
 		$client_id            = $conversation_chat_id;
 		$platform             = 'zalo_bot';
@@ -499,6 +503,9 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				$mention_detected     = $this->zalobot_text_mentions_bot( $text, $bot );
 				$reply_to_bot_message = $this->zalobot_message_replies_to_bot( $message );
 				$message_text_clean   = $mention_detected ? $this->zalobot_strip_bot_mention( $text, $bot ) : $text;
+				if ( $chat_kind === 'group' && $mention_detected ) {
+					$this->log_group_channel_event( 'group_mention_matched', $bot->id, $provider_chat_id, $conversation_chat_id, $message_id, $event_name, true );
+				}
 				
 				$trigger = array(
 					'platform'        => $platform,
@@ -567,6 +574,9 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				$mention_detected     = $this->zalobot_text_mentions_bot( $caption, $bot );
 				$reply_to_bot_message = $this->zalobot_message_replies_to_bot( $message );
 				$message_text_clean   = $mention_detected ? $this->zalobot_strip_bot_mention( $caption, $bot ) : $caption;
+				if ( $chat_kind === 'group' && $mention_detected ) {
+					$this->log_group_channel_event( 'group_mention_matched', $bot->id, $provider_chat_id, $conversation_chat_id, $message_id, $event_name, true );
+				}
 				
 				$trigger = array(
 					'platform'        => $platform,
@@ -647,6 +657,9 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				$mention_detected     = $this->zalobot_text_mentions_bot( $caption, $bot );
 				$reply_to_bot_message = $this->zalobot_message_replies_to_bot( $message );
 				$message_text_clean   = $mention_detected ? $this->zalobot_strip_bot_mention( $caption, $bot ) : $caption;
+				if ( $chat_kind === 'group' && $mention_detected ) {
+					$this->log_group_channel_event( 'group_mention_matched', $bot->id, $provider_chat_id, $conversation_chat_id, $message_id, $event_name, true );
+				}
 				
 				$trigger = array(
 					'platform'        => $platform,
@@ -1042,6 +1055,33 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 			'data' => $data 
 		);
 		$this->write_zalohook_log( 'data', $log_data );
+	}
+
+	private function log_group_channel_event( $event_name, $bot_id, $provider_chat_id, $conversation_chat_id, $message_id, $source_event = '', $mention_detected = null ) {
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W3 — use the canonical channel logger and never persist raw group/user identifiers.
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) || (string) $provider_chat_id === '' ) {
+			return;
+		}
+		$context = array(
+			'bot_id'                    => (int) $bot_id,
+			'chat_kind'                 => 'group',
+			'provider_chat_id_hash'     => substr( hash( 'sha256', (string) $provider_chat_id ), 0, 16 ),
+			'conversation_chat_id_hash' => substr( hash( 'sha256', (string) $conversation_chat_id ), 0, 16 ),
+			'message_id_hash'           => (string) $message_id !== '' ? substr( hash( 'sha256', (string) $message_id ), 0, 16 ) : '',
+		);
+		if ( (string) $source_event !== '' ) {
+			$context['source_event'] = sanitize_key( (string) $source_event );
+		}
+		if ( $mention_detected !== null ) {
+			$context['mention_detected'] = (bool) $mention_detected;
+		}
+		BizCity_Channel_File_Logger::write(
+			BizCity_Channel_File_Logger::CH_ZALO_BOT,
+			BizCity_Channel_File_Logger::LEVEL_INFO,
+			(string) $event_name,
+			'Zalo Bot group channel lifecycle event',
+			$context
+		);
 	}
 
 	/**

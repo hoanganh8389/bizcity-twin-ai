@@ -7,6 +7,17 @@ thông minh (TwinBrain), giao diện chat (TwinChat), kho kiến thức (KG Hub)
 (Automation Workflow), đến quản lý đa kênh (Channel Gateway). Tất cả tự host trên WordPress,
 dữ liệu nằm trong tầm kiểm soát của bạn.
 
+## Định hướng tối thượng
+
+Mọi tài liệu trong `docs/` phải tuân theo [Enterprise Brain Direction](rules/PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md):
+`bizcity-twin-ai` phát triển một bộ não phân tích doanh nghiệp với Channel
+Gateway là trục ngang, Vertical Brain Mode/extension contracts là trục dọc, và
+KG Graph/Graph RAG là lớp tri thức. Brain có thể làm lớp phân tích, đánh giá,
+filter và quản trị để kết nối MCP với công cụ AI. Chatbot, GPT/Twin GPT,
+Profile, Landing Page, Automation và Notes là các extension của cùng bộ não;
+không tài liệu, roadmap hay implementation nào được tạo brain hoặc luồng dữ
+liệu song song.
+
 ## Tại sao chọn BizCity Twin AI?
 
 - **Self-hosted**: Dữ liệu của bạn, trên server của bạn — không phụ thuộc SaaS.

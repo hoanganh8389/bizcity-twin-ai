@@ -67,6 +67,18 @@ BizCity_Skill_REST_API::instance();
 BizCity_Skill_Context::instance();
 BizCity_Skill_Pipeline_Bridge::instance();
 
+// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — load the Context Bank Skill reference listener with the canonical Skills owner.
+$_bizcity_skill_reference_adapter = dirname( __DIR__ ) . '/context-bank/includes/class-context-bank-rule-reference-adapter.php';
+if ( class_exists( 'BizCity_Safe_Loader', false )
+    && is_file( $_bizcity_skill_reference_adapter )
+    && is_readable( $_bizcity_skill_reference_adapter ) ) {
+    BizCity_Safe_Loader::require_file( $_bizcity_skill_reference_adapter, 'context_bank.skill_reference_adapter' );
+}
+if ( class_exists( 'BizCity_Context_Bank_Rule_Reference_Adapter', false ) ) {
+    BizCity_Context_Bank_Rule_Reference_Adapter::boot();
+}
+unset( $_bizcity_skill_reference_adapter );
+
 if ( is_admin() ) {
     BizCity_Skill_Admin_Page::instance();
 }

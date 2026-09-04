@@ -39,7 +39,15 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 // [2026-08-20 Johnny Chu] HOTFIX-LOAD-ORDER - keep the bundled Content Creator from causing a fatal when a partial/alternate loader skipped Core Helper.
 $_bzcc_helper_bootstrap = dirname( __DIR__, 2 ) . '/core/helper/bootstrap.php';
 if ( ! class_exists( 'BizCity_Cache', false ) && file_exists( $_bzcc_helper_bootstrap ) ) {
-	require_once $_bzcc_helper_bootstrap;
+	// [2026-09-02 08:00 AM Johnny Chu - Chu Hoàng Anh] R-SAFE-LOADER — prevent a partial Core Helper artifact from fatalling the bundled client.
+	$_bzcc_safe_loader = dirname( __DIR__, 2 ) . '/core/helper/class-bizcity-safe-loader.php';
+	if ( ! class_exists( 'BizCity_Safe_Loader', false ) && is_file( $_bzcc_safe_loader ) && is_readable( $_bzcc_safe_loader ) ) {
+		require_once $_bzcc_safe_loader;
+	}
+	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+		BizCity_Safe_Loader::require_file( $_bzcc_helper_bootstrap, 'content_creator.core_helper' );
+	}
+	unset( $_bzcc_safe_loader );
 }
 unset( $_bzcc_helper_bootstrap );
 if ( ! class_exists( 'BizCity_Cache', false ) ) {
@@ -96,15 +104,11 @@ add_filter( 'bizcity_persona_tool_providers', function ( array $providers ): arr
 /* ── Activation hook ── */
 register_activation_hook( __FILE__, [ 'BZCC_Installer', 'activate' ] );
 register_deactivation_hook( __FILE__, function() {
-	// [2026-08-25 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — deactivate removes owned Creator storage through the uninstall path.
-	if ( ! defined( 'BZCC_DEACTIVATION_PURGE' ) ) {
-		define( 'BZCC_DEACTIVATION_PURGE', true );
+	// [2026-08-26 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — deactivation
+	// must preserve Creator data; explicit uninstall owns destructive cleanup.
+	if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
+		BizCity_Rewrite_Flush_Registry::queue_flush( 'bizcity-content-creator' );
 	}
-	$_bzcc_uninstall = BZCC_DIR . 'uninstall.php';
-	if ( is_file( $_bzcc_uninstall ) && is_readable( $_bzcc_uninstall ) ) {
-		require_once $_bzcc_uninstall;
-	}
-	unset( $_bzcc_uninstall );
 } );
 
 /* ── Self-healing: table creation for marketplace/AJAX activation ── */

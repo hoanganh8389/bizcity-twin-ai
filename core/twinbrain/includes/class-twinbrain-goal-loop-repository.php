@@ -416,23 +416,16 @@ final class BizCity_TwinBrain_Goal_Loop_Repository {
 				'status'           => sanitize_key( (string) ( $state['status'] ?? '' ) ),
 				'reason'           => sanitize_key( (string) $reason ),
 		);
-		$written = method_exists( 'BizCity_JSONL_File_Logger', 'write_scoped' )
-			? BizCity_JSONL_File_Logger::write_scoped(
-				'bizcity-twinbrain-logs',
+		$written = method_exists( 'BizCity_JSONL_File_Logger', 'write_scoped_contract' )
+			? BizCity_JSONL_File_Logger::write_scoped_contract(
+				'core.twinbrain.goal_loop_trace',
 				array( 'twinbrain-goal-loop', $platform !== '' ? $platform : 'unknown', $client_segment ),
 				$event_uuid !== '' ? 'info' : 'warn',
 				(string) $event,
 				'Goal Loop state transition observed.',
 				$ctx
 			)
-			: BizCity_JSONL_File_Logger::write(
-				'bizcity-twinbrain-logs',
-				'twinbrain-goal-loop',
-				$event_uuid !== '' ? 'info' : 'warn',
-				(string) $event,
-				'Goal Loop state transition observed.',
-				$ctx
-			);
+			: false;
 		if ( ! $written ) {
 			// [2026-08-03 Johnny Chu] R-TGL-CS — expose the effective scoped path when JSONL cannot be created.
 			$location = method_exists( 'BizCity_JSONL_File_Logger', 'location_scoped' )

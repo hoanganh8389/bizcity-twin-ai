@@ -1,0 +1,20 @@
+{
+  "contract": "context-retrieval-pack",
+  "version": "1.0.0",
+  "query_id": "q",
+  "scope": { "mode": "all", "blog_id": 0 },
+  "authorization": { "allowed": "yes", "identity_scope": "unknown" },
+  "budget": { "max_records": 0, "max_bytes": 0, "max_ms": 0, "max_tokens": 0 },
+  "matched_count": -1,
+  "returned_count": 5,
+  "truncated": "false",
+  "records": [],
+  "rollups": [],
+  "references": [],
+  "relations": [],
+  "evidence_refs": [],
+  "kg_candidates": [],
+  "degraded": false,
+  "incomplete": false,
+  "reason_bucket": ""
+}

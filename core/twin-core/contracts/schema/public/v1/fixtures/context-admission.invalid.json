@@ -1,0 +1,17 @@
+{
+  "contract": "context-admission",
+  "version": "1.0.0",
+  "admission_id": "adm_01hzy7m9qk",
+  "record_id": "ctx_event_01hzy7m9qk",
+  "record_kind": "event",
+  "tenant": {
+    "blog_id": 0
+  },
+  "source": {
+    "contract_id": "channel-payload",
+    "channel": "facebook",
+    "account_key": "",
+    "event_uuid": ""
+  },
+  "status": "admitted"
+}

@@ -32,6 +32,7 @@ class BizCity_KG_Cleanup_Service {
 	const BATCH_SIZE   = 500;
 	const AUDIT_RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep cleanup audit for one week.
 	const AUDIT_RETENTION_BATCH = 500;
+	const AUDIT_CONTRACT_ID = 'core.knowledge.kg_cleanup_audit';
 	const SCAN_TIME_S  = 25;
 	const LOCK_KEY     = 'bizcity_kg_cleanup_running';
 	const LOCK_TTL_S   = 60;
@@ -85,6 +86,10 @@ class BizCity_KG_Cleanup_Service {
 	}
 
 	public function maybe_install_log_table() {
+		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — cleanup audit is JSONL-only; never recreate the retired SQL log.
+		if ( ! $this->should_use_sql_audit( 'install' ) ) {
+			return;
+		}
 		if ( get_option( self::OPTION_VERSION_KEY ) === self::SCHEMA_VERSION ) {
 			return;
 		}
@@ -217,19 +222,69 @@ class BizCity_KG_Cleanup_Service {
 	}
 
 	public function get_log( $args = [] ) {
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — read cleanup audit from the canonical JSONL contract first, then fall back to SQL during active quarantine.
 		global $wpdb;
-		$tbl    = $this->table_log();
 		$limit  = max( 1, min( 200, (int) ( $args['limit']  ?? 50 ) ) );
 		$offset = max( 0, (int) ( $args['offset'] ?? 0 ) );
+		$stage  = ! empty( $args['stage'] ) ? sanitize_key( (string) $args['stage'] ) : '';
+		$run_id = ! empty( $args['run_id'] ) ? (string) $args['run_id'] : '';
+
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+			$query_limit = max( 1, min( 2000, $limit + $offset ) );
+			$rows = BizCity_JSONL_File_Logger::query_contract( self::AUDIT_CONTRACT_ID, array(
+				'days'   => self::AUDIT_RETENTION_DAYS,
+				'limit'  => $query_limit,
+				'filter' => static function ( $row ) use ( $stage, $run_id ) {
+					$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+					if ( $stage !== '' && (string) ( $ctx['stage'] ?? '' ) !== $stage ) {
+						return false;
+					}
+					if ( $run_id !== '' && (string) ( $ctx['run_id'] ?? '' ) !== $run_id ) {
+						return false;
+					}
+					return true;
+				},
+			) );
+			$mapped = array();
+			foreach ( (array) $rows as $row ) {
+				$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				$log_id = (int) ( $ctx['log_id'] ?? 0 );
+				if ( $log_id <= 0 ) {
+					$log_id = abs( (int) crc32( 'kg-cleanup|' . (string) ( $row['event_uuid'] ?? '' ) . '|' . (string) ( $ctx['run_id'] ?? '' ) . '|' . (string) ( $ctx['stage'] ?? '' ) ) );
+					$log_id = $log_id > 0 ? $log_id : 1;
+				}
+				$mapped[] = array(
+					'id'           => $log_id,
+					'run_id'       => (string) ( $ctx['run_id'] ?? '' ),
+					'run_at'       => (string) ( $ctx['run_at'] ?? (string) ( $row['ts'] ?? '' ) ),
+					'trigger_kind' => (string) ( $ctx['trigger_kind'] ?? '' ),
+					'triggered_by' => (int) ( $ctx['triggered_by'] ?? 0 ),
+					'stage'        => (string) ( $ctx['stage'] ?? '' ),
+					'target_table' => (string) ( $ctx['target_table'] ?? '' ),
+					'target_id'    => (int) ( $ctx['target_id'] ?? 0 ),
+					'action'       => (string) ( $ctx['action'] ?? (string) ( $row['event'] ?? '' ) ),
+					'reason'       => (string) ( $ctx['reason'] ?? '' ),
+				);
+			}
+			if ( ! empty( $mapped ) ) {
+				return array_slice( $mapped, $offset, $limit );
+			}
+		}
+
+		if ( ! $this->should_use_sql_audit( 'read' ) ) {
+			return array();
+		}
+
+		$tbl    = $this->table_log();
 		$where  = '1=1';
 		$params = [];
-		if ( ! empty( $args['stage'] ) ) {
+		if ( $stage !== '' ) {
 			$where   .= ' AND stage = %s';
-			$params[] = sanitize_key( (string) $args['stage'] );
+			$params[] = $stage;
 		}
-		if ( ! empty( $args['run_id'] ) ) {
+		if ( $run_id !== '' ) {
 			$where   .= ' AND run_id = %s';
-			$params[] = (string) $args['run_id'];
+			$params[] = $run_id;
 		}
 		$sql = "SELECT id, run_id, run_at, trigger_kind, triggered_by, stage, target_table, target_id, action, reason
 		        FROM {$tbl}
@@ -241,11 +296,31 @@ class BizCity_KG_Cleanup_Service {
 		return $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
 	}
 
+	// [2026-08-28 Johnny Chu] PHASE-1.30-DDV — expose a non-destructive audit writer boundary for cleanup-log parity evidence.
+	public function record_audit_event( array $args ): bool {
+		$run_id = sanitize_text_field( $args['run_id'] ?? '' );
+		if ( $run_id === '' ) {
+			return false;
+		}
+		$this->log(
+			$run_id,
+			sanitize_key( $args['trigger_kind'] ?? 'diagnostics' ),
+			(int) ( $args['triggered_by'] ?? get_current_user_id() ),
+			sanitize_key( $args['stage'] ?? 'diagnostic' ),
+			sanitize_key( $args['target_table'] ?? 'diagnostic' ),
+			(int) ( $args['target_id'] ?? 0 ),
+			sanitize_key( $args['action'] ?? 'parity' ),
+			sanitize_key( $args['reason'] ?? 'diagnostic_parity' ),
+			isset( $args['payload'] ) && is_array( $args['payload'] ) ? $args['payload'] : null
+		);
+		return true;
+	}
+
 	/** Delete old cleanup evidence in bounded batches. */
 	private function purge_old_audit_rows(): int {
 		global $wpdb;
 		$table = $this->table_log();
-		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+		if ( ! $this->should_use_sql_audit( 'delete' ) ) {
 			return 0;
 		}
 		$deleted = $wpdb->query( $wpdb->prepare(
@@ -515,11 +590,68 @@ class BizCity_KG_Cleanup_Service {
 
 	// ── Internal logger ────────────────────────────────────────────────
 
+	private function should_use_sql_audit( $operation = 'read' ) {
+		$table = $this->table_log();
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			if ( ! BizCity_Legacy_Table_Policy::allow_sql( $table, $operation ) ) {
+				return false;
+			}
+			if ( $operation === 'read' && ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'write' ) ) {
+				// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — once SQL writes are blocked, read canonical JSONL only to avoid stale SQL-only history.
+				return false;
+			}
+		}
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+			return false;
+		}
+		return true;
+	}
+
 	protected function log( $run_id, $trigger, $by, $stage, $target_table, $target_id, $action, $reason, $payload = null ) {
+		// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — emit the canonical JSONL cleanup audit row before legacy SQL write paths.
 		global $wpdb;
+		$run_id       = (string) $run_id;
+		$trigger      = (string) $trigger;
+		$by           = (int) $by;
+		$stage        = (string) $stage;
+		$target_table = (string) $target_table;
+		$target_id    = (int) $target_id;
+		$action       = (string) $action;
+		$reason       = (string) $reason;
+		$run_at       = current_time( 'mysql', true );
+		$ctx = array(
+			'run_id'       => $run_id,
+			'run_at'       => $run_at,
+			'trigger_kind' => $trigger,
+			'triggered_by' => $by,
+			'stage'        => $stage,
+			'target_table' => $target_table,
+			'target_id'    => $target_id,
+			'action'       => $action,
+			'reason'       => $reason,
+		);
+		if ( $payload !== null ) {
+			$ctx['payload'] = $payload;
+		}
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			$level = strpos( strtolower( $reason ), 'exception:' ) === 0 ? 'error' : 'info';
+			$event = 'kg_cleanup_' . sanitize_key( $stage ) . '_' . sanitize_key( $action );
+			BizCity_JSONL_File_Logger::write_contract(
+				self::AUDIT_CONTRACT_ID,
+				$level,
+				$event,
+				'KG cleanup audit event',
+				$ctx
+			);
+		}
+
+		if ( ! $this->should_use_sql_audit( 'write' ) ) {
+			return;
+		}
+
 		$wpdb->insert( $this->table_log(), [
 			'run_id'       => (string) $run_id,
-			'run_at'       => current_time( 'mysql', true ),
+			'run_at'       => $run_at,
 			'trigger_kind' => (string) $trigger,
 			'triggered_by' => (int) $by,
 			'stage'        => (string) $stage,

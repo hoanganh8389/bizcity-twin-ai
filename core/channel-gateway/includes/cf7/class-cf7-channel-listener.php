@@ -60,10 +60,10 @@ class BizCity_CF7_Channel_Listener {
 				'wpcf7 mail event entered BizCity_CF7_Channel_Listener.',
 				array( 'mail_event' => $mail_event )
 			);
-		} elseif ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'cf7',
+		} elseif ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — CF7 fallback evidence resolves its channel contract.
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.cf7_audit',
 				'info',
 				'cf7_listener_entered',
 				'wpcf7 mail event entered BizCity_CF7_Channel_Listener.',
@@ -109,10 +109,9 @@ class BizCity_CF7_Channel_Listener {
 		if ( self::is_rate_limited( $form_id ) ) {
 			$is_rate_limited = true;
 			// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — CF7 operational evidence belongs in CRM JSONL.
-			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-				BizCity_JSONL_File_Logger::write(
-					BizCity_JSONL_File_Logger::CRM_FOLDER,
-					'cf7',
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+				BizCity_JSONL_File_Logger::write_contract(
+					'core.channel_gateway.cf7_audit',
 					'warn',
 					'cf7_rate_limited',
 					'Rate limit hit for form #' . $form_id,
@@ -153,13 +152,12 @@ class BizCity_CF7_Channel_Listener {
 
 		// ── Log submission ────────────────────────────────────────────────
 		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — persist CF7 evidence before CRM DB writes.
-		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			$level = $mail_event === 'mail_failed'
 				? 'warn'
 				: 'info';
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'cf7',
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.cf7_audit',
 				$level,
 				'cf7_form_received',
 				'CF7 form #' . $form_id . ' submitted',
@@ -217,12 +215,11 @@ class BizCity_CF7_Channel_Listener {
 			BizCity_CF7_Submissions_Log::update_crm_result( $sub_id, $crm_result );
 		}
 
-		if ( $mail_event === 'mail_failed' && class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+		if ( $mail_event === 'mail_failed' && class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — flag email failure
 			// with evidence for dashboard/statistics.
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'cf7',
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.cf7_audit',
 				'warn',
 				'cf7_mail_flagged',
 				'Submission accepted but email delivery failed',
@@ -274,12 +271,12 @@ class BizCity_CF7_Channel_Listener {
 		// NOT $mapped (CRM-mapped keys like 'email', 'phone') — temp_vars config references raw CF7 field names.
 		if ( class_exists( 'BizCity_CF7_ZNS_Sender', false ) && ! empty( $phone_raw ) ) {
 			// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS DEBUG — log before dispatch
-			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'info', 'zns_dispatch_started', 'CF7 submission dispatched to ZNS.', array( 'form_id' => $form_id, 'phone_present' => $phone_raw !== '', 'posted_key_count' => count( $posted ) ) );
+			BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.zns_audit', 'info', 'zns_dispatch_started', 'CF7 submission dispatched to ZNS.', array( 'form_id' => $form_id, 'phone_present' => $phone_raw !== '', 'posted_key_count' => count( $posted ) ) );
 			BizCity_CF7_ZNS_Sender::dispatch( $form_id, $phone_raw, $posted );
 		} else {
 			// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS DEBUG — log why ZNS skipped
-			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-				BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'info', 'zns_dispatch_skipped', 'CF7 submission did not meet ZNS dispatch prerequisites.', array( 'form_id' => $form_id, 'sender_loaded' => class_exists( 'BizCity_CF7_ZNS_Sender', false ), 'phone_present' => ! empty( $phone_raw ) ) );
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+				BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.zns_audit', 'info', 'zns_dispatch_skipped', 'CF7 submission did not meet ZNS dispatch prerequisites.', array( 'form_id' => $form_id, 'sender_loaded' => class_exists( 'BizCity_CF7_ZNS_Sender', false ), 'phone_present' => ! empty( $phone_raw ) ) );
 			}
 		}
 
@@ -320,10 +317,9 @@ class BizCity_CF7_Channel_Listener {
 		$has_any_pixel = ! empty( $page_tracking['fb_pixel_id'] )
 			|| ! empty( $page_tracking['ga_id'] )
 			|| ! empty( $page_tracking['gtm_id'] );
-		if ( $has_any_pixel && class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'cf7',
+		if ( $has_any_pixel && class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.cf7_audit',
 				'info',
 				'cf7_tracking_fired',
 				'PB tracking event for form #' . $form_id,

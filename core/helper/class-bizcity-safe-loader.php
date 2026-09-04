@@ -34,7 +34,11 @@ final class BizCity_Safe_Loader {
 		try {
 			require_once $path;
 		} catch ( \Throwable $e ) {
-			error_log( '[BizCity_Safe_Loader] load_failed label=' . ( '' !== $label ? $label : 'unlabeled' ) . ' type=' . get_class( $e ) );
+			// [2026-09-02 19:20 PM Johnny Chu - Chu Hoàng Anh] R-SAFE-LOADER — record a redacted exception reason and line so partial deployments are diagnosable.
+			$message = preg_replace( '/(?:[A-Za-z]:)?[\\\\\/][^\s]+/', '[path]', (string) $e->getMessage() );
+			$message = preg_replace( '/\s+/', ' ', (string) $message );
+			$message = substr( trim( (string) $message ), 0, 240 );
+			error_log( '[BizCity_Safe_Loader] load_failed label=' . ( '' !== $label ? $label : 'unlabeled' ) . ' type=' . get_class( $e ) . ' line=' . (int) $e->getLine() . ' message=' . $message );
 			return false;
 		}
 

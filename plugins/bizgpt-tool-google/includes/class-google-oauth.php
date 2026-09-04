@@ -417,8 +417,9 @@ class BZGoogle_Google_OAuth {
 
     private static function encode_state( $data ) {
         $json    = wp_json_encode( $data );
-        $payload = base64_encode( $json );
-        $sig     = hash_hmac( 'sha256', $payload, self::state_secret() );
+        // [2026-08-20 Johnny Chu] CODEC-CORE — preserve Google OAuth state wire format through shared primitives.
+        $payload = BizCity_Codec::base64_encode( $json );
+        $sig     = BizCity_Codec::hmac_sha256( $payload, self::state_secret(), false );
         return $payload . '.' . $sig;
     }
 
@@ -429,10 +430,11 @@ class BZGoogle_Google_OAuth {
         $payload = $parts[0];
         $sig     = $parts[1];
 
-        $expected = hash_hmac( 'sha256', $payload, self::state_secret() );
+        // [2026-08-20 Johnny Chu] CODEC-CORE — verify Google OAuth state with shared HMAC primitive.
+        $expected = BizCity_Codec::hmac_sha256( $payload, self::state_secret(), false );
         if ( ! hash_equals( $expected, $sig ) ) return false;
 
-        $json = base64_decode( $payload, true );
+        $json = BizCity_Codec::base64_decode( $payload, true );
         if ( ! $json ) return false;
 
         return json_decode( $json, true );
@@ -443,7 +445,7 @@ class BZGoogle_Google_OAuth {
      */
     private static function sign_connect_params( $blog_id, $user_id, $return_url, $ts ) {
         $data = "{$blog_id}|{$user_id}|{$return_url}|{$ts}";
-        return hash_hmac( 'sha256', $data, self::state_secret() );
+        return BizCity_Codec::hmac_sha256( $data, self::state_secret(), false );
     }
 
     /**

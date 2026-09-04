@@ -96,6 +96,17 @@ class BizCity_LLM_Client {
     }
 
     /**
+     * [2026-09-01 Johnny Chu] B2C-G7 — canonical hostname signal for Hub warn-mode policy.
+     */
+    public function get_client_domain_headers(): array {
+        $host = strtolower( trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ), '.' ) );
+        if ( strpos( $host, 'www.' ) === 0 ) {
+            $host = substr( $host, 4 );
+        }
+        return $host !== '' ? [ 'X-BizCity-Client-Site' => $host ] : [];
+    }
+
+    /**
      * [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — normalize gateway API key text.
      */
     public static function normalize_gateway_api_key( string $api_key ): string {
@@ -1035,11 +1046,11 @@ class BizCity_LLM_Client {
         $response = wp_remote_post( $endpoint, [
             'timeout'     => $timeout,
             'redirection' => 0,
-            'headers'     => [
+            'headers'     => array_merge( [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key,
                 'X-Site-URL'    => home_url(),
-            ],
+            ], $this->get_client_domain_headers() ),
             'body' => wp_json_encode( $body ),
         ] );
 
@@ -3198,7 +3209,9 @@ class BizCity_LLM_Client {
         if ( $api_key === '' ) {
             return [ 'ok' => false, 'error' => 'no_api_key', '_degraded' => true ];
         }
-        $url = rtrim( $this->get_gateway_url(), '/' ) . '/wp-json/bizcity/v1' . $path;
+        // [2026-08-28 Johnny Chu] PHASE-0.44-ZALO-OA-DUAL-MODE — preserve explicit Hub namespaces while keeping legacy paths on bizcity/v1.
+        $route_root = ( 0 === strpos( $path, '/bizcity-hub/v1/' ) ) ? '/wp-json' : '/wp-json/bizcity/v1';
+        $url = rtrim( $this->get_gateway_url(), '/' ) . $route_root . $path;
         if ( ! empty( $query ) ) {
             $url = add_query_arg( array_map( 'strval', $query ), $url );
         }
@@ -3242,7 +3255,9 @@ class BizCity_LLM_Client {
         if ( $api_key === '' ) {
             return [ 'ok' => false, 'error' => 'no_api_key', '_degraded' => true ];
         }
-        $url = rtrim( $this->get_gateway_url(), '/' ) . '/wp-json/bizcity/v1' . $path;
+        // [2026-08-28 Johnny Chu] PHASE-0.44-ZALO-OA-DUAL-MODE — keep managed OA calls on the dedicated Hub REST namespace.
+        $route_root = ( 0 === strpos( $path, '/bizcity-hub/v1/' ) ) ? '/wp-json' : '/wp-json/bizcity/v1';
+        $url = rtrim( $this->get_gateway_url(), '/' ) . $route_root . $path;
         $response = wp_remote_post( $url, [
             'timeout'     => $timeout,
             'redirection' => 0,

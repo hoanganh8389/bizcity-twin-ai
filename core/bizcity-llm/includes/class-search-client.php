@@ -176,10 +176,11 @@ class BizCity_Search_Client {
             // a GET query-string and produced 404 + http_build_query warnings.
             'method'  => 'POST',
             'timeout' => $request_timeout,
-            'headers' => [
+            // [2026-09-01 Johnny Chu] B2C-G7.1 — send the server-derived site signal on Search calls.
+            'headers' => array_merge( [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $this->get_api_key(),
-            ],
+            ], class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->get_client_domain_headers() : [] ),
             'body' => wp_json_encode( $body ),
         ];
         $route_used = 'query';
@@ -292,10 +293,11 @@ class BizCity_Search_Client {
 
         $response = wp_remote_post( $endpoint, [
             'timeout' => self::TIMEOUT_SEC,
-            'headers' => [
+            // [2026-09-01 Johnny Chu] B2C-G7.1 — keep the canonical site signal on extraction calls.
+            'headers' => array_merge( [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $this->get_api_key(),
-            ],
+            ], class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->get_client_domain_headers() : [] ),
             'body' => wp_json_encode( [ 'urls' => array_slice( $urls, 0, 20 ) ] ),
         ] );
 
@@ -376,10 +378,11 @@ class BizCity_Search_Client {
 
         $response = wp_remote_post( $endpoint, [
             'timeout' => 90,
-            'headers' => [
+            // [2026-09-01 Johnny Chu] B2C-G7.1 — keep the canonical site signal on crawl calls.
+            'headers' => array_merge( [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $this->get_api_key(),
-            ],
+            ], class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->get_client_domain_headers() : [] ),
             'body' => wp_json_encode( $body ),
         ] );
 

@@ -105,10 +105,10 @@ abstract class BizCity_KG_Backfill_Driver {
 		$kg_xref   = $wpdb->prefix . 'bizcity_kg_xref';
 
 		// Guard: legacy table must exist on this blog.
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_src ) ) !== $tbl_src ) {
+		if ( ! bizcity_tbl_exists( $tbl_src ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return [ 'inserted' => 0, 'skipped' => 0, 'errors' => 0, 'no_table' => true ];
 		}
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $kg_src ) ) !== $kg_src ) {
+		if ( ! bizcity_tbl_exists( $kg_xref ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return [ 'inserted' => 0, 'skipped' => 0, 'errors' => 0, 'no_table' => true ];
 		}
 

@@ -18,13 +18,28 @@ if ( ! interface_exists( 'BizCity_Twin_Tool' ) ) {
 	require_once dirname( __DIR__, 3 ) . '/twin-core/includes/interface-twin-tool.php';
 }
 
-final class BizCity_TwinBrain_Memory_Tool_Remember implements BizCity_Twin_Tool {
+final class BizCity_TwinBrain_Memory_Tool_Remember implements BizCity_Twin_Tool, BizCity_Tool_Interface {
 
 	const TOOL_NAME = 'memory_remember';
 	const SCORE     = 80;
 
 	public function name(): string {
 		return self::TOOL_NAME;
+	}
+
+	public function id() {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — expose the stable typed Tool identifier.
+		return $this->name();
+	}
+
+	public function label() {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — expose the typed Tool display label.
+		return 'Remember memory';
+	}
+
+	public function schema() {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — adapt the existing parameter schema to the public Tool envelope.
+		return array( 'name' => $this->id(), 'description' => $this->description(), 'parameters' => $this->parameters_schema() );
 	}
 
 	public function description(): string {
@@ -135,6 +150,18 @@ final class BizCity_TwinBrain_Memory_Tool_Remember implements BizCity_Twin_Tool 
 			],
 			'citation_ids' => $new_id > 0 ? [ 'mem:U#' . $new_id ] : [],
 		];
+	}
+
+	public function run( array $args, array $context = array() ) {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — preserve one execution owner while exposing the typed result envelope.
+		$result = $this->execute( $args, $context );
+		return array(
+			'success'      => ! empty( $result['ok'] ),
+			'result'       => $result['result'] ?? null,
+			'summary'      => $result['summary'] ?? '',
+			'citation_ids' => $result['citation_ids'] ?? array(),
+			'error'        => $result['error'] ?? null,
+		);
 	}
 
 	private function lookup_id( int $user_id, string $session_id, string $identity_uuid, string $key ): int {

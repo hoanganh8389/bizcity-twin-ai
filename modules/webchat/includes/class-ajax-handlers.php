@@ -157,15 +157,11 @@ class BizCity_WebChat_Ajax_Handlers {
 
         $db = BizCity_WebChat_Database::instance();
         
-        // V3: Ensure new tables exist (auto-migration fallback)
-        $this->ensure_v3_tables( $db );
-
         return $db;
     }
 
     /**
-     * Ensure V3 tables exist (projects, sessions).
-     * This is a fallback in case migration didn't run.
+    * Ensure the retained message projection exists.
      */
     private function ensure_v3_tables( $db ) {
         static $checked = false;
@@ -173,16 +169,9 @@ class BizCity_WebChat_Ajax_Handlers {
         $checked = true;
 
         global $wpdb;
-        $projects_table = $wpdb->prefix . 'bizcity_webchat_projects';
-        $sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        
-        // Quick check — if either V3 table doesn't exist, run create_tables()
-        $projects_exists = $wpdb->get_var( "SHOW TABLES LIKE '$projects_table'" );
-        $sessions_exists = $wpdb->get_var( "SHOW TABLES LIKE '$sessions_table'" );
-        
-        if ( $projects_exists !== $projects_table || $sessions_exists !== $sessions_table ) {
-            $db->create_tables();
-            update_option( 'bizcity_webchat_db_version', BizCity_WebChat_Database::SCHEMA_VERSION );
+        $messages_table = $wpdb->prefix . 'bizcity_webchat_messages';
+        if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $messages_table ) ) {
+            $db->create_messages_table();
         }
     }
 
@@ -237,14 +226,9 @@ class BizCity_WebChat_Ajax_Handlers {
             $projects = [];
         }
 
-        // Add session counts
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — derive project counts from message-owned session views.
         foreach ( $projects as &$p ) {
-            $count = $db->wpdb->get_var( $db->wpdb->prepare(
-                "SELECT COUNT(*) FROM {$db->wpdb->prefix}bizcity_webchat_conversations WHERE user_id = %d AND project_id = %s AND status = 'active'",
-                $user_id,
-                $p['id']
-            ) );
-            $p['session_count'] = (int) $count;
+            $p['session_count'] = count( $db->get_sessions_for_user( $user_id, null, 1000, $p['id'] ) );
         }
 
         wp_send_json_success( $projects );
@@ -562,13 +546,7 @@ class BizCity_WebChat_Ajax_Handlers {
             BizCity_User_Meta_Cache::invalidate( $user_id, 'bizcity_projects' );
         }
 
-        // Unassign sessions from this project (legacy)
-        global $wpdb;
-        $wpdb->update(
-            $wpdb->prefix . 'bizcity_webchat_conversations',
-            [ 'project_id' => '' ],
-            [ 'project_id' => $project_id, 'user_id' => $user_id ]
-        );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — project deletion no longer updates the retired conversation table.
 
         wp_send_json_success();
     }
@@ -1151,12 +1129,10 @@ class BizCity_WebChat_Ajax_Handlers {
 
         $user_id = get_current_user_id();
 
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        $rows  = $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$table} WHERE user_id = %d AND platform_type = 'ADMINCHAT' AND status = 'archived' ORDER BY last_message_at DESC LIMIT 50",
-            $user_id
-        ) );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — archived sessions are read from folded encrypted state records.
+        $rows = method_exists( $db, 'get_sessions_v3_for_user' )
+            ? $db->get_sessions_v3_for_user( $user_id, 'ADMINCHAT', 50, null, 'archived' )
+            : array();
 
         $result = [];
         foreach ( $rows as $s ) {
@@ -2003,20 +1979,6 @@ class BizCity_WebChat_Ajax_Handlers {
 
         $table_msg   = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        // Use BCN memory_notes if available, else fallback to memory_notes directly
-        if ( class_exists( 'BCN_Schema_Extend' ) ) {
-            $table_notes  = BCN_Schema_Extend::table_notes();
-        } else {
-            $table_notes  = $wpdb->prefix . 'bizcity_memory_notes';
-        }
-        $msg_id_col = 'message_id';
-
-        // Ensure notes table exists
-        if ( ! $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_notes ) ) ) {
-            wp_send_json_error( [ 'message' => 'Notes table not found. Please refresh to trigger schema migration.' ] );
-            return;
-        }
-
         // Get message content
         $msg = $wpdb->get_row( $wpdb->prepare(
             "SELECT message_text, session_id FROM {$table_msg} WHERE id = %d",
@@ -2031,39 +1993,24 @@ class BizCity_WebChat_Ajax_Handlers {
         $sid = $session_id ?: $msg->session_id;
         $title = mb_substr( wp_strip_all_tags( $msg->message_text ), 0, 100, 'UTF-8' );
 
-        // Create note
-        $inserted = $wpdb->insert( $table_notes, [
-            'session_id'  => $sid,
-            'user_id'     => $user_id,
-            'note_type'   => 'chat_pinned',
-            'title'       => $title,
-            'content'     => $msg->message_text,
-            $msg_id_col   => $message_id,
-            'created_at'  => current_time( 'mysql' ),
-        ] );
-
-        if ( ! $inserted ) {
-            error_log( '[bizcity-pin] Insert failed: ' . $wpdb->last_error . ' | table=' . $table_notes );
-            wp_send_json_error( [ 'message' => 'Failed to save note: ' . $wpdb->last_error ] );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — pin notes through the canonical encrypted business filestore owner.
+        if ( ! class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+            wp_send_json_error( [ 'message' => 'Notes service unavailable.' ] );
             return;
         }
-
-        $note_id = $wpdb->insert_id;
-
-        // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
-        // NO-OP unless filter `bizcity_memory_unified_enabled` is TRUE.
-        do_action( 'bizcity_memory_mirror_write', 'note', [
-            'id'         => (int) $note_id,
-            'blog_id'    => get_current_blog_id(),
-            'user_id'    => $user_id,
-            'session_id' => $sid,
-            'project_id' => '',
-            'title'      => $title,
-            'content'    => $msg->message_text,
-            'note_type'  => 'chat_pinned',
-            'is_starred' => 0,
-            'metadata'   => '',
-        ], 'insert' );
+		$note_id = ( new BizCity_TwinChat_Notes_Service() )->create( array(
+			'project_id' => '',
+			'session_id' => $sid,
+			'message_id' => $message_id,
+			'user_id'    => $user_id,
+			'note_type'  => 'chat_pinned',
+			'title'      => $title,
+			'content'    => $msg->message_text,
+		) );
+		if ( is_wp_error( $note_id ) ) {
+			wp_send_json_error( [ 'message' => $note_id->get_error_message() ] );
+			return;
+		}
 
         // Mark message as pinned in messages table
         $wpdb->update(
@@ -2130,34 +2077,35 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
-        global $wpdb;
         $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
         $user_id    = get_current_user_id();
         $search     = sanitize_text_field( $_POST['search'] ?? '' );
-
-        if ( class_exists( 'BCN_Schema_Extend' ) ) {
-            $table = BCN_Schema_Extend::table_notes();
-        } else {
-            $table = $wpdb->prefix . 'bizcity_memory_notes';
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-NOTES-FILESTORE — read notes only from the canonical encrypted filestore owner.
+        if ( class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+            $notes = array_filter( (array) ( new BizCity_TwinChat_Notes_Service() )->get_all_by_user( $user_id, 100 ), function ( $note ) use ( $session_id, $search ) {
+                if ( $session_id !== '' && (string) ( $note->session_id ?? '' ) !== $session_id ) {
+                    return false;
+                }
+                if ( $search !== '' && stripos( (string) ( $note->title ?? '' ) . ' ' . (string) ( $note->content ?? '' ), $search ) === false ) {
+                    return false;
+                }
+                return true;
+            } );
+            wp_send_json_success( [ 'notes' => array_values( array_map( function ( $note ) {
+                return array(
+                    'id'         => (int) ( $note->id ?? 0 ),
+                    'session_id' => (string) ( $note->session_id ?? '' ),
+                    'note_type'  => (string) ( $note->note_type ?? '' ),
+                    'title'      => (string) ( $note->title ?? '' ),
+                    'content'    => mb_substr( (string) ( $note->content ?? '' ), 0, 500, 'UTF-8' ),
+                    'message_id' => (int) ( $note->message_id ?? 0 ),
+                    'created_at' => (string) ( $note->created_at ?? '' ),
+                    'updated_at' => (string) ( $note->updated_at ?? '' ),
+                );
+            }, $notes ) ) ] );
         }
-        $msg_id_sel = 'message_id';
-
-        $where = $wpdb->prepare( "WHERE user_id = %d", $user_id );
-        if ( $session_id ) {
-            $where .= $wpdb->prepare( " AND session_id = %s", $session_id );
-        }
-        if ( $search ) {
-            $like = '%' . $wpdb->esc_like( $search ) . '%';
-            $where .= $wpdb->prepare( " AND (title LIKE %s OR content LIKE %s)", $like, $like );
-        }
-
-        $notes = $wpdb->get_results(
-            "SELECT id, session_id, note_type, title, LEFT(content, 500) AS content, {$msg_id_sel}, created_at, updated_at
-             FROM {$table} {$where} ORDER BY created_at DESC LIMIT 100",
-            ARRAY_A
-        );
-
-        wp_send_json_success( [ 'notes' => $notes ?: [] ] );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-NOTES-FILESTORE — do not reopen the retired SQL notes projection when the filestore owner is unavailable.
+        wp_send_json_success( [ 'notes' => [] ] );
     }
 
     /**
@@ -2173,7 +2121,6 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
-        global $wpdb;
         $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
         $title      = sanitize_text_field( $_POST['title'] ?? '' );
         $content    = wp_kses_post( $_POST['content'] ?? '' );
@@ -2185,20 +2132,26 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
-        $table = class_exists( 'BCN_Schema_Extend' )
-            ? BCN_Schema_Extend::table_notes()
-            : $wpdb->prefix . 'bizcity_memory_notes';
-        $wpdb->insert( $table, [
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — create notes through the canonical encrypted business filestore owner.
+        if ( ! class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+            wp_send_json_error( [ 'message' => 'Notes service unavailable.' ] );
+            return;
+        }
+        $note_id = ( new BizCity_TwinChat_Notes_Service() )->create( array(
+            'project_id' => '',
             'session_id' => $session_id,
             'user_id'    => $user_id,
             'note_type'  => $note_type,
             'title'      => $title ?: mb_substr( wp_strip_all_tags( $content ), 0, 100, 'UTF-8' ),
             'content'    => $content,
-            'created_at' => current_time( 'mysql' ),
-        ] );
+        ) );
+        if ( is_wp_error( $note_id ) ) {
+            wp_send_json_error( [ 'message' => $note_id->get_error_message() ] );
+            return;
+        }
 
         wp_send_json_success( [
-            'id'         => $wpdb->insert_id,
+            'id'         => $note_id,
             'title'      => $title,
             'content'    => $content,
             'note_type'  => $note_type,
@@ -2219,7 +2172,6 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
-        global $wpdb;
         $note_id = absint( $_POST['note_id'] ?? 0 );
         $user_id = get_current_user_id();
 
@@ -2228,10 +2180,10 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
-        $table   = class_exists( 'BCN_Schema_Extend' )
-            ? BCN_Schema_Extend::table_notes()
-            : $wpdb->prefix . 'bizcity_memory_notes';
-        $deleted = $wpdb->delete( $table, [ 'id' => $note_id, 'user_id' => $user_id ] );
+		// [2026-09-01 Johnny Chu] PHASE-CB4.4 — delete notes with the canonical filestore tombstone.
+		$deleted = class_exists( 'BizCity_TwinChat_Notes_Service' )
+			? ( new BizCity_TwinChat_Notes_Service() )->delete( $note_id )
+			: false;
 
         if ( $deleted ) {
             wp_send_json_success( true );

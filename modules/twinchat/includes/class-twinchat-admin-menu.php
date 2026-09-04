@@ -44,6 +44,9 @@ class BizCity_TwinChat_Admin_Menu {
 			self::PAGE_SLUG,
 			[ $this, 'render_page' ]
 		);
+		// [2026-08-27 Johnny Chu] PHASE-TWINSHELL-SINGLE-FRAME — redirect the
+		// legacy admin route before wp-admin sends any HTML to the browser.
+		add_action( 'admin_init', [ $this, 'redirect_legacy_admin_shell' ], 0 );
 
 		// Enqueue assets only on our admin page.
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
@@ -117,6 +120,45 @@ class BizCity_TwinChat_Admin_Menu {
 			[ 'id' => 'explore',      'label' => __( 'Marketplace',      $td ), 'icon' => 'explore',    'emoji' => '', 'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-marketplace' ),                           'pluginId' => '',             'section' => 'bottom' ],
 		];
 		return $items;
+	}
+
+	/** Redirect the legacy admin wrapper to the canonical standalone shell. */
+	public function redirect_legacy_admin_shell(): void {
+		if (
+			! is_admin() ||
+			! isset( $_GET['page'] ) ||
+			self::PAGE_SLUG !== sanitize_key( (string) wp_unslash( $_GET['page'] ) ) ||
+			! current_user_can( 'read' )
+		) {
+			return;
+		}
+
+		$initial_plugin = isset( $_GET['plugin'] ) ? sanitize_key( wp_unslash( $_GET['plugin'] ) ) : 'twinchat';
+		$shell_url      = class_exists( 'BizCity_Twin_Shell_Page' )
+			? BizCity_Twin_Shell_Page::shell_url( array( 'plugin' => $initial_plugin ) )
+			: add_query_arg( 'plugin', $initial_plugin, home_url( '/twin/' ) );
+		$forward = array(
+			'notebook_id', 'notebook', 'session', 'session_id', 'thread', 'tab',
+			'id', 'task_id', 'inbox', 'contact_id', 'doc', 'instance_id',
+		);
+		foreach ( $forward as $key ) {
+			if ( isset( $_GET[ $key ] ) && '' !== $_GET[ $key ] ) {
+				$shell_url = add_query_arg( $key, sanitize_text_field( wp_unslash( $_GET[ $key ] ) ), $shell_url );
+			}
+		}
+		if ( isset( $_GET['_iurl'] ) && '' !== $_GET['_iurl'] ) {
+			$iurl_raw = wp_unslash( $_GET['_iurl'] );
+			if (
+				substr( $iurl_raw, 0, 1 ) === '/' &&
+				strpos( $iurl_raw, '//' ) !== 0 &&
+				strpos( $iurl_raw, '://' ) === false
+			) {
+				$shell_url = add_query_arg( '_iurl', sanitize_text_field( $iurl_raw ), $shell_url );
+			}
+		}
+
+		wp_safe_redirect( $shell_url, 302 );
+		exit;
 	}
 
 	// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-1 — build currentUser object for AccountButton config.
@@ -514,43 +556,24 @@ class BizCity_TwinChat_Admin_Menu {
 	}
 
 	public function render_page() {
-		// 2026-05-13 — UNIFY: render the same TwinShell at /twin/?plugin=twinchat
-		// inside an iframe so the WP admin page uses the EXACT same activity bar
-		// (dark themed, React-driven, single source of truth) as /twin/. No more
-		// duplicate ActivityBar.tsx instance on this surface.
-
+		// [2026-08-27 Johnny Chu] PHASE-TWINSHELL-SINGLE-FRAME — keep the
+		// legacy admin URL as a compatibility redirect instead of embedding
+		// TwinShell inside wp-admin and then embedding a plugin inside it.
 		$initial_plugin = isset( $_GET['plugin'] ) ? sanitize_key( wp_unslash( $_GET['plugin'] ) ) : 'twinchat';
 		$shell_url      = class_exists( 'BizCity_Twin_Shell_Page' )
-			? BizCity_Twin_Shell_Page::shell_url()
-			: home_url( '/twin/' );
-		$shell_url      = add_query_arg(
-			[
-				'plugin'         => $initial_plugin,
-				'bizcity_iframe' => '1',
-			],
-			$shell_url
-		);
-
-		// Forward useful query args (notebook_id, session, thread, tab, ...) so
-		// deep-links into the admin URL still hit the right plugin context.
-		// Union of params declared across registered shell plugins
-		// (twinchat / crm / doc / brain / studio / ...). Keep this list in sync
-		// with `modules/twinshell/includes/default-plugins.php`.
-		$forward = [
+			? BizCity_Twin_Shell_Page::shell_url( array( 'plugin' => $initial_plugin ) )
+			: add_query_arg( 'plugin', $initial_plugin, home_url( '/twin/' ) );
+		$forward = array(
 			'notebook_id', 'notebook', 'session', 'session_id', 'thread', 'tab',
 			'id', 'task_id', 'inbox', 'contact_id', 'doc', 'instance_id',
-		];
-		foreach ( $forward as $k ) {
-			if ( isset( $_GET[ $k ] ) && $_GET[ $k ] !== '' ) {
-				$shell_url = add_query_arg( $k, sanitize_text_field( wp_unslash( $_GET[ $k ] ) ), $shell_url );
+		);
+		foreach ( $forward as $key ) {
+			if ( isset( $_GET[ $key ] ) && '' !== $_GET[ $key ] ) {
+				$shell_url = add_query_arg( $key, sanitize_text_field( wp_unslash( $_GET[ $key ] ) ), $shell_url );
 			}
 		}
-
-		// Forward _iurl (deeplink path) with strict validation:
-		// must be a same-origin relative path so we never create an open redirect.
-		if ( isset( $_GET['_iurl'] ) && $_GET['_iurl'] !== '' ) {
+		if ( isset( $_GET['_iurl'] ) && '' !== $_GET['_iurl'] ) {
 			$iurl_raw = wp_unslash( $_GET['_iurl'] );
-			// Accept only paths starting with '/' and containing no protocol (no '://').
 			if (
 				substr( $iurl_raw, 0, 1 ) === '/' &&
 				strpos( $iurl_raw, '//' ) !== 0 &&
@@ -559,67 +582,8 @@ class BizCity_TwinChat_Admin_Menu {
 				$shell_url = add_query_arg( '_iurl', sanitize_text_field( $iurl_raw ), $shell_url );
 			}
 		}
-
-		// Full-bleed: hide WP admin chrome padding for this page only.
-		echo '<style>
-			#wpcontent, #wpbody-content { padding-left: 0 !important; }
-			#wpbody-content { padding-bottom: 0 !important; margin: 0 !important; }
-			.wrap { margin: 0 !important; }
-			html.wp-toolbar { padding-top: 32px; }
-			#bizcity-twinchat-shell-frame { display:block; width:100%; height:calc(100vh - 32px); border:0; background:#0f1115; }
-			@media screen and (max-width: 782px) { html.wp-toolbar { padding-top: 46px; } #bizcity-twinchat-shell-frame { height:calc(100vh - 46px); } }
-		</style>';
-
-		echo '<div class="wrap" style="margin:0;padding:0;">';
-		echo '<iframe id="bizcity-twinchat-shell-frame" src="' . esc_url( $shell_url ) . '" title="Twin AI" allow="clipboard-read; clipboard-write; microphone; camera; fullscreen"></iframe>';
-		echo '</div>';
-
-		// ── Deep-link sync ─────────────────────────────────────────────
-		// /twin/ shell (loaded inside #bizcity-twinchat-shell-frame) posts
-		// `{source:'bizcity-twin-shell',type:'url-change',pluginId,params}`
-		// every time the user navigates. Mirror those params onto THIS
-		// admin page URL so the address bar reflects the current deep-link
-		// (e.g. ?page=bizcity-twinchat&plugin=crm&tab=inbox). Reloading the
-		// admin page then forwards the same params back into the iframe via
-		// the `$forward` whitelist above.
-		$origin = wp_parse_url( $shell_url, PHP_URL_SCHEME ) . '://' . wp_parse_url( $shell_url, PHP_URL_HOST );
-		?>
-		<script>
-		( function () {
-			var EXPECTED_ORIGIN = <?php echo wp_json_encode( $origin ); ?>;
-			var FORWARD_KEYS    = <?php echo wp_json_encode( $forward ); ?>;
-			console.log( '[twinchat-admin][deeplink-sync] listener armed', { origin: EXPECTED_ORIGIN, forward: FORWARD_KEYS } );
-			window.addEventListener( 'message', function ( ev ) {
-				if ( ! ev || ev.origin !== EXPECTED_ORIGIN ) { return; }
-				var d = ev.data;
-				if ( ! d || d.source !== 'bizcity-twin-shell' || d.type !== 'url-change' ) { return; }
-				try {
-					var url = new URL( window.location.href );
-					url.searchParams.set( 'page', 'bizcity-twinchat' );
-					if ( d.pluginId ) { url.searchParams.set( 'plugin', String( d.pluginId ) ); }
-					// Wipe stale forwarded keys, then re-apply from current params.
-					FORWARD_KEYS.forEach( function ( k ) { url.searchParams.delete( k ); } );
-					var p = d.params || {};
-					FORWARD_KEYS.forEach( function ( k ) {
-						if ( Object.prototype.hasOwnProperty.call( p, k ) && p[ k ] !== '' && p[ k ] !== null && p[ k ] !== undefined ) {
-							url.searchParams.set( k, String( p[ k ] ) );
-						}
-					} );
-					// _iurl: deeplink path stored by shell (not in d.params — arrives in d.iurl).
-					// Always clear stale value, then re-apply with security validation.
-					url.searchParams.delete( '_iurl' );
-					if ( typeof d.iurl === 'string' && d.iurl.charAt( 0 ) === '/' &&
-					     d.iurl.indexOf( '//' ) !== 0 && d.iurl.indexOf( '://' ) === -1 ) {
-						url.searchParams.set( '_iurl', d.iurl );
-					}
-					var nextUrl = url.pathname + url.search;
-					console.log( '[twinchat-admin][deeplink-sync] <- shell', { pluginId: d.pluginId, params: p, iurl: d.iurl || '', nextUrl: nextUrl } );
-					window.history.replaceState( null, '', nextUrl );
-				} catch ( e ) { console.warn( '[twinchat-admin][deeplink-sync] err', e ); }
-			}, false );
-		} )();
-		</script>
-		<?php
+		wp_safe_redirect( $shell_url, 302 );
+		exit;
 	}
 
 }

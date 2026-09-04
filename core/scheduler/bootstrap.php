@@ -103,6 +103,23 @@ BizCity_Reminder_Personal_Handler::init();
 // [2026-06-15 Johnny Chu] R-UNIFY GAP-B — CRM Inbox Bridge (Zone 1 only).
 BizCity_CRM_Inbox_Bridge::init();
 
+// [2026-08-27 Johnny Chu] PHASE-DIAG-CI-MOCK — register the canonical
+// Scheduler schema with Site Provisioner so headless Diagnostics can create
+// bizcity_crm_events without relying on admin_init or activation hooks.
+add_filter( 'bizcity_register_installers', static function ( $list ) {
+	$list = is_array( $list ) ? $list : array();
+	$list[] = array(
+		'id'           => 'scheduler',
+		'label'        => 'Core Scheduler',
+		// [2026-08-27 Johnny Chu] PHASE-DIAG-CI-MOCK — ensure_schema() is an
+		// instance method; pass the singleton so Site Provisioner accepts it as callable.
+		'callback'     => array( BizCity_Scheduler_Manager::instance(), 'ensure_schema' ),
+		'version_opt'  => BizCity_Scheduler_Manager::SCHEMA_VERSION_KEY,
+		'expected_ver' => (string) BizCity_Scheduler_Manager::SCHEMA_VERSION,
+	);
+	return $list;
+}, 20, 1 );
+
 if ( is_admin() ) {
 	BizCity_Scheduler_Admin_Page::instance();
 }

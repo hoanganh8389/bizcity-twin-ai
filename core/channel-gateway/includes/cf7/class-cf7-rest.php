@@ -602,16 +602,17 @@ class BizCity_CF7_REST {
 		$body    = is_array( $json ) ? $json : array();
 
 		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — keep ZNS config evidence in CRM JSONL without raw body data.
-		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'info', 'zns_config_save', 'ZNS form configuration save requested.', array( 'form_id' => $form_id, 'field_count' => count( $body ) ) );
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — CF7 REST config evidence uses the ZNS channel contract.
+			BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.zns_audit', 'info', 'zns_config_save', 'ZNS form configuration save requested.', array( 'form_id' => $form_id, 'field_count' => count( $body ) ) );
 		}
 
 		BizCity_CF7_ZNS_Config::save_form_config( $form_id, $body );
 
 		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — record saved ZNS config shape, never its values.
 		$saved = BizCity_CF7_ZNS_Config::get_form_config( $form_id );
-		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'info', 'zns_config_saved', 'ZNS form configuration saved.', array( 'form_id' => $form_id, 'temp_vars_count' => count( $saved['temp_vars'] ?? array() ) ) );
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.zns_audit', 'info', 'zns_config_saved', 'ZNS form configuration saved.', array( 'form_id' => $form_id, 'temp_vars_count' => count( $saved['temp_vars'] ?? array() ) ) );
 		}
 
 		return new \WP_REST_Response( array( 'success' => true, 'data' => $saved ), 200 );
@@ -679,10 +680,9 @@ class BizCity_CF7_REST {
 		$force_sandbox_param = $body['force_sandbox'] ?? true;
 		$use_sandbox = ( $force_sandbox_param === false ) ? ! empty( $cfg['sandbox'] ) : true;
 
-		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'zns',
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.zns_audit',
 				'info',
 				'zns_test_send_attempt',
 				'Test ZNS send started.',
@@ -715,11 +715,10 @@ class BizCity_CF7_REST {
 		$result = BizCity_CF7_ZNS_Sender::send( $request_args );
 
 		// File-log result
-		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			$level = $result['sent'] ? 'info' : 'error';
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'zns',
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.zns_audit',
 				$level,
 				$result['sent'] ? 'zns_test_send_ok' : 'zns_test_send_failed',
 				$result['sent'] ? 'Test ZNS send succeeded.' : 'Test ZNS send failed.',
@@ -871,10 +870,10 @@ class BizCity_CF7_REST {
 		if ( ! is_array( $temp_data_raw ) ) { $temp_data_raw = array(); }
 
 		// File-log TRƯỚC HTTP (R-CH-FILE-LOG)
-		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'zns',
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — direct ZNS test evidence uses the registered channel contract.
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.zns_audit',
 				'info',
 				'zns_direct_test_attempt',
 				'Direct test ZNS send started.',
@@ -903,11 +902,10 @@ class BizCity_CF7_REST {
 		$result = BizCity_CF7_ZNS_Sender::send( $request_args );
 
 		// File-log result
-		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			$level = $result['sent'] ? 'info' : 'error';
-			BizCity_JSONL_File_Logger::write(
-				BizCity_JSONL_File_Logger::CRM_FOLDER,
-				'zns',
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.channel_gateway.zns_audit',
 				$level,
 				$result['sent'] ? 'zns_direct_test_ok' : 'zns_direct_test_failed',
 				$result['sent'] ? 'Direct test ZNS send succeeded.' : 'Direct test ZNS send failed.',
@@ -1088,7 +1086,7 @@ class BizCity_CF7_REST {
 			}
 
 			// [2026-08-01 Johnny Chu] PHASE-CRM-LOG-SPLIT — consume cf7_mail_flagged from CRM JSONL.
-			$rows = BizCity_JSONL_File_Logger::read( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', $date, 2000 );
+			$rows = BizCity_JSONL_File_Logger::read_contract( 'core.channel_gateway.cf7_audit', $date, 2000 );
 			foreach ( (array) $rows as $entry ) {
 				if ( ! is_array( $entry ) ) {
 					continue;

@@ -1,0 +1,10 @@
+{
+  "contract": "context-bank-record",
+  "version": "1.0.0",
+  "record_id": "ctx_bad",
+  "record_kind": "click",
+  "source_contract_id": "web.click",
+  "occurred_at": "not-a-date",
+  "provenance": { "source_record_id": "click_1" },
+  "payload": { "mode": "plain", "value": "raw customer message" }
+}

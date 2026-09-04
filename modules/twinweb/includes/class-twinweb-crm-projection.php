@@ -29,7 +29,8 @@ final class BizCity_TwinWeb_CRM_Projection {
 			return array( 'conversations' => array(), 'care_tasks' => array(), 'orders' => array(), '_degraded' => true, 'reason' => 'crm_projection_unavailable' );
 		}
 		$limit = max( 1, min( 100, $limit ) );
-		$scope = BizCity_CRM_Inbox_Access::resolve_scope( $user_id );
+		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — /crm/me is always a C projection, including for users with manage_options.
+		$scope = BizCity_CRM_Inbox_Access::resolve_scope( $user_id, 'c' );
 		$allowed = isset( $scope['inbox_ids'] ) && is_array( $scope['inbox_ids'] ) ? $scope['inbox_ids'] : null;
 		$conversations = BizCity_CRM_Repository::list_conversations_for_member( $user_id, $allowed, $limit );
 		$conversation_items = array();
@@ -43,6 +44,7 @@ final class BizCity_TwinWeb_CRM_Projection {
 		}
 		return array(
 			'contract_version' => '1.0.0',
+			'surface' => 'C_PUBLIC_TWINGPT',
 			'scope' => array(
 				'scope_type' => (string) ( $scope['scope_type'] ?? 'empty' ),
 				'owner_user_id' => $user_id,

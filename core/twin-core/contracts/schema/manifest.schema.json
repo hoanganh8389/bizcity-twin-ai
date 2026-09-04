@@ -10,6 +10,25 @@
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$" },
     "name": { "type": "string", "minLength": 1, "maxLength": 120 },
     "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "taxonomy": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": { "enum": ["act", "channel", "view"] }
+    },
+    "primary_taxonomy": { "enum": ["act", "channel", "view"] },
+    "diagnostics": { "type": "boolean" },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contracts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" }
+        }
+      }
+    },
     "requires": {
       "type": "object",
       "additionalProperties": false,
@@ -61,6 +80,11 @@
         "personas": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
         "output_renderers": { "type": "array", "items": { "$ref": "#/$defs/capability" } }
       }
+    },
+    "vertical_modes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/verticalMode" }
     },
     "navigation": {
       "type": "array",
@@ -158,9 +182,28 @@
         "class": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_\\\\]*$" },
         "schema": { "type": "object" },
         "primary": { "type": "boolean" },
+        "idempotency": { "type": "boolean" },
         "zone": { "enum": ["customer", "admin"] },
         "artifact_type": { "type": "string" },
         "side_effects": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "verticalMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "role", "output_shape", "guest_allowed", "min_plan", "registry_filter"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "role": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "output_shape": { "type": "string", "enum": ["narrative", "list_and_narrative", "table_and_narrative"] },
+        "guest_allowed": { "type": "boolean" },
+        "min_plan": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
+        "registry_filter": { "type": "string", "const": "bizcity_twinbrain_vertical_bridge_registry" },
+        "mpr_layers": { "type": "array", "items": { "type": "integer", "enum": [2, 5] }, "minItems": 1, "uniqueItems": true },
+        "automation_mode": { "type": "string", "enum": ["built_in_mpr", "user_workflow", "hybrid_declared"] },
+        "channel_entry": { "type": "string" },
+        "admin_surface": { "type": "string" }
       }
     },
     "navigationItem": {

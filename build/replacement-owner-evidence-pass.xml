@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="5" failures="0" skipped="0" time="43.071">
+  <testsuite name="diagnostics" tests="5" failures="0" skipped="0" time="43.071">
+    <testcase classname="bizcity.diagnostics" name="channel-gateway.flows" time="41.495">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="modules.zalobot.memory_unify" time="0.179">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="twinbrain.goal_contracts" time="0.238">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.webchat.sql_lifecycle" time="0.049">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.knowledge.kg_usage_ledger_parity" time="0.239">
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -1,4 +1,4 @@
-# Contributing to BizCity Twin AI
+# Contributing to BizCity Twin Brain
 
 Cảm ơn bạn quan tâm đóng góp! Đây là framework AI cho WordPress được duy trì bởi
 [BizCity](https://bizcity.vn). Tài liệu này tóm tắt rule và workflow.

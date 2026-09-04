@@ -1,5 +1,16 @@
 <?php
 /**
+ * [2026-06-04 Johnny Chu] PHASE-A A.0 — stub redirect. Canonical file moved to
+ * core/twinbrain/tools/sheet/class-twinbrain-sheet-installer.php
+ * This file kept for back-compat (direct require_once from 3rd-party or old probes).
+ */
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+if ( ! class_exists( 'BizCity_TwinBrain_Sheets_Installer' ) ) {
+	require_once dirname( __FILE__, 3 ) . '/tools/sheet/class-twinbrain-sheet-installer.php';
+}
+
+/**
+ * [ORIGINAL DOCBLOCK PRESERVED BELOW FOR HISTORY]
  * TwinBrain Sheets — Schema Installer (Wave 2.8e TBR.TOOL-S1).
  *
  * Tạo 2 bảng artifact cho `sheet_enrich` tool:
@@ -128,8 +139,15 @@ class BizCity_TwinBrain_Sheets_Installer {
 		dbDelta( $sql_sheets );
 		dbDelta( $sql_cells );
 
-		$ok_sheets = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $sheets ) );
-		$ok_cells  = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $cells ) );
+		// [2026-06-28 Johnny Chu] R-SHOW-TABLES — information_schema post-dbDelta verify (no SHOW TABLES)
+		$ok_sheets = (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$sheets
+		) );
+		$ok_cells  = (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$cells
+		) );
 
 		if ( ! $ok_sheets || ! $ok_cells ) {
 			error_log( '[BizCity_TwinBrain_Sheets_Installer] dbDelta missing tables — sheets=' . (int) $ok_sheets . ' cells=' . (int) $ok_cells );

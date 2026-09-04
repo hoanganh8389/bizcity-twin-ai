@@ -50,6 +50,9 @@ class BizCity_Episodic_Memory {
     /** Max events per user */
     const MAX_PER_USER = 500;
 
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — canonical encrypted business-record contract for episodic memory.
+    const BUSINESS_CONTRACT_ID = 'core.intent.episodic_memory';
+
     public static function instance() {
         if ( is_null( self::$instance ) ) {
             self::$instance = new self();
@@ -86,6 +89,16 @@ class BizCity_Episodic_Memory {
         static $checked = [];
         if ( isset( $checked[ $cache_key ] ) ) return;
         $checked[ $cache_key ] = true;
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — retired episodic SQL is never installed or migrated by fallback loaders.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::install_blocked( $wpdb->prefix . 'bizcity_memory_episodic' ) ) {
+			return;
+		}
+
+		// [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — once the business contract is loaded, do not recreate or migrate the quarantined SQL table.
+		if ( class_exists( 'BizCity_File_Contract_Registry' )
+			&& BizCity_File_Contract_Registry::has( self::BUSINESS_CONTRACT_ID ) ) {
+			return;
+		}
 
         $table = $wpdb->prefix . 'bizcity_memory_episodic';
 
@@ -125,7 +138,8 @@ class BizCity_Episodic_Memory {
         $lock_name = 'bizcity_memory_migrate_' . md5( $table );
         $got_lock  = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $lock_name ) );
         if ( 1 !== $got_lock ) {
-            BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'warn', 'migration_lock_busy', 'Episodic memory migration lock was busy.', array( 'table' => $table ) );
+            // [2026-08-27 Johnny Chu] R-LOG-HYBRID — episodic memory migration evidence uses its registered contract.
+            BizCity_JSONL_File_Logger::write_contract( 'core.intent.episodic_memory_trace', 'warn', 'migration_lock_busy', 'Episodic memory migration lock was busy.', array( 'table' => $table ) );
             return;
         }
 
@@ -163,7 +177,7 @@ class BizCity_Episodic_Memory {
             if ( $legacy_index_exists ) {
                 $dropped = $wpdb->query( "ALTER TABLE {$table} DROP INDEX unique_event" );
                 if ( false === $dropped ) {
-                    BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'error', 'legacy_index_drop_failed', 'Episodic memory legacy index could not be removed.', array( 'table' => $table, 'index' => 'unique_event' ) );
+                    BizCity_JSONL_File_Logger::write_contract( 'core.intent.episodic_memory_trace', 'error', 'legacy_index_drop_failed', 'Episodic memory legacy index could not be removed.', array( 'table' => $table, 'index' => 'unique_event' ) );
                 }
             }
 
@@ -224,7 +238,7 @@ class BizCity_Episodic_Memory {
                     'last_log'     => time(),
                 ] );
                 delete_transient( $backoff_key );
-                BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'info', 'migration_ok', 'Episodic memory table migration completed.', array( 'table' => $table, 'version' => self::DB_VERSION ) );
+                BizCity_JSONL_File_Logger::write_contract( 'core.intent.episodic_memory_trace', 'info', 'migration_ok', 'Episodic memory table migration completed.', array( 'table' => $table, 'version' => self::DB_VERSION ) );
             } else {
                 // [2026-07-29 Johnny Chu] R-CH-IDMEM — remember the failed ALTER for one hour;
                 // only emit the same failure again after one day or when its reason changes.
@@ -248,7 +262,7 @@ class BizCity_Episodic_Memory {
                 // [2026-07-28 Johnny Chu] HOTFIX P1 — retain the routed DB failure reason so a
                 // silent dbDelta/no-op can be distinguished from read-only or missing privileges.
                 if ( $should_log ) {
-                    BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'error', 'migration_incomplete', 'Episodic memory identity schema is still missing; migration is backing off.', array( 'table' => $table, 'retry_seconds' => self::MIGRATION_RETRY_SECONDS, 'db_error_present' => $db_error !== '', 'error_hash' => $error_hash, 'route_check_required' => true ) );
+                    BizCity_JSONL_File_Logger::write_contract( 'core.intent.episodic_memory_trace', 'error', 'migration_incomplete', 'Episodic memory identity schema is still missing; migration is backing off.', array( 'table' => $table, 'retry_seconds' => self::MIGRATION_RETRY_SECONDS, 'db_error_present' => $db_error !== '', 'error_hash' => $error_hash, 'route_check_required' => true ) );
                 }
             }
         } finally {
@@ -440,7 +454,7 @@ class BizCity_Episodic_Memory {
                 $rm_table
             ) );
         if ( ! $has_identity ) {
-            BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'warn', 'daily_aggregate_skipped', 'Episodic daily aggregate skipped because identity schema is not ready.', array( 'table' => $rm_table, 'schema_ready' => false ) );
+            BizCity_JSONL_File_Logger::write_contract( 'core.intent.episodic_memory_trace', 'warn', 'daily_aggregate_skipped', 'Episodic daily aggregate skipped because identity schema is not ready.', array( 'table' => $rm_table, 'schema_ready' => false ) );
             return;
         }
 
@@ -530,33 +544,15 @@ PROMPT;
      * @return string
      */
     public function build_context( $user_id, $current_goal = '', $identity_uuid = '' ) {
-        global $wpdb;
-
-        $blog_id = get_current_blog_id();
 		$scope = class_exists( 'BizCity_Memory_Identity_Scope' )
 			? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'identity_uuid' => $identity_uuid ) )
 			: array( 'user_id' => (int) $user_id, 'identity_uuid' => (string) $identity_uuid );
-		$where  = array( 'blog_id = %d' );
-		$params = array( $blog_id );
-		if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
-			if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) return '';
-		} elseif ( (int) $scope['user_id'] > 0 ) {
-			$where[] = 'identity_uuid = %s AND user_id = %d';
-			$params[] = '';
-			$params[] = (int) $scope['user_id'];
-		} else {
-			return '';
-		}
 
-        // Get top events by importance + recency
-        $events = $wpdb->get_results( $wpdb->prepare(
-            "SELECT event_type, event_text, importance, times_seen, source_goal, source_tool, last_seen
-             FROM {$this->table}
-             WHERE " . implode( ' AND ', $where ) . "
-             ORDER BY importance DESC, last_seen DESC
-             LIMIT 15",
-            $params
-        ) );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — episodic context is read exclusively from the encrypted filestore.
+        $events = $this->query_filestore_events( $scope, array(), 80 );
+        if ( ! empty( $events ) ) {
+            $events = array_map( function ( $event ) { return (object) $event; }, $events );
+        }
 
         if ( empty( $events ) ) return '';
 
@@ -595,29 +591,22 @@ PROMPT;
      * @return object|null  Event row or null.
      */
     public function has_tool_history( $user_id, $tool_name, $identity_uuid = '' ) {
-        global $wpdb;
         $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
             ? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'identity_uuid' => $identity_uuid ) )
             : array( 'user_id' => (int) $user_id, 'identity_uuid' => (string) $identity_uuid );
-        $where = array( 'blog_id = %d' );
-        $params = array( get_current_blog_id() );
-        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
-            if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) return null;
-        } else {
-            $where[] = 'identity_uuid = %s AND user_id = %d';
-            $params[] = '';
-            $params[] = (int) $scope['user_id'];
+
+		// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — tool-history lookup is filestore-only.
+        $file_rows = $this->query_filestore_events( $scope, array(
+            'event_type' => self::TYPE_TOOL_USAGE,
+            'filter'     => function ( $event ) use ( $tool_name ) {
+                return (string) ( $event['source_tool'] ?? '' ) === (string) $tool_name;
+            },
+        ), 1 );
+        if ( ! empty( $file_rows ) ) {
+            return (object) $file_rows[0];
         }
-        $where[] = 'event_type = %s';
-        $where[] = 'source_tool = %s';
-        $params[] = self::TYPE_TOOL_USAGE;
-        $params[] = $tool_name;
-        return $wpdb->get_row( $wpdb->prepare(
-            "SELECT * FROM {$this->table}
-             WHERE " . implode( ' AND ', $where ) . "
-             ORDER BY last_seen DESC LIMIT 1",
-            $params
-        ) );
+
+        return null;
     }
 
     /**
@@ -627,29 +616,81 @@ PROMPT;
      * @return array
      */
     public function get_habits( $user_id, $identity_uuid = '' ) {
-        global $wpdb;
         $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
             ? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'identity_uuid' => $identity_uuid ) )
             : array( 'user_id' => (int) $user_id, 'identity_uuid' => (string) $identity_uuid );
-        $where = array( 'blog_id = %d' );
-        $params = array( get_current_blog_id() );
-        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
-            if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) return array();
-        } else {
-            $where[] = 'identity_uuid = %s AND user_id = %d';
-            $params[] = '';
-            $params[] = (int) $scope['user_id'];
-        }
-        $where[] = 'event_type = %s';
-        $params[] = self::TYPE_HABIT;
-        return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$this->table}
-             WHERE " . implode( ' AND ', $where ) . "
-             ORDER BY importance DESC, times_seen DESC
-             LIMIT 20",
-            $params
-        ) );
+
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — habit reads use only the encrypted episodic contract.
+        $file_habits = $this->query_filestore_events( $scope, array( 'event_type' => self::TYPE_HABIT ), 20 );
+        return array_map( function ( $event ) { return (object) $event; }, $file_habits );
     }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — verify the shared business contract is loaded before using the canonical store.
+    private function is_filestore_available() {
+        return class_exists( 'BizCity_File_Contract_Registry' )
+            && class_exists( 'BizCity_Business_JSONL_File_Store' )
+            && BizCity_File_Contract_Registry::has( self::BUSINESS_CONTRACT_ID );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — derive a stable HMAC record key without exposing user/event identifiers in filenames or envelopes.
+    private function filestore_record_id( array $data ) {
+        $scope = (int) ( $data['blog_id'] ?? get_current_blog_id() ) . '|'
+            . (string) ( $data['identity_uuid'] ?? '' ) . '|'
+            . (int) ( $data['user_id'] ?? 0 ) . '|'
+            . (string) ( $data['event_key'] ?? '' );
+        $key = function_exists( 'wp_salt' ) ? wp_salt( 'auth' ) : '';
+        if ( class_exists( 'BizCity_Codec' ) && $key !== '' ) {
+            return 'ep_' . BizCity_Codec::hmac_sha256( $scope, $key, false );
+        }
+        return 'ep_' . hash( 'sha256', $scope );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — fold the latest file record before writing so counters are not sourced from SQL.
+    private function write_filestore_event( array $data ) {
+        if ( ! $this->is_filestore_available() ) {
+            return false;
+        }
+        $record_id = $this->filestore_record_id( $data );
+        $existing = BizCity_Business_JSONL_File_Store::find( self::BUSINESS_CONTRACT_ID, $record_id, array(
+            'blog_id' => (int) ( $data['blog_id'] ?? get_current_blog_id() ),
+        ) );
+        $now = current_time( 'mysql' );
+        $record = array_merge( $data, array(
+            'record_id'  => $record_id,
+            'legacy_id'  => (int) ( $existing['legacy_id'] ?? 0 ),
+            'times_seen' => max( 1, (int) ( $existing['times_seen'] ?? 0 ) + ( empty( $existing ) ? 0 : 1 ) ),
+            'importance' => empty( $existing )
+                ? (int) $data['importance']
+                : min( 100, (int) $data['importance'] + 5 ),
+            'last_seen'  => $now,
+            'updated_at' => $now,
+            'created_at' => (string) ( $existing['created_at'] ?? $now ),
+            'token_count'=> $this->estimate_tokens( (string) $data['event_text'] ),
+        ) );
+        return BizCity_Business_JSONL_File_Store::write_with_receipt( self::BUSINESS_CONTRACT_ID, $record, 'upsert' );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — expose one scoped file read adapter to all episodic consumers.
+    private function query_filestore_events( array $scope, array $args = array(), $limit = 20 ) {
+        if ( ! $this->is_filestore_available() ) {
+            return array();
+        }
+        $query = array_merge( array(
+            'blog_id'       => get_current_blog_id(),
+            'user_id'       => (int) ( $scope['user_id'] ?? 0 ),
+            'identity_uuid' => (string) ( $scope['identity_uuid'] ?? '' ),
+            'limit'         => (int) $limit,
+            'days'          => 365,
+        ), $args );
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — episodic reads follow Context Bank pointers and verify the encrypted receipt before returning a record.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
+        }
+        return class_exists( 'BizCity_Context_Bank_Memory_Adapter' )
+            ? BizCity_Context_Bank_Memory_Adapter::query( self::BUSINESS_CONTRACT_ID, $query )
+            : array();
+    }
+
 
     /* ================================================================
      *  UPSERT — insert or update on duplicate key
@@ -682,64 +723,13 @@ PROMPT;
             return false;
         }
 
-        // Enforce limits — delete oldest if over MAX_PER_USER
-        $count = $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$this->table} WHERE blog_id = %d AND identity_uuid = %s",
-            $data['blog_id'], $data['identity_uuid']
-        ) );
-        if ( $count >= self::MAX_PER_USER ) {
-            $wpdb->query( $wpdb->prepare(
-                "DELETE FROM {$this->table}
-                 WHERE blog_id = %d AND identity_uuid = %s
-                 ORDER BY importance ASC, updated_at ASC
-                 LIMIT 10",
-                $data['blog_id'], $data['identity_uuid']
-            ) );
-        }
-
-        // Check if event_key already exists
-        $existing = $wpdb->get_row( $wpdb->prepare(
-            "SELECT id, times_seen FROM {$this->table}
-             WHERE blog_id = %d AND identity_uuid = %s AND event_key = %s",
-            $data['blog_id'], $data['identity_uuid'], $data['event_key']
-        ) );
-
-        if ( $existing ) {
-            // Update: bump times_seen + importance
-            $new_importance = min( 100, intval( $data['importance'] ) + 5 );
-            $wpdb->update( $this->table, [
-                'event_text'  => $data['event_text'],
-                'times_seen'  => intval( $existing->times_seen ) + 1,
-                'importance'  => $new_importance,
-                'token_count' => $this->estimate_tokens( $data['event_text'] ),
-                'last_seen'   => current_time( 'mysql' ),
-                'metadata'    => $data['metadata'],
-            ], [ 'id' => $existing->id ] );
-            // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
-            do_action( 'bizcity_memory_mirror_write', 'episodic', array_merge( $data, [ 'id' => (int) $existing->id, 'importance' => $new_importance ] ), 'update' );
-        } else {
-            // Insert new
-            $wpdb->insert( $this->table, [
-                'blog_id'                => $data['blog_id'],
-                'user_id'                => $data['user_id'],
-                'identity_uuid'          => $data['identity_uuid'],
-                'session_id'             => $data['session_id'],
-                'event_type'             => $data['event_type'],
-                'event_key'              => $data['event_key'],
-                'event_text'             => $data['event_text'],
-                'source_conversation_id' => $data['source_conversation_id'],
-                'source_goal'            => $data['source_goal'],
-                'source_tool'            => $data['source_tool'],
-                'importance'             => intval( $data['importance'] ),
-                'times_seen'             => 1,
-                'token_count'            => $this->estimate_tokens( $data['event_text'] ),
-                'metadata'               => $data['metadata'],
-                'last_seen'              => current_time( 'mysql' ),
-                'created_at'             => current_time( 'mysql' ),
-            ] );
-            // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
-            do_action( 'bizcity_memory_mirror_write', 'episodic', array_merge( $data, [ 'id' => (int) $wpdb->insert_id ] ), 'insert' );
-        }
+		// [2026-09-01 Johnny Chu] PHASE-CB4.4 — Context Bank filestore is the only new episodic-memory payload writer; SQL fallback is disabled.
+		$receipt = $this->write_filestore_event( $data );
+		if ( ! is_array( $receipt ) ) {
+			return false;
+		}
+		do_action( 'bizcity_memory_mirror_write', 'episodic', array_merge( $data, array( 'filestore_receipt' => $receipt ) ), 'upsert' );
+		return true;
     }
 
     /* ================================================================
@@ -788,13 +778,4 @@ PROMPT;
     }
 }
 
-// [2026-07-28 Johnny Chu] R-CR — register episodic schema before the installer can run dbDelta().
-if ( class_exists( 'BizCity_Schema_Registry' ) ) {
-    BizCity_Schema_Registry::register(
-        'bizcity_memory_episodic',
-        'core.intent.memory.episodic',
-        BizCity_Episodic_Memory::DB_VERSION,
-        BizCity_Episodic_Memory::DB_VERSION_OPTION,
-        array( 'BizCity_Episodic_Memory', 'ensure_table' )
-    );
-}
+// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — retired episodic SQL has no schema-registry installer.

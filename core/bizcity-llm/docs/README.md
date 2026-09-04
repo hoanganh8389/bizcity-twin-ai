@@ -70,3 +70,17 @@ Premium. Số seat/account managed được sở hữu bởi exact BizCity API k
 Hub, không tự nâng seat và không dùng local membership hoặc `user_id` để suy ra
 quyền. Khi nhận `reason=account_capacity_disabled`, quản trị viên Hub phải sửa
 capacity của Master Plan rồi làm mới exact-key config.
+
+### Trace-first client implementation rule
+
+Mọi client feature đi qua Hub phải trace trước khi code hoặc thêm fallback:
+
+```text
+current domain/blog → exact API key/key_id → Hub plan/capability
+  → client tenant mapping → canonical local row → side effect → response reason
+```
+
+Giữ một source of truth cho entitlement: `get_plan_config()` cho runtime,
+`get_master_plans()` chỉ cho catalog. B2 không được suy quyền từ `user_id`,
+label, local membership, stale cache hoặc UI. Acceptance phải kiểm tra success
+và denial trên cùng boundary, với deployed runtime parity.

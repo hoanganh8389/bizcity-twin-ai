@@ -1,7 +1,7 @@
 <?php
 /**
- * Bizcity Twin AI — Nền tảng AI Companion cá nhân hóa
- * Bizcity Twin AI — Personalized AI Companion Platform
+ * BizCity Twin Brain — Nền tảng AI Companion cá nhân hóa
+ * BizCity Twin Brain — Personalized AI Companion Platform
  *
  * @package    Bizcity_Twin_Claw
  * @subpackage Core
@@ -9,11 +9,11 @@
  * @license    GPL-2.0-or-later
  * @link       https://bizcity.vn
  *
- * This file is part of Bizcity Twin AI.
+ * This file is part of BizCity Twin Brain.
  * Unauthorized copying, modification, or distribution is prohibited.
  * Sao chép, chỉnh sửa hoặc phân phối trái phép bị nghiêm cấm.
  *
- * Plugin Name:       Bizcity Twin AI
+ * Plugin Name:       BizCity Twin Brain
  * Plugin URI:        https://bizcity.vn
  * Description:       AI Companion Platform — Personalized AI with Identity, Memory, and Intent. Nền tảng AI đồng hành cá nhân hóa.
  * Version:           1.3.7
@@ -51,6 +51,17 @@ if ( ! defined( 'BIZCITY_TWIN_AI_URL' ) ) {
 if ( ! defined( 'BIZCITY_DB_PREFIX' ) ) {
     define( 'BIZCITY_DB_PREFIX', 'bizcity_' );
 }
+
+// [2026-09-02 09:20 AM Johnny Chu - Chu Hoàng Anh] B2C-F8 — payment and confirmation pages must not boot optional Twin Brain helpers.
+$_bizcity_woo_payment_surface = ! empty( $_SERVER['REQUEST_URI'] )
+    && ( false !== strpos( (string) $_SERVER['REQUEST_URI'], '/order-pay/' )
+        || false !== strpos( (string) $_SERVER['REQUEST_URI'], '/order-received/' )
+        || ( isset( $_GET['pay_for_order'], $_GET['key'] ) && 'true' === (string) $_GET['pay_for_order'] && '' !== (string) $_GET['key'] )
+        || ( function_exists( 'is_wc_endpoint_url' ) && ( is_wc_endpoint_url( 'order-pay' ) || is_wc_endpoint_url( 'order-received' ) ) ) );
+if ( $_bizcity_woo_payment_surface ) {
+    return;
+}
+unset( $_bizcity_woo_payment_surface );
 
 // [2026-08-07 Johnny Chu] R-PERF - the admin TwinChat wrapper only renders an iframe; defer runtime preloads to the iframe/REST request.
 $_bizcity_twinchat_admin_shell_request = is_admin()
@@ -187,11 +198,54 @@ require_once __DIR__ . '/core/twin-core/contracts/content-contracts.php';
 require_once __DIR__ . '/core/twin-core/contracts/class-admin-navigation-registry.php';
 // Phase 0.99.3 — Module registry (implements `bizcity_register_module` filter).
 require_once __DIR__ . '/core/twin-core/contracts/class-module-registry.php';
+// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — expose the seven-verb facade before extension plugins load.
+if ( file_exists( __DIR__ . '/core/twin-core/contracts/class-twin-plugin-sdk.php' ) ) {
+    require_once __DIR__ . '/core/twin-core/contracts/class-twin-plugin-sdk.php';
+}
+// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — load the lightweight manifest registry and bounded framework facade before extensions boot.
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
+    $_bizcity_safe_loader = __DIR__ . '/core/helper/class-bizcity-safe-loader.php';
+    if ( is_file( $_bizcity_safe_loader ) && is_readable( $_bizcity_safe_loader ) ) {
+        require_once $_bizcity_safe_loader;
+    }
+    unset( $_bizcity_safe_loader );
+}
+$_bizcity_framework_contract_files = array(
+    __DIR__ . '/core/twin-core/contracts/class-framework-manifest-registry.php',
+    __DIR__ . '/core/twin-core/contracts/class-framework-sdk.php',
+);
+foreach ( $_bizcity_framework_contract_files as $_bizcity_framework_contract_file ) {
+    if ( is_file( $_bizcity_framework_contract_file ) && is_readable( $_bizcity_framework_contract_file ) ) {
+        if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+            BizCity_Safe_Loader::require_file( $_bizcity_framework_contract_file, 'twin_core.framework_contract' );
+        }
+    }
+}
+unset( $_bizcity_framework_contract_files, $_bizcity_framework_contract_file );
 // [2026-06-05 Johnny Chu] R-ERROR-UX — core/helper: BizCity_Error_Payload + shared helpers.
 // Must load before channel-gateway, automation, agents — so every REST controller
 // can call BizCity_Error_Payload::make() without a class_exists() guard.
 if ( ! $_bizcity_twinchat_admin_shell_request ) {
-    require_once __DIR__ . '/core/helper/bootstrap.php';
+    // [2026-09-02 07:45 AM Johnny Chu - Chu Hoàng Anh] R-SAFE-LOADER — prevent a partial helper deployment from turning checkout/REST requests into a fatal.
+    $_bizcity_helper_bootstrap = __DIR__ . '/core/helper/bootstrap.php';
+    if ( class_exists( 'BizCity_Safe_Loader', false ) && is_file( $_bizcity_helper_bootstrap ) && is_readable( $_bizcity_helper_bootstrap ) ) {
+        BizCity_Safe_Loader::require_file( $_bizcity_helper_bootstrap, 'core.helper.bootstrap' );
+    }
+    unset( $_bizcity_helper_bootstrap );
+    // [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — make taxonomy-gated event registration available before extension plugins boot.
+    $bizcity_event_contract_dir = __DIR__ . '/core/twin-core/event-stream';
+    if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+        $bizcity_event_taxonomy = $bizcity_event_contract_dir . '/class-twin-event-taxonomy.php';
+        $bizcity_event_registry = $bizcity_event_contract_dir . '/class-twin-event-registry.php';
+        if ( is_file( $bizcity_event_taxonomy ) && is_readable( $bizcity_event_taxonomy ) ) {
+            BizCity_Safe_Loader::require_file( $bizcity_event_taxonomy, 'twin_core.event_taxonomy' );
+        }
+        if ( is_file( $bizcity_event_registry ) && is_readable( $bizcity_event_registry ) ) {
+            BizCity_Safe_Loader::require_file( $bizcity_event_registry, 'twin_core.event_registry' );
+        }
+        unset( $bizcity_event_taxonomy, $bizcity_event_registry );
+    }
+    unset( $bizcity_event_contract_dir );
     // [2026-08-09 Johnny Chu] R-PERF — the LLM client is needed by backend/API and AI surfaces, not plain HTML.
     $bizcity_llm_bootstrap_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
     $bizcity_llm_bootstrap_context = is_admin()
@@ -413,7 +467,9 @@ $_bizcity_intent_admin_page = is_admin()
     && isset( $_GET['page'] )
     && ( false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-intent' )
         || false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-tool' )
-        || false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-data-browser' ) );
+        || false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-data-browser' )
+        // [2026-09-02 09:35 PM Johnny Chu - Chu Hoàng Anh] R-DDV — load Intent registrations on Diagnostics so the unified tool registry can populate before focused probes run.
+        || 'bizcity-diagnostics' === sanitize_key( (string) $_GET['page'] ) );
 $_bizcity_intent_ajax_request = false;
 if ( isset( $_REQUEST['action'] ) && is_scalar( $_REQUEST['action'] ) ) {
     $bizcity_intent_ajax_action = sanitize_key( (string) wp_unslash( $_REQUEST['action'] ) );
@@ -453,6 +509,40 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_persona_public_request )
     && file_exists( __DIR__ . '/core/persona/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/persona/bootstrap.php';
 }
+
+// [2026-09-01 Johnny Chu] CB2.1 — load the side-effect-free Context Bank boundary only on its own surfaces.
+$_bizcity_context_bank_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+$_bizcity_context_bank_admin_page = is_admin()
+    && isset( $_GET['page'] )
+    && 'bizcity-context-bank' === sanitize_key( (string) $_GET['page'] );
+$_bizcity_context_bank_runtime_request =
+    $_bizcity_context_bank_admin_page
+    || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
+    || ( is_admin() && isset( $_GET['page'] ) && 'bizcity-diagnostics' === sanitize_key( (string) $_GET['page'] ) )
+    || false !== strpos( $_bizcity_context_bank_uri, '/wp-json/bizcity-context/' );
+if ( $_bizcity_context_bank_runtime_request
+    && ! $_bizcity_twinchat_admin_shell_request
+    && class_exists( 'BizCity_Safe_Loader', false ) ) {
+    $_bizcity_context_bank_bootstrap = __DIR__ . '/core/context-bank/bootstrap.php';
+    if ( is_file( $_bizcity_context_bank_bootstrap ) && is_readable( $_bizcity_context_bank_bootstrap ) ) {
+        BizCity_Safe_Loader::require_file( $_bizcity_context_bank_bootstrap, 'context_bank.bootstrap' );
+    }
+    unset( $_bizcity_context_bank_bootstrap );
+}
+unset( $_bizcity_context_bank_uri, $_bizcity_context_bank_admin_page, $_bizcity_context_bank_runtime_request );
+
+// [2026-09-02 Johnny Chu] PHASE-CB4.3 — load the Context Bank Woo adapter only when WooCommerce owns the lifecycle hook.
+if ( function_exists( 'add_action' ) ) {
+    add_action( 'woocommerce_init', function () {
+        $bootstrap = __DIR__ . '/core/context-bank/bootstrap.php';
+        if ( ! class_exists( 'BizCity_Context_Bank_Commerce_Adapter', false )
+            && class_exists( 'BizCity_Safe_Loader', false )
+            && is_file( $bootstrap )
+            && is_readable( $bootstrap ) ) {
+            BizCity_Safe_Loader::require_file( $bootstrap, 'context_bank.commerce_bootstrap' );
+        }
+    }, 1 );
+}
 // [2026-08-09 Johnny Chu] R-PERF — defer Twin Core file graph and schema work off plain frontend HTML.
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
     if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
@@ -463,10 +553,22 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exi
         BizCity_Loader_Ownership_Registry::transition( 'twin_core', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
     }
 }
-// [2026-06-10 Johnny Chu] HOTFIX — core/bizcity-market disabled: module not yet implemented,
-// creates 5 unused DB tables on every client install (performance + DB clutter).
-// Re-enable when marketplace is production-ready.
-// require_once __DIR__ . '/core/bizcity-market/bootstrap.php';
+// [2026-08-26 Johnny Chu] PHASE-1.29-MARKET-LITE — load only the Market
+// surface requested by WordPress: plugins.php management or Marketplace.
+// Other requests keep the full marketplace schema/catalog/cron disabled.
+$_bizcity_market_admin_surface = is_admin()
+    && (
+        ( isset( $_SERVER['SCRIPT_NAME'] ) && false !== strpos( (string) $_SERVER['SCRIPT_NAME'], '/plugins.php' ) )
+        || ( isset( $_GET['page'] ) && 'bizcity-marketplace' === sanitize_key( (string) $_GET['page'] ) )
+    );
+if ( $_bizcity_market_admin_surface && class_exists( 'BizCity_Safe_Loader', false ) ) {
+    $_bizcity_market_bootstrap = __DIR__ . '/core/bizcity-market/bootstrap.php';
+    if ( is_file( $_bizcity_market_bootstrap ) && is_readable( $_bizcity_market_bootstrap ) ) {
+        BizCity_Safe_Loader::require_file( $_bizcity_market_bootstrap, 'market.bootstrap' );
+    }
+    unset( $_bizcity_market_bootstrap );
+}
+unset( $_bizcity_market_admin_surface );
 // [2026-06-12 Johnny Chu] HOTFIX — FB Chat Widget injector must fire on EVERY frontend request
 // (wp_footer hook) even when the full channel-gateway is gated. Load the single lightweight
 // class unconditionally here so the widget injects before </body> on all public pages.
@@ -647,6 +749,14 @@ if ( $_bizcity_diagnostics_ctx
     BizCity_Safe_Loader::require_file( __DIR__ . '/core/diagnostics/bootstrap.php', 'diagnostics.bootstrap' );
 }
 
+// [2026-08-27 Johnny Chu] PHASE-1.31 — load the unified WP-CLI command family through Safe Loader.
+if ( defined( 'WP_CLI' ) && WP_CLI
+    && class_exists( 'BizCity_Safe_Loader', false )
+    && is_file( __DIR__ . '/core/cli/class-bizcity-framework-cli.php' )
+    && is_readable( __DIR__ . '/core/cli/class-bizcity-framework-cli.php' ) ) {
+    BizCity_Safe_Loader::require_file( __DIR__ . '/core/cli/class-bizcity-framework-cli.php', 'cli.framework_commands' );
+}
+
 // Test pages — archived 2026-06-01, moved to tests/_archived/
 
 // ── Modules — feature modules layered on top of core ─────────────────────────
@@ -711,22 +821,20 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
     require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
 }
 
-// ── Must-load bundled plugins (hoạt động như mu-plugins) ─────────────────────
-// Các plugin trong plugins/ được load trực tiếp, KHÔNG cần activate thủ công.
-// Tương tự cơ chế must-use: luôn chạy khi bizcity-twin-ai active.
+// ── Required bundled runtimes ────────────────────────────────────────────────
+// Only framework-owned runtimes are loaded here. Feature extensions must be
+// activated manually as normal WordPress plugins.
 // Guard bằng constant riêng của mỗi plugin để tránh load trùng khi đã activate bình thường.
 $_bizcity_bundled_must_load = [
     'bizcity-admin-hook-zalo'     => 'BIZCITY_ADMIN_ZALO_DIR',     // [2026-07-21 Johnny Chu] R-GW-8 — optional legacy Zalo Hotline adapter if deployed; not required for standalone Zalo Bot/Twin GPT.
     'bizcity-facebook-bot'        => 'BIZCITY_FACEBOOK_BOT_VERSION', // Facebook Messenger + Page webhook (PHASE 0.31 Sprint 6 — moved from mu-plugins)
     'bizgpt-tool-google'          => 'BZGOOGLE_VERSION',           // Google Workspace tools
     // 'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // ARCHIVED 2026-05-24 → plugins/_archived/. Slug /tool-facebook/ now owned by core/channel-gateway (canonical /channel/).
-    'bizcity-tool-image'          => 'BZTIMG_VERSION',             // Image Studio, templates, editor assets, product/image tools
     'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // Zalo Bot — CG channel sub-plugin
     // [2026-06-10 Johnny Chu] PHASE-0.39 — Zalo Personal & OA Gateway (ZP.x probes, R-ZONE-2 isolation).
     'bizcity-zalo-personal'       => 'BIZCITY_ZALO_PERSONAL_VERSION', // Zalo Personal + OA channel via zca-bridge sidecar (PHASE-0.39)
     // 'bizcity-companion-notebook'  => 'BCN_VERSION',                // DISABLED — Companion Notebook (gitignored, không load mặc định)
     // 'bizcity-automation'          => 'BIZCITY_AUTOMATION_VERSION', // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-automation/. Replaced by core/automation/ (native xyflow runtime, BE-1..BE-5 shipped).
-    'bizcity-content-creator'     => 'BZCC_VERSION',               // Content Creator — template-driven AI content generation
     'bizcity-doc'                 => 'BZDOC_VERSION',              // Doc Studio — AI tạo Word, PowerPoint, Excel
     // 'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page (ARCHIVED)
     // 'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-tool-mindmap/. Mindmap functionality moved to bizcity-doc (Phase 6.3 PHASE-0.7-DOCGEN).
@@ -754,7 +862,6 @@ $_bizcity_admin_only_slugs = [
     'bizcity-zalo-personal',    // Zalo Personal + OA gateway — admin + /wp-json/ only
     'bizgpt-tool-google',       // Google Tools — /tool-google/ + admin REST
     'bizcity-doc',              // /tool-doc/ and /doc/ are covered by admin_ctx
-    'bizcity-tool-image',       // /tool-image/, /canva/, /profile-studio/, /qr-studio/
     'bizcity-pagebuilder',      // /tool-pagebuilder/ is covered by admin_ctx
 ];
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
@@ -850,6 +957,10 @@ register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );
 // Phase 0.7 — deactivation: clear scheduled crons so they don't fire after
 // disable (would emit "hook target missing" notices on next reactivation).
 register_deactivation_hook( __FILE__, static function () {
+    // [2026-08-27 Johnny Chu] PHASE-1.30-DEACTIVATE — remove only approved empty retired tables; ordinary deactivation remains fail-closed.
+    if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+        BizCity_Legacy_Table_Policy::deactivate_retired_tables();
+    }
 	// Wave A learning sweep (per-blog, hourly).
 	wp_clear_scheduled_hook( 'bizcity_kg_learning_sweep' );
 	// Wave B cleanup engine (weekly Sunday 03:00).
@@ -888,7 +999,8 @@ function bizcity_twin_ai_notice_compat_loader(): void {
         );
 
         echo '<div class="notice notice-error">';
-        echo '<p><strong>⚠ BizCity Twin AI:</strong> Missing mu-plugin loader '
+        // [2026-09-02 06:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-BRAND — standardize the product name in loader diagnostics.
+        echo '<p><strong>⚠ BizCity Twin Brain:</strong> Missing mu-plugin loader '
            . '<code>mu-plugins/bizcity-twin-compat.php</code>. '
            . 'Without this file, Intent Providers, Market Catalog and TouchBar will not work.'
            . '<br><small>Thiếu file mu-plugin loader. Không có file này, các tính năng chính sẽ không hoạt động.</small></p>';
@@ -914,7 +1026,7 @@ function bizcity_twin_ai_notice_compat_loader(): void {
 
         $dest_dir = rtrim( WPMU_PLUGIN_DIR, '/\\' );
         echo '<div class="notice notice-warning">';
-        echo '<p><strong>🔄 BizCity Twin AI:</strong> The mu-plugin loader is outdated. '
+        echo '<p><strong>🔄 BizCity Twin Brain:</strong> The mu-plugin loader is outdated. '
            . 'Please update to match the current plugin version.'
            . '<br><small>File mu-plugin loader đã cũ. Cần cập nhật cho đồng bộ với phiên bản plugin hiện tại.</small></p>';
 

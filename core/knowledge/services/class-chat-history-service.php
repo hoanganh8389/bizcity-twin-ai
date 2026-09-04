@@ -166,16 +166,9 @@ class BizCity_Chat_History_Service {
             ] );
         }
 
-        // Close conversation
-        $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-        $conv_exists = function_exists( 'bizcity_table_exists' ) ? bizcity_table_exists( $conv_table ) : bizcity_tbl_exists( $conv_table );
-        if ( $conv_exists ) {
-            $wpdb->query( $wpdb->prepare(
-                "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = %s",
-                $session_id,
-                $platform_type
-            ) );
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — close the message-owned marker after clearing normal messages.
+        if ( class_exists( 'BizCity_WebChat_Database' ) ) {
+            BizCity_WebChat_Database::instance()->close_conversation( $session_id );
         }
 
         return [

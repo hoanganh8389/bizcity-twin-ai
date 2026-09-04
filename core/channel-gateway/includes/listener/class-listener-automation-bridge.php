@@ -51,16 +51,9 @@ class BizCity_Listener_Automation_Bridge {
 			return;
 		}
 
-		global $wpdb;
-		$row = $wpdb->get_row(
-			$wpdb->prepare(
-				'SELECT * FROM ' . BizCity_Automation_Repo_Runs::table_logs() . ' WHERE id = %d',
-				$log_id
-			),
-			ARRAY_A
-		);
-		if ( ! $row ) { return; }
-		$row = BizCity_Automation_Repo_Runs::hydrate_log( $row );
+		// [2026-08-27 Johnny Chu] PHASE-1.30-LIFECYCLE — consume canonical repo read model so listener still works when SQL logs table is unavailable.
+		$row = BizCity_Automation_Repo_Runs::log_by_id( $run_id, $log_id );
+		if ( ! is_array( $row ) || empty( $row ) ) { return; }
 
 		$status_map = array( 0 => 'running', 1 => 'ok', 2 => 'fail', 3 => 'skip' );
 		$status_str = $status_map[ (int) $row['status'] ] ?? 'running';

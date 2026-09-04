@@ -1,0 +1,21 @@
+{
+  "contract": "business-action",
+  "version": "1.0.0",
+  "action_id": "act_01hzy7m9qk",
+  "action": "order.create",
+  "resource": {
+    "type": "order",
+    "id": "order:123",
+    "scope": "tenant"
+  },
+  "actor": {
+    "user_id": 42
+  },
+  "idempotency_key": "idem_order_01",
+  "confirmation": {
+    "required": true,
+    "status": "pending"
+  },
+  "status": "accepted",
+  "occurred_at": "2026-08-30T12:00:00Z"
+}

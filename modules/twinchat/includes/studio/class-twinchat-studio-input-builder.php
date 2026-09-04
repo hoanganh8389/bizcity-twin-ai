@@ -85,29 +85,21 @@ class BizCity_TwinChat_Studio_Input_Builder {
 	 * note types relevant for docgen (pinned chat, manual, research_auto).
 	 */
 	private static function gather_raw( $notebook_id, array $source_ids = [] ) {
-		global $wpdb;
-
 		$project_id = self::project_id( $notebook_id );
 
 		// ── Notes (memory) ──
 		$notes_text_parts = [];
 		$note_count       = 0;
-		$notes_table      = $wpdb->prefix . 'bizcity_memory_notes';
-		$notes_exists     = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $notes_table ) ) === $notes_table;
-		if ( $notes_exists ) {
-			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, title, content, note_type, is_starred, created_at
-				 FROM {$notes_table}
-				 WHERE project_id = %s
-				   AND note_type IN ('chat_pinned','manual','research_auto')
-				 ORDER BY is_starred DESC, created_at DESC
-				 LIMIT 200",
-				$project_id
-			) );
-			foreach ( $rows ?: [] as $n ) {
-				$prefix = ! empty( $n->is_starred ) ? '[📌] ' : '';
-				$head   = $n->title ? "[{$n->title}] " : '';
-				$notes_text_parts[] = $prefix . $head . (string) $n->content;
+		if ( class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+			$rows = BizCity_TwinChat_Notes_Service::instance()->get_by_project( $project_id );
+			foreach ( (array) $rows as $note ) {
+				$note = is_object( $note ) ? $note : (object) $note;
+				if ( ! in_array( (string) ( $note->note_type ?? '' ), array( 'chat_pinned', 'manual', 'research_auto' ), true ) || (string) ( $note->content ?? '' ) === '' ) {
+					continue;
+				}
+				$prefix = ! empty( $note->is_starred ) ? '[📌] ' : '';
+				$head   = ! empty( $note->title ) ? '[' . (string) $note->title . '] ' : '';
+				$notes_text_parts[] = $prefix . $head . (string) $note->content;
 				$note_count++;
 			}
 		}

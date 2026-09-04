@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="6" failures="1" skipped="1" time="46.534">
+  <testsuite name="diagnostics" tests="6" failures="1" skipped="1" time="46.534">
+    <testcase classname="bizcity.diagnostics" name="channel-gateway.flows" time="43.803">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="modules.zalobot.memory_unify" time="1.101">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="twinbrain.goal_contracts" time="0.287">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.webchat.sql_lifecycle" time="0.116">
+      <failure message="fail">WebChat SQL lifecycle contract failed. | Failed steps: Runtime - quarantined legacy memory is blocked: Legacy memory extraction did not return the quarantine contract.</failure>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.knowledge.kg_usage_ledger_parity" time="0.275">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.bizcity_llm.usage_ledger_parity" time="0.000">
+      <skipped message="Hub-only probe: client runtime does not own bizcity_llm_usage; canonical ledger is bizcity_llm_usage_logs on bizcity-llm-router."/>
+    </testcase>
+  </testsuite>
+</testsuites>

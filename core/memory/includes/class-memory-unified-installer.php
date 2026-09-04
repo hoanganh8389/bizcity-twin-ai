@@ -1,15 +1,16 @@
 <?php
 /**
- * BizCity Memory — Unified Table Installer (Wave 2.8d TBR.MEM-D4).
+ * BizCity Memory — Retired Unified Table Compatibility Artifact.
  *
- * Tạo bảng `{prefix}bizcity_memory` (unified) thay thế dần 5 bảng:
+ * Historical design: `{prefix}bizcity_memory` was intended to replace 5 tables:
  *   bizcity_memory_users     (class='user')
  *   bizcity_memory_episodic  (class='episodic')
  *   bizcity_memory_rolling   (class='rolling')
  *   bizcity_memory_session   (class='session')
  *   bizcity_memory_notes     (class='note')
  *
- * Behind feature flag `bizcity_memory_unified_enabled` (default FALSE).
+ * The historical feature flag is permanently disabled after the Context Bank
+ * decision. The class remains only for migration diagnostics compatibility.
  *
  * Roadmap:
  *   - D4 (this file): install table + flag, KHÔNG dual-write, KHÔNG read.
@@ -66,16 +67,16 @@ class BizCity_Memory_Unified_Installer {
 	 *   3. Filter `bizcity_memory_unified_enabled` (code overrides for probes / tests).
 	 */
 	public static function is_enabled(): bool {
-		$opt = get_option( self::FLAG_OPTION, null );
-		$default = ( $opt === null ) ? false : ( $opt === '1' || $opt === 1 || $opt === true || $opt === 'yes' );
-		return (bool) apply_filters( self::FLAG_FILTER, $default );
+		// [2026-09-01 Johnny Chu] PHASE-CB4.4 — the legacy unified SQL warehouse is permanently disabled; Context Bank owns memory references.
+		return false;
 	}
 
 	/**
-	 * Install table on plugins_loaded, gated by flag + version option.
-	 * Idempotent — safe to call multiple times.
+	 * Historical installer entrypoint. It is intentionally inert.
 	 */
 	public function maybe_install(): void {
+		// [2026-09-01 Johnny Chu] PHASE-CB4.4 — Context Bank owns memory references; never install or expand the obsolete SQL warehouse.
+		return;
 		if ( ! self::is_enabled() ) {
 			return;
 		}
@@ -96,10 +97,11 @@ class BizCity_Memory_Unified_Installer {
 	}
 
 	/**
-	 * Run dbDelta to create the unified table.
-	 * Schema mirrors `core/memory/PHASE-MEMORY-CONSOLIDATION.md §2.1`.
+	 * Historical DDL entrypoint. Context Bank does not use this SQL warehouse.
 	 */
 	public function install(): bool {
+		// [2026-09-01 Johnny Chu] PHASE-CB4.4 — direct installer calls are blocked; legacy bizcity_memory is migration debt only.
+		return false;
 		global $wpdb;
 		$table = self::table();
 

@@ -1,0 +1,41 @@
+{
+  "contract": "extension-manifest",
+  "version": "1.0.0",
+  "extension_id": "vendor.shopee",
+  "extension_version": "1.0.0",
+  "requires_framework": ">=1.3 <2.0",
+  "capabilities": [
+    "channel.inbound",
+    "commerce.order.read",
+    "fulfillment.read",
+    "context.admit"
+  ],
+  "channels": [
+    {
+      "slug": "shopee_chat",
+      "platform": "SHOPEE",
+      "zone": "customer",
+      "identity_policy": "shop_account_buyer",
+      "account_scope": "multiple",
+      "crm_policy": "enabled",
+      "brain_policy": "guest_channel",
+      "context_policy": "conversation_summary",
+      "surface_policy": ["admin", "gpt_member"]
+    },
+    {
+      "slug": "shopee_commerce",
+      "platform": "SHOPEE",
+      "zone": "admin",
+      "identity_policy": "shop_account_order",
+      "account_scope": "multiple",
+      "crm_policy": "not_applicable",
+      "brain_policy": "user_bound",
+      "context_policy": "lifecycle",
+      "surface_policy": ["admin", "gpt_member"]
+    }
+  ],
+  "diagnostics": {
+    "probe_owner": "vendor.shopee.contract",
+    "requires": ["disk", "loader", "runtime"]
+  }
+}

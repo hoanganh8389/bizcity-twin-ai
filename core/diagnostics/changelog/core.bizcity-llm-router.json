@@ -1,0 +1,58 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.bizcity-llm-router",
+  "owner": "plugins/bizcity-llm-router",
+  "installer_id": "bizcity_llm_license_ledger",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_llm_license_ledger_schema_version",
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-09-02",
+      "change": "B2C-H3: create the Global append-only license grant and reversal journal with exact issuer, Woo order item and key idempotency dimensions."
+    }
+  ],
+  "tables": {
+    "bizcity_llm_license_ledger": {
+      "since": "1.0.0",
+      "purpose": "Global B1 append-only journal of license grants, reversals and manual adjustments; current key entitlement remains a rebuildable projection.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "event_uuid": { "type": "CHAR(36) NOT NULL", "since": "1.0.0" },
+        "issuer_hub_id": { "type": "VARCHAR(64) NOT NULL", "since": "1.0.0" },
+        "commerce_hub_id": { "type": "VARCHAR(64) NOT NULL", "since": "1.0.0" },
+        "woo_site_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "woo_order_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "woo_order_item_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "key_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "owner_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "allowed_domain_snapshot": { "type": "VARCHAR(255) NOT NULL DEFAULT ''", "since": "1.0.0" },
+        "plan_code": { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.0.0" },
+        "offer_product_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "offer_variation_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "duration_days": { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "quantity": { "type": "INT UNSIGNED NOT NULL DEFAULT 1", "since": "1.0.0" },
+        "period_start_at": { "type": "DATETIME NULL", "since": "1.0.0" },
+        "period_end_at": { "type": "DATETIME NULL", "since": "1.0.0" },
+        "currency": { "type": "CHAR(3) NOT NULL DEFAULT ''", "since": "1.0.0" },
+        "gross_amount": { "type": "DECIMAL(14,2) NOT NULL DEFAULT 0.00", "since": "1.0.0" },
+        "event_type": { "type": "VARCHAR(32) NOT NULL DEFAULT 'grant'", "since": "1.0.0" },
+        "event_status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'applied'", "since": "1.0.0" },
+        "idempotency_key": { "type": "VARCHAR(191) NOT NULL", "since": "1.0.0" },
+        "source": { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "applied_at": { "type": "DATETIME NULL", "since": "1.0.0" }
+      },
+      "indexes": {
+        "uq_order_item_event": { "cols": ["issuer_hub_id", "woo_site_id", "woo_order_id", "woo_order_item_id", "event_type"], "since": "1.0.0", "unique": true },
+        "uq_idempotency": { "cols": ["idempotency_key"], "since": "1.0.0", "unique": true },
+        "idx_key_period": { "cols": ["issuer_hub_id", "key_id", "period_start_at"], "since": "1.0.0" },
+        "idx_owner_created": { "cols": ["issuer_hub_id", "owner_user_id", "created_at"], "since": "1.0.0" },
+        "idx_order": { "cols": ["issuer_hub_id", "woo_order_id"], "since": "1.0.0" },
+        "idx_expiry": { "cols": ["issuer_hub_id", "period_end_at", "event_status"], "since": "1.0.0" }
+      }
+    }
+  }
+}

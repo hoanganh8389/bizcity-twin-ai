@@ -515,6 +515,13 @@ class BizCity_Intent_Data_Browser {
         }
 
         $db_table     = $wpdb->prefix . $table_key;
+        // [2026-08-26 Johnny Chu] PHASE-1.30-EXIT-RETURN — retired Intent log delete must return before SQL; JSONL is read-only here.
+        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::allow_sql( $db_table, 'delete' ) ) {
+            if ( class_exists( 'BizCity_Error_Payload' ) ) {
+                wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Bảng nhật ký Intent đã ngừng dùng SQL.', 'Mở dữ liệu JSONL để xem log; không thể xoá trực tiếp tại đây.', 'intent_jsonl_readonly' ), 409 );
+            }
+            wp_send_json_error( array( 'code' => 'invalid_param', 'message' => 'Bảng nhật ký Intent đã ngừng dùng SQL.' ), 409 );
+        }
         $placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
         $deleted      = $wpdb->query( $wpdb->prepare(
             "DELETE FROM `{$db_table}` WHERE `id` IN ({$placeholders})",
@@ -944,7 +951,7 @@ class BizCity_Intent_Data_Browser {
      * @return array
      */
     private function query_jsonl_browser_data( $table_key, array $page_config, array $params ) {
-        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
             return new \WP_Error( 'jsonl_unavailable', 'Intent JSONL reader chưa được load.' );
         }
 
@@ -952,11 +959,10 @@ class BizCity_Intent_Data_Browser {
         $per_page = min( max( 1, absint( $params['per'] ?? 50 ) ), 1000 );
         $search   = strtolower( sanitize_text_field( $params['search'] ?? '' ) );
         $filters  = $this->extract_filters( $params );
-        $module   = $table_key === 'bizcity_intent_logs' ? 'pipeline-trace' : 'prompt-log';
-        $folder   = 'bizcity-intent-logs';
+        $contract_id = $table_key === 'bizcity_intent_logs' ? 'core.intent.pipeline_trace' : 'core.intent.prompt_log';
         $days     = 7;
 
-        $rows = BizCity_JSONL_File_Logger::query( $folder, $module, array(
+        $rows = BizCity_JSONL_File_Logger::query_contract( $contract_id, array(
             'days'   => $days,
             'limit'  => 10000,
             'filter' => function ( $raw ) use ( $table_key, $page_config, $filters, $search ) {

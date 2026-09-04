@@ -16,8 +16,23 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 final class BizCity_Diagnostics_Table_Inspector {
 
+	const SCHEMA_CACHE_GROUP = 'bizcity_diag_schema';
+	const SCHEMA_CACHE_TTL   = 300;
+
 	/** @var array<string,array>|null per-request memo */
 	private static $schema_cache = null;
+	/** @var string|null cache key for the current tenant/database snapshot */
+	private static $schema_cache_key = null;
+
+	/** Invalidate the current tenant/database schema snapshot after DDL. */
+	public static function flush_cache(): void {
+		// [2026-09-02 Johnny Chu] R-PERF-DIAG — clear both request and persistent inventory cache after schema mutation.
+		if ( self::$schema_cache_key !== null && function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( self::$schema_cache_key, self::SCHEMA_CACHE_GROUP );
+		}
+		self::$schema_cache = null;
+		self::$schema_cache_key = null;
+	}
 
 	/**
 	 * Snapshot every registered table on the current blog/shard.
@@ -173,6 +188,17 @@ final class BizCity_Diagnostics_Table_Inspector {
 		}
 
 		global $wpdb;
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$prefix = (string) $wpdb->prefix;
+		self::$schema_cache_key = 'snapshot_' . $blog_id . '_' . md5( $database . '|' . $prefix );
+		if ( function_exists( 'wp_cache_get' ) ) {
+			$cached = wp_cache_get( self::$schema_cache_key, self::SCHEMA_CACHE_GROUP );
+			if ( is_array( $cached ) ) {
+				// [2026-09-02 Johnny Chu] R-PERF-DIAG — reuse the bounded physical snapshot across requests.
+				return self::$schema_cache = $cached;
+			}
+		}
 		$pattern = $wpdb->esc_like( $wpdb->prefix ) . '%';
 
 		// Suppress router noise — some shards reject information_schema.
@@ -196,6 +222,9 @@ final class BizCity_Diagnostics_Table_Inspector {
 					'collation' => (string) $r['TABLE_COLLATION'],
 				];
 			}
+		}
+		if ( function_exists( 'wp_cache_set' ) ) {
+			wp_cache_set( self::$schema_cache_key, $map, self::SCHEMA_CACHE_GROUP, self::SCHEMA_CACHE_TTL );
 		}
 		return self::$schema_cache = $map;
 	}

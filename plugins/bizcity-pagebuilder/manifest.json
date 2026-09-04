@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.pagebuilder",
+  "name": "BizCity Page Builder",
+  "version": "0.1.0",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.3"
+  },
+  "capabilities": {
+    "tools": [
+      {
+        "id": "pagebuilder.generate",
+        "label": "Generate website",
+        "description": "Prompt-to-website generation with a visual drag-and-drop editor, typed JSON blocks, theme presets, and HTML export or WordPress page publish.",
+        "primary": true
+      }
+    ]
+  }
+}

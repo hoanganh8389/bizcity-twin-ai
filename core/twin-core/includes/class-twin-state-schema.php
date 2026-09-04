@@ -77,6 +77,10 @@ class BizCity_Twin_State_Schema {
 		$failed  = array();
 		foreach ( $targets as $target ) {
 			$table = $target[0];
+			// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — retired context logs are retained only in Twin Event Stream.
+			if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'delete' ) ) {
+				continue;
+			}
 			if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
 				continue;
 			}
@@ -129,7 +133,10 @@ class BizCity_Twin_State_Schema {
 		// [2026-07-29 Johnny Chu] PHASE-1.21-C — keep only state tables with active consumers.
 		self::create_prompt_specs_table( $charset );
 		self::create_milestones_table( $charset );
-		self::create_context_logs_table( $charset );
+		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not provision the retired context-log SQL projection.
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::install_blocked( self::context_logs_table() ) ) {
+			self::create_context_logs_table( $charset );
+		}
 
 		$tables = self::check_tables();
 		if ( ! empty( $tables['ok'] ) ) {
@@ -249,7 +256,6 @@ class BizCity_Twin_State_Schema {
 		$tables = [
 			'twin_prompt_specs',
 			'twin_milestones',
-			'twin_context_logs',
 		];
 
 		$missing = [];

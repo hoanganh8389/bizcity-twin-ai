@@ -1,5 +1,16 @@
 <?php
 /**
+ * [2026-06-04 Johnny Chu] PHASE-A A.0 — stub redirect. Canonical file moved to
+ * core/twinbrain/tools/sheet/class-twinbrain-sheet-enricher.php
+ * This file kept for back-compat (direct require_once from 3rd-party or old probes).
+ */
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+if ( ! class_exists( 'BizCity_TwinBrain_Sheet_Enricher' ) ) {
+	require_once dirname( __FILE__, 3 ) . '/tools/sheet/class-twinbrain-sheet-enricher.php';
+}
+
+/**
+ * [ORIGINAL DOCBLOCK PRESERVED BELOW FOR HISTORY]
  * TwinBrain Sheets — Cell Enricher (Wave 2.8e TBR.TOOL-S2).
  *
  * Port LangGraph 3-stage pipeline từ Tavily Sheets reference impl

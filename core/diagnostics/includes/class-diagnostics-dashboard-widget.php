@@ -44,20 +44,6 @@ final class BizCity_Diagnostics_Dashboard_Widget {
 	}
 
 	public function render(): void {
-		$crit_missing = 0;
-		$total_missing = 0;
-		if ( class_exists( 'BizCity_Diagnostics_Table_Inspector' ) ) {
-			$rows = BizCity_Diagnostics_Table_Inspector::inspect_all();
-			foreach ( $rows as $r ) {
-				if ( empty( $r['exists'] ) ) {
-					$total_missing++;
-					if ( ! empty( $r['critical'] ) ) {
-						$crit_missing++;
-					}
-				}
-			}
-		}
-
 		$last  = get_option( self::LAST_SMOKE_OPTION, [] );
 		$ts    = isset( $last['ts'] ) ? (int) $last['ts'] : 0;
 		$pass  = isset( $last['pass'] ) ? (int) $last['pass'] : 0;
@@ -76,20 +62,11 @@ final class BizCity_Diagnostics_Dashboard_Widget {
 
 		echo '<div class="bizcity-diag-widget">';
 
-		// Critical row.
-		if ( $crit_missing > 0 ) {
-			echo '<p style="margin:.4em 0;font-size:13px">'
-				. '<span style="color:#b32d2e;font-weight:bold;font-size:20px">⚠ ' . (int) $crit_missing . '</span> '
-				. esc_html__( 'critical table(s) missing', 'bizcity-twin-ai' )
-				. ( $total_missing > $crit_missing ? ' <span style="color:#666">(+ ' . (int) ( $total_missing - $crit_missing ) . ' non-critical)</span>' : '' )
-				. '</p>';
-		} else {
-			echo '<p style="margin:.4em 0;font-size:13px;color:#00674e">'
-				. '<span style="font-size:18px">✓</span> '
-				. esc_html__( 'All critical tables present', 'bizcity-twin-ai' )
-				. ( $total_missing > 0 ? ' <span style="color:#666">(' . (int) $total_missing . ' non-critical missing)</span>' : '' )
-				. '</p>';
-		}
+		// [2026-09-02 Johnny Chu] R-PERF-DIAG — dashboard health must not run a live all-table metadata scan.
+		echo '<p style="margin:.4em 0;font-size:13px;color:#666">'
+			. '<span style="font-size:18px">◌</span> '
+			. esc_html__( 'Schema inventory is available on the Diagnostics page.', 'bizcity-twin-ai' )
+			. '</p>';
 
 		// Last smoke run.
 		echo '<p style="margin:.4em 0;font-size:13px">';

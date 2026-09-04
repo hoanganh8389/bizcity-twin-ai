@@ -41,27 +41,42 @@ final class BizCity_Probe_CRM_Team_Assignment_Kanban implements BizCity_Diagnost
 		// [2026-08-25 Johnny Chu] PHASE-0.39F-F5-F6-DDV — verify source, loader and runtime registration without mutation.
 		$steps = array();
 		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 4 ) . '/';
-		$files = array(
+		$backend_files = array(
 			'plugins/bizcity-twin-crm/includes/class-assignment-manager.php',
 			'plugins/bizcity-twin-crm/includes/class-kanban-manager.php',
 			'plugins/bizcity-twin-crm/includes/class-repository.php',
 			'plugins/bizcity-twin-crm/includes/class-rest-controller.php',
+		);
+		$frontend_files = array(
 			'plugins/bizcity-twin-crm/frontend/src/components/ConversationBoard.jsx',
 			'plugins/bizcity-twin-crm/frontend/src/redux/api/crmApi.js',
 		);
-		$missing = array();
-		foreach ( $files as $relative ) {
-			if ( ! is_readable( $root . $relative ) ) { $missing[] = $relative; }
+		$missing_backend = array();
+		foreach ( $backend_files as $relative ) {
+			if ( ! is_readable( $root . $relative ) ) { $missing_backend[] = $relative; }
 		}
 		$steps[] = array(
 			'layer' => 'Disk',
-			'label' => 'F5/F6 source artifacts exist',
-			'status' => empty( $missing ) ? 'pass' : 'fail',
-			'detail' => empty( $missing ) ? implode( ', ', $files ) : implode( ', ', $missing ),
+			'label' => 'F5/F6 backend artifacts exist',
+			'status' => empty( $missing_backend ) ? 'pass' : 'fail',
+			'detail' => empty( $missing_backend ) ? implode( ', ', $backend_files ) : implode( ', ', $missing_backend ),
 		);
-		if ( ! empty( $missing ) ) {
+		if ( ! empty( $missing_backend ) ) {
 			return array( 'status' => 'fail', 'summary' => 'CRM F5/F6 source artifacts are incomplete.', 'steps' => $steps );
 		}
+
+		$missing_frontend = array();
+		foreach ( $frontend_files as $relative ) {
+			if ( ! is_readable( $root . $relative ) ) { $missing_frontend[] = $relative; }
+		}
+		$steps[] = array(
+			'layer' => 'Disk',
+			'label' => 'F5/F6 frontend source artifacts',
+			'status' => empty( $missing_frontend ) ? 'pass' : 'skip',
+			'detail' => empty( $missing_frontend )
+				? 'Development source files are present.'
+				: 'Development source is absent; built CRM dist/runtime remains authoritative: ' . implode( ', ', $missing_frontend ),
+		);
 
 		$classes = array( 'BizCity_CRM_Assignment_Manager', 'BizCity_CRM_Kanban_Manager', 'BizCity_CRM_Repository', 'BizCity_CRM_REST_Controller' );
 		$missing_classes = array();

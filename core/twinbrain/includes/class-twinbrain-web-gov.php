@@ -177,7 +177,8 @@ final class BizCity_TwinBrain_Web_Gov {
 			'purpose' => 'twinbrain_web_gov', 'site_url' => home_url(), 'timeout' => self::LLM_TIMEOUT_S,
 		] );
 		$response = wp_remote_post( $endpoint, [
-			'headers' => [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $client->get_api_key(), 'X-Site-URL' => home_url(), 'X-Twin-Trace-Id' => $trace_id ],
+			// [2026-09-01 Johnny Chu] B2C-G7.1 — send the canonical site signal on government research calls.
+			'headers' => array_merge( [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $client->get_api_key(), 'X-Site-URL' => home_url(), 'X-Twin-Trace-Id' => $trace_id ], $client->get_client_domain_headers() ),
 			'body' => $body, 'timeout' => self::LLM_TIMEOUT_S,
 		] );
 		if ( is_wp_error( $response ) ) { $out['error'] = 'http_error:' . $response->get_error_code(); $out['answer_md'] = $this->build_stub_answer( $results ); return $out; }

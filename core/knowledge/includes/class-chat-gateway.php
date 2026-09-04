@@ -174,15 +174,10 @@ class BizCity_Chat_Gateway {
             exit;
         }
 
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        $updated = $wpdb->update(
-            $table,
-            [ 'kci_ratio' => $kci_ratio ],
-            [ 'session_id' => $session_id ],
-            [ '%d' ],
-            [ '%s' ]
-        );
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — persist KCI ratio in the encrypted session-state record.
+        $updated = class_exists( 'BizCity_WebChat_Session_State' )
+            ? BizCity_WebChat_Session_State::instance()->update_by_session( $session_id, array( 'kci_ratio' => $kci_ratio ), 'ADMINCHAT' )
+            : false;
 
         if ( $updated === false ) {
             wp_send_json_error( [ 'message' => 'Failed to update kci_ratio' ] );
@@ -752,12 +747,9 @@ class BizCity_Chat_Gateway {
             ]);
         }
 
-        $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        if (bizcity_tbl_exists( $conv_table )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-            $wpdb->query($wpdb->prepare(
-                "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = %s",
-                $session_id, $platform_type
-            ));
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — close the marker-backed conversation after clearing its messages.
+        if ( class_exists( 'BizCity_WebChat_Database' ) ) {
+            BizCity_WebChat_Database::instance()->close_conversation( $session_id );
         }
 
         wp_send_json_success(['cleared' => true]);
@@ -3235,11 +3227,12 @@ class BizCity_Chat_Gateway {
 
         if (
             class_exists( 'BizCity_JSONL_File_Logger' )
-            && method_exists( 'BizCity_JSONL_File_Logger', 'write' )
+            && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' )
             && defined( 'BizCity_JSONL_File_Logger::CHANNEL_FOLDER' )
         ) {
             try {
-                BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CHANNEL_FOLDER, 'channel_gateway', $level, $event, $message, $ctx );
+                // [2026-08-27 Johnny Chu] R-LOG-HYBRID — Chat Gateway fallback resolves its registered channel contract.
+                BizCity_JSONL_File_Logger::write_contract( 'core.channel_gateway.channel_gateway', $level, $event, $message, $ctx );
             } catch ( \Throwable $e ) {
                 // Logging must not break character resolution or chat bootstrap.
             }

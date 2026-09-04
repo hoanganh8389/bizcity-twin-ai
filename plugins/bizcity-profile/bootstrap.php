@@ -77,8 +77,8 @@ if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
 }
 // [2026-08-23 Johnny Chu] PHASE-TBP-6.4 — public Profile transcript uses the existing WebChat message store; load only its lightweight class contract here.
 if ( ! class_exists( 'BizCity_WebChat_Database', false ) && defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
-	// [2026-08-25 Johnny Chu] PHASE-1.29-EXTENSIONS — resolve Profile transcript storage from the moved WebChat extension.
-	$_profile_webchat_database = BIZCITY_TWIN_AI_DIR . 'extensions/bizcity-webchat/includes/class-webchat-database.php';
+	// [2026-08-25 Johnny Chu] PHASE-1.29-MODULES — resolve Profile transcript storage from the canonical WebChat module.
+	$_profile_webchat_database = BIZCITY_TWIN_AI_DIR . 'modules/webchat/includes/class-webchat-database.php';
 	if ( is_readable( $_profile_webchat_database ) ) {
 		BizCity_Safe_Loader::require_file( $_profile_webchat_database, 'profile.webchat_database' );
 	}

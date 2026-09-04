@@ -84,15 +84,8 @@ function bizcity_encrypt_webhook_data( $data, $blog_id ) {
 	$json_data = json_encode( $data );
 	
 	// Simple XOR encryption
-	$encrypted = '';
-	$key_length = strlen( $key );
-	
-	for ( $i = 0; $i < strlen( $json_data ); $i++ ) {
-		$encrypted .= $json_data[$i] ^ $key[$i % $key_length];
-	}
-	
-	// Return base64 encoded
-	return base64_encode( $encrypted );
+	// [2026-08-20 Johnny Chu] CODEC-CORE — preserve Zalo webhook XOR/Base64 format through shared primitives.
+	return BizCity_Codec::base64_encode( BizCity_Codec::xor_bytes( $json_data, $key ) );
 }
 
 /**

@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 /**
- * Twin CLI — unified control door for the BizCity Twin AI framework.
+ * Twin CLI — unified control door for the BizCity Twin Brain framework.
  *
  * Layer model this dispatcher enforces:
  *   CLI (this)  ->  Diagnostics Engine (core/diagnostics)  ->
@@ -71,7 +71,7 @@ switch ( $command ) {
 
 function twin_print_help() {
 	echo <<<TXT
-Twin CLI — control door for the BizCity Twin AI framework.
+Twin CLI — control door for the BizCity Twin Brain framework.
 
   CLI  ->  Diagnostics Engine  ->  machine-readable verdict  ->  GitHub Checks
 
@@ -98,16 +98,25 @@ TXT;
  * @param string[] $command_parts
  */
 function twin_run( array $command_parts ) {
-	$cmd = implode( ' ', array_map( 'escapeshellarg', $command_parts ) );
+	// [2026-08-28 Johnny Chu] PHASE-1.31 - quote nested CLI commands correctly on Windows.
+	$cmd = implode( ' ', array_map( 'twin_shell_arg', $command_parts ) );
 	passthru( $cmd, $exit_code );
 	return (int) $exit_code;
+}
+
+function twin_shell_arg( $value ) {
+	// [2026-08-28 Johnny Chu] PHASE-1.31 - keep the thin dispatcher portable across shells.
+	if ( DIRECTORY_SEPARATOR === '\\' ) {
+		return '"' . str_replace( '"', '\\"', (string) $value ) . '"';
+	}
+	return escapeshellarg( (string) $value );
 }
 
 function twin_binary_available( $name ) {
 	$which = stripos( PHP_OS, 'WIN' ) === 0 ? 'where' : 'command -v';
 	$out   = array();
 	$code  = 1;
-	@exec( $which . ' ' . escapeshellarg( $name ) . ' 2>&1', $out, $code );
+	@exec( $which . ' ' . twin_shell_arg( $name ) . ' 2>&1', $out, $code );
 	return 0 === $code;
 }
 
@@ -221,11 +230,11 @@ function twin_cmd_validate( array $args ) {
 		),
 		array(
 			'label' => 'Reference plugin manifest',
-			'cmd'   => array( 'php', TWIN_CLI_ROOT . '/bin/bizcity-manifest-validate.php', '--plugin=' . $plugin ),
+			'cmd'   => array( PHP_BINARY, TWIN_CLI_ROOT . '/bin/bizcity-manifest-validate.php', '--plugin=' . $plugin ),
 		),
 		array(
 			'label' => 'Event stream naming (R-EVT)',
-			'cmd'   => array( 'php', TWIN_CLI_ROOT . '/bin/validate-event-stream.php' ),
+			'cmd'   => array( PHP_BINARY, TWIN_CLI_ROOT . '/bin/validate-event-stream.php' ),
 		),
 	);
 
@@ -247,7 +256,7 @@ function twin_cmd_test( array $args ) {
 	if ( is_readable( $phpunit ) || is_readable( $phpunit . '.bat' ) ) {
 		$steps[] = array(
 			'label' => 'PHPUnit suite',
-			'cmd'   => array( 'php', $phpunit, '--configuration', TWIN_CLI_ROOT . '/phpunit.xml.dist' ),
+			'cmd'   => array( PHP_BINARY, $phpunit, '--configuration', TWIN_CLI_ROOT . '/phpunit.xml.dist' ),
 		);
 	} else {
 		echo "[SKIP] PHPUnit suite — vendor/bin/phpunit not found; run `composer install` first.\n";
@@ -267,7 +276,7 @@ function twin_cmd_diagnostics( array $args ) {
 			return 2;
 		}
 		// [2026-08-19 Johnny Chu] PHASE-1.27-CLI-PARITY - route plugin checks through the shared static contract runner.
-		$forward = array( 'php', TWIN_CLI_ROOT . '/bin/bizcity-plugin-diagnostics.php', '--plugin=' . $plugin, '--smoke' );
+		$forward = array( PHP_BINARY, TWIN_CLI_ROOT . '/bin/bizcity-plugin-diagnostics.php', '--plugin=' . $plugin, '--smoke' );
 		foreach ( $args as $arg ) {
 			if ( '--json' === $arg || '--strict' === $arg ) {
 				$forward[] = $arg;
@@ -275,7 +284,7 @@ function twin_cmd_diagnostics( array $args ) {
 		}
 		return twin_run( $forward );
 	}
-	$forward = array_merge( array( 'php', TWIN_CLI_ROOT . '/bin/diagnostics-run.php' ), $args );
+	$forward = array_merge( array( PHP_BINARY, TWIN_CLI_ROOT . '/bin/diagnostics-run.php' ), $args );
 	return twin_run( $forward );
 }
 
@@ -350,7 +359,7 @@ function twin_inspect_probe( array $args ) {
 		fwrite( STDERR, "Usage: twin inspect probe --id=probe.id [--wp-root=path]\n" );
 		return 2;
 	}
-	$forward = array( 'php', TWIN_CLI_ROOT . '/bin/diagnostics-run.php', '--filter=' . $id );
+	$forward = array( PHP_BINARY, TWIN_CLI_ROOT . '/bin/diagnostics-run.php', '--filter=' . $id );
 	foreach ( $args as $arg ) {
 		if ( 0 === strpos( $arg, '--wp-root=' ) ) {
 			$forward[] = $arg;

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.helper",
+  "owner": "core/helper",
+  "installer_id": "log_index",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_log_index_db_version",
+  "tables": {
+    "bizcity_log_index": {
+      "since": "1.0.0",
+      "purpose": "Rebuildable tenant-scoped pointer index for cross-contract JSONL search. Stores location and correlation metadata only; JSONL files remain the source of truth.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "event_uuid": { "type": "CHAR(36) NOT NULL", "since": "1.0.0" },
+        "contract_id": { "type": "VARCHAR(191) NOT NULL", "since": "1.0.0" },
+        "jsonl_folder": { "type": "VARCHAR(191) NOT NULL", "since": "1.0.0" },
+        "jsonl_module": { "type": "VARCHAR(191) NOT NULL", "since": "1.0.0" },
+        "log_date": { "type": "DATE NOT NULL", "since": "1.0.0" },
+        "ts": { "type": "DATETIME NOT NULL", "since": "1.0.0" },
+        "level": { "type": "VARCHAR(16) NOT NULL DEFAULT 'info'", "since": "1.0.0" },
+        "event": { "type": "VARCHAR(191) NOT NULL", "since": "1.0.0" },
+        "ref_id": { "type": "VARCHAR(191) NULL", "since": "1.0.0" },
+        "blog_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "relative_file": { "type": "VARCHAR(255) NOT NULL", "since": "1.0.0" },
+        "byte_offset": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "row_hash": { "type": "CHAR(64) NOT NULL", "since": "1.0.0" },
+        "meta_json": { "type": "TEXT NULL", "since": "1.0.0" },
+        "indexed_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "uniq_blog_event": { "cols": ["blog_id", "event_uuid"], "unique": true, "since": "1.0.0" },
+        "idx_contract_date": { "cols": ["contract_id", "log_date"], "since": "1.0.0" },
+        "idx_event": { "cols": ["event"], "since": "1.0.0" },
+        "idx_ref": { "cols": ["ref_id"], "since": "1.0.0" },
+        "idx_blog_date": { "cols": ["blog_id", "log_date"], "since": "1.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-08-27", "change": "R-LOG-HYBRID — add one tenant-scoped, rebuildable pointer index for cross-contract JSONL search. No log body, raw content, credential or PII is stored." }
+  ]
+}

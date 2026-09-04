@@ -134,7 +134,8 @@ final class BizCity_Automation_Trigger_Matcher {
 		// [2026-06-24 Johnny Chu] PHASE-0.40 — Distinguish ZALO_OA (Zone 1 customer) from ZALO_BOT (Zone 2 admin).
 		if ( $platform === 'ZALO_OA' || $platform === 'ZALO_PERSONAL' ) {
 			$trigger_type = 'zalo_oa_inbound';
-		} elseif ( strpos( $platform, 'ZALO' ) !== false ) {
+		} elseif ( in_array( $platform, array( 'ZALO_BOT', 'ZALO' ), true ) ) {
+			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - classify only Bot/legacy Zalo as admin automation.
 			$trigger_type = 'zalo_inbound';
 		} elseif ( strpos( $platform, 'TELEGRAM' ) !== false ) {
 			$trigger_type = 'telegram_inbound';
@@ -258,6 +259,10 @@ final class BizCity_Automation_Trigger_Matcher {
 			if ( is_array( $inbound ) ) {
 				$run_payload['inbound'] = $inbound;
 			}
+		}
+
+		if ( $platform === 'ZALO_BOT' && (int) ( $run_payload['wp_user_id'] ?? 0 ) <= 0 && $this->dispatch_unlinked_zalobot_workflow( $run_payload, $text ) ) {
+			return;
 		}
 
 		// ─── BE-7.C — Resume rule (priority over keyword/fallback) ───────
@@ -2014,6 +2019,38 @@ final class BizCity_Automation_Trigger_Matcher {
 			BizCity_Automation_Runner::instance()->execute( $run_id );
 		}
 		return $run_id;
+	}
+
+	private function dispatch_unlinked_zalobot_workflow( array $run_payload, string $text ): bool {
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W4 — route only non-identity Zalo Bot messages to the canonical login-required workflow; explicit /link/login commands remain with Command Router.
+		$normalized = strtolower( trim( $text ) );
+		if ( $normalized === '' || preg_match( '/^(?:\/?link\s+[a-z0-9_-]{8,80}|đăng nhập|dang nhap|login|đăng ký|dang ky|register|liên kết|lien ket|kết nối|ket noi|connect|bind|hủy liên kết|huy lien ket|unlink|đăng xuất|dang xuat|logout|tôi là ai|toi la ai|thông tin|thong tin|info|ai đây|ai day|tài khoản|tai khoan|my account|xem trí nhớ|xem tri nho|trí nhớ|tri nho|memory|my memory|help|trợ giúp|tro giup|lệnh|lenh|menu|commands)(?:\s|$)/u', $normalized ) ) {
+			return false;
+		}
+		if ( ! class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
+			return false;
+		}
+		$result = BizCity_Automation_Repo_Workflows::query( array( 'trigger_type' => 'zalo_inbound', 'enabled' => 1, 'limit' => 200 ) );
+		foreach ( (array) ( $result['rows'] ?? array() ) as $workflow ) {
+			$config = $this->trigger_config( $workflow );
+			if ( empty( $config['identity_link_required'] ) ) {
+				continue;
+			}
+			$run_id = $this->enqueue_and_optionally_run( $workflow, $run_payload, false );
+			if ( is_string( $run_id ) && $run_id !== '' ) {
+				if ( ! empty( $run_payload['mid'] ) ) {
+					$GLOBALS['bizcity_automation_matched_mids'][ (string) $run_payload['mid'] ] = true;
+				}
+				BizCity_Automation_Matcher_Trace::note( 'identity_link_workflow', array(
+					'platform'    => 'ZALO_BOT',
+					'chat_id'     => (string) ( $run_payload['chat_id'] ?? '' ),
+					'workflow_id' => (int) ( $workflow['id'] ?? 0 ),
+					'detail'      => 'unlinked sender routed to identity_link_required workflow',
+				) );
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private function prepare_hil_payload( array $wf, array $payload ) {

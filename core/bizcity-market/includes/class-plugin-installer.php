@@ -168,6 +168,20 @@ class BizCity_Plugin_Installer {
             }
         }
 
+        // [2026-08-26 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — nested
+        // bundled plugins are not visible to WP's get_plugins(), so invoke
+        // their guarded uninstall artifact explicitly before removing files.
+        $uninstall_file = $dest . 'uninstall.php';
+        if ( is_file( $uninstall_file ) && is_readable( $uninstall_file ) ) {
+            if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
+                define( 'WP_UNINSTALL_PLUGIN', true );
+            }
+            if ( ! class_exists( 'BizCity_Safe_Loader', false )
+                || ! BizCity_Safe_Loader::require_file( $uninstall_file, 'bundled.uninstall.' . $slug ) ) {
+                return new WP_Error( 'uninstall_failed', 'Không thể chạy dọn dẹp dữ liệu plugin.' );
+            }
+        }
+
         // Remove directory
         $removed = self::rmdir_recursive( $dest );
         if ( ! $removed ) {

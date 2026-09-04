@@ -1,113 +1,96 @@
 <?php
 /**
- * Bizcity Twin AI — Table existence cache.
+ * Bizcity Twin AI — Legacy table metadata compatibility shim.
  *
- * Mục đích: tránh chạy metadata query mỗi request cho các bảng đã tồn tại
- * (bizcity_intent_conversations, bizcity_webchat_messages, …). Mỗi bảng chỉ
- * cần check 1 lần / blog → ghi vào option `bizcity_known_tables` (autoload=no);
- * lần sau đọc thẳng từ option, không hit DB.
- *
- * Sau khi `CREATE TABLE` mới, gọi `bizcity_table_cache_remember()` hoặc
- * `bizcity_table_cache_forget()` để cập nhật.
+ * The canonical implementation lives in
+ * `core/helper/class-bizcity-table-metadata.php`. This file remains loaded by
+ * the main plugin entrypoint for compatibility with old callers, but it no
+ * longer owns a second option-backed cache or information_schema query.
  *
  * @package Bizcity_Twin_AI
- * @since   2026-04-29
  */
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
-if ( ! function_exists( 'bizcity_table_exists' ) ) {
+$_bzc_table_metadata = dirname( __DIR__ ) . '/core/helper/class-bizcity-table-metadata.php';
+$_bzc_safe_loader = dirname( __DIR__ ) . '/core/helper/class-bizcity-safe-loader.php';
+if ( ! class_exists( 'BizCity_Safe_Loader', false ) && is_file( $_bzc_safe_loader ) && is_readable( $_bzc_safe_loader ) ) {
+	require_once $_bzc_safe_loader;
+}
+if ( class_exists( 'BizCity_Safe_Loader', false ) && ! class_exists( 'BizCity_Table_Metadata', false ) && is_file( $_bzc_table_metadata ) && is_readable( $_bzc_table_metadata ) ) {
+	BizCity_Safe_Loader::require_file( $_bzc_table_metadata, 'helper.table_metadata.legacy_shim' );
+}
+unset( $_bzc_table_metadata, $_bzc_safe_loader );
 
-	/**
-	 * In-process memo. Lazy-loaded từ option ở lần gọi đầu.
-	 * Format: [ 'wp_xxx' => true, 'wp_1258_yyy' => true, ... ].
-	 *
-	 * @return array
-	 */
-	function bizcity_table_cache_known() {
-		static $known = null;
-		if ( null === $known ) {
-			$known = get_option( 'bizcity_known_tables', [] );
-			if ( ! is_array( $known ) ) {
-				$known = [];
-			}
-		}
-		return $known;
-	}
-
-	/**
-	 * Đánh dấu table đã tồn tại (sau khi CREATE TABLE thành công hoặc check OK).
-	 */
+if ( ! function_exists( 'bizcity_table_cache_remember' ) ) {
 	function bizcity_table_cache_remember( $table ) {
-		$table = (string) $table;
-		if ( '' === $table ) return;
-		$known = &_bizcity_table_cache_ref();
-		if ( isset( $known[ $table ] ) ) return;
-		$known[ $table ] = true;
-		update_option( 'bizcity_known_tables', $known, false );
+		// [2026-08-29 Johnny Chu] R-METADATA-CACHE — retain legacy API while routing invalidation to the canonical owner.
+		if ( class_exists( 'BizCity_Table_Metadata', false ) ) {
+			BizCity_Table_Metadata::invalidate( $table );
+		}
 	}
+}
 
-	/**
-	 * Quên 1 table (khi DROP / migration reset). Truyền null để xoá cả option.
-	 */
+if ( ! function_exists( 'bizcity_table_cache_forget' ) ) {
 	function bizcity_table_cache_forget( $table = null ) {
-		if ( null === $table ) {
-			delete_option( 'bizcity_known_tables' );
-			$known = &_bizcity_table_cache_ref();
-			$known = [];
-			return;
-		}
-		$known = &_bizcity_table_cache_ref();
-		if ( isset( $known[ $table ] ) ) {
-			unset( $known[ $table ] );
-			update_option( 'bizcity_known_tables', $known, false );
+		// [2026-08-29 Johnny Chu] R-METADATA-CACHE — legacy forget API no longer writes an option-backed metadata cache.
+		if ( class_exists( 'BizCity_Table_Metadata', false ) && null !== $table ) {
+			BizCity_Table_Metadata::invalidate( $table );
 		}
 	}
+}
 
-	/**
-	 * Cached table existence. Prefer the canonical information_schema helper when
-	 * it is available; retain an option-backed fallback for standalone load order.
-	 *
-	 * @param string $table Tên table đầy đủ (đã prefix).
-	 * @return bool
-	 */
-	function bizcity_table_exists( $table ) {
-		$table = (string) $table;
-		if ( '' === $table ) return false;
-		// [2026-08-09 Johnny Chu] R-SHOW-TABLES — use the canonical blog/database-aware metadata cache.
-		if ( function_exists( 'bizcity_tbl_exists' ) ) {
-			return bizcity_tbl_exists( $table );
-		}
-		$known = &_bizcity_table_cache_ref();
-		if ( array_key_exists( $table, $known ) ) {
-			return (bool) $known[ $table ];
-		}
-		global $wpdb;
-		$database  = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
-		$cache_key = 'bz_tbl_' . (int) get_current_blog_id() . '_' . md5( $database . '|' . $table );
-		$cached    = wp_cache_get( $cache_key, 'bizcity_tbl' );
-		if ( false !== $cached ) {
-			return (bool) $cached;
-		}
-		$present = (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-			$table
-		) );
-		$known[ $table ] = $present;
-		wp_cache_set( $cache_key, $present ? 1 : 0, 'bizcity_tbl', HOUR_IN_SECONDS );
-		return $present;
+if ( ! function_exists( 'bizcity_tbl_exists' ) ) {
+	function bizcity_tbl_exists( $table_name ) {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-WAVE5 — export the canonical metadata wrapper before early Knowledge bootstrap.
+		return class_exists( 'BizCity_Table_Metadata', false ) ? BizCity_Table_Metadata::table_exists( $table_name ) : false;
 	}
+}
 
-	/**
-	 * Internal: trả về reference vào memo array để các hàm trên cùng share state.
-	 *
-	 * @return array
-	 */
-	function &_bizcity_table_cache_ref() {
-		static $ref = null;
-		if ( null === $ref ) {
-			$ref = bizcity_table_cache_known();
+if ( ! function_exists( 'bizcity_table_exists' ) ) {
+	function bizcity_table_exists( $table_name ) {
+		return bizcity_tbl_exists( $table_name );
+	}
+}
+
+if ( ! function_exists( 'bizcity_table_type' ) ) {
+	function bizcity_table_type( $table_name ) {
+		return class_exists( 'BizCity_Table_Metadata', false ) ? BizCity_Table_Metadata::table_type( $table_name ) : null;
+	}
+}
+
+if ( ! function_exists( 'bizcity_column_exists' ) ) {
+	function bizcity_column_exists( $table_name, $column_name ) {
+		return class_exists( 'BizCity_Table_Metadata', false ) ? BizCity_Table_Metadata::column_exists( $table_name, $column_name ) : false;
+	}
+}
+
+if ( ! function_exists( 'bizcity_columns_exist' ) ) {
+	function bizcity_columns_exist( $table_name, $column_names ) {
+		return class_exists( 'BizCity_Table_Metadata', false ) ? BizCity_Table_Metadata::columns_exist( $table_name, $column_names ) : false;
+	}
+}
+
+if ( ! function_exists( 'bizcity_table_type_invalidate' ) ) {
+	function bizcity_table_type_invalidate( $table_name ) {
+		if ( class_exists( 'BizCity_Table_Metadata', false ) ) {
+			BizCity_Table_Metadata::invalidate( $table_name );
 		}
-		return $ref;
+	}
+}
+
+if ( ! function_exists( 'bizcity_column_invalidate' ) ) {
+	function bizcity_column_invalidate( $table_name, $column_name ) {
+		if ( class_exists( 'BizCity_Table_Metadata', false ) ) {
+			BizCity_Table_Metadata::invalidate_column( $table_name, $column_name );
+		}
+	}
+}
+
+if ( ! function_exists( 'bizcity_columns_invalidate' ) ) {
+	function bizcity_columns_invalidate( $table_name, $column_names ) {
+		if ( class_exists( 'BizCity_Table_Metadata', false ) ) {
+			BizCity_Table_Metadata::invalidate_columns( $table_name, $column_names );
+		}
 	}
 }

@@ -1,0 +1,22 @@
+{
+  "contract": "channel-payload",
+  "version": "1.1.0",
+  "direction": "inbound",
+  "platform": "facebook",
+  "zone": "customer",
+  "identity": {
+    "account_id": "page_637",
+    "user_id": "psid_991",
+    "chat_id": "facebook_page_637_psid_991",
+    "message_id": "msg_messenger_123"
+  },
+  "message": {
+    "text": "Can you help with my order?",
+    "timestamp": "2026-08-30T12:00:00Z"
+  },
+  "signature": {
+    "algorithm": "hmac-sha256",
+    "header": "x-hub-signature-256",
+    "verified": true
+  }
+}

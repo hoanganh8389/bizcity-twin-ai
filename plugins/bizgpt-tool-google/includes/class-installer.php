@@ -15,14 +15,6 @@ class BZGoogle_Installer {
     }
 
     /**
-     * Global table: usage logs.
-     */
-    public static function table_logs() {
-        global $wpdb;
-        return $wpdb->base_prefix . 'bizcity_google_usage_logs';
-    }
-
-    /**
      * Run on plugin activation.
      */
     public static function activate() {
@@ -38,9 +30,7 @@ class BZGoogle_Installer {
         $charset = $wpdb->get_charset_collate();
 
         $t_accounts = self::table_accounts();
-        $t_logs     = self::table_logs();
-
-        $sql = "
+        $sql_accounts = "
 CREATE TABLE {$t_accounts} (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     blog_id         BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -60,25 +50,33 @@ CREATE TABLE {$t_accounts} (
     KEY idx_blog_user (blog_id, user_id),
     KEY idx_expires (expires_at),
     KEY idx_status (status)
-) {$charset};
-
-CREATE TABLE {$t_logs} (
-    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    blog_id           BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    user_id           BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    service           VARCHAR(50) NOT NULL DEFAULT '',
-    action            VARCHAR(100) NOT NULL DEFAULT '',
-    request_summary   VARCHAR(500) NOT NULL DEFAULT '',
-    response_status   VARCHAR(20) NOT NULL DEFAULT '',
-    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    KEY idx_blog_user_svc (blog_id, user_id, service),
-    KEY idx_created (created_at)
-) {$charset};
-";
+) {$charset};";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-        dbDelta( $sql );
+
+        /* Suppress expected DESCRIBE errors from dbDelta — tables don't exist
+           yet on first install, so DESCRIBE fails before CREATE TABLE runs.
+           Also suppress on the global DB handle (BizCity sharding router). */
+        $old_suppress = $wpdb->suppress_errors( true );
+        if ( isset( $wpdb->gwpdb ) && $wpdb->gwpdb instanceof wpdb ) {
+            $wpdb->gwpdb->suppress_errors( true );
+        } elseif ( method_exists( $wpdb, 'biz_ensure_gwpdb' ) ) {
+            $gw = $wpdb->biz_ensure_gwpdb();
+            if ( $gw ) $gw->suppress_errors( true );
+        }
+
+        dbDelta( $sql_accounts );
+
+        /* Restore error reporting */
+        $wpdb->suppress_errors( $old_suppress );
+        if ( isset( $wpdb->gwpdb ) && $wpdb->gwpdb instanceof wpdb ) {
+            $wpdb->gwpdb->suppress_errors( false );
+        }
+
+        // [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — refresh metadata cache keys only for tables that were eligible for DDL.
+        if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+            bizcity_tbl_invalidate( $t_accounts );
+        }
 
         update_site_option( 'bzgoogle_db_version', BZGOOGLE_VERSION );
     }

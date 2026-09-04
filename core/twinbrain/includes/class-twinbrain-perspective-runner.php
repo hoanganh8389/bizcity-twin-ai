@@ -104,6 +104,8 @@ class BizCity_TwinBrain_Perspective_Runner {
 		$api_key     = $this->gateway_api_key();
 		$model       = $this->resolve_sub_agent_model();
 		$site_url    = home_url();
+		$client_site_headers = BizCity_LLM_Client::instance()->get_client_domain_headers();
+		$client_site_host    = (string) ( $client_site_headers['X-BizCity-Client-Site'] ?? '' );
 
 		// Build one curl handle per candidate. We capture per-handle metadata
 		// in $handles[] so the result loop can correlate response → notebook.
@@ -132,12 +134,14 @@ class BizCity_TwinBrain_Perspective_Runner {
 			$ch = curl_init( $endpoint );
 			curl_setopt_array( $ch, [
 				CURLOPT_POST           => true,
-				CURLOPT_HTTPHEADER     => [
+					// [2026-09-01 Johnny Chu] B2C-G7.1 — carry the canonical site signal through cURL multi requests.
+				CURLOPT_HTTPHEADER     => array_filter( [
 					'Content-Type: application/json',
 					'Authorization: Bearer ' . $api_key,
 					'X-Site-URL: ' . $site_url,
+						$client_site_host !== '' ? 'X-BizCity-Client-Site: ' . $client_site_host : '',
 					'X-Twin-Trace-Id: ' . $trace_id,
-				],
+					] ),
 				CURLOPT_POSTFIELDS     => $body,
 				CURLOPT_RETURNTRANSFER => true,
 				CURLOPT_TIMEOUT_MS     => self::HARD_TIMEOUT_MS,

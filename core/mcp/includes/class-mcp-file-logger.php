@@ -19,11 +19,11 @@ final class BizCity_MCP_File_Logger {
 
 	public static function write( array $entry ) {
 		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — use the shared logger as the canonical MCP file store; retain this wrapper API for callers.
-		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			$tool_name = preg_replace( '/[^A-Za-z0-9_.-]/', '', (string) ( $entry['tool_name'] ?? 'mcp_call' ) );
-			return BizCity_JSONL_File_Logger::write(
-				self::DIRECTORY,
-				'audit',
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — MCP audit evidence resolves through the registered contract.
+			return BizCity_JSONL_File_Logger::write_contract(
+				'core.mcp.audit',
 				( (string) ( $entry['status'] ?? '' ) === 'error' ) ? 'error' : 'info',
 				'mcp_call',
 				$tool_name,
@@ -54,10 +54,9 @@ final class BizCity_MCP_File_Logger {
 	public static function read_recent( $user_id = 0, $key_id = 0, $client_id = '', $limit = 100 ) {
 		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — read canonical shared JSONL rows first, then legacy flat files during migration.
 		$limit = max( 1, min( 500, (int) $limit ) );
-		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
-			$rows = BizCity_JSONL_File_Logger::query(
-				self::DIRECTORY,
-				'audit',
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+			$rows = BizCity_JSONL_File_Logger::query_contract(
+				'core.mcp.audit',
 				array(
 					'days'   => 7,
 					'limit'  => $limit,

@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.twin-crm",
+  "name": "BizCity Twin CRM (Inbox Hub)",
+  "version": "0.32.1",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.0"
+  },
+  "capabilities": {
+    "channels": [
+      {
+        "id": "twin-crm.inbox",
+        "label": "CRM Omni-Channel Inbox",
+        "description": "Zone 1 customer-care inbox (Facebook, Messenger, Zalo OA, Zalo Personal, WebChat, Email) consuming the normalized Channel Gateway envelope with a Twin Brain trace.",
+        "zone": "customer"
+      },
+      {
+        "id": "twin-crm.operations",
+        "label": "CRM Internal Operations",
+        "description": "Zone 2 operational CRM inbox for Zalo Bot with Automation-owned replies, staff assignment, audit and delivery trace.",
+        "zone": "admin",
+        "channels": [ "zalo_bot" ]
+      }
+    ]
+  }
+}

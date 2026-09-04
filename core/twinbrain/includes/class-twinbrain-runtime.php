@@ -48,12 +48,12 @@ class BizCity_TwinBrain_Runtime {
 	 * in per-site JSONL while retaining the existing PHP error log for server ops.
 	 */
 	private static function write_runtime_log( $level, $event, $message, array $context = array() ): void {
-		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
 			return;
 		}
-		BizCity_JSONL_File_Logger::write(
-			'bizcity-twinbrain-logs',
-			'runtime',
+		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — resolve TwinBrain runtime logging from the canonical contract registry.
+		BizCity_JSONL_File_Logger::write_contract(
+			'core.twinbrain.runtime_trace',
 			(string) $level,
 			(string) $event,
 			(string) $message,
@@ -1024,6 +1024,10 @@ class BizCity_TwinBrain_Runtime {
 				$opts['notebook_search_context_query'] = $prompt;
 				$notebook_source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $candidates, $answers, $opts );
 				$opts['notebook_source_map']      = (array) ( $notebook_source_payload['notebook_source_map'] ?? array() );
+				$opts['context_bank_source_refs'] = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_source_refs'] ?? array() );
+				// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — keep authorized Skill owner records on the internal Synthesizer path.
+				$opts['context_bank_owner_records'] = (array) ( $notebook_source_payload['context_bank_owner_records'] ?? array() );
+				$opts['context_bank_retrieval']   = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_retrieval'] ?? array() );
 				$opts['notebook_source_block_md'] = (string) ( $notebook_source_payload['notebook_source_block_md'] ?? '' );
 				$opts['notebook_source_counts']   = (array) ( $notebook_source_payload['notebook_source_counts'] ?? array() );
 				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — non-stream parity for W0.7 source-file briefs.
@@ -1033,6 +1037,11 @@ class BizCity_TwinBrain_Runtime {
 				$opts['search_context']           = (array) ( $notebook_source_payload['search_context'] ?? array() );
 				$opts['search_context_results']   = (array) ( $notebook_source_payload['search_context_results'] ?? array() );
 				$opts['search_context_total']     = (int) ( $notebook_source_payload['search_context_total'] ?? 0 );
+				// [2026-09-01 Johnny Chu] PHASE-0.45-W5 — preserve the canonical graph/retrieval pack for automation consumers.
+				$opts['graph_vector_rerank_pack'] = (array) ( $notebook_source_payload['graph_vector_rerank_pack'] ?? array() );
+				$opts['graph_entities']            = (array) ( $notebook_source_payload['graph_entities'] ?? array() );
+				$opts['retrieval_candidates']      = (array) ( $notebook_source_payload['retrieval_candidates'] ?? array() );
+				$opts['retrieval_candidate_count'] = (int) ( $notebook_source_payload['retrieval_candidate_count'] ?? count( $opts['retrieval_candidates'] ) );
 				$opts['final_context_chunks']     = (array) ( $notebook_source_payload['final_context_chunks'] ?? array() );
 				$opts['final_context_count']      = (int) ( $notebook_source_payload['final_context_count'] ?? count( $opts['final_context_chunks'] ) );
 				$opts['product_entities']         = (array) ( $notebook_source_payload['product_entities'] ?? array() );
@@ -1081,6 +1090,28 @@ class BizCity_TwinBrain_Runtime {
 					'notebook_id' => (int) ( $opts['notebook_id'] ?? 0 ),
 					'exception_class' => get_class( $e ),
 				) );
+			}
+		}
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W5 — keep non-stream automation on the same deep-research engine as the stream path.
+		$web_row  = array();
+		$web_mode = strtolower( (string) ( $opts['web_mode'] ?? 'off' ) );
+		$guru_id_eff = (int) ( $opts['guru_id'] ?? 0 );
+		$web_mode = (string) apply_filters( 'bizcity_twinbrain_web_mode_effective', $web_mode, $guru_id_eff, array(
+			'trace_id' => $trace_id,
+			'prompt' => $prompt,
+			'surface' => (string) ( $opts['surface'] ?? '' ),
+			'requested_mode' => $web_mode,
+		) );
+		if ( in_array( $web_mode, array( 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products', 'woo_bizops' ), true ) && class_exists( 'BizCity_Twin_SSE_Writer' ) ) {
+			$web_sse = new BizCity_Twin_SSE_Writer( false );
+			ob_start();
+			try {
+				$web_row = $this->dispatch_web_research( $trace_id, $prompt, $web_mode, $web_sse, $opts );
+			} finally {
+				ob_end_clean();
+			}
+			if ( ! empty( $web_row ) ) {
+				$answers[] = $web_row;
 			}
 		}
 		/* PHASE-0.35 / F7.C4 — Layer 5 Tool_Decision (no dispatch yet; that's F7.C5). */
@@ -1284,10 +1315,21 @@ class BizCity_TwinBrain_Runtime {
 			'trace_id'          => $trace_id,
 			'synthesis'         => $synthesis,
 			'answers'           => $answers,
+			// [2026-09-01 Johnny Chu] PHASE-0.45-W5 — expose web citations to non-stream automation consumers.
+			'web_research'      => $web_row,
 			'notebook_source'   => array(
 				'map'      => (array) ( $opts['notebook_source_map'] ?? array() ),
 				'block_md' => (string) ( $opts['notebook_source_block_md'] ?? '' ),
 				'counts'   => (array) ( $opts['notebook_source_counts'] ?? array() ),
+					// [2026-09-01 Johnny Chu] PHASE-0.45-W5 — expose the same graph/retrieval/final context pack to automation surfaces; no surface-specific rerank is introduced.
+					'graph_vector_rerank_pack' => (array) ( $opts['graph_vector_rerank_pack'] ?? array() ),
+					'graph_entities' => (array) ( $opts['graph_entities'] ?? array() ),
+					'retrieval_candidates' => (array) ( $opts['retrieval_candidates'] ?? array() ),
+					'final_context_chunks' => (array) ( $opts['final_context_chunks'] ?? array() ),
+					'retrieval_candidate_count' => (int) ( $opts['retrieval_candidate_count'] ?? 0 ),
+					'final_context_count' => (int) ( $opts['final_context_count'] ?? 0 ),
+					'rerank_method' => (string) ( $opts['rerank_method'] ?? '' ),
+					'rerank_degraded' => ! empty( $opts['rerank_degraded'] ),
 				'source_file_briefs' => (array) ( $opts['source_file_briefs'] ?? array() ),
 				'source_file_counts' => (array) ( $opts['source_file_counts'] ?? array() ),
 				'search_context'     => (array) ( $opts['search_context'] ?? array() ),
@@ -1506,6 +1548,10 @@ class BizCity_TwinBrain_Runtime {
 				$opts['notebook_search_context_query'] = $prompt_for_reasoning;
 				$notebook_source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $candidates, $persp_snapshot, $opts );
 				$opts['notebook_source_map']      = (array) ( $notebook_source_payload['notebook_source_map'] ?? array() );
+				$opts['context_bank_source_refs'] = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_source_refs'] ?? array() );
+				// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — preserve stream parity for internal canonical Skill owner records.
+				$opts['context_bank_owner_records'] = (array) ( $notebook_source_payload['context_bank_owner_records'] ?? array() );
+				$opts['context_bank_retrieval']   = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_retrieval'] ?? array() );
 				$opts['notebook_source_block_md'] = (string) ( $notebook_source_payload['notebook_source_block_md'] ?? '' );
 				$opts['notebook_source_counts']   = (array) ( $notebook_source_payload['notebook_source_counts'] ?? array() );
 				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — pass W0.7 source-file briefs to Final Composer and replay snapshots.
@@ -2466,7 +2512,8 @@ class BizCity_TwinBrain_Runtime {
 		if ( class_exists( 'BizCity_TwinBrain_Notebook_Source_Layer' ) ) {
 			try {
 				$source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $round_candidates, $round_answers, $round_opts );
-				foreach ( array( 'notebook_source_map', 'notebook_source_block_md', 'notebook_source_counts', 'source_file_briefs', 'source_file_counts', 'search_context', 'search_context_results', 'search_context_total', 'cross_notebook_links', 'graph_vector_rerank_pack', 'graph_entities', 'retrieval_candidates', 'final_context_chunks', 'retrieval_candidate_count', 'final_context_count', 'rerank_method', 'rerank_degraded', 'rerank_error', 'vector_status', 'vector_candidate_count', 'vector_degraded_reason', 'graph_candidate_count', 'selector_hardening_applied', 'selector_hardening_reason', 'selector_hardening_count', 'selector_hardening_scope', 'training_gap_report', 'product_entities', 'product_entity_count', 'product_name_entity_count' ) as $key ) {
+				// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — preserve internal Skill owner records across bounded retrieval rounds.
+				foreach ( array( 'notebook_source_map', 'notebook_source_block_md', 'notebook_source_counts', 'source_file_briefs', 'source_file_counts', 'search_context', 'search_context_results', 'search_context_total', 'cross_notebook_links', 'graph_vector_rerank_pack', 'graph_entities', 'retrieval_candidates', 'final_context_chunks', 'retrieval_candidate_count', 'final_context_count', 'rerank_method', 'rerank_degraded', 'rerank_error', 'vector_status', 'vector_candidate_count', 'vector_degraded_reason', 'graph_candidate_count', 'selector_hardening_applied', 'selector_hardening_reason', 'selector_hardening_count', 'selector_hardening_scope', 'training_gap_report', 'product_entities', 'product_entity_count', 'product_name_entity_count', 'context_bank_source_refs', 'context_bank_source_count', 'context_bank_owner_records', 'context_bank_retrieval' ) as $key ) {
 					if ( array_key_exists( $key, $source_payload ) ) {
 						$round_opts[ $key ] = $source_payload[ $key ];
 					}

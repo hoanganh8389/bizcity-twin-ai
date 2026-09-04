@@ -203,9 +203,6 @@ class BizCity_TwinBrain_Schema {
 	 *   KEY idx_owner_priority (owner_id, user_priority DESC, last_summary_at DESC)
 	 */
 	public static function ensure_notebook_perspective_columns(): void {
-		if ( get_option( self::KG_NB_ALTER_OPTION ) === self::KG_NB_ALTER_VERSION ) {
-			return;
-		}
 		if ( ! class_exists( 'BizCity_KG_Database' ) ) {
 			return; // KG hub not loaded — nothing to alter.
 		}
@@ -220,7 +217,7 @@ class BizCity_TwinBrain_Schema {
 			return;
 		}
 
-		$columns = [
+		$columns = array(
 			'perspective_label'     => "ADD COLUMN perspective_label VARCHAR(100) NOT NULL DEFAULT '' AFTER name",
 			'perspective_summary'   => "ADD COLUMN perspective_summary TEXT NULL",
 			'perspective_embedding' => "ADD COLUMN perspective_embedding LONGTEXT NULL",
@@ -228,14 +225,29 @@ class BizCity_TwinBrain_Schema {
 			'entity_pins'           => "ADD COLUMN entity_pins TEXT NULL",
 			'user_priority'         => "ADD COLUMN user_priority TINYINT NOT NULL DEFAULT 0",
 			'last_summary_at'       => "ADD COLUMN last_summary_at DATETIME NULL",
-		];
+		);
+
+		// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — cloned shards can keep a current alter version option while notebook perspective columns are physically missing.
+		if ( get_option( self::KG_NB_ALTER_OPTION ) === self::KG_NB_ALTER_VERSION ) {
+			$required_columns = array_keys( $columns );
+			$all_columns_ready = function_exists( 'bizcity_columns_exist' )
+				? bizcity_columns_exist( $tbl, $required_columns )
+				: false;
+			if ( $all_columns_ready ) {
+				$wpdb->suppress_errors( $prev );
+				return;
+			}
+		}
 
 		$applied = [];
 		foreach ( $columns as $col => $clause ) {
-			$present = $wpdb->get_var( $wpdb->prepare(
-				"SHOW COLUMNS FROM {$tbl} LIKE %s",
-				$col
-			) );
+			$present = function_exists( 'bizcity_column_exists' )
+				? bizcity_column_exists( $tbl, $col )
+				: (bool) $wpdb->get_var( $wpdb->prepare(
+					'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
+					$tbl,
+					$col
+				) );
 			if ( $present ) {
 				continue;
 			}
@@ -271,6 +283,9 @@ class BizCity_TwinBrain_Schema {
 
 		if ( ! empty( $applied ) ) {
 			error_log( '[TwinBrain][Schema] kg_notebooks extended: ' . implode( ',', $applied ) );
+			if ( function_exists( 'bizcity_columns_invalidate' ) ) {
+				bizcity_columns_invalidate( $tbl, array_keys( $columns ) );
+			}
 		}
 		update_option( self::KG_NB_ALTER_OPTION, self::KG_NB_ALTER_VERSION );
 	}

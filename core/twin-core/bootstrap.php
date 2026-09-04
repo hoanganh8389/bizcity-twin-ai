@@ -93,12 +93,32 @@ require_once $twin_includes . '/class-twin-artifact-normalizer.php';
 $twin_event_stream = dirname( __FILE__ ) . '/event-stream';
 require_once $twin_event_stream . '/class-bizcity-uuid.php';
 require_once $twin_event_stream . '/class-twin-event-taxonomy.php';
+// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — load the taxonomy-gated event registry before typed extension declarations.
+if ( class_exists( 'BizCity_Safe_Loader', false ) && is_file( $twin_event_stream . '/class-twin-event-registry.php' ) && is_readable( $twin_event_stream . '/class-twin-event-registry.php' ) ) {
+    BizCity_Safe_Loader::require_file( $twin_event_stream . '/class-twin-event-registry.php', 'twin_core.event_registry' );
+}
 require_once $twin_event_stream . '/class-twin-event-stream-schema.php';
 require_once $twin_event_stream . '/class-twin-event-store.php';
 
 // Phase 2 Priority 5 — Event Bus (milestone + context log recording + Phase 0.12 dispatch_v2)
 require_once $twin_event_stream . '/class-twin-event-bus.php';
 BizCity_Twin_Event_Bus::boot();
+
+// [2026-09-01 Johnny Chu] PHASE-CB4.1 — register the gated Event Stream projection after the canonical bus is booted.
+$_context_bank_event_adapter = dirname( __DIR__ ) . '/context-bank/includes/class-context-bank-event-stream-adapter.php';
+if ( class_exists( 'BizCity_Safe_Loader', false )
+    && is_file( $_context_bank_event_adapter )
+    && is_readable( $_context_bank_event_adapter ) ) {
+    try {
+        BizCity_Safe_Loader::require_file( $_context_bank_event_adapter, 'context_bank.event_stream_adapter' );
+    } catch ( \Throwable $e ) {
+        error_log( '[BizCity Twin Core] Context Bank event adapter unavailable.' );
+    }
+}
+if ( class_exists( 'BizCity_Context_Bank_Event_Stream_Adapter', false ) ) {
+    BizCity_Context_Bank_Event_Stream_Adapter::boot();
+}
+unset( $_context_bank_event_adapter );
 
 // Phase 0.12 Wave B+ PR-B+1 — Trace projector (registered, NO-OP until Wave B+3 flip)
 require_once $twin_event_stream . '/class-twin-event-trace-projector.php';
@@ -175,6 +195,8 @@ require_once $twin_includes . '/class-twin-runtime-reliability.php';
 // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — expose the shared outbound HTTP reliability adapter.
 require_once $twin_includes . '/class-twin-reliable-http.php';
 require_once $twin_includes . '/class-twin-content-registry.php';
+// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — consume typed skill/source declarations through the single content registry.
+BizCity_Twin_Content_Registry::boot();
 require_once $twin_includes . '/class-twin-tool-registry.php';
 require_once $twin_includes . '/class-twin-citation-id-generator.php';
 require_once $twin_includes . '/class-twin-citation-validator.php';

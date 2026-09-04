@@ -1,0 +1,522 @@
+/**
+ * BizCoach Map – Nobi Float Button & Panel
+ * Đồng bộ với bc-agent-float-btn (bizcity-brain-level)
+ * Dark theme + warm amber accent (Nobita/Life Map theme)
+ */
+
+/* =============================================
+   FLOATING BUTTON
+   ============================================= */
+.btn-nobi-float-btn {
+  position: fixed;
+  right: 28px;
+  bottom: 175px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+  border: none;
+  cursor: pointer;
+  z-index: 99989;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 32px rgba(245,158,11,0.4), 0 2px 8px rgba(0,0,0,0.1);
+  transition: all 0.3s cubic-bezier(.4,0,.2,1);
+  animation: nobi-float-bounce 3s ease-in-out infinite;
+}
+
+.btn-nobi-float-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 12px 40px rgba(245,158,11,0.5);
+  animation-play-state: paused;
+}
+
+.btn-nobi-float-btn::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, #f59e0b, #ef4444, #8b5cf6, #10b981, #f59e0b);
+  z-index: -1;
+  animation: nobi-ring-spin 4s linear infinite;
+  opacity: 0.5;
+}
+
+.btn-nobi-float-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255,255,255,0.8);
+}
+
+.btn-nobi-float-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 2px solid #fff;
+  line-height: 1.2;
+}
+
+@keyframes nobi-float-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes nobi-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes nobi-float-attention {
+  0%, 100% { transform: translateY(0) scale(1); box-shadow: 0 8px 32px rgba(245,158,11,0.4); }
+  25% { transform: translateY(-6px) scale(1.05); box-shadow: 0 12px 40px rgba(239,68,68,0.4); }
+  75% { transform: translateY(-3px) scale(1.02); box-shadow: 0 10px 36px rgba(245,158,11,0.5); }
+}
+
+/* =============================================
+   PANEL (đồng bộ bc-agent-panel)
+   ============================================= */
+.nobi-panel {
+  position: fixed;
+  right: 28px;
+  bottom: 160px;
+  width: 380px;
+  max-width: calc(100vw - 56px);
+  max-height: calc(100vh - 200px);
+  background: #1a1b23;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06);
+  z-index: 99990;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  animation: nobi-panel-enter 0.35s cubic-bezier(.4,0,.2,1);
+}
+
+.nobi-panel.active {
+  display: flex;
+}
+
+@keyframes nobi-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* =============================================
+   HEADER
+   ============================================= */
+.nobi-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #5b2c0e 0%, #1a1b23 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.nobi-panel-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nobi-panel-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid rgba(245,158,11,0.4);
+  object-fit: cover;
+}
+
+.nobi-panel-header-info h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.nobi-panel-header-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.6);
+}
+
+.nobi-panel-close {
+  background: rgba(255,255,255,0.08);
+  border: none;
+  color: rgba(255,255,255,0.6);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.nobi-panel-close:hover {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+}
+
+/* =============================================
+   PROGRESS
+   ============================================= */
+.nobi-panel-progress {
+  padding: 16px 20px 12px;
+}
+
+.nobi-panel-progress-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+}
+
+.nobi-panel-progress-pct {
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.nobi-panel-progress-track {
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.nobi-panel-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #f59e0b, #ef4444);
+  transition: width 0.6s ease;
+  position: relative;
+}
+
+.nobi-panel-progress-fill::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  animation: nobi-bar-shimmer 2.5s infinite;
+}
+
+@keyframes nobi-bar-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+/* =============================================
+   NEXT ACTION BANNER
+   ============================================= */
+.nobi-panel-next-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  margin: 0 16px;
+  background: rgba(245,158,11,0.1);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 12px;
+  text-decoration: none;
+  color: #fff;
+  transition: all 0.2s;
+}
+
+.nobi-panel-next-action:hover {
+  background: rgba(245,158,11,0.18);
+  border-color: rgba(245,158,11,0.35);
+  color: #fff;
+}
+
+.nobi-panel-next-icon {
+  font-size: 22px;
+  width: 36px;
+  height: 36px;
+  background: rgba(245,158,11,0.15);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nobi-panel-next-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.nobi-panel-next-info strong {
+  display: block;
+  font-size: 11px;
+  color: #f59e0b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.nobi-panel-next-info span {
+  font-size: 13px;
+  color: rgba(255,255,255,0.85);
+}
+
+.nobi-panel-next-arrow {
+  font-size: 18px;
+  color: rgba(255,255,255,0.3);
+  flex-shrink: 0;
+}
+
+/* =============================================
+   MILESTONES
+   ============================================= */
+.nobi-panel-milestones {
+  padding: 16px 20px 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.nobi-panel-milestones h4 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255,255,255,0.4);
+}
+
+.nobi-panel-timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.nobi-panel-milestone {
+  display: flex;
+  gap: 12px;
+  min-height: 48px;
+}
+
+.nobi-ms-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.nobi-ms-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  border: 2px solid rgba(255,255,255,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.nobi-ms-done .nobi-ms-dot {
+  background: #10b981;
+  border-color: #10b981;
+}
+
+.nobi-ms-in-progress .nobi-ms-dot {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.nobi-ms-pulse {
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 50%;
+  animation: nobi-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes nobi-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.6); }
+}
+
+.nobi-ms-line {
+  width: 2px;
+  flex: 1;
+  background: rgba(255,255,255,0.08);
+  min-height: 16px;
+}
+
+.nobi-ms-done .nobi-ms-line {
+  background: rgba(16,185,129,0.3);
+}
+
+.nobi-ms-content {
+  flex: 1;
+  padding-bottom: 12px;
+}
+
+.nobi-ms-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: #fff;
+  padding: 4px 0;
+  transition: color 0.15s;
+}
+
+.nobi-ms-link:hover {
+  color: #f59e0b;
+}
+
+.nobi-ms-icon {
+  font-size: 15px;
+  width: 20px;
+  text-align: center;
+}
+
+.nobi-ms-label {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.nobi-ms-level {
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(255,255,255,0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+  min-width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nobi-ms-done .nobi-ms-level {
+  background: rgba(16,185,129,0.25);
+  color: #6ee7b7;
+}
+
+.nobi-ms-pending .nobi-ms-level {
+  background: rgba(239,68,68,0.15);
+  color: rgba(255,255,255,0.5);
+}
+
+.nobi-ms-tip {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.3;
+}
+
+/* =============================================
+   STATUS CARDS
+   ============================================= */
+.nobi-panel-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 20px;
+}
+
+.nobi-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.nobi-card:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.12);
+}
+
+.nobi-card-icon {
+  font-size: 20px;
+  width: 32px;
+  height: 32px;
+  background: rgba(245,158,11,0.1);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nobi-card-lifemap .nobi-card-icon { background: rgba(59,130,246,0.12); }
+.nobi-card-health  .nobi-card-icon { background: rgba(16,185,129,0.12); }
+.nobi-card-calendar .nobi-card-icon { background: rgba(245,158,11,0.12); }
+.nobi-card-numerology .nobi-card-icon { background: rgba(139,92,246,0.12); }
+
+.nobi-card-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.nobi-card-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.nobi-card-label {
+  font-size: 10px;
+  color: rgba(255,255,255,0.45);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* =============================================
+   FOOTER
+   ============================================= */
+.nobi-panel-footer {
+  display: flex;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.15);
+}
+
+.nobi-panel-footer-link {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 8px;
+  text-decoration: none;
+  color: rgba(255,255,255,0.55);
+  font-size: 12px;
+  transition: all 0.2s;
+  border-right: 1px solid rgba(255,255,255,0.04);
+}
+
+.nobi-panel-footer-link:last-child {
+  border-right: none;
+}
+
+.nobi-panel-footer-link:hover {
+  color: #f59e0b;
+  background: rgba(245,158,11,0.06);
+}
+
+.nobi-panel-footer-link span {
+  font-size: 14px;
+}

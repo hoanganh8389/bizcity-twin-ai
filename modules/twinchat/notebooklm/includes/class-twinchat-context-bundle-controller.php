@@ -287,43 +287,25 @@ class BizCity_TwinChat_Context_Bundle_Controller {
 	 * @return array<int, array<string,mixed>>
 	 */
 	private function load_pinned_notes( int $notebook_id, int $limit ): array {
-		global $wpdb;
-		$tbl = $wpdb->prefix . 'bizcity_memory_notes';
-
-		// Detect table existence — older deploys may not have BCN active yet.
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-		if ( $exists !== $tbl ) return [];
-
 		$pid = self::PROJECT_PREFIX . $notebook_id;
-
-		// Pull notes owned by this notebook scope. Prefer:
-		//   • is_starred = 1   → user explicitly starred / pinned
-		//   • note_type IN ('chat_pinned','manual','insight')
-		// then fall back to any other note for the same project.
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, title, content, note_type, is_starred, message_id, created_at
-			 FROM {$tbl}
-			 WHERE project_id = %s
-			   AND content <> ''
-			 ORDER BY is_starred DESC, updated_at DESC, id DESC
-			 LIMIT %d",
-			$pid, $limit
-		), ARRAY_A );
-
-		if ( ! is_array( $rows ) ) return [];
-
-		return array_values( array_map( static function ( $r ) {
-			$content = trim( wp_strip_all_tags( (string) ( $r['content'] ?? '' ) ) );
-			return [
-				'id'         => (int) $r['id'],
-				'title'      => (string) ( $r['title'] ?? '' ),
-				'content'    => mb_substr( $content, 0, 800 ),
-				'note_type'  => (string) ( $r['note_type'] ?? 'manual' ),
-				'is_starred' => (int) ( $r['is_starred'] ?? 0 ),
-				'message_id' => (int) ( $r['message_id'] ?? 0 ),
-				'created_at' => (string) ( $r['created_at'] ?? '' ),
-			];
-		}, $rows ) );
+		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — notebook context reads the Context Bank-backed Notes service; no legacy SQL note table inspection.
+		if ( ! class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+			return array();
+		}
+		$notes = BizCity_TwinChat_Notes_Service::instance()->get_by_project( $pid );
+		$rows = array();
+		foreach ( (array) $notes as $note ) {
+			$note = is_object( $note ) ? (array) $note : (array) $note;
+			if ( empty( $note['content'] ) || ! in_array( (string) ( $note['note_type'] ?? '' ), array( 'chat_pinned', 'manual', 'insight', 'research_auto' ), true ) ) {
+				continue;
+			}
+			$rows[] = $note;
+		}
+		usort( $rows, static function ( $left, $right ) {
+			$star = (int) ( $right['is_starred'] ?? 0 ) <=> (int) ( $left['is_starred'] ?? 0 );
+			return $star !== 0 ? $star : strcmp( (string) ( $right['updated_at'] ?? $right['created_at'] ?? '' ), (string) ( $left['updated_at'] ?? $left['created_at'] ?? '' ) );
+		} );
+		return array_slice( $rows, 0, max( 1, $limit ) );
 	}
 
 	/**

@@ -4,21 +4,84 @@
 > Scope: `bizcity-twin-ai`, active satellite plugins, `bizcity-llm-router`
 > Audience: framework developers, extension authors, reviewers, operators
 > This guide is a navigation layer. It does not override the canonical rules.
+> Ultimate direction: [Enterprise Brain Direction](../rules/PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md) — every framework path must reinforce the horizontal Channel Gateway, vertical contract-based Brain Modes/extensions, and KG Graph knowledge layer.
+> Context spine: [R-CONTEXT-BANK](../rules/PHASE-0-RULE-CONTEXT-BANK.md) — normalized enterprise streams, rollups, memory/rule references, KG promotion and MPR retrieval share one corpus/pointer architecture.
 
 ## 1. Read This First
 
 Use this priority order when documents disagree:
 
-1. **Ownership and topology:** [PHASE-0-RULE-BRAIN-UNIFICATION.md](../rules/PHASE-0-RULE-BRAIN-UNIFICATION.md)
-2. **Cross-cutting rules:** [PHASE-0-CANON.md](../rules/PHASE-0-CANON.md) and the linked Tier 0/Tier 1 rule documents
-3. **Stable public API:** [PUBLIC-CONTRACTS-v1.md](../contracts/PUBLIC-CONTRACTS-v1.md)
-4. **Extension conventions:** [HOOKS.md](../extension/HOOKS.md), [getting-started.md](../getting-started.md), and [sub-plugin-quickstart.md](../extending/sub-plugin-quickstart.md)
-5. **Feature roadmap and current implementation status:** the applicable `PHASE-*` document, especially [PHASE-1.25](roadmaps/PHASE-1.25-PIAPI-IMAGE-GATEWAY-PLUGIN-FRAMEWORK-AUDIT.md)
+1. **Product direction:** [PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md](../rules/PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md)
+2. **Ownership and topology:** [PHASE-0-RULE-BRAIN-UNIFICATION.md](../rules/PHASE-0-RULE-BRAIN-UNIFICATION.md)
+3. **Enterprise context:** [PHASE-0-RULE-CONTEXT-BANK.md](../rules/PHASE-0-RULE-CONTEXT-BANK.md)
+4. **Cross-cutting rules:** [PHASE-0-CANON.md](../rules/PHASE-0-CANON.md) and the linked Tier 0/Tier 1 rule documents
+5. **Stable public API:** [PUBLIC-CONTRACTS-v1.md](../contracts/PUBLIC-CONTRACTS-v1.md)
+6. **Extension conventions:** [HOOKS.md](../extension/HOOKS.md), [getting-started.md](../getting-started.md), and [sub-plugin-quickstart.md](../extending/sub-plugin-quickstart.md)
+7. **Feature roadmap and current implementation status:** the applicable `PHASE-*` document, especially [PHASE-1.25](../roadmaps/PHASE-1.25-PIAPI-IMAGE-GATEWAY-PLUGIN-FRAMEWORK-AUDIT.md)
 
 A roadmap explains delivery state. It does not create a new architectural authority.
-A helper or existing code path is not automatically a public contract.
+A helper or existing code path is not automatically a public contract. For all
+bootstrap loading, [R-SAFE-LOADER](../rules/PHASE-0-RULE-SAFE-LOADER.md) is the
+controlling rule.
 
-## 1.1 Find Your Work Path
+Before designing a new capability, apply the Enterprise Brain direction gate:
+identify its Channel Gateway intake, Vertical Brain Mode/extension contract,
+Context Bank stream/rollup contract, KG Graph evidence path, shared spine owner,
+and non-duplicated UI/data owner.
+
+## 1.1 Safe PHP Artifact Loading
+
+Module bootstraps MUST load optional or deployable PHP artifacts through
+`BizCity_Safe_Loader::require_file( $path, $label )` from
+`core/helper/class-bizcity-safe-loader.php`. The helper checks `is_file()` and
+`is_readable()` before `require_once`, catches load-time `Throwable`, and emits
+only a bounded `label/reason` log entry. A missing artifact must degrade the
+owning feature or module; it must not turn activation or a REST request into a
+500 response.
+
+```php
+$file = MY_MODULE_DIR . 'includes/class-optional-adapter.php';
+if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+  BizCity_Safe_Loader::require_file( $file, 'my_module.optional_adapter' );
+}
+```
+
+Use a guarded direct load only to bootstrap the Safe Loader itself. Do not add
+raw `require_once` calls for module artifacts to a feature bootstrap. CI rejects
+new raw module/probe requires in every active bootstrap under `plugins/`, `core/`,
+and `modules/` as a framework enforcement gate. Required classes must retain
+`class_exists()` checks at their registration/use boundary,
+so a partial deploy produces a controlled unavailable/degraded state.
+
+## 1.2 Trace-First Route Matrix
+
+For any feature that crosses a Hub, client site, tenant shard, channel, or
+member surface, write and verify this route before changing code:
+
+```text
+surface/domain
+  → blog_id + physical shard
+  → exact key_id + allowed_domain
+  → plan/tier + feature/capacity
+  → tenant mapping + owner
+  → canonical row/inbox/account
+  → callback/provider
+  → response + reason bucket
+```
+
+The first investigation must contain one falsifiable hypothesis and one cheap
+check that can disprove it. Keep the dimensions `domain`, `blog_id`, `key_id`,
+`tier`, `capability`, `owner`, and route visible in evidence. Classify the
+failure before editing as transport, auth, entitlement, domain, tenant,
+mapping, side effect, or presentation/cache. Local source/static evidence is
+not runtime evidence until the deployed loader and route return the same
+contract.
+
+One user-facing concept has one state/UI owner. A child component may render
+embedded content, but must not create a second card, query, cache, or mutation
+owner for the same state.
+
+## 1.3 Find Your Work Path
 
 | You are trying to... | Start with | Required boundary |
 |---|---|---|
@@ -26,18 +89,28 @@ A helper or existing code path is not automatically a public contract.
 | Add a browser or SPA capability | [Sub-plugin quickstart](../extending/sub-plugin-quickstart.md) | Same-origin REST/AJAX + nonce, then PHP wrapper |
 | Add a Tool/Agent/Skill/Channel/Adapter | [Agent/tool recipe](../extending/agent-tool-recipe.md) and [HOOKS.md](../extension/HOOKS.md) | Typed contract or explicit legacy adapter |
 | Build a community plugin scaffold | [PLUGIN-STANDARD.md](../extending/PLUGIN-STANDARD.md) and [PLUGIN-TWIN-STANDARD.md](../extending/PLUGIN-TWIN-STANDARD.md) | `manifest.json` + bootstrap + declared capability contract |
-| Receive a channel message | [Channel unify rule](../rules/PHASE-0-RULE-CHANNEL-UNIFY.md) | Normalized envelope + identity tuple + zone guard |
+| Receive or send a channel message | [Channel-Only R-CH-10](../rules/PHASE-0-RULE-CHANNEL-ONLY.md#r-ch-10--all-channels-one-diagnostics-contract) | `channel-payload` + exact tenant/account/identity/zone + `channel-diagnostics-record`; one logger/index/Log Explorer |
+| Add a channel diagnostics/log surface | [Channel File Log target v2](../../core/channel-gateway/docs/RULE-CHANNEL-FILE-LOG.md) | Extend the canonical writer/query/component; no plugin logger, route, retention or viewer |
+| Add an enterprise context stream, rollup, relation or MPR search source | [Context Bank rule](../rules/PHASE-0-RULE-CONTEXT-BANK.md) | Registered producer + encrypted JSONL/canonical owner + tenant pointer ledger + bounded retrieval; no SQL payload copy |
+
+For all `bizcity_memory_*` families and the legacy `bizcity_memory` table,
+apply the same gate: encrypted JSONL/business filestore is the payload source
+of truth, while `bizcity_context_bank` is a pointer/correlation projection.
+Do not create new SQL memory payload writes or copy decrypted memory into the
+ledger; use the lifecycle roadmap for legacy-row retention and cleanup.
+| Implement a Context Bank wave or sprint | [Phase 1.33 Context Bank roadmap](../roadmaps/PHASE-1.33-CONTEXT-BANK-IMPLEMENTATION-ROADMAP.md) | Follow hard dependencies, owning files, focused probe, rollback and exit gate for that sprint |
 | Read/write KG or memory | [Brain Unification](../rules/PHASE-0-RULE-BRAIN-UNIFICATION.md) | Facade/service only; no direct KG table access |
 | Add a REST/AJAX error | [Error UX rule](../rules/PHASE-0-RULE-ERROR-UX.md) | `code`, `message`, `hint`, `help_code` |
 | Add a mutation, queue, or external side effect | [Public contracts](../contracts/PUBLIC-CONTRACTS-v1.md) | Permission, idempotency, trace, retry, outcome evidence |
 | Add or change a table/column/index | [Diagnostics changelog rule](../diagnostics/PHASE-0-RULE-DIAGNOSTICS-CHANGELOG.md) | R-DCL + schema registry + provisioner + DDV |
 | Change a loader or bootstrap | [Phase 1.23 loader roadmap](../roadmaps/PHASE-1.23-R-PERF-LOADER.md) | Surface gate + focused memory/load evidence |
 | Prepare a release | [Phase 1.24 readiness](../roadmaps/PHASE-1.24-FRAMEWORK-ADOPTION-RELEASE-READINESS.md) | CI, runtime probes, registry, SDK, schema and residual-risk scorecard |
+| Add or extend a WP-CLI command | [Phase 1.31 `wp bizcity` command family roadmap](../roadmaps/PHASE-1.31-WP-CLI-BIZCITY-COMMAND-FAMILY.md) | Root `bizcity` namespace, reuse the diagnostics-verdict contract, no parallel Diagnostics engine |
 
 When two rows appear to apply, follow both boundaries. The more restrictive
 security, identity, storage, or runtime rule wins.
 
-## 1.2 The Four-Layer Verification Model
+## 1.4 The Four-Layer Verification Model
 
 Every contract in this framework is checked through the same four layers, in
 the same order, for both a local developer and CI:
@@ -60,6 +133,7 @@ GitHub Checks  ->  .github/workflows/ci.yml jobs (public-contracts, lint-php,
 | `php bin/twin validate [--plugin=P]` | Static manifest/registry/contract-audit/SDK checks | No |
 | `php bin/twin test [--filter=F]` | Contract fixture tests + PHPUnit | No |
 | `php bin/twin diagnostics [opts]` | Full runtime probe engine (`core/diagnostics`) | Yes |
+| `wp bizcity diagnostics [opts]` | WordPress/WP-CLI facade for the canonical Smoke Runner | Yes |
 | `php bin/twin inspect manifest\|registry\|probe` | Read-only inspection of one artifact | `probe` only |
 
 CI keeps each underlying script as its own job step (fine-grained GitHub

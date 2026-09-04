@@ -48,6 +48,9 @@ class BizCity_LLM_Settings {
         add_action( 'admin_notices',                              [ $this, 'admin_notices' ] );
 
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+        // [2026-08-27 Johnny Chu] PHASE-TWINSHELL-SINGLE-FRAME — remove
+        // wp-admin chrome when this settings page is hosted by TwinShell.
+        add_filter( 'admin_body_class', [ $this, 'iframe_body_class' ] );
 
         // AJAX
         add_action( 'wp_ajax_bizcity_llm_test_key',       [ $this, 'ajax_test_key' ] );
@@ -132,6 +135,17 @@ class BizCity_LLM_Settings {
         ] );
     }
 
+    public function iframe_body_class( string $classes ): string {
+        if (
+            isset( $_GET['page'], $_GET['bizcity_iframe'] ) &&
+            'bizcity-llm' === sanitize_key( (string) wp_unslash( $_GET['page'] ) ) &&
+            '1' === sanitize_key( (string) wp_unslash( $_GET['bizcity_iframe'] ) )
+        ) {
+            $classes .= ' bizcity-llm-iframe';
+        }
+        return $classes;
+    }
+
     /* ── Render settings page ── */
     public function render_page(): void {
         // [2026-06-09 Johnny Chu] HOTFIX — allow manage_options (site admin) on multisite client sites;
@@ -155,7 +169,7 @@ class BizCity_LLM_Settings {
         <div class="wrap bizcity-llm-wrap">
             <h1>⚡ BizCity LLM — <?php echo esc_html__( 'AI Gateway Configuration', 'bizcity-twin-ai' ); ?></h1>
             <p class="description">
-                <?php echo esc_html__( 'Configure LLM connection for the BizCity Twin AI platform.', 'bizcity-twin-ai' ); ?>
+                <?php echo esc_html__( 'Configure LLM connection for the BizCity Twin Brain platform.', 'bizcity-twin-ai' ); ?>
             </p>
 
             <div class="bizcity-llm-status bizcity-llm-status--info" style="background:#eef6ff;border-left:4px solid #2271b1;padding:10px 14px;margin:12px 0">
@@ -399,8 +413,12 @@ class BizCity_LLM_Settings {
         if ( ! current_user_can( 'manage_options' ) ) return;
         check_admin_referer( 'bizcity_llm_settings', '_wpnonce_llm' );
         $this->do_save();
+        $redirect_args = [ 'page' => 'bizcity-llm', 'updated' => '1' ];
+        if ( ! empty( $_GET['bizcity_iframe'] ) ) {
+            $redirect_args['bizcity_iframe'] = '1';
+        }
         wp_redirect( add_query_arg(
-            [ 'page' => 'bizcity-llm', 'updated' => '1' ],
+            $redirect_args,
             admin_url( 'admin.php' )
         ) );
         exit;

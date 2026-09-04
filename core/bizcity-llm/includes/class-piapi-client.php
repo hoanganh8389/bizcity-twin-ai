@@ -85,13 +85,14 @@ class BizCity_PiAPI_Client {
         $args = array(
             'method'  => 'POST',
             'timeout' => self::TIMEOUT_SEC,
-            'headers' => array(
+            // [2026-09-01 Johnny Chu] B2C-G7.1 — send the canonical site signal on PiAPI task submission.
+            'headers' => array_merge( array(
                 'Authorization' => 'Bearer ' . $this->get_api_key(),
                 'Content-Type'  => 'application/json',
                 'X-Site-URL'    => home_url(),
                 'X-Trace-Id'    => $trace_id,
                 'X-Idempotency-Key' => $idempotency_key,
-            ),
+            ), class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->get_client_domain_headers() : array() ),
             'body' => wp_json_encode( $request ),
         );
         $response = $this->request( 'gateway.piapi.image_task.submit', $url, $args, array( 'trace_id' => $trace_id, 'idempotency_key' => $idempotency_key ) );
@@ -127,11 +128,12 @@ class BizCity_PiAPI_Client {
             array(
                 'method'  => 'GET',
                 'timeout' => self::TIMEOUT_SEC,
-                'headers' => array(
+                // [2026-09-01 Johnny Chu] B2C-G7.1 — send the canonical site signal on PiAPI task polling.
+                'headers' => array_merge( array(
                     'Authorization' => 'Bearer ' . $this->get_api_key(),
                     'X-Site-URL'    => home_url(),
                     'X-Trace-Id'    => $trace_id,
-                ),
+                ), class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->get_client_domain_headers() : array() ),
             ),
             array( 'user_id' => get_current_user_id(), 'trace_id' => $trace_id )
         );

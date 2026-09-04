@@ -80,24 +80,22 @@ class BizCity_Working_Panel_Context {
 		// Always read from DB (last persisted snapshot).
 
 		// Read from DB (last persisted snapshot)
-		if ( ! empty( $session_id ) && class_exists( 'BizCity_WebChat_Database' ) ) {
-			$db  = BizCity_WebChat_Database::instance();
-			$row = $db->get_session_v3_by_session_id( $session_id );
-			if ( $row && ! empty( $row->context_layers_snapshot ) ) {
-				$snapshot = json_decode( $row->context_layers_snapshot, true );
-				if ( is_array( $snapshot ) ) {
-					// Also include session memory spec for full observability
-					$spec_data = array();
-					if ( ! empty( $row->session_memory_spec ) ) {
-						$spec_data = json_decode( $row->session_memory_spec, true );
-					}
+		if ( ! empty( $session_id ) && class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			$state = BizCity_WebChat_Session_State::instance()->get_by_session( $session_id );
+			$snapshot = $state && is_array( $state->context_layers_snapshot ?? null ) ? $state->context_layers_snapshot : array();
+			if ( ! empty( $snapshot ) ) {
+					// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-SPEC-FILESTORE — read the working brief through its canonical filestore owner.
+					$spec_data = class_exists( 'BizCity_Session_Memory_Spec' )
+						? BizCity_Session_Memory_Spec::get( $session_id, $state->platform_type ?? '' )
+						: array();
+					$spec_data = is_array( $spec_data ) ? $spec_data : array();
 
 					wp_send_json_success( array(
 						'source'        => 'db',
 						'snapshot'      => $snapshot,
-						'session_spec'  => is_array( $spec_data ) ? $spec_data : array(),
-						'session_mode'  => isset( $row->session_memory_mode ) ? $row->session_memory_mode : 'off',
-						'focus_summary' => isset( $row->session_focus_summary ) ? $row->session_focus_summary : '',
+						'session_spec'  => $spec_data,
+						'session_mode'  => isset( $spec_data['mode'] ) ? $spec_data['mode'] : 'off',
+						'focus_summary' => isset( $spec_data['current_focus'] ) ? $spec_data['current_focus'] : '',
 					) );
 					return;
 				}

@@ -185,10 +185,23 @@ class BizCity_CRM_DB_Installer_V2 {
 	/* ----- Lifecycle ----- */
 	public static function maybe_upgrade(): void {
 		// [2026-08-21 Johnny Chu] DIAGNOSTICS-SCHEMA-SELF-HEAL — repair when the version stamp survived but one or more CRM tables are absent.
-		if ( get_option( self::DB_VERSION_OPTION ) === BIZCITY_CRM_DB_VERSION && empty( self::missing_tables() ) ) {
+		$diagnostics_context = defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI;
+		if ( ! $diagnostics_context && get_option( self::DB_VERSION_OPTION ) === BIZCITY_CRM_DB_VERSION && empty( self::missing_tables() ) ) {
 			return;
 		}
 		self::install();
+		// [2026-08-26 Johnny Chu] R-DCL — reconcile CRM additive column/index drift from the canonical changelog during headless Diagnostics only.
+		if ( $diagnostics_context
+			&& class_exists( 'BizCity_Diagnostics_Auto_Create' )
+			&& class_exists( 'BizCity_Diagnostics_Changelog_Loader' ) ) {
+			foreach ( BizCity_Diagnostics_Changelog_Loader::tables() as $suffix => $definition ) {
+				if ( (string) ( $definition['module_id'] ?? '' ) !== 'modules.twin-crm' ) {
+					continue;
+				}
+				BizCity_Diagnostics_Auto_Create::run( (string) $suffix );
+			}
+		}
+		unset( $diagnostics_context );
 	}
 
 	/**

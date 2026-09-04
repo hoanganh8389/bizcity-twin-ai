@@ -246,6 +246,9 @@ class BizCity_CRM_Sprint_Diagnostic {
 		$iface_ok = interface_exists( 'BizCity_CRM_Channel_Adapter', false );
 		$reg_ok   = class_exists( 'BizCity_CRM_Channel_Registry', false );
 		$adapters = $reg_ok ? BizCity_CRM_Channel_Registry::all() : array();
+		$registry_issues = $reg_ok && method_exists( 'BizCity_CRM_Channel_Registry', 'registration_issues' )
+			? BizCity_CRM_Channel_Registry::registration_issues()
+			: array( 'registry_issue_check_unavailable' );
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — DDV must verify the shared input/output/zone contract, not only adapter presence.
 		$contract_ok = class_exists( 'BizCity_CRM_Channel_Contract', false )
 			&& method_exists( 'BizCity_CRM_Channel_Contract', 'describe' )
@@ -254,10 +257,11 @@ class BizCity_CRM_Sprint_Diagnostic {
 		$catalog = $reg_ok && method_exists( 'BizCity_CRM_Channel_Registry', 'contract_catalog' )
 			? BizCity_CRM_Channel_Registry::contract_catalog()
 			: array();
-		$catalog_ok = $contract_ok && count( $catalog ) === count( $adapters );
+		$catalog_ok = $contract_ok && empty( $registry_issues ) && count( $catalog ) === count( $adapters );
 		if ( $catalog_ok ) {
 			foreach ( $catalog as $descriptor ) {
-				if ( empty( $descriptor['contract_version'] ) || empty( $descriptor['code'] ) || ! in_array( $descriptor['zone'] ?? 'unknown', array( 'customer', 'admin' ), true ) ) {
+				// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - validate legacy descriptors and explicit CRM enablement.
+				if ( empty( $descriptor['contract_version'] ) || empty( $descriptor['code'] ) || ! in_array( $descriptor['zone'] ?? 'unknown', array( 'customer', 'admin', 'legacy' ), true ) || ! array_key_exists( 'crm_enabled', $descriptor ) || ! is_bool( $descriptor['crm_enabled'] ) ) {
 					$catalog_ok = false;
 					break;
 				}
@@ -265,6 +269,7 @@ class BizCity_CRM_Sprint_Diagnostic {
 		}
 		$input_probe_ok = false;
 		$zone_probe_ok = false;
+		$bot_probe_ok = false;
 		if ( $contract_ok ) {
 			$input_probe = BizCity_CRM_Channel_Contract::normalize_inbound( 'facebook', array(
 				'inbox_ref' => 'probe-page', 'source_id' => 'probe-user', 'content' => 'probe',
@@ -276,16 +281,25 @@ class BizCity_CRM_Sprint_Diagnostic {
 				'content_type' => 'text', 'attachments' => array(), 'external_source_id' => 'probe-message',
 				'received_at' => '2026-08-24 00:00:00',
 			) );
+			$bot_probe = BizCity_CRM_Channel_Contract::normalize_inbound( 'zalo_bot', array(
+				'inbox_ref' => 'probe-bot', 'source_id' => 'probe-user', 'content' => 'probe',
+				'content_type' => 'text', 'attachments' => array(), 'external_source_id' => 'probe-message',
+				'received_at' => '2026-08-30 00:00:00',
+			) );
 			$input_probe_ok = is_array( $input_probe ) && ( $input_probe['channel_code'] ?? '' ) === 'facebook' && isset( $input_probe['identity']['source_id'] );
 			$zone_probe_ok = is_wp_error( $zone_probe ) && $zone_probe->get_error_code() === 'channel_zone_not_crm';
+			// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - prove Zone 2 Bot storage is enabled while Telegram remains rejected.
+			$bot_probe_ok = is_array( $bot_probe ) && ( $bot_probe['channel_code'] ?? '' ) === 'zalo_bot' && ( $bot_probe['framework']['crm_enabled'] ?? false ) === true;
 		}
 		$out[] = array(
+			// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - require both Zone 2 CRM acceptance and Zone 1 rejection evidence.
 			'id'       => 'T-M1.4',
-			'status'   => ( $iface_ok && $reg_ok && ! empty( $adapters ) && $catalog_ok && $input_probe_ok && $zone_probe_ok ) ? 'PASS' : 'FAIL',
+			'status'   => ( $iface_ok && $reg_ok && ! empty( $adapters ) && $catalog_ok && $input_probe_ok && $zone_probe_ok && $bot_probe_ok ) ? 'PASS' : 'FAIL',
 			'check'    => 'Interface + Registry + shared Channel Contract; adapter descriptors valid',
-			'evidence' => sprintf( "Interface: %s\nRegistry: %s\nContract: %s\nCatalog: %s\nValid input probe: %s\nZone 2 reject probe: %s\nAdapters: [%s]",
+			'fix_hint' => 'Kiểm tra registry key/code, crm_enabled descriptor và chạy lại probe contract sau khi sửa adapter/channel mapping.',
+			'evidence' => sprintf( "Interface: %s\nRegistry: %s\nContract: %s\nCatalog: %s\nValid input probe: %s\nZone 2 reject probe: %s\nZalo Bot CRM probe: %s\nAdapters: [%s]",
 				$iface_ok ? 'YES' : 'NO', $reg_ok ? 'YES' : 'NO', $contract_ok ? 'YES' : 'NO',
-				$catalog_ok ? 'YES' : 'NO', $input_probe_ok ? 'PASS' : 'FAIL', $zone_probe_ok ? 'PASS' : 'FAIL', implode( ',', array_keys( $adapters ) )
+				$catalog_ok ? 'YES' : 'NO', $input_probe_ok ? 'PASS' : 'FAIL', $zone_probe_ok ? 'PASS' : 'FAIL', $bot_probe_ok ? 'PASS' : 'FAIL', implode( ',', array_keys( $adapters ) ) . ( empty( $registry_issues ) ? '' : ' | registration_issues=' . implode( ',', $registry_issues ) )
 			),
 		);
 

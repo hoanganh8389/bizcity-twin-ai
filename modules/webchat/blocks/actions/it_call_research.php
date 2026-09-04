@@ -343,24 +343,20 @@ class WaicAction_it_call_research extends WaicAction {
 			return '';
 		}
 
-		global $wpdb;
-		$sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-
-		$project_id = $wpdb->get_var( $wpdb->prepare(
-			"SELECT project_id FROM {$sessions_table} WHERE session_id = %s LIMIT 1",
-			$session_id
-		) );
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — resolve research project from encrypted session state.
+		$session = class_exists( 'BizCity_WebChat_Session_State' )
+			? BizCity_WebChat_Session_State::instance()->get_by_session( $session_id )
+			: null;
+		$project_id = $session ? (string) $session->project_id : '';
 
 		// If no project_id yet, use session_id as project_id (1:1 mapping)
 		if ( empty( $project_id ) ) {
 			$project_id = 'sess_' . substr( md5( $session_id ), 0, 12 );
 
-			// Update session with the new project_id
-			$wpdb->update(
-				$sessions_table,
-				[ 'project_id' => $project_id ],
-				[ 'session_id' => $session_id ]
-			);
+			// Update session with the new project_id through the canonical state owner.
+			if ( $session && class_exists( 'BizCity_WebChat_Session_State' ) ) {
+				BizCity_WebChat_Session_State::instance()->update( $session->id, array( 'project_id' => $project_id ) );
+			}
 
 			error_log( self::LOG_PREFIX . ' Created project_id=' . $project_id . ' for session=' . $session_id );
 		}

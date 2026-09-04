@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="1" failures="1" skipped="0" time="0.501">
+  <testsuite name="diagnostics" tests="1" failures="1" skipped="0" time="0.501">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.uninstall_matrix" time="0.171">
+      <failure message="fail">Uninstall safety matrix has a contract gap. | Failed steps: Uninstall refuses non-empty tables before DROP: Zero-row guard is missing.</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

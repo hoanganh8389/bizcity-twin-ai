@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="2" failures="0" skipped="0" time="0.508">
+  <testsuite name="diagnostics" tests="2" failures="0" skipped="0" time="0.508">
+    <testcase classname="bizcity.diagnostics" name="core.memory.intent_filestore_parity" time="0.322">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.webchat.tool_registry_parity" time="0.060">
+    </testcase>
+  </testsuite>
+</testsuites>

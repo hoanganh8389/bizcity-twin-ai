@@ -43,6 +43,9 @@ class BizCity_Notify_Settings_REST {
 		'bridge_auth_failed',
 		'bridge_session_disconnected',
 		'bridge_mapping_failed',
+		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — allow independent QR operation incident and recovery notifications.
+		'bridge_qr_operation_failed',
+		'bridge_qr_operation_recovered',
 	];
 
 	/**
@@ -216,7 +219,8 @@ class BizCity_Notify_Settings_REST {
 			'email_recipients'    => isset( $raw['email_recipients'] )    ? (array) $raw['email_recipients']      : array(),
 			// Default: chỉ bật 3 sự kiện quan trọng nhất, tránh notification spam.
 			'notify_events'       => isset( $raw['notify_events'] )       ? (array) $raw['notify_events']
-				: array( 'order_new', 'order_payment_complete', 'cf7_submit', 'bridge_offline', 'bridge_recovered' ),
+				// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — default QR operation alerts on; WordPress wp_mail() owns delivery.
+				: array( 'order_new', 'order_payment_complete', 'cf7_submit', 'bridge_offline', 'bridge_recovered', 'bridge_qr_operation_failed', 'bridge_qr_operation_recovered' ),
 			'twin_progress_notice_enabled' => array_key_exists( 'twin_progress_notice_enabled', $raw ) ? ! empty( $raw['twin_progress_notice_enabled'] ) : true,
 			'twin_progress_notice_detail'  => isset( $raw['twin_progress_notice_detail'] ) && in_array( (string) $raw['twin_progress_notice_detail'], array( 'compact', 'standard', 'full' ), true ) ? (string) $raw['twin_progress_notice_detail'] : 'standard',
 			'twin_progress_send_started'   => array_key_exists( 'twin_progress_send_started', $raw ) ? ! empty( $raw['twin_progress_send_started'] ) : true,

@@ -141,10 +141,30 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr', array() );
 	}
 
+	/** Reset the managed runtime session and start QR without deleting the account. */
+	public function reset_qr( string $account_id ): array {
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — request controlled session reset through the exact-key Hub boundary.
+		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr/reset', array() );
+	}
+
 	/** Poll QR/session status for an owned managed account. */
 	public function get_qr_status( string $account_id ): array {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — status projection contains no bridge credential.
 		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr-status' );
+	}
+
+	/** Read hash-only experimental group candidates for an owned managed account. */
+	public function get_group_candidates( string $account_id ): array {
+		// [2026-09-03 03:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H3-GROUP — discover groups through the exact-key Hub wrapper without exposing provider IDs.
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/history/groups' );
+	}
+
+	/** Read one bounded experimental group-history page for an owned managed account. */
+	public function get_group_history( string $account_id, string $thread_ref, int $count = 20 ): array {
+		// [2026-09-03 02:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H1-GROUP — keep group history behind the exact-key Hub route and bounded page size.
+		$count = max( 1, min( 50, $count ) );
+		$path = '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/history/group?thread_ref=' . rawurlencode( $thread_ref ) . '&count=' . $count;
+		return $this->get( $path );
 	}
 
 	/** Enqueue Personal outbound through the managed Hub. */

@@ -9,6 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class BZGoogle_REST_API {
 
     const NAMESPACE = 'bizgpt-google/v1';
+    const USAGE_CONTRACT_ID = 'plugins.bizgpt_tool_google.usage_audit';
 
     public static function register_routes() {
 
@@ -215,15 +216,23 @@ class BZGoogle_REST_API {
     public static function hub_stats( $request ) {
         global $wpdb;
         $t_acc  = BZGoogle_Installer::table_accounts();
-        $t_logs = BZGoogle_Installer::table_logs();
 
         $total_accounts = $wpdb->get_var( "SELECT COUNT(*) FROM {$t_acc} WHERE status = 'active'" );
         $total_sites    = $wpdb->get_var( "SELECT COUNT(DISTINCT blog_id) FROM {$t_acc} WHERE status = 'active'" );
         $total_users    = $wpdb->get_var( "SELECT COUNT(DISTINCT user_id) FROM {$t_acc} WHERE status = 'active'" );
-        $today_calls    = $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$t_logs} WHERE created_at >= %s",
-            gmdate( 'Y-m-d 00:00:00' )
+        // [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — compute usage count exclusively from the global JSONL audit contract.
+        $today_calls = 0;
+        $today = gmdate( 'Y-m-d' );
+        $rows = self::query_usage_rows( array(
+            'days' => 1,
+            'limit' => 5000,
+            'filter' => static function ( $row ) use ( $today ) {
+                $ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+                $created_at = (string) ( $ctx['created_at'] ?? '' );
+                return $created_at !== '' && strpos( $created_at, $today ) === 0;
+            },
         ) );
+        $today_calls = count( $rows );
 
         return rest_ensure_response( [
             'total_accounts'  => (int) $total_accounts,
@@ -248,30 +257,42 @@ class BZGoogle_REST_API {
     /* ── Usage history ─────────────────────────────────── */
 
     public static function get_history( $request ) {
-        global $wpdb;
-        $table   = BZGoogle_Installer::table_logs();
         $blog_id = get_current_blog_id();
         $user_id = get_current_user_id();
         $limit   = min( absint( $request->get_param( 'limit' ) ?: 50 ), 200 );
         $offset  = absint( $request->get_param( 'offset' ) ?: 0 );
 
-        $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT service, action, request_summary, response_status, created_at
-             FROM {$table}
-             WHERE blog_id = %d AND user_id = %d
-             ORDER BY created_at DESC
-             LIMIT %d OFFSET %d",
-            $blog_id, $user_id, $limit, $offset
+        // [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — serve usage history exclusively from the global JSONL audit contract.
+        $jsonl_rows = self::query_usage_rows( array(
+            'days'   => 7,
+            'limit'  => max( 1, min( 5000, $limit + $offset + 1000 ) ),
+            'filter' => static function ( $row ) use ( $blog_id, $user_id ) {
+                $ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+                return (int) ( $ctx['blog_id'] ?? 0 ) === (int) $blog_id
+                    && (int) ( $ctx['user_id'] ?? 0 ) === (int) $user_id;
+            },
         ) );
-
-        $total = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE blog_id = %d AND user_id = %d",
-            $blog_id, $user_id
-        ) );
+        if ( ! empty( $jsonl_rows ) ) {
+            $mapped = array();
+            foreach ( $jsonl_rows as $row ) {
+                $ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+                $mapped[] = array(
+                    'service'         => (string) ( $ctx['service'] ?? '' ),
+                    'action'          => (string) ( $ctx['action'] ?? '' ),
+                    'request_summary' => (string) ( $ctx['request_summary'] ?? '' ),
+                    'response_status' => (string) ( $ctx['response_status'] ?? '' ),
+                    'created_at'      => (string) ( $ctx['created_at'] ?? (string) ( $row['ts'] ?? '' ) ),
+                );
+            }
+            return rest_ensure_response( [
+                'items' => array_slice( $mapped, $offset, $limit ),
+                'total' => count( $mapped ),
+            ] );
+        }
 
         return rest_ensure_response( [
-            'items' => $rows ?: [],
-            'total' => $total,
+            'items' => array(),
+            'total' => 0,
         ] );
     }
 
@@ -279,14 +300,40 @@ class BZGoogle_REST_API {
      * Log a usage event.
      */
     public static function log_usage( $blog_id, $user_id, $service, $action, $summary = '', $status = 'success' ) {
-        global $wpdb;
-        $wpdb->insert( BZGoogle_Installer::table_logs(), [
-            'blog_id'         => $blog_id,
-            'user_id'         => $user_id,
-            'service'         => $service,
-            'action'          => $action,
-            'request_summary' => mb_substr( $summary, 0, 500 ),
-            'response_status' => $status,
-        ] );
+        // [2026-09-01 Johnny Chu] PHASE-CB-CH-LOG-RETIRE — write usage audit only to the global JSONL contract.
+        $blog_id = (int) $blog_id;
+        $user_id = (int) $user_id;
+        $service = sanitize_key( (string) $service );
+        $action  = sanitize_key( (string) $action );
+        $status  = sanitize_key( (string) $status );
+        $summary = mb_substr( (string) $summary, 0, 500 );
+        $created_at = gmdate( 'Y-m-d H:i:s' );
+
+        if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+            BizCity_JSONL_File_Logger::write_contract(
+                self::USAGE_CONTRACT_ID,
+                $status === 'error' ? 'error' : 'info',
+                'google_' . $service . '_' . $action,
+                'Google usage event',
+                array(
+                    'blog_id'         => $blog_id,
+                    'user_id'         => $user_id,
+                    'service'         => $service,
+                    'action'          => $action,
+                    'request_summary' => $summary,
+                    'response_status' => $status,
+                    'created_at'      => $created_at,
+                )
+            );
+        }
+
     }
+
+    private static function query_usage_rows( array $args = array() ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
+            return array();
+        }
+        return (array) BizCity_JSONL_File_Logger::query_contract( self::USAGE_CONTRACT_ID, $args );
+    }
+
 }

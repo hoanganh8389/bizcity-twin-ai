@@ -271,12 +271,13 @@ final class BizCity_TwinBrain_Web_Quick {
 		] );
 
 		$response = wp_remote_post( $endpoint, [
-			'headers' => [
+			// [2026-09-01 Johnny Chu] B2C-G7.1 — send the canonical site signal on quick research calls.
+			'headers' => array_merge( [
 				'Content-Type'    => 'application/json',
 				'Authorization'   => 'Bearer ' . $api_key,
 				'X-Site-URL'      => $site_url,
 				'X-Twin-Trace-Id' => $trace_id,
-			],
+			], BizCity_LLM_Client::instance()->get_client_domain_headers() ),
 			'body'    => $body,
 			'timeout' => self::LLM_TIMEOUT_S,
 		] );

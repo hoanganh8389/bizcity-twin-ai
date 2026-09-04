@@ -134,6 +134,14 @@ class BizCity_Zalo_Bot_Channel_Adapter implements BizCity_Channel_Adapter {
 			return false;
 		}
 
+		// [2026-09-01 Johnny Chu] PHASE-0.45-PROVIDER-DDV - allow the diagnostics mock to exercise routing without sending to Zalo.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_MOCK' ) && BIZCITY_DIAGNOSTICS_MOCK ) {
+			$mock_result = apply_filters( 'bizcity_zalobot_send_outbound_result', null, $chat_id, $message, $options );
+			if ( is_array( $mock_result ) && array_key_exists( 'sent', $mock_result ) ) {
+				return (bool) $mock_result['sent'];
+			}
+		}
+
 		$raw = substr( $chat_id, 8 ); // strip 'zalobot_'
 		if ( ! preg_match( '/^(\d+)_(.+)$/', $raw, $m ) ) {
 			return false;

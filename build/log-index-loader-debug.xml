@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="1" failures="1" skipped="0" time="0.177">
+  <testsuite name="diagnostics" tests="1" failures="1" skipped="0" time="0.177">
+    <testcase classname="bizcity.diagnostics" name="core.helper.log_index" time="0.112">
+      <failure message="fail">Canonical log pointer index contract is incomplete. | Failed steps: Loader · schema/cache/contract wiring: Dependency state: {&quot;schema_registered&quot;:false,&quot;cache_registered&quot;:true,&quot;contract_registry&quot;:true,&quot;reader_api&quot;:true,&quot;index_class&quot;:true,&quot;reconcile_api&quot;:true}</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

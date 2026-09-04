@@ -1,0 +1,17 @@
+{
+  "contract": "context-relation",
+  "version": "1.0.0",
+  "relation_id": "rel_customer_order_789",
+  "subject": { "type": "customer", "key": "customer:c_001928" },
+  "predicate": "placed_order",
+  "object": { "type": "order", "key": "order:o_789" },
+  "valid_from": "2026-08-30T12:00:00Z",
+  "confidence": 1,
+  "source_refs": ["ctx_event_01hzy7m9qk"],
+  "provenance": {
+    "source_contract_id": "commerce.order",
+    "record_id": "ctx_order_789",
+    "trace_id": "trace_01hzy7m9qk"
+  },
+  "status": "active"
+}

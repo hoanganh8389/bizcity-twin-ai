@@ -1,9 +1,10 @@
 <?php
 /**
- * Diagnostics probe: ZaloBot memory writer staging contract.
+ * Diagnostics probe: retired ZaloBot memory builder removal.
  *
- * Verifies the first safe W2 gate without spending LLM budget or writing DB:
- *   Disk   — ZaloBot source contains the canonical writer and rollback flag.
+ * Verifies the retired builder is no longer loaded or referenced while the
+ * canonical TwinBrain memory writer remains available:
+ *   Disk   — legacy ZaloBot memory source and hooks are absent.
  *   Loader — canonical writer and channel-context helper are loaded.
  *   Runtime — channel aliases normalize to the writer context contract.
  *
@@ -23,9 +24,9 @@ if ( class_exists( 'BizCity_Probe_Zalobot_Memory_Unify', false ) ) {
 final class BizCity_Probe_Zalobot_Memory_Unify implements BizCity_Diagnostics_Probe {
 
 	public function id(): string { return 'modules.zalobot.memory_unify'; }
-	public function label(): string { return 'ZaloBot · TwinBrain Memory Writer staging'; }
+	public function label(): string { return 'ZaloBot · retired memory builder removed'; }
 	public function description(): string {
-		return 'Verify ZaloBot staging routes through the canonical TwinBrain Memory_Writer and preserves a rollback flag without LLM/DB side effects.';
+		return 'Verify the obsolete ZaloBot memory builder, cron, admin page, and legacy SQL path are removed while canonical TwinBrain memory remains available.';
 	}
 	public function severity(): string { return 'critical'; }
 	public function order(): int { return 64; }
@@ -39,54 +40,37 @@ final class BizCity_Probe_Zalobot_Memory_Unify implements BizCity_Diagnostics_Pr
 		if ( ! class_exists( 'BizCity_TwinBrain_Memory_Writer' ) ) {
 			return 'BizCity_TwinBrain_Memory_Writer chưa load.';
 		}
+		if ( ! class_exists( 'BizCity_User_Memory' ) || ! class_exists( 'BizCity_File_Contract_Registry' ) || ! class_exists( 'BizCity_Business_JSONL_File_Store' ) ) {
+			return 'Canonical user-memory filestore owner/contract chưa load.';
+		}
+		if ( ! BizCity_File_Contract_Registry::has( 'core.knowledge.user_memory' ) ) {
+			return 'Contract core.knowledge.user_memory chưa được đăng ký.';
+		}
+		if ( get_current_user_id() <= 0 ) {
+			return 'Probe cần admin login để chứng minh user-bound memory owner.';
+		}
 		return true;
 	}
 
 	public function run( $ctx ): array {
-		// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — verify staging contract without real LLM or database writes.
-		// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — probes/ -> includes/ -> diagnostics/ -> core/ -> plugin root.
+		// [2026-09-01 Johnny Chu] PHASE-1.30-ZALO-MEMORY-REMOVE — verify legacy Zalo memory runtime surfaces are absent before exercising canonical memory.
 		$root = dirname( __DIR__, 4 );
-		// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — resolve the source actually used by the loaded Zalo runtime before bundled fallbacks.
-		$source_candidates = array();
-		if ( defined( 'BIZCITY_ZALO_BOT_DIR' ) ) {
-			$source_candidates[] = BIZCITY_ZALO_BOT_DIR . '/includes/class-memory.php';
-		}
-		if ( class_exists( 'BizCity_Zalo_Bot_Memory' ) ) {
-			try {
-				$source_candidates[] = ( new ReflectionClass( 'BizCity_Zalo_Bot_Memory' ) )->getFileName();
-			} catch ( Throwable $e ) {
-				// Fall through to the canonical bundled paths below.
-			}
-		}
-		$source_candidates[] = $root . '/plugins/bizcity-zalo-bot/includes/class-memory.php';
-		if ( defined( 'WP_PLUGIN_DIR' ) ) {
-			$source_candidates[] = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcity-zalo-bot/includes/class-memory.php';
-		}
-		$source_file = '';
-		foreach ( array_unique( $source_candidates ) as $candidate ) {
-			if ( is_readable( $candidate ) ) {
-				$source_file = $candidate;
-				break;
-			}
-		}
-		$source = is_readable( $source_file ) ? (string) file_get_contents( $source_file ) : '';
-
-		$writer_marker = preg_match( '/BizCity_TwinBrain_Memory_Writer\s*::\s*instance\s*\(\s*\)\s*->\s*extract_and_persist\s*\(/', $source ) === 1;
-		$context_marker = strpos( $source, 'bizcity_memory_writer_ctx_from_channel' ) !== false;
-		$rollback_marker = strpos( $source, 'LEGACY_WRITER_OPTION' ) !== false
-			|| strpos( $source, 'bizcity_zalobot_legacy_memory_enabled' ) !== false;
-		$disk_ok = $source !== '' && $writer_marker && $context_marker && $rollback_marker;
-		$missing_markers = array();
-		if ( ! $source_file ) { $missing_markers[] = 'class-memory.php'; }
-		if ( ! $writer_marker ) { $missing_markers[] = 'canonical writer'; }
-		if ( ! $context_marker ) { $missing_markers[] = 'context helper'; }
-		if ( ! $rollback_marker ) { $missing_markers[] = 'rollback option'; }
+		$bootstrap_file = $root . '/plugins/bizcity-zalo-bot/bootstrap.php';
+		$database_file = $root . '/plugins/bizcity-zalo-bot/includes/class-database.php';
+		$bootstrap_source = is_readable( $bootstrap_file ) ? (string) file_get_contents( $bootstrap_file ) : '';
+		$database_source = is_readable( $database_file ) ? (string) file_get_contents( $database_file ) : '';
+		$legacy_class_absent = ! is_file( $root . '/plugins/bizcity-zalo-bot/includes/class-memory.php' )
+			&& ! class_exists( 'BizCity_Zalo_Bot_Memory' );
+		$legacy_hooks_absent = strpos( $bootstrap_source, 'BizCity_Zalo_Bot_Memory' ) === false
+			&& strpos( $bootstrap_source, 'bizcity_zalo_bot_daily_memory' ) === false
+			&& strpos( $database_source, 'bizcity_zalo_bot_memory' ) === false;
+		$disk_ok = $bootstrap_source !== '' && $database_source !== '' && $legacy_class_absent && $legacy_hooks_absent;
 		$ctx->emit_step( array(
-			'label'  => 'Disk · Zalo source has canonical writer staging contract',
+			'label'  => 'Disk · legacy Zalo memory builder is removed',
 			'status' => $disk_ok ? 'pass' : 'fail',
 			'detail' => $disk_ok
-				? 'Canonical writer, context helper, and rollback option are present in ' . $source_file . '.'
-				: 'Source=' . ( $source_file !== '' ? $source_file . ' (' . strlen( $source ) . ' bytes)' : 'not found' ) . ' · Missing: ' . implode( ', ', $missing_markers ),
+				? 'Legacy class file, bootstrap hooks, cron hook, and memory-table migration marker are absent.'
+				: sprintf( 'Legacy removal check failed: bootstrap_readable=%s database_readable=%s legacy_class_absent=%s legacy_hooks_absent=%s.', is_readable( $bootstrap_file ) ? 'yes' : 'no', is_readable( $database_file ) ? 'yes' : 'no', $legacy_class_absent ? 'yes' : 'no', $legacy_hooks_absent ? 'yes' : 'no' ),
 		) );
 
 		$loader_ok = class_exists( 'BizCity_TwinBrain_Memory_Writer' )
@@ -126,11 +110,64 @@ final class BizCity_Probe_Zalobot_Memory_Unify implements BizCity_Diagnostics_Pr
 			'detail' => $runtime_ok ? 'platform/account/external user/chat/UUID mapping is stable; no DB or LLM call executed.' : 'Missing or mismatched normalized fields: ' . implode( ', ', $missing ),
 		) );
 
+		// [2026-09-01 Johnny Chu] PHASE-1.30-ZALO-MEMORY-REMOVE — exercise canonical writer in explicit-only mode; no provider call and no legacy SQL write.
+		$trace_id = 'diag-zalobot-memory-' . substr( md5( (string) microtime( true ) . '|' . wp_rand() ), 0, 16 );
+		$sentinel = '__healthtest_zalobot_memory_filestore_lark21';
+		$write_result = BizCity_TwinBrain_Memory_Writer::instance()->extract_and_persist(
+			$trace_id,
+			'Hãy nhớ ' . $sentinel,
+			'',
+			array(
+				'user_id'            => get_current_user_id(),
+				'platform'           => 'zalo_bot',
+				'channel'            => 'zalo_bot',
+				'account_id'         => 'diag-zalobot',
+				'external_user_id'   => 'diag-user',
+				'chat_id'            => 'diag-zalobot-chat',
+				'enable_llm'         => false,
+				'identity_guest_bind'=> false,
+			)
+		);
+		$writer_ok = is_array( $write_result ) && (int) ( $write_result['persisted'] ?? 0 ) > 0;
+		$ctx->emit_step( array(
+			'label'  => 'Runtime · Memory_Writer persists Zalo memory to filestore',
+			'status' => $writer_ok ? 'pass' : 'fail',
+			'detail' => $writer_ok ? 'explicit-only writer persisted without LLM/provider call.' : 'Memory_Writer did not persist the explicit-only sentinel.',
+		) );
+
+		$file_rows = BizCity_Business_JSONL_File_Store::query( 'core.knowledge.user_memory', array(
+			'blog_id' => get_current_blog_id(),
+			'user_id' => get_current_user_id(),
+			'limit'   => 100,
+			'days'    => 2,
+			'filter'  => static function ( $row ) use ( $sentinel, $trace_id ) {
+				$metadata = (string) ( $row['metadata'] ?? '' );
+				return strpos( (string) ( $row['memory_text'] ?? '' ), $sentinel ) !== false
+					&& strpos( $metadata, $trace_id ) !== false;
+			},
+		) );
+		$file_ok = ! empty( $file_rows ) && ! empty( $file_rows[0]['record_id'] );
+		$ctx->emit_step( array(
+			'label'  => 'Runtime · Zalo memory filestore row',
+			'status' => $file_ok ? 'pass' : 'fail',
+			'detail' => $file_ok ? 'user-memory contract returned the scoped sentinel row.' : 'user-memory contract did not return the scoped sentinel row.',
+		) );
+
+		if ( $file_ok ) {
+			foreach ( $file_rows as $file_row ) {
+				$record_id = (string) ( $file_row['record_id'] ?? '' );
+				if ( $record_id !== '' ) {
+					BizCity_Business_JSONL_File_Store::delete( 'core.knowledge.user_memory', $record_id, array( 'blog_id' => get_current_blog_id(), 'user_id' => get_current_user_id() ) );
+				}
+			}
+		}
+		$runtime_ok = $runtime_ok && $writer_ok && $file_ok;
+
 		$pass = $disk_ok && $loader_ok && $runtime_ok;
 		return array(
 			'status'  => $pass ? 'pass' : 'fail',
-			'summary' => $pass ? 'ZaloBot W2 staging contract PASS; legacy writer remains rollback-controlled.' : 'ZaloBot W2 staging contract is incomplete.',
-			'fix_hint' => $pass ? '' : 'Load core memory bootstrap and keep class-memory.php aligned with the canonical writer/context helper.',
+			'summary' => $pass ? 'ZaloBot legacy memory builder is removed; canonical TwinBrain memory remains available.' : 'ZaloBot legacy memory removal or canonical memory evidence is incomplete.',
+			'fix_hint' => $pass ? '' : 'Remove the legacy Zalo memory class, cron, admin hooks, and database migration, then rerun the canonical memory probe.',
 		);
 	}
 

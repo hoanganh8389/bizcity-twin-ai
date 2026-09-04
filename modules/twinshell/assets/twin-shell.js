@@ -48,6 +48,7 @@
   // ── SVG icon map (Lucide-compatible, 24×24 viewBox) ────────────────────
   var ICON_PATHS = {
     home:      '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    brain:     '<path d="M12 5a3 3 0 1 0-5.997.125"/><path d="M12 5a3 3 0 1 1 5.997.125"/><path d="M15 13a3 3 0 1 0-6 0"/><path d="M12 8v8"/><path d="M12 19a3 3 0 1 0 5.997-.125"/><path d="M12 19a3 3 0 1 1-5.997-.125"/><path d="M5.5 9A3.5 3.5 0 1 0 5 16"/><path d="M18.5 9A3.5 3.5 0 1 1 19 16"/>',
     // [2026-07-04 Johnny Chu] PHASE-FAA2-FE — astro (crescent moon) icon for bizcoach-pro /astro/
     astro:     '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
     workspace: '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="12" y1="10" x2="12" y2="12"/><line x1="16" y1="10" x2="16" y2="16"/>',
@@ -55,6 +56,7 @@
     doc:       '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
     image:     '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
     profile:   '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',  // single user silhouette
+    qr:        '<rect x="3" y="3" width="6" height="6"/><rect x="15" y="3" width="6" height="6"/><rect x="3" y="15" width="6" height="6"/><path d="M15 15h2v2h-2zM19 15h2v2h-2zM15 19h2v2h-2zM19 19h2v2h-2z"/>',
     video:     '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
     web:       '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
     notebook:  '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
@@ -66,6 +68,7 @@
     funnel:    '<path d="M22 3H2l8 9.46V19l4 2V12.46L22 3z"/>',
     users:     '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     explore:   '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    marketplace:'<path d="M3 9h18"/><path d="M5 9v11h14V9"/><path d="M4 9l1-5h14l1 5"/><path d="M8 9a4 4 0 0 0 8 0"/><path d="M9 20v-6h6v6"/>',
     // External-link icon (used when inside admin iframe → click to pop out to /twin/).
     'external':'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
     // WP/admin (layout) icon (used when at standalone /twin/ → click to enter wp-admin).
@@ -261,17 +264,12 @@
 
   function setActivityPanelOpen(on) {
     var panel = root.querySelector('.ts-activity-panel');
-    var btn = root.querySelector('.ts-ab-activity-log');
     if (!panel) return;
 
     activityState.open = !!on;
     panel.hidden = !activityState.open;
     panel.classList.toggle('is-open', activityState.open);
     setActivityPanelFilters(activityState.filters);
-    if (btn) {
-      btn.classList.toggle('is-active', activityState.open);
-      btn.setAttribute('aria-pressed', activityState.open ? 'true' : 'false');
-    }
 
     if (activityState.open && !activityState.loaded) {
       fetchActivityTimeline(true);
@@ -767,38 +765,9 @@
     return btn;
   }
 
-  function buildActivityToggle() {
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'ts-ab-item ts-ab-activity-log';
-    btn.dataset.role = 'activity-log';
-    btn.setAttribute('role', 'button');
-    btn.setAttribute('aria-pressed', 'false');
-    btn.title = 'Xem activity TwinShell';
-    btn.setAttribute('aria-label', btn.title);
-    btn.innerHTML = renderIcon('explore');
-
-    btn.addEventListener('click', function () {
-      setActivityPanelOpen(!activityState.open);
-    });
-
-    return btn;
-  }
-
   function renderActivityBar() {
     var top = root.querySelector('.ts-ab-top');
     var bottom = root.querySelector('.ts-ab-bottom');
-
-    // Activity timeline toggle.
-    top.appendChild(buildActivityToggle());
-
-    // Context-toggle button — switches between standalone /twin/ and the
-    // wp-admin TwinChat page so the user has one click to flip surfaces.
-    top.appendChild(buildContextToggle());
-
-    // Fold-admin button — collapses the wp-admin sidebar inside the active iframe
-    // (when the embedded page is a wp-admin screen). No-op for non-admin iframes.
-    top.appendChild(buildFoldAdminToggle());
 
     cfg.plugins.forEach(function (p) {
       var item = buildItem(p);
@@ -877,6 +846,25 @@
       win = p;
     }
     return null;
+  }
+
+  function redirectLegacyAdminWrapper() {
+    var adminWin = getAdminParentWindow();
+    if (!adminWin) return false;
+
+    try {
+      var adminUrl = new URL(adminWin.location.href);
+      if (adminUrl.searchParams.get('page') !== 'bizcity-twinchat') return false;
+
+      // [2026-08-27 Johnny Chu] PHASE-TWINSHELL-SINGLE-FRAME — deployed
+      // shells can escape an old admin iframe wrapper before rendering frames.
+      var shellUrl = new URL(window.location.href);
+      shellUrl.searchParams.delete('bizcity_iframe');
+      adminWin.location.replace(shellUrl.href);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   function syncFoldAdminBtnState(btn) {
@@ -1237,6 +1225,7 @@
   });
 
   // ── Boot ───────────────────────────────────────────────────────────────
+  if (redirectLegacyAdminWrapper()) return;
   buildLayout();
   renderActivityBar();
   var initial = parseShellUrl();

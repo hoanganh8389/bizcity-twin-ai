@@ -275,16 +275,12 @@ class BizCity_Output_Store {
     private static function resolve_project_id( string $session_id ): string {
         if ( empty( $session_id ) ) return '';
 
-        global $wpdb;
-        $sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        if ( ! bizcity_tbl_exists( $sessions_table ) ) return ''; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-
-        $project_id = $wpdb->get_var( $wpdb->prepare(
-            "SELECT project_id FROM {$sessions_table} WHERE session_id = %s LIMIT 1",
-            $session_id
-        ) );
-
-        return $project_id ?: '';
+        // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — resolve output project from encrypted session state.
+        if ( ! class_exists( 'BizCity_WebChat_Session_State' ) ) {
+            return '';
+        }
+        $session = BizCity_WebChat_Session_State::instance()->get_by_session( $session_id );
+        return $session ? (string) $session->project_id : '';
     }
 
     /**

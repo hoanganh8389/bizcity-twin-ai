@@ -1,0 +1,1608 @@
+/**
+ * BizCoach Map – Admin Styles
+ * Đồng bộ design system với bizcity-video-kling, bizcity-knowledge
+ * Bo tròn 14–15px, shadow nhẹ, gradient accent, modern form inputs
+ */
+
+/* =============================================
+   CSS VARIABLES
+   ============================================= */
+:root {
+  --bccm-primary: #6366f1;
+  --bccm-primary-hover: #4f46e5;
+  --bccm-secondary: #8b5cf6;
+  --bccm-success: #10b981;
+  --bccm-warning: #f59e0b;
+  --bccm-danger: #ef4444;
+  --bccm-dark: #1f2937;
+  --bccm-light: #f9fafb;
+  --bccm-border: #e5e7eb;
+  --bccm-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --bccm-shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04);
+  --bccm-radius: 14px;
+  --bccm-radius-sm: 10px;
+  --bccm-radius-xs: 8px;
+}
+
+/* =============================================
+   CHARACTER CARD SELECTOR
+   ============================================= */
+.bccm-char-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 12px;
+}
+.bccm-char-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 8px 12px;
+  background: #fff;
+  border: 2px solid var(--bccm-border);
+  border-radius: var(--bccm-radius);
+  cursor: pointer;
+  position: relative;
+  transition: border-color .2s, box-shadow .2s, transform .15s;
+}
+.bccm-char-card:hover {
+  border-color: var(--bccm-primary);
+  box-shadow: var(--bccm-shadow);
+  transform: translateY(-2px);
+}
+.bccm-char-card--active {
+  border-color: var(--bccm-primary);
+  box-shadow: 0 0 0 3px rgba(99,102,241,.18), var(--bccm-shadow);
+}
+.bccm-char-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bccm-light);
+}
+.bccm-char-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bccm-dark);
+  text-align: center;
+  line-height: 1.3;
+  word-break: break-word;
+}
+.bccm-char-check {
+  display: none;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bccm-primary);
+  color: #fff;
+  font-size: 13px;
+  line-height: 22px;
+  text-align: center;
+}
+.bccm-char-card--active .bccm-char-check {
+  display: block;
+}
+.bccm-char-empty {
+  text-align: center;
+  padding: 24px;
+  color: #9ca3af;
+}
+@media (max-width: 600px) {
+  .bccm-char-grid {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 8px;
+  }
+  .bccm-char-avatar {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+/* =============================================
+   PAGE WRAPPER – override WP .wrap
+   ============================================= */
+.bccm-wrap {
+  max-width: 1400px;
+  padding: 20px 20px 40px;
+}
+
+.bccm-wrap h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--bccm-dark);
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+.bccm-wrap h1 span {
+  font-size: 13px;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.bccm-wrap > .description {
+  color: #6b7280;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+/* =============================================
+   CARDS & POSTBOX
+   ============================================= */
+.bccm-wrap .postbox,
+.bccm-card {
+  background: #fff;
+  border: 1px solid var(--bccm-border);
+  border-radius: var(--bccm-radius);
+  box-shadow: var(--bccm-shadow);
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  transition: box-shadow 0.3s ease;
+}
+
+.bccm-wrap .postbox:hover,
+.bccm-card:hover {
+  box-shadow: var(--bccm-shadow-lg);
+}
+
+.bccm-wrap .postbox h2,
+.bccm-card h2 {
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--bccm-border);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--bccm-dark);
+}
+
+.bccm-wrap .postbox h3,
+.bccm-card h3 {
+  margin: 20px 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--bccm-border);
+  font-weight: 600;
+  color: var(--bccm-dark);
+  font-size: 15px;
+}
+
+.bccm-wrap .postbox h4 {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+/* Accent card (Life Map summary) */
+.bccm-accent-card {
+  background: #fff;
+  border: 1px solid var(--bccm-border);
+  border-left: 4px solid var(--bccm-warning) !important;
+  border-radius: var(--bccm-radius-xs);
+  padding: 14px 18px;
+  margin: 12px 0 20px;
+  box-shadow: var(--bccm-shadow);
+}
+
+/* Quick links box */
+.bccm-quick-links {
+  margin-top: 24px;
+  padding: 20px;
+  background: var(--bccm-light);
+  border: 1px solid var(--bccm-border);
+  border-radius: var(--bccm-radius);
+}
+
+.bccm-quick-links h3 {
+  margin-top: 0 !important;
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}
+
+/* =============================================
+   LAYOUT HELPERS
+   ============================================= */
+.bccm-columns {
+  display: flex;
+  gap: 24px;
+}
+
+.bccm-col {
+  flex: 1;
+  min-width: 420px;
+}
+
+.bccm-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 960px) {
+  .bccm-columns {
+    flex-direction: column;
+  }
+  .bccm-col {
+    min-width: 0;
+  }
+  .bccm-grid-2col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =============================================
+   FORM TABLE (.form-table) — rounded & modern
+   ============================================= */
+.bccm-wrap .form-table {
+  background: #fff;
+  border: 1px solid var(--bccm-border);
+  border-radius: var(--bccm-radius);
+  overflow: hidden;
+  box-shadow: var(--bccm-shadow);
+  border-spacing: 0;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.bccm-wrap .form-table th {
+  padding: 14px 16px;
+  font-weight: 600;
+  color: var(--bccm-dark);
+  background: var(--bccm-light);
+  border-bottom: 1px solid var(--bccm-border);
+  font-size: 13px;
+  width: 180px;
+  vertical-align: top;
+}
+
+.bccm-wrap .form-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: top;
+}
+
+.bccm-wrap .form-table tr:last-child th,
+.bccm-wrap .form-table tr:last-child td {
+  border-bottom: none;
+}
+
+.bccm-wrap .form-table th[colspan="2"] {
+  background: linear-gradient(135deg, var(--bccm-light) 0%, #eef2ff 100%);
+}
+
+.bccm-wrap .form-table th[colspan="2"] h3 {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  font-size: 14px;
+}
+
+/* Inputs inside table */
+.bccm-wrap .form-table input[type="text"],
+.bccm-wrap .form-table input[type="date"],
+.bccm-wrap .form-table input[type="time"],
+.bccm-wrap .form-table input[type="number"],
+.bccm-wrap .form-table input[type="url"],
+.bccm-wrap .form-table input[type="password"],
+.bccm-wrap .form-table textarea {
+  border: 2px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-sm);
+  padding: 9px 14px;
+  font-size: 14px;
+  color: var(--bccm-dark);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: #fff;
+}
+
+.bccm-wrap .form-table input:focus,
+.bccm-wrap .form-table textarea:focus,
+.bccm-wrap .form-table select:focus {
+  outline: none;
+  border-color: var(--bccm-primary);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+
+.bccm-wrap .form-table select {
+  border: 2px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-sm);
+  padding: 9px 14px;
+  font-size: 14px;
+  background: #fff;
+  min-width: 200px;
+  color: var(--bccm-dark);
+  transition: border-color 0.2s;
+}
+
+.bccm-wrap .form-table .regular-text {
+  max-width: 400px;
+}
+
+.bccm-wrap .form-table .description,
+.bccm-wrap .form-table span.description {
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 12px;
+  display: block;
+}
+
+.bccm-wrap .form-table code {
+  background: #f0f0f1;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* =============================================
+   DATA TABLE (.widefat.striped) — rounded & clean
+   ============================================= */
+.bccm-wrap .widefat {
+  background: #fff;
+  border: 1px solid var(--bccm-border);
+  border-radius: var(--bccm-radius);
+  overflow: hidden;
+  box-shadow: var(--bccm-shadow);
+  border-spacing: 0;
+  width: 100%;
+}
+
+.bccm-wrap .widefat thead {
+  background: var(--bccm-light);
+}
+
+.bccm-wrap .widefat thead th {
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--bccm-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--bccm-border);
+}
+
+.bccm-wrap .widefat tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+  font-size: 13px;
+  color: #374151;
+}
+
+.bccm-wrap .widefat.striped tbody tr:nth-child(even) {
+  background: #fafbfc;
+}
+
+.bccm-wrap .widefat tbody tr {
+  transition: background 0.15s ease;
+}
+
+.bccm-wrap .widefat tbody tr:hover {
+  background: #f0f4ff;
+}
+
+.bccm-wrap .widefat tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Answer table inputs */
+.bccm-wrap .widefat input[type="text"] {
+  border: 1.5px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-xs);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--bccm-dark);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: #fff;
+}
+
+.bccm-wrap .widefat input[type="text"]:focus {
+  outline: none;
+  border-color: var(--bccm-primary);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+
+/* =============================================
+   BUTTONS — gradient & rounded
+   ============================================= */
+.bccm-wrap .button {
+  border-radius: var(--bccm-radius-xs) !important;
+  padding: 8px 18px !important;
+  font-size: 13px !important;
+  font-weight: 500;
+  transition: all 0.2s ease !important;
+  border: 1px solid var(--bccm-border) !important;
+  line-height: 1.6 !important;
+  height: auto !important;
+}
+
+.bccm-wrap .button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.bccm-wrap .button.button-primary {
+  background: linear-gradient(135deg, var(--bccm-primary), var(--bccm-secondary)) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.25) !important;
+  font-weight: 600;
+}
+
+.bccm-wrap .button.button-primary:hover {
+  box-shadow: 0 4px 14px rgba(99,102,241,0.35) !important;
+  transform: translateY(-1px);
+}
+
+.bccm-wrap .button.button-secondary {
+  background: #fff !important;
+  color: var(--bccm-dark) !important;
+  border: 2px solid var(--bccm-border) !important;
+}
+
+.bccm-wrap .button.button-secondary:hover {
+  background: var(--bccm-light) !important;
+  border-color: var(--bccm-primary) !important;
+}
+
+.bccm-wrap .button.button-small {
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+  border-radius: 6px !important;
+}
+
+/* Button row */
+.bccm-button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+/* =============================================
+   NOTICES — rounded, cleaner
+   ============================================= */
+.bccm-wrap .updated,
+.bccm-wrap .notice-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-left: 4px solid var(--bccm-success);
+  border-radius: 0 var(--bccm-radius-sm) var(--bccm-radius-sm) 0;
+  padding: 12px 18px;
+  box-shadow: var(--bccm-shadow);
+}
+
+.bccm-wrap .error,
+.bccm-wrap .notice-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid var(--bccm-danger);
+  border-radius: 0 var(--bccm-radius-sm) var(--bccm-radius-sm) 0;
+  padding: 12px 18px;
+  box-shadow: var(--bccm-shadow);
+}
+
+.bccm-wrap .notice-info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid #3b82f6;
+  border-radius: 0 var(--bccm-radius-sm) var(--bccm-radius-sm) 0;
+  padding: 12px 18px;
+  box-shadow: var(--bccm-shadow);
+}
+
+.bccm-wrap .notice-warning {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid var(--bccm-warning);
+  border-radius: 0 var(--bccm-radius-sm) var(--bccm-radius-sm) 0;
+  padding: 12px 18px;
+  box-shadow: var(--bccm-shadow);
+}
+
+/* =============================================
+   NAV TABS — rounded underline style
+   ============================================= */
+.bccm-wrap .nav-tab-wrapper {
+  border-bottom: 2px solid var(--bccm-border);
+  padding: 0;
+  margin-bottom: 20px;
+}
+
+.bccm-wrap .nav-tab {
+  border: none !important;
+  background: none !important;
+  padding: 10px 18px !important;
+  margin: 0 2px -2px !important;
+  border-bottom: 3px solid transparent !important;
+  border-radius: var(--bccm-radius-xs) var(--bccm-radius-xs) 0 0 !important;
+  font-weight: 500;
+  color: #6b7280;
+  transition: all 0.2s;
+}
+
+.bccm-wrap .nav-tab:hover {
+  color: var(--bccm-primary);
+  background: #eef2ff !important;
+}
+
+.bccm-wrap .nav-tab-active,
+.bccm-wrap .nav-tab-active:focus,
+.bccm-wrap .nav-tab-active:hover {
+  color: var(--bccm-primary) !important;
+  border-bottom-color: var(--bccm-primary) !important;
+  background: #eef2ff !important;
+  font-weight: 600;
+}
+
+/* =============================================
+   PAGINATION — rounded
+   ============================================= */
+.bccm-wrap .tablenav {
+  margin: 16px 0 0;
+}
+
+.bccm-wrap .tablenav-pages {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bccm-wrap .tablenav-pages .pagination-links a,
+.bccm-wrap .tablenav-pages .pagination-links span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--bccm-radius-xs);
+  font-size: 13px;
+  text-decoration: none;
+  border: 1px solid var(--bccm-border);
+  background: #fff;
+  color: var(--bccm-dark);
+  transition: all 0.2s;
+}
+
+.bccm-wrap .tablenav-pages .pagination-links a:hover {
+  background: var(--bccm-primary);
+  color: #fff;
+  border-color: var(--bccm-primary);
+}
+
+.bccm-wrap .tablenav-pages .pagination-links .current {
+  background: var(--bccm-primary);
+  color: #fff;
+  border-color: var(--bccm-primary);
+  font-weight: 600;
+}
+
+.bccm-wrap .tablenav-pages .displaying-num {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* =============================================
+   JSON EDITOR — upgraded
+   ============================================= */
+.bccm-json-editor {
+  margin-top: 16px;
+}
+
+.bccm-json-form .field-group {
+  margin: 10px 0 16px;
+  padding: 16px;
+  border: 1px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-sm);
+  background: #fff;
+  box-shadow: var(--bccm-shadow);
+  transition: box-shadow 0.2s;
+}
+
+.bccm-json-form .field-group:hover {
+  box-shadow: var(--bccm-shadow-lg);
+}
+
+.bccm-json-form .field-title {
+  font-weight: 600;
+  margin: 0 0 10px;
+  color: var(--bccm-dark);
+  font-size: 14px;
+}
+
+.bccm-json-form .kv {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.bccm-json-form input[type="text"],
+.bccm-json-form input[type="number"],
+.bccm-json-form textarea {
+  width: 100%;
+  border: 1.5px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-xs);
+  padding: 8px 12px;
+  font-size: 13px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.bccm-json-form input:focus,
+.bccm-json-form textarea:focus {
+  outline: none;
+  border-color: var(--bccm-primary);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+
+.bccm-json-form .list-item {
+  border: 1px dashed #d1d5db;
+  border-radius: var(--bccm-radius-xs);
+  padding: 12px;
+  margin: 8px 0;
+  background: var(--bccm-light);
+}
+
+.bccm-json-form .muted {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.bccm-json-form .button-link-delete {
+  color: var(--bccm-danger);
+  font-weight: 500;
+}
+
+.bccm-json-form .button-link-delete:hover {
+  color: #b91c1c;
+}
+
+/* Raw JSON textarea */
+.bccm-raw-editor {
+  width: 100%;
+  font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-size: 13px;
+  border: 2px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-sm);
+  padding: 14px;
+  background: #1e1e2e;
+  color: #a6e3a1;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.bccm-raw-editor:focus {
+  outline: none;
+  border-color: var(--bccm-primary);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}
+
+/* =============================================
+   BADGES — status indicators
+   ============================================= */
+.bccm-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.bccm-badge-success {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.bccm-badge-warning {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.bccm-badge-danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.bccm-badge-info {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.bccm-badge-muted {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* =============================================
+   UTILITY CLASSES
+   ============================================= */
+.bccm-subtitle {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.bccm-muted {
+  color: #9ca3af;
+}
+
+.bccm-small-muted {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.bccm-truncate {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bccm-status-active {
+  color: var(--bccm-success);
+  font-weight: 700;
+}
+
+.bccm-phase-title {
+  color: #059669;
+}
+
+/* =============================================
+   MILESTONE / CHECKLIST CARDS
+   ============================================= */
+.bccm-milestone-card {
+  border: 1px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-sm);
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.bccm-milestone-card h3 {
+  margin: 0 0 8px !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* =============================================
+   CHECKBOX / RADIO labels in forms
+   ============================================= */
+.bccm-wrap label.bccm-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 16px;
+  cursor: pointer;
+}
+
+/* =============================================
+   SELECT WIDE (coachee selectors)
+   ============================================= */
+.bccm-select-wide {
+  min-width: 300px;
+  border: 2px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-sm);
+  padding: 9px 14px;
+  font-size: 14px;
+  background: #fff;
+  transition: border-color 0.2s;
+}
+
+.bccm-select-wide:focus {
+  outline: none;
+  border-color: var(--bccm-primary);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+}
+
+/* =============================================
+   RESPONSIVE
+   ============================================= */
+@media (max-width: 782px) {
+  .bccm-wrap .form-table th {
+    width: auto;
+    display: block;
+    padding-bottom: 4px;
+  }
+  .bccm-wrap .form-table td {
+    display: block;
+    padding-top: 0;
+  }
+  .bccm-wrap .form-table .regular-text {
+    max-width: 100%;
+    width: 100%;
+  }
+  .bccm-wrap .form-table select {
+    width: 100%;
+    min-width: 0;
+  }
+  .bccm-select-wide {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* =============================================
+   WORKFLOW STEPS (gradient bar like Kling)
+   ============================================= */
+.bccm-workflow-steps {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: var(--bccm-radius);
+  box-shadow: var(--bccm-shadow);
+}
+
+.bccm-workflow-steps h3 {
+  margin: 0 0 16px 0;
+  color: #fff;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  padding: 0;
+}
+
+.bccm-workflow-steps-container {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bccm-workflow-step {
+  flex: 1;
+  min-width: 110px;
+  padding: 12px 8px;
+  border-radius: var(--bccm-radius-xs);
+  text-align: center;
+  text-decoration: none !important;
+  transition: all 0.2s ease;
+  background: rgba(255,255,255,0.18);
+  color: #fff !important;
+}
+
+.bccm-workflow-step:hover {
+  background: rgba(255,255,255,0.32);
+  transform: translateY(-2px);
+}
+
+.bccm-workflow-step.active {
+  background: #fff;
+  color: var(--bccm-primary) !important;
+  font-weight: 600;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Group labels (Cơ bản / Nâng cao) */
+.bccm-workflow-group-label {
+  color: rgba(255,255,255,0.85);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 12px 0 6px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.bccm-workflow-group-label:first-of-type {
+  margin-top: 0;
+}
+.bccm-advanced-label {
+  color: rgba(255,255,255,0.7);
+  border-top: 1px solid rgba(255,255,255,0.2);
+  padding-top: 10px;
+}
+
+/* Advanced steps: more transparent, slightly different style */
+.bccm-workflow-step-advanced {
+  background: rgba(255,255,255,0.10);
+  border: 1px dashed rgba(255,255,255,0.3);
+}
+.bccm-workflow-step-advanced:hover {
+  background: rgba(255,255,255,0.25);
+}
+.bccm-workflow-step-advanced.active {
+  background: rgba(255,255,255,0.9);
+  border-style: solid;
+}
+
+.bccm-step-icon {
+  display: block;
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.bccm-step-label {
+  font-size: 11px;
+  display: block;
+  line-height: 1.3;
+}
+
+/* =============================================
+   STAT CARDS (dashboard)
+   ============================================= */
+.bccm-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.bccm-stat-card {
+  background: linear-gradient(135deg, var(--bccm-primary) 0%, var(--bccm-secondary) 100%);
+  border: none;
+  border-radius: var(--bccm-radius);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: var(--bccm-shadow);
+  transition: all 0.3s ease;
+  color: #fff;
+}
+
+.bccm-stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--bccm-shadow-lg);
+}
+
+.bccm-stat-icon {
+  width: 50px;
+  height: 50px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.bccm-stat-content {
+  flex: 1;
+}
+
+.bccm-stat-number {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.bccm-stat-label {
+  display: block;
+  font-size: 13px;
+  color: rgba(255,255,255,0.9);
+  margin-top: 4px;
+}
+
+.bccm-stat-processing {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.bccm-stat-completed {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.bccm-stat-sent {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+/* =============================================
+   DASHBOARD CARDS (.bccm-card)
+   ============================================= */
+.bccm-card {
+  background: #fff;
+  border: 1px solid var(--bccm-border);
+  border-radius: var(--bccm-radius);
+  box-shadow: var(--bccm-shadow);
+  padding: 24px;
+  margin-bottom: 24px;
+  transition: all 0.3s ease;
+}
+
+.bccm-card:hover {
+  box-shadow: var(--bccm-shadow-lg);
+  transform: translateY(-1px);
+}
+
+.bccm-card h2 {
+  margin: 0 0 18px 0;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--bccm-border);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--bccm-dark);
+}
+
+/* =============================================
+   DASHBOARD TWO COLUMNS
+   ============================================= */
+.bccm-dashboard-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 0;
+}
+
+.bccm-dashboard-col {
+  min-width: 0;
+}
+
+/* =============================================
+   PROFILE PROGRESS (dashboard)
+   ============================================= */
+.bccm-profile-summary {
+  margin-bottom: 16px;
+}
+
+.bccm-profile-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.bccm-profile-info strong {
+  font-size: 16px;
+  color: var(--bccm-dark);
+}
+
+.bccm-progress-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bccm-progress-bar {
+  flex: 1;
+  height: 12px;
+  background: #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bccm-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--bccm-primary), var(--bccm-secondary));
+  border-radius: 8px;
+  transition: width 0.6s ease;
+}
+
+.bccm-progress-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--bccm-primary);
+  min-width: 44px;
+  text-align: right;
+}
+
+/* =============================================
+   STEPS CHECKLIST (dashboard profile)
+   ============================================= */
+.bccm-steps-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bccm-step-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--bccm-radius-xs);
+  text-decoration: none !important;
+  color: var(--bccm-dark) !important;
+  transition: background 0.2s;
+  border: 1px solid transparent;
+}
+
+.bccm-step-item:hover {
+  background: #f3f4f6;
+  border-color: var(--bccm-border);
+}
+
+.bccm-step-item.done {
+  opacity: 0.65;
+}
+
+.bccm-step-check {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.bccm-step-emoji {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.bccm-step-name {
+  flex: 1;
+  font-size: 14px;
+}
+
+.bccm-step-action {
+  font-size: 12px;
+  color: var(--bccm-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* =============================================
+   QUICK ACTIONS (dashboard)
+   ============================================= */
+.bccm-quick-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* =============================================
+   LIFE MAP SNAPSHOT (dashboard)
+   ============================================= */
+.bccm-lifemap-snapshot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.bccm-lm-row {
+  display: flex;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bccm-light);
+  border-radius: var(--bccm-radius-xs);
+  align-items: flex-start;
+}
+
+.bccm-lm-label {
+  min-width: 140px;
+  font-weight: 600;
+  color: var(--bccm-dark);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.bccm-lm-value {
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* =============================================
+   REMINDER ROW (dashboard)
+   ============================================= */
+.bccm-reminder-row {
+  padding: 14px;
+  border: 1px solid var(--bccm-border);
+  border-radius: var(--bccm-radius-sm);
+  margin-bottom: 10px;
+  transition: border-color 0.2s;
+}
+
+.bccm-reminder-row:hover {
+  border-color: var(--bccm-primary);
+}
+
+.bccm-reminder-row:last-child {
+  margin-bottom: 0;
+}
+
+.bccm-reminder-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.bccm-reminder-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #6b7280;
+  flex-wrap: wrap;
+}
+
+.bccm-reminder-meta small {
+  color: #9ca3af;
+}
+
+/* =============================================
+   EMPTY STATES
+   ============================================= */
+.bccm-empty-state {
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.bccm-empty-state.bccm-empty-sm {
+  padding: 20px 12px;
+}
+
+.bccm-empty-icon {
+  font-size: 40px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.bccm-empty-state p {
+  color: #9ca3af;
+  margin: 0 0 12px;
+}
+
+/* =============================================
+   BADGES
+   ============================================= */
+.bccm-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #eef2ff;
+  color: var(--bccm-primary);
+}
+
+.bccm-badge-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.bccm-badge-outline {
+  background: transparent;
+  border: 1px solid var(--bccm-border);
+  color: #6b7280;
+}
+
+.bccm-badge-success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.bccm-badge-danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* =============================================
+   LINK ARROW
+   ============================================= */
+.bccm-link-arrow {
+  color: var(--bccm-primary);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13px;
+  transition: color 0.2s;
+}
+
+.bccm-link-arrow:hover {
+  color: var(--bccm-primary-hover);
+  text-decoration: underline;
+}
+
+/* =============================================
+   RESPONSIVE – dashboard
+   ============================================= */
+@media (max-width: 960px) {
+  .bccm-dashboard-columns {
+    grid-template-columns: 1fr;
+  }
+  .bccm-workflow-steps {
+    padding: 16px;
+    margin-left: 0;
+    margin-right: 0;
+  }
+  .bccm-workflow-steps-container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .bccm-workflow-step {
+    min-width: 0;
+    margin: 0;
+    padding: 14px 12px;
+  }
+  .bccm-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .bccm-stats-grid {
+    grid-template-columns: 1fr;
+  }
+  .bccm-quick-actions {
+    flex-direction: column;
+  }
+  .bccm-lm-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .bccm-lm-label {
+    min-width: 0;
+  }
+}
+
+/* =============================================
+   NATAL CHART – Professional Astrology Report
+   ============================================= */
+.bccm-natal-report {
+  max-width: 1200px;
+}
+
+.bccm-natal-header {
+  background: linear-gradient(135deg, #f0f4ff, #faf5ff);
+  padding: 18px 22px;
+  border-radius: var(--bccm-radius);
+  border-left: 4px solid var(--bccm-primary);
+  margin-bottom: 16px;
+}
+
+.bccm-natal-table {
+  border-collapse: collapse;
+}
+
+.bccm-natal-table thead th {
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 10px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.bccm-natal-table tbody td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.bccm-natal-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.bccm-natal-table .bccm-row-even td {
+  background: #fff;
+}
+
+.bccm-natal-table .bccm-row-odd td {
+  background: #fafbfc;
+}
+
+.bccm-natal-table .bccm-table-separator td {
+  padding: 0 !important;
+}
+
+/* Aspect group header */
+.bccm-aspect-group-header td {
+  background: #f1f5f9 !important;
+  font-weight: 700;
+  padding-top: 10px !important;
+  padding-bottom: 6px !important;
+  border-top: 2px solid #e2e8f0;
+  font-size: 13px;
+}
+
+.bccm-aspects-full tbody tr:hover td {
+  background: #f0f4ff;
+}
+
+/* Print styles for admin pages */
+@media print {
+  .bccm-natal-report {
+    max-width: 100%;
+  }
+  .bccm-wrap > *:not(.bccm-natal-report),
+  #adminmenumain, #wpadminbar, #wpfooter,
+  .bccm-natal-header > div:last-child {
+    display: none !important;
+  }
+  .bccm-natal-report .postbox {
+    box-shadow: none;
+    border: 1px solid #e5e7eb;
+    page-break-inside: avoid;
+  }
+}
+
+/* ═══════════ AstroViet Charts ═══════════ */
+.bccm-astroviet-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 12px;
+}
+.bccm-astroviet-chart-item {
+  min-width: 0;
+}
+@media (max-width: 960px) {
+  .bccm-astroviet-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ═══════════ Aspect Grid (native HTML) ═══════════ */
+.bccm-aspect-grid-wrap {
+  overflow-x: auto;
+  margin: 0 auto;
+  max-width: 100%;
+}
+.bccm-aspect-grid {
+  border-collapse: collapse;
+  margin: 0 auto;
+  font-size: 14px;
+}
+.bccm-aspect-grid th {
+  width: 32px;
+  height: 32px;
+  text-align: center;
+  vertical-align: middle;
+  font-size: 16px;
+  font-weight: 600;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 4px;
+}
+.bccm-aspect-grid td {
+  width: 32px;
+  height: 32px;
+  text-align: center;
+  vertical-align: middle;
+  font-size: 15px;
+  font-weight: 700;
+  border: 1px solid #e2e8f0;
+  padding: 2px;
+  cursor: default;
+}
+.bccm-aspect-grid td.bccm-grid-aspect:hover {
+  background: #f0f4ff;
+  transform: scale(1.15);
+  transition: all 0.15s ease;
+}
+.bccm-aspect-grid td.bccm-grid-empty {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+.bccm-aspect-grid td.bccm-grid-none {
+  background: #fff;
+  color: #e5e7eb;
+}
+.bccm-aspect-grid td.bccm-grid-none::after {
+  content: '·';
+  color: #d1d5db;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * CHART PATTERNS — Astro-Charts inspired
+ * ══════════════════════════════════════════════════════════════════════ */
+.bccm-patterns-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+.bccm-pattern-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  transition: box-shadow .2s, border-color .2s;
+}
+.bccm-pattern-card:hover {
+  border-color: #818cf8;
+  box-shadow: 0 4px 12px rgba(99,102,241,.12);
+}
+.bccm-pattern-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.bccm-pattern-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+.bccm-pattern-type {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1e293b;
+}
+.bccm-pattern-planets {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+.bccm-pattern-planet {
+  font-size: 12px;
+  color: #475569;
+  padding: 2px 8px;
+  background: #eef2ff;
+  border-radius: 6px;
+  display: inline-block;
+  width: fit-content;
+}
+.bccm-pattern-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.5;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * SPECIAL FEATURES — Astro-Charts inspired
+ * ══════════════════════════════════════════════════════════════════════ */
+.bccm-special-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.bccm-special-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  transition: border-color .2s, box-shadow .2s;
+}
+.bccm-special-card:hover {
+  border-color: #a78bfa;
+  box-shadow: 0 4px 12px rgba(139,92,246,.1);
+}
+.bccm-special-icon {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.bccm-special-text {
+  flex: 1;
+  min-width: 0;
+}
+.bccm-special-main {
+  margin: 0;
+  font-weight: 600;
+  font-size: 13px;
+  color: #1e293b;
+}
+.bccm-special-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+@media (max-width: 782px) {
+  .bccm-patterns-grid,
+  .bccm-special-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * PROKERALA NATAL CHART (Admin)
+ * ══════════════════════════════════════════════════════════════════════ */
+.bccm-prokerala-chart {
+  text-align: center;
+  margin: 12px 0;
+}
+.bccm-prokerala-svg {
+  max-width: 560px;
+  margin: 0 auto;
+}
+.bccm-prokerala-svg svg {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(124,58,237,.15);
+}

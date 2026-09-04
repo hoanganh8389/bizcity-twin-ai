@@ -1,0 +1,32 @@
+{
+  "contract": "context-bank-record",
+  "version": "1.0.0",
+  "record_id": "ctx_event_01hzy7m9qk",
+  "record_kind": "event",
+  "schema_ref": "channel-payload@1.0.0",
+  "source_contract_id": "core.channel_gateway.messenger",
+  "event_uuid": "0190abc1-1234-7abc-8def-0123456789ab",
+  "root_record_id": "ctx_event_01hzy7m9qk",
+  "tenant": { "site_id": 1258, "blog_id": 1258, "scope": "tenant" },
+  "identity": {
+    "identity_uuid": "id_01hzy7m9qk",
+    "wp_user_id": 0,
+    "contact_id": 321,
+    "conversation_id": 8821,
+    "account_key": "a_7a3c9f10"
+  },
+  "entities": [
+    { "type": "customer", "key": "customer:c_001928" },
+    { "type": "product", "key": "product:bosch_gsb550" }
+  ],
+  "occurred_at": "2026-08-30T12:00:00Z",
+  "ingested_at": "2026-08-30T12:00:01Z",
+  "idempotency_key": "messenger:message:abc12345",
+  "content_hash": "0123456789abcdef0123456789abcdef",
+  "provenance": {
+    "source_record_id": "crm_message_456",
+    "trace_id": "trace_01hzy7m9qk",
+    "causation_id": "0190abc1-1234-7abc-8def-0123456789aa"
+  },
+  "payload": { "mode": "encrypted", "value": "bzfs1.authenticated-ciphertext" }
+}

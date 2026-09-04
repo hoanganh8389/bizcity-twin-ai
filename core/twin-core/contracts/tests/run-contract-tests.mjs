@@ -186,6 +186,51 @@ function isSemver(version) {
   return /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version);
 }
 
+function isFrameworkRange(range) {
+  return /^(?:(?:\^|~|>=|>|<=|<|=)?[0-9]+\.[0-9]+(?:\.[0-9]+|\.x)?)(?:\s+(?:(?:\^|~|>=|>|<=|<|=)?[0-9]+\.[0-9]+(?:\.[0-9]+|\.x)?))*$/.test(range.trim());
+}
+
+const supportedManifestCapabilities = new Set([
+  'channel.inbound',
+  'channel.outbound',
+  'action.notify',
+  'context.admit',
+  'commerce.order.read',
+  'fulfillment.read',
+]);
+
+function validateExtensionManifestSemantics(manifest, label) {
+  assert.equal(manifest.contract, 'extension-manifest', `${label}: contract id must be extension-manifest`);
+  assert.ok(isSemver(manifest.version), `${label}: contract version must be semver`);
+  assert.ok(/^[a-z][a-z0-9._-]{2,63}$/.test(manifest.extension_id), `${label}: extension_id must be a stable slug`);
+  assert.ok(isSemver(manifest.extension_version), `${label}: extension_version must be semver`);
+  assert.ok(isFrameworkRange(manifest.requires_framework), `${label}: requires_framework must be a supported semver range`);
+  assert.ok(manifest.capabilities.length > 0, `${label}: capabilities must not be empty`);
+  for (const capability of manifest.capabilities) {
+    assert.ok(supportedManifestCapabilities.has(capability),
+      `${label}: unsupported required capability: ${capability}`);
+  }
+
+  const channelSlugs = new Set();
+  for (const channel of manifest.channels) {
+    assert.ok(!channelSlugs.has(channel.slug), `${label}: duplicate channel slug: ${channel.slug}`);
+    channelSlugs.add(channel.slug);
+    assert.ok(channel.surface_policy.length > 0, `${label}: channel surface_policy must not be empty`);
+    if (channel.zone === 'customer') {
+      assert.ok(channel.surface_policy.includes('gpt_member') || channel.surface_policy.includes('gpt_guest'),
+        `${label}: customer channel must declare a GPT surface`);
+    }
+    if (channel.crm_policy === 'enabled') {
+      assert.notEqual(channel.context_policy, 'none',
+        `${label}: CRM-enabled channel must declare a context policy`);
+    }
+  }
+
+  assert.ok(manifest.diagnostics.requires.includes('disk'), `${label}: diagnostics must require disk evidence`);
+  assert.ok(manifest.diagnostics.requires.includes('loader'), `${label}: diagnostics must require loader evidence`);
+  assert.ok(manifest.diagnostics.requires.includes('runtime'), `${label}: diagnostics must require runtime evidence`);
+}
+
 function run() {
   const catalog = readJson(catalogPath);
 
@@ -220,6 +265,10 @@ function run() {
       throw new Error(`${contract.id}: invalid fixture unexpectedly passed`);
     }
 
+    if (contract.id === 'extension-manifest') {
+      validateExtensionManifestSemantics(validFixture, `${contract.id} valid fixture`);
+    }
+
     const additionalValidFixtures = contract.fixtures.additional_valid ?? [];
     for (const fixtureRef of additionalValidFixtures) {
       const fixturePath = path.join(schemaRoot, fixtureRef);
@@ -227,6 +276,22 @@ function run() {
       const fixtureErrors = validate(schema, fixture, '$', schema);
       if (fixtureErrors.length > 0) {
         throw new Error(`${contract.id}: additional fixture ${fixtureRef} failed\n${fixtureErrors.join('\n')}`);
+      }
+      if (contract.id === 'extension-manifest') {
+        validateExtensionManifestSemantics(fixture, `${contract.id} ${fixtureRef}`);
+      }
+    }
+
+    const additionalInvalidFixtures = contract.fixtures.additional_invalid ?? [];
+    for (const fixtureRef of additionalInvalidFixtures) {
+      const fixturePath = path.join(schemaRoot, fixtureRef);
+      const fixture = readJson(fixturePath);
+      const fixtureErrors = validate(schema, fixture, '$', schema);
+      if (fixtureErrors.length === 0) {
+        assert.throws(
+          () => validateExtensionManifestSemantics(fixture, `${contract.id} ${fixtureRef}`),
+          `${contract.id}: additional fixture ${fixtureRef} should fail semantic validation`
+        );
       }
     }
 

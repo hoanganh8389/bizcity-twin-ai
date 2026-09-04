@@ -3,7 +3,8 @@
  * BizCity CRM — account-backed inbox access policy.
  *
  * MVP-0 scopes Zalo Personal CRM access to the WordPress owner of the
- * Personal account. Administrators retain tenant-wide CRM access.
+ * Personal account. Administrators retain tenant-wide CRM access only on an
+ * explicitly classified BE/admin surface.
  *
  * @package BizCity_Twin_CRM
  * @since   PHASE-0.39B 2026-08-21
@@ -35,14 +36,18 @@ final class BizCity_CRM_Inbox_Access {
 	}
 
 	/**
-	 * Resolve the current-blog CRM scope without trusting posted resource IDs.
+	* Resolve the current-blog CRM scope without trusting posted resource IDs.
+	*
+	* The C surface must pass 'c' so a manage_options user does not inherit
+	* tenant-wide scope merely by opening /gpt/.
 	 *
 	 * @return array{scope_type:string,user_id:int,inbox_ids:int[]|null,channel_types:string[],sources:array,field_projection:array}
 	 */
-	public static function resolve_scope( int $user_id = 0 ): array {
+	public static function resolve_scope( int $user_id = 0, string $surface = 'be' ): array {
 		// [2026-08-25 Johnny Chu] PHASE-0.39F-F7 — centralize admin/owner/member scope for future /gpt/ projections.
 		$user_id = $user_id > 0 ? $user_id : (int) get_current_user_id();
-		if ( self::is_admin( $user_id ) ) {
+		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — keep C /gpt/ requests out of tenant-wide admin scope.
+		if ( 'c' !== strtolower( $surface ) && self::is_admin( $user_id ) ) {
 			return array(
 				'scope_type' => 'admin',
 				'user_id' => $user_id,

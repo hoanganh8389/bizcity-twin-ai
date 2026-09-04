@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="6" failures="1" skipped="0" time="5.747">
+  <testsuite name="diagnostics" tests="6" failures="1" skipped="0" time="5.747">
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.lifecycle" time="0.032">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.callers" time="5.218">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.multisite_scope" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.legacy_table.owner_parity" time="0.009">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.helper.log_index" time="0.149">
+      <failure message="fail">Canonical log pointer index contract is incomplete. | Failed steps: Loader · schema/cache/contract wiring: One or more canonical index dependencies are not loaded.</failure>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.helper.jsonl_search_query_index_parity" time="0.092">
+    </testcase>
+  </testsuite>
+</testsuites>

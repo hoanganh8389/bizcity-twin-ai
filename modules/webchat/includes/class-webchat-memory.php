@@ -5,7 +5,8 @@
  *
  * - Read wp_bizcity_webchat_messages
  * - Extract key memories using LLM
- * - Upsert to wp_bizcity_memory_session
+ * - Persist folded memory records in the encrypted business filestore;
+ *   bizcity_memory_session is legacy read/migration state only.
  *
  * @package    Bizcity_Twin_AI
  * @subpackage Module\Webchat
@@ -19,6 +20,9 @@ if (!defined('ABSPATH')) {
 }
 
 class BizCity_WebChat_Memory {
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — canonical encrypted business-record contract for WebChat session memory.
+    const BUSINESS_CONTRACT_ID = 'modules.webchat.session_memory';
     
     private static $instance = null;
     
@@ -51,9 +55,8 @@ class BizCity_WebChat_Memory {
     public static function build_from_messages($args = []) {
         global $wpdb;
 
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — legacy session-memory writes are frozen; unified memory owns new writes.
-        if ( ! class_exists( 'BizCity_WebChat_Database' )
-            || BizCity_WebChat_Database::table_write_blocked( 'bizcity_memory_session' ) ) {
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — memory extraction requires the canonical filestore; legacy SQL is never a write fallback.
+        if ( ! self::is_filestore_available() ) {
             return [ 'ok' => false, 'degraded' => true, 'reason' => 'legacy_memory_quarantined', 'inserted' => 0, 'updated' => 0 ];
         }
         
@@ -65,7 +68,6 @@ class BizCity_WebChat_Memory {
         ]);
         
         $table_messages = self::messages_table();
-        $table_memory = self::memory_table();
         
         // 1) Fetch messages from users
         $where = "WHERE message_from='user' AND message_text != ''";
@@ -134,7 +136,7 @@ class BizCity_WebChat_Memory {
                 $mem['source_message_ids'] = implode(',', $source_ids);
                 $mem['last_seen'] = current_time('mysql');
                 
-                $res = self::upsert_memory($table_memory, $mem);
+                $res = self::upsert_memory( self::memory_table(), $mem );
                 if ($res === 'insert') {
                     $inserted++;
                 }
@@ -289,97 +291,19 @@ Chỉ trích xuất những thông tin có giá trị, bỏ qua lời chào hỏ
      * Upsert memory to database
      */
     private static function upsert_memory($table, $mem) {
-        global $wpdb;
-
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — never write the quarantined legacy memory projection.
-        if ( ! class_exists( 'BizCity_WebChat_Database' )
-            || BizCity_WebChat_Database::table_write_blocked( 'bizcity_memory_session' ) ) {
-            return 'quarantined';
+        // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — canonical write path is encrypted filestore with folded record state.
+        $file_result = self::write_filestore_memory( $mem );
+        if ( is_array( $file_result ) && ! empty( $file_result['op'] ) ) {
+            return (string) $file_result['op'];
         }
-        
-        $now = current_time('mysql');
-        
-        // Try find existing by (session_id, user_id, memory_key)
-        $existing = $wpdb->get_row($wpdb->prepare(
-            "SELECT id, score FROM {$table}
-             WHERE session_id=%s AND user_id=%d AND memory_key=%s
-             LIMIT 1",
-            (string)$mem['session_id'],
-            (int)$mem['user_id'],
-            (string)$mem['memory_key']
-        ), ARRAY_A);
-        $exists_id = (int)($existing['id'] ?? 0);
-        
-        if ($exists_id > 0) {
-            // Update: increase score + times_seen, concat source_message_ids, last_seen
-            $score_increment = max(1, (int)($mem['score'] / 5));
-            $new_score = min(100, (int)($existing['score'] ?? 0) + $score_increment);
-            
-            $updated = $wpdb->query($wpdb->prepare(
-                "UPDATE {$table}
-                 SET score = %d,
-                     times_seen = times_seen + 1,
-                     last_seen = %s,
-                     source_message_ids = CONCAT_WS(',', source_message_ids, %s),
-                     updated_at = %s
-                 WHERE id=%d",
-                $new_score,
-                (string)$mem['last_seen'],
-                (string)$mem['source_message_ids'],
-                $now,
-                $exists_id
-            ));
 
-            if ( false !== $updated ) {
-                // [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — mirror WebChat session updates into unified memory.
-                do_action( 'bizcity_memory_mirror_write', 'session', [
-                    'id'            => $exists_id,
-                    'blog_id'       => get_current_blog_id(),
-                    'session_id'    => (string)$mem['session_id'],
-                    'user_id'       => (int)$mem['user_id'],
-                    'memory_type'   => (string)$mem['memory_type'],
-                    'memory_key'    => (string)$mem['memory_key'],
-                    'memory_text'   => (string)$mem['memory_text'],
-                    'score'         => $new_score,
-                    'metadata'      => '',
-                ], 'update' );
-            }
-            
-            return 'update';
-        }
-        
-        // Insert new memory
-        $inserted = $wpdb->insert($table, [
-            'session_id' => (string)$mem['session_id'],
-            'user_id' => (int)$mem['user_id'],
-            'client_name' => (string)$mem['client_name'],
-            'memory_type' => (string)$mem['memory_type'],
-            'memory_key' => (string)$mem['memory_key'],
-            'memory_text' => (string)$mem['memory_text'],
-            'score' => (int)$mem['score'],
-            'times_seen' => 1,
-            'last_seen' => (string)$mem['last_seen'],
-            'source_message_ids' => (string)$mem['source_message_ids'],
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+        // [2026-09-01 Johnny Chu] PHASE-CB4.4 — Context Bank filestore is the only new WebChat memory payload writer; SQL fallback is disabled.
+        return 'quarantined';
+    }
 
-        if ( false !== $inserted ) {
-            // [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — mirror new WebChat session memory into unified memory.
-            do_action( 'bizcity_memory_mirror_write', 'session', [
-                'id'            => (int)$wpdb->insert_id,
-                'blog_id'       => get_current_blog_id(),
-                'session_id'    => (string)$mem['session_id'],
-                'user_id'       => (int)$mem['user_id'],
-                'memory_type'   => (string)$mem['memory_type'],
-                'memory_key'    => (string)$mem['memory_key'],
-                'memory_text'   => (string)$mem['memory_text'],
-                'score'         => (int)$mem['score'],
-                'metadata'      => '',
-            ], 'insert' );
-        }
-        
-        return 'insert';
+    // [2026-08-28 Johnny Chu] PHASE-1.30-DDV — expose the canonical session-memory owner boundary for runtime parity probes and approved callers.
+    public static function upsert_public( $mem ) {
+        return self::upsert_memory( self::memory_table(), (array) $mem );
     }
     
     /**
@@ -387,12 +311,6 @@ Chỉ trích xuất những thông tin có giá trị, bỏ qua lời chào hỏ
      */
     public static function get_memories($args = []) {
         global $wpdb;
-
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — missing legacy memory is an empty compatibility result.
-        if ( ! class_exists( 'BizCity_WebChat_Database' )
-            || ! BizCity_WebChat_Database::table_exists_for_policy( 'bizcity_memory_session' ) ) {
-            return [];
-        }
         
         $args = wp_parse_args($args, [
             'session_id' => '',
@@ -425,15 +343,23 @@ Chỉ trích xuất những thông tin có giá trị, bỏ qua lời chào hỏ
         $where_sql = implode(' AND ', $where);
         
         $order_by = in_array($args['order_by'], ['score', 'times_seen', 'created_at', 'updated_at']) ? $args['order_by'] : 'score';
-        
-        $sql = "SELECT * FROM {$table}
-                WHERE {$where_sql}
-                ORDER BY {$order_by} DESC, id DESC
-                LIMIT %d";
-        
-        $params[] = (int)$args['limit'];
-        
-        return $params ? $wpdb->get_results($wpdb->prepare($sql, ...$params)) : $wpdb->get_results($sql);
+
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — filestore is the only memory read owner.
+        $file_rows = self::query_filestore_memories( array(
+            'session_id'  => (string) $args['session_id'],
+            'user_id'     => (int) $args['user_id'],
+            'memory_type' => (string) $args['memory_type'],
+            'limit'       => (int) $args['limit'],
+            'order_by'    => (string) $order_by,
+            'order'       => 'DESC',
+        ) );
+        if ( ! empty( $file_rows ) ) {
+            return array_map( function ( $row ) {
+                return (object) $row;
+            }, $file_rows );
+        }
+
+        return [];
     }
     
     /**
@@ -441,51 +367,68 @@ Chỉ trích xuất những thông tin có giá trị, bỏ qua lời chào hỏ
      */
     public static function get_stats($args = []) {
         global $wpdb;
-
-        // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — missing legacy memory has zero stats.
-        if ( ! class_exists( 'BizCity_WebChat_Database' )
-            || ! BizCity_WebChat_Database::table_exists_for_policy( 'bizcity_memory_session' ) ) {
-            return [ 'by_type' => [], 'totals' => [ 'total' => 0, 'pain_count' => 0, 'constraint_count' => 0, 'goal_count' => 0 ] ];
-        }
         
         $args = wp_parse_args($args, [
             'session_id' => '',
         ]);
         
         $table = self::memory_table();
-        
-        $where = ['1=1'];
-        $params = [];
-        
-        if (!empty($args['session_id'])) {
-            $where[] = 'session_id = %s';
-            $params[] = $args['session_id'];
+
+        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — aggregate only canonical filestore rows.
+        $file_rows = self::query_filestore_memories( array(
+            'session_id' => (string) $args['session_id'],
+            'limit'      => 2000,
+            'order_by'   => 'updated_at',
+            'order'      => 'DESC',
+        ) );
+        if ( ! empty( $file_rows ) ) {
+            $by_type_map = array();
+            $total = 0;
+            $pain_count = 0;
+            $constraint_count = 0;
+            $goal_count = 0;
+            foreach ( $file_rows as $row ) {
+                $type = (string) ( $row['memory_type'] ?? '' );
+                $score = (int) ( $row['score'] ?? 0 );
+                if ( ! isset( $by_type_map[ $type ] ) ) {
+                    $by_type_map[ $type ] = array( 'count' => 0, 'score_sum' => 0 );
+                }
+                $by_type_map[ $type ]['count']++;
+                $by_type_map[ $type ]['score_sum'] += $score;
+                $total++;
+                if ( $type === 'pain' ) {
+                    $pain_count++;
+                }
+                if ( $type === 'constraint' ) {
+                    $constraint_count++;
+                }
+                if ( $type === 'goal' ) {
+                    $goal_count++;
+                }
+            }
+            $by_type = array();
+            foreach ( $by_type_map as $type => $meta ) {
+                $avg_score = $meta['count'] > 0 ? ( $meta['score_sum'] / $meta['count'] ) : 0;
+                $by_type[] = array(
+                    'memory_type' => $type,
+                    'count'       => $meta['count'],
+                    'avg_score'   => $avg_score,
+                );
+            }
+            return [
+                'by_type' => $by_type,
+                'totals'  => [
+                    'total'            => $total,
+                    'pain_count'       => $pain_count,
+                    'constraint_count' => $constraint_count,
+                    'goal_count'       => $goal_count,
+                ],
+            ];
         }
-        
-        $where_sql = implode(' AND ', $where);
-        
-        // Count by type
-        $sql = "SELECT memory_type, COUNT(*) as count, AVG(score) as avg_score
-                FROM {$table}
-                WHERE {$where_sql}
-                GROUP BY memory_type
-                ORDER BY count DESC";
-        
-        $by_type = $params ? $wpdb->get_results($wpdb->prepare($sql, ...$params), ARRAY_A) : $wpdb->get_results($sql, ARRAY_A);
-        
-        // Total count
-        $total_sql = "SELECT COUNT(*) as total,
-                      SUM(CASE WHEN memory_type='pain' THEN 1 ELSE 0 END) as pain_count,
-                      SUM(CASE WHEN memory_type='constraint' THEN 1 ELSE 0 END) as constraint_count,
-                      SUM(CASE WHEN memory_type='goal' THEN 1 ELSE 0 END) as goal_count
-                      FROM {$table}
-                      WHERE {$where_sql}";
-        
-        $totals = $params ? $wpdb->get_row($wpdb->prepare($total_sql, ...$params), ARRAY_A) : $wpdb->get_row($total_sql, ARRAY_A);
-        
+
         return [
-            'by_type' => $by_type,
-            'totals' => $totals,
+            'by_type' => [],
+            'totals' => [ 'total' => 0, 'pain_count' => 0, 'constraint_count' => 0, 'goal_count' => 0 ],
         ];
     }
     
@@ -530,5 +473,170 @@ Chỉ trích xuất những thông tin có giá trị, bỏ qua lời chào hỏ
         }
         
         return $context;
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — session-memory migration requires a registered encrypted business-record contract.
+    private static function is_filestore_available() {
+        return class_exists( 'BizCity_File_Contract_Registry' )
+            && class_exists( 'BizCity_Business_JSONL_File_Store' )
+            && BizCity_File_Contract_Registry::has( self::BUSINESS_CONTRACT_ID );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — derive stable record identity from session owner + memory key.
+    private static function filestore_record_id( $mem ) {
+        $scope = (string) get_current_blog_id() . '|'
+            . (string) ( $mem['session_id'] ?? '' ) . '|'
+            . (int) ( $mem['user_id'] ?? 0 ) . '|'
+            . (string) ( $mem['memory_key'] ?? '' );
+        if ( class_exists( 'BizCity_Codec' ) && function_exists( 'wp_salt' ) ) {
+            return 'ws_' . BizCity_Codec::hmac_sha256( $scope, wp_salt( 'auth' ), false );
+        }
+        return 'ws_' . hash( 'sha256', $scope );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — normalize folded session-memory records for legacy-compatible readers.
+    private static function normalize_filestore_memory( $row ) {
+        $defaults = array(
+            'id'                 => 0,
+            'legacy_id'          => 0,
+            'record_id'          => '',
+            'blog_id'            => get_current_blog_id(),
+            'session_id'         => '',
+            'user_id'            => 0,
+            'client_name'        => '',
+            'memory_type'        => 'fact',
+            'memory_key'         => '',
+            'memory_text'        => '',
+            'score'              => 50,
+            'times_seen'         => 1,
+            'last_seen'          => '',
+            'source_message_ids' => '',
+            'created_at'         => '',
+            'updated_at'         => '',
+        );
+        $row = wp_parse_args( (array) $row, $defaults );
+        $row['id']         = (int) ( $row['legacy_id'] ?? $row['id'] ?? 0 );
+        $row['user_id']    = (int) $row['user_id'];
+        $row['score']      = (int) $row['score'];
+        $row['times_seen'] = max( 1, (int) $row['times_seen'] );
+        return $row;
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — file-first upsert preserving legacy insert/update semantics.
+    private static function write_filestore_memory( $mem ) {
+        if ( ! self::is_filestore_available() ) {
+            return false;
+        }
+
+        $now = current_time( 'mysql' );
+        $record = self::normalize_filestore_memory( array_merge( (array) $mem, array(
+            'blog_id'    => get_current_blog_id(),
+            'last_seen'  => (string) ( $mem['last_seen'] ?? $now ),
+            'updated_at' => $now,
+        ) ) );
+        if ( $record['session_id'] === '' || $record['memory_key'] === '' || trim( (string) $record['memory_text'] ) === '' ) {
+            return false;
+        }
+
+        $record['record_id'] = self::filestore_record_id( $record );
+        $existing = BizCity_Business_JSONL_File_Store::find( self::BUSINESS_CONTRACT_ID, $record['record_id'], array(
+            'blog_id' => get_current_blog_id(),
+        ) );
+
+        $op = 'insert';
+        if ( ! empty( $existing ) ) {
+            $op = 'update';
+            $existing = self::normalize_filestore_memory( $existing );
+            $score_increment = max( 1, (int) ( $record['score'] / 5 ) );
+            $record['score'] = min( 100, (int) $existing['score'] + $score_increment );
+            $record['times_seen'] = (int) $existing['times_seen'] + 1;
+            $record['created_at'] = (string) ( $existing['created_at'] ?: $now );
+            $record['legacy_id']  = (int) ( $existing['legacy_id'] ?? 0 );
+            $source_parts = array_filter( array( (string) ( $existing['source_message_ids'] ?? '' ), (string) $record['source_message_ids'] ) );
+            $record['source_message_ids'] = implode( ',', $source_parts );
+        } else {
+            $record['times_seen'] = 1;
+            $record['created_at'] = $now;
+        }
+
+        $receipt = BizCity_Business_JSONL_File_Store::write_with_receipt( self::BUSINESS_CONTRACT_ID, $record, 'upsert' );
+        if ( ! is_array( $receipt ) ) {
+            return false;
+        }
+
+        do_action( 'bizcity_memory_mirror_write', 'session', [
+            'id'            => (int) ( $record['legacy_id'] ?? 0 ),
+            'blog_id'       => get_current_blog_id(),
+            'session_id'    => (string)$record['session_id'],
+            'user_id'       => (int)$record['user_id'],
+            'memory_type'   => (string)$record['memory_type'],
+            'memory_key'    => (string)$record['memory_key'],
+            'memory_text'   => (string)$record['memory_text'],
+            'score'         => (int)$record['score'],
+            'metadata'      => '',
+            'filestore_receipt' => $receipt,
+        ], $op );
+
+        return array(
+            'op'      => $op,
+            'receipt' => $receipt,
+        );
+    }
+
+    // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — scoped session-memory read helper used by context and stats callers.
+    private static function query_filestore_memories( $args = array() ) {
+        if ( ! self::is_filestore_available() ) {
+            return array();
+        }
+
+        $session_id = (string) ( $args['session_id'] ?? '' );
+        $user_id = (int) ( $args['user_id'] ?? 0 );
+        $memory_type = (string) ( $args['memory_type'] ?? '' );
+        $limit = max( 1, (int) ( $args['limit'] ?? 100 ) );
+        $order_by = in_array( (string) ( $args['order_by'] ?? 'score' ), array( 'score', 'times_seen', 'created_at', 'updated_at' ), true )
+            ? (string) $args['order_by']
+            : 'score';
+        $order = strtoupper( (string) ( $args['order'] ?? 'DESC' ) ) === 'ASC' ? 'ASC' : 'DESC';
+
+        $query = array(
+            'blog_id' => get_current_blog_id(),
+            'limit'   => $limit * 8,
+            'days'    => 365,
+            'filter'  => function ( $row ) use ( $session_id, $memory_type ) {
+                if ( $session_id !== '' && (string) ( $row['session_id'] ?? '' ) !== $session_id ) {
+                    return false;
+                }
+                if ( $memory_type !== '' && (string) ( $row['memory_type'] ?? '' ) !== $memory_type ) {
+                    return false;
+                }
+                return true;
+            },
+        );
+        if ( $user_id > 0 ) {
+            $query['user_id'] = $user_id;
+        }
+
+        // [2026-09-01 Johnny Chu] PHASE-CB4.5 — session memory reads follow Context Bank pointers and verified filestore receipts.
+        if ( function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
+            bizcity_context_bank_load_memory_runtime();
+        }
+        $rows = class_exists( 'BizCity_Context_Bank_Memory_Adapter' )
+            ? BizCity_Context_Bank_Memory_Adapter::query( self::BUSINESS_CONTRACT_ID, $query )
+            : array();
+        if ( empty( $rows ) ) {
+            return array();
+        }
+        $rows = array_map( array( 'BizCity_WebChat_Memory', 'normalize_filestore_memory' ), $rows );
+        usort( $rows, function ( $a, $b ) use ( $order_by, $order ) {
+            $left = $a[ $order_by ] ?? '';
+            $right = $b[ $order_by ] ?? '';
+            if ( is_numeric( $left ) && is_numeric( $right ) ) {
+                $cmp = (float) $left <=> (float) $right;
+            } else {
+                $cmp = strcmp( (string) $left, (string) $right );
+            }
+            return $order === 'ASC' ? $cmp : ( 0 - $cmp );
+        } );
+        return array_slice( $rows, 0, $limit );
     }
 }

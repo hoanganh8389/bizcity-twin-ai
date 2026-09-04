@@ -226,7 +226,14 @@ class BizCity_KG_Skeleton_Adapter {
 		self::flush_cache( $notebook_id );
 
 		if ( class_exists( 'BizCity_KG_Skeleton_Service' ) ) {
-			BizCity_KG_Skeleton_Service::schedule_rebuild( $notebook_id );
+			// Phase 6.6 — user contract: no cron debounce, trigger immediately
+			// (FastCGI-deferred when available). schedule_rebuild() still exists
+			// as a legacy fallback callers can opt into via filter.
+			if ( method_exists( 'BizCity_KG_Skeleton_Service', 'trigger_now' ) ) {
+				BizCity_KG_Skeleton_Service::trigger_now( $notebook_id, 'ingest' );
+			} else {
+				BizCity_KG_Skeleton_Service::schedule_rebuild( $notebook_id );
+			}
 		}
 
 		do_action( 'bizcity_kg_notebook_skeleton_marked_dirty', $notebook_id );
@@ -380,6 +387,183 @@ class BizCity_KG_Skeleton_Adapter {
 			self::$cache        = [];
 			self::$status_cache = [];
 		}
+	}
+
+	/* ──────────────────────────────────────────────────────────────────
+	 *  Phase 6.6 — Skeleton history API (R-SK-DOC-3)
+	 *
+	 *  Powers the Visual Panel "Version" picker + the standalone
+	 *  /tool-doc/ canvas that lets users re-bind to an older skeleton
+	 *  snapshot. Backed by wp_bizcity_kg_skeleton_history (S3.1).
+	 * ──────────────────────────────────────────────────────────────── */
+
+	/**
+	 * List the most-recent N skeleton versions for a notebook.
+	 *
+	 * @param int $notebook_id
+	 * @param int $limit  Default 5, capped at 20.
+	 * @return array<int, array{
+	 *   version: int,
+	 *   built_at: ?string,
+	 *   trigger_reason: string,
+	 *   llm_model: ?string,
+	 *   token_in: ?int,
+	 *   token_out: ?int,
+	 *   is_current: bool
+	 * }>
+	 */
+	public static function list_versions( int $notebook_id, int $limit = 5 ): array {
+		if ( $notebook_id <= 0 ) {
+			return [];
+		}
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bizcity_kg_skeleton_history';
+		$limit = max( 1, min( 20, $limit ) );
+
+		$current = self::get_version( $notebook_id );
+
+		$prev = $wpdb->suppress_errors( true );
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT version, built_at, trigger_reason, llm_model, token_in, token_out
+			   FROM {$tbl}
+			  WHERE notebook_id = %d
+			  ORDER BY version DESC
+			  LIMIT %d",
+			$notebook_id, $limit
+		), ARRAY_A );
+		$wpdb->suppress_errors( $prev );
+
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+
+		return array_map( static function ( $r ) use ( $current ) {
+			$v = (int) $r['version'];
+			return [
+				'version'        => $v,
+				'built_at'       => $r['built_at'] ?: null,
+				'trigger_reason' => (string) ( $r['trigger_reason'] ?? 'ingest' ),
+				'llm_model'      => $r['llm_model'] ?: null,
+				'token_in'       => isset( $r['token_in'] )  ? (int) $r['token_in']  : null,
+				'token_out'      => isset( $r['token_out'] ) ? (int) $r['token_out'] : null,
+				'is_current'     => ( $v === $current ),
+			];
+		}, $rows );
+	}
+
+	/**
+	 * Fetch the skeleton JSON at a specific historical version.
+	 * Falls back to the current notebook row when version === current.
+	 *
+	 * @return ?array Decoded skeleton with `_meta` block, null if missing.
+	 */
+	public static function get_skeleton_at_version( int $notebook_id, int $version ): ?array {
+		if ( $notebook_id <= 0 || $version <= 0 ) {
+			return null;
+		}
+
+		// Fast path — caller requested the live version; reuse the cached read.
+		if ( $version === self::get_version( $notebook_id ) ) {
+			return self::get_skeleton( $notebook_id );
+		}
+
+		global $wpdb;
+		$tbl  = $wpdb->prefix . 'bizcity_kg_skeleton_history';
+		$prev = $wpdb->suppress_errors( true );
+		$row  = $wpdb->get_row( $wpdb->prepare(
+			"SELECT skeleton_json, built_at, trigger_reason
+			   FROM {$tbl}
+			  WHERE notebook_id = %d AND version = %d
+			  LIMIT 1",
+			$notebook_id, $version
+		), ARRAY_A );
+		$wpdb->suppress_errors( $prev );
+
+		if ( ! $row || empty( $row['skeleton_json'] ) ) {
+			return null;
+		}
+		$decoded = json_decode( (string) $row['skeleton_json'], true );
+		if ( ! is_array( $decoded ) ) {
+			return null;
+		}
+		$decoded['_meta'] = [
+			'version'        => $version,
+			'built_at'       => $row['built_at'] ?: null,
+			'status'         => 'history',
+			'trigger_reason' => (string) ( $row['trigger_reason'] ?? 'ingest' ),
+		];
+		return $decoded;
+	}
+
+	/**
+	 * R-SK-DOC-5 — Build the canonical 3-message envelope that BizCity LLM
+	 * callers MUST use whenever a notebook skeleton is in scope.
+	 *
+	 * Layout (do NOT concat skeleton into user message — see AP-26):
+	 *   [
+	 *     { role: 'system', content: <persona> },
+	 *     { role: 'system', name: 'notebook_skeleton', content: <markdown> },
+	 *     { role: 'user',   content: <raw_user_prompt> },
+	 *   ]
+	 *
+	 * The middle message uses the OpenAI-standard `name` field so any
+	 * provider that respects it (OpenAI, Anthropic via mapping, vLLM) can
+	 * treat the skeleton as a named context channel separate from the
+	 * primary persona. Providers that ignore `name` still receive it as a
+	 * plain system message — no loss.
+	 *
+	 * @param string $persona         Persona / system prompt.
+	 * @param array  $skeleton        Decoded skeleton (output of get_skeleton).
+	 * @param string $user_prompt     Raw user brief (UNMODIFIED).
+	 * @param string $mode            full | compact | outline
+	 * @return array<int, array{role:string, content:string, name?:string}>
+	 */
+	public static function compose_messages_with_skeleton(
+		string $persona,
+		array $skeleton,
+		string $user_prompt,
+		string $mode = self::MODE_FULL
+	): array {
+		$messages = [];
+
+		$persona = trim( $persona );
+		if ( $persona !== '' ) {
+			$messages[] = [ 'role' => 'system', 'content' => $persona ];
+		}
+
+		// Render the skeleton block via the canonical formatter. Apply the
+		// same truncation logic as get_prompt_block() so cost stays bounded.
+		$mode = in_array( $mode, [ self::MODE_FULL, self::MODE_COMPACT, self::MODE_OUTLINE ], true )
+			? $mode : self::MODE_FULL;
+
+		$override = apply_filters(
+			'bizcity_kg_skeleton_prompt_block',
+			null, $skeleton, $mode, 0
+		);
+		$block = is_string( $override ) && $override !== ''
+			? $override
+			: self::format_prompt_block( $skeleton, $mode );
+
+		if ( strlen( $block ) > self::PROMPT_BLOCK_MAX_BYTES ) {
+			$block  = substr( $block, 0, self::PROMPT_BLOCK_MAX_BYTES );
+			$nl_pos = strrpos( $block, "\n" );
+			if ( $nl_pos !== false && $nl_pos > self::PROMPT_BLOCK_MAX_BYTES * 0.8 ) {
+				$block = substr( $block, 0, $nl_pos );
+			}
+			$block .= "\n\n> *(skeleton truncated to fit context budget)*\n";
+		}
+
+		if ( trim( $block ) !== '' ) {
+			$messages[] = [
+				'role'    => 'system',
+				'name'    => 'notebook_skeleton',
+				'content' => $block,
+			];
+		}
+
+		$messages[] = [ 'role' => 'user', 'content' => $user_prompt ];
+
+		return $messages;
 	}
 }
 

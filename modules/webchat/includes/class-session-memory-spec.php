@@ -11,7 +11,7 @@
 /**
  * BizCity Session Memory Spec — Session-level Working Brief
  *
- * Stores a compact working brief in bizcity_webchat_sessions columns
+ * Stores a compact working brief in the encrypted business filestore
  * so the assistant maintains session continuity across messages:
  * current topic, focus, open loops, next actions, recent facts.
  *
@@ -28,6 +28,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BizCity_Session_Memory_Spec {
 
+	const BUSINESS_CONTRACT_ID = 'modules.webchat.session_memory_spec';
 	const VERSION     = 1;
 	const MAX_LOOPS   = 3;
 	const MAX_ACTIONS = 3;
@@ -35,11 +36,8 @@ class BizCity_Session_Memory_Spec {
 	const STALE_HOURS = 8;
 	const LOG         = '[Session-Spec]';
 
-	/** @var array|null In-memory cache for current request */
-	private static $current_spec = null;
-
-	/** @var int|null Cached DB row id for current session */
-	private static $current_row_id = null;
+	/** @var array<string,array|null> In-memory cache keyed by tenant/platform/session. */
+	private static $current_specs = array();
 
 	/* ──────────────────────────────────────────────
 	 *  A. Feature flag guard
@@ -79,7 +77,7 @@ class BizCity_Session_Memory_Spec {
 	}
 
 	/* ──────────────────────────────────────────────
-	 *  C. get — đọc spec từ DB hoặc cache
+	*  C. get — đọc spec từ encrypted filestore hoặc cache
 	 * ────────────────────────────────────────────── */
 
 	/**
@@ -88,82 +86,63 @@ class BizCity_Session_Memory_Spec {
 	 * @param string $session_id WebChat session ID.
 	 * @return array|null The spec array or null.
 	 */
-	public static function get( $session_id ) {
-		if ( self::$current_spec !== null ) {
-			return self::$current_spec;
+	public static function get( $session_id, $platform_type = '' ) {
+		// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-SPEC-FILESTORE — read the working brief from the encrypted filestore, never from session SQL columns.
+		$cache_key = self::cache_key( $session_id, $platform_type );
+		if ( array_key_exists( $cache_key, self::$current_specs ) ) {
+			return self::$current_specs[ $cache_key ];
 		}
-
-		if ( ! class_exists( 'BizCity_WebChat_Database' ) ) {
+		if ( ! self::is_filestore_available() ) {
+			self::$current_specs[ $cache_key ] = null;
 			return null;
 		}
-
-		$row = BizCity_WebChat_Database::instance()->get_session_v3_by_session_id( $session_id );
-		if ( ! $row ) {
-			return null;
-		}
-
-		self::$current_row_id = (int) $row->id;
-
-		$raw = isset( $row->session_memory_spec ) ? $row->session_memory_spec : '';
-		if ( empty( $raw ) ) {
-			return null;
-		}
-
-		$spec = json_decode( $raw, true );
-		if ( ! is_array( $spec ) ) {
-			return null;
-		}
-
-		self::$current_spec = $spec;
+		$record = BizCity_Business_JSONL_File_Store::find( self::BUSINESS_CONTRACT_ID, self::filestore_record_id( $session_id, $platform_type ), array(
+			'blog_id' => get_current_blog_id(),
+		) );
+		$spec = is_array( $record ) && is_array( $record['spec'] ?? null ) ? $record['spec'] : null;
+		self::$current_specs[ $cache_key ] = $spec;
 		return $spec;
 	}
 
 	/* ──────────────────────────────────────────────
-	 *  D. persist — lưu spec vào DB
+	 *  D. persist — lưu spec vào encrypted filestore
 	 * ────────────────────────────────────────────── */
 
 	/**
-	 * Persist session memory spec to database.
+	 * Persist session memory spec to encrypted filestore.
 	 *
 	 * @param string $session_id  WebChat session ID.
 	 * @param array  $spec        The spec array.
 	 * @return bool
 	 */
-	public static function persist( $session_id, $spec ) {
-		if ( ! class_exists( 'BizCity_WebChat_Database' ) ) {
+	public static function persist( $session_id, $spec, $platform_type = '' ) {
+		// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-SPEC-FILESTORE — fold and persist the working brief as one encrypted business record.
+		if ( ! is_array( $spec ) || ! self::is_filestore_available() || empty( $session_id ) ) {
 			return false;
 		}
-
-		$db = BizCity_WebChat_Database::instance();
-
-		// Resolve row ID
-		$row_id = self::$current_row_id;
-		if ( ! $row_id ) {
-			$row = $db->get_session_v3_by_session_id( $session_id );
-			if ( ! $row ) {
-				return false;
-			}
-			$row_id = (int) $row->id;
-			self::$current_row_id = $row_id;
-		}
-
 		$spec['updated_at'] = current_time( 'mysql', true );
-
-		$update_data = array(
-			'session_memory_spec'       => $spec,
-			'session_memory_mode'       => isset( $spec['mode'] ) ? $spec['mode'] : 'chat',
-			'session_focus_summary'     => isset( $spec['current_focus'] ) ? mb_substr( $spec['current_focus'], 0, 200 ) : '',
-			'session_open_loops'        => isset( $spec['open_loops'] ) ? $spec['open_loops'] : array(),
-			'session_next_actions'      => isset( $spec['next_best_actions'] ) ? $spec['next_best_actions'] : array(),
-			'session_memory_updated_at' => $spec['updated_at'],
+		$record_id = self::filestore_record_id( $session_id, $platform_type );
+		$existing = BizCity_Business_JSONL_File_Store::find( self::BUSINESS_CONTRACT_ID, $record_id, array(
+			'blog_id' => get_current_blog_id(),
+		) );
+		$record = array(
+			'record_id'    => $record_id,
+			'record_kind'  => 'session_memory_spec',
+			'blog_id'      => get_current_blog_id(),
+			'platform_type'=> self::normalize_platform( $session_id, $platform_type ),
+			'session_id'   => sanitize_text_field( (string) $session_id ),
+			'user_id'      => get_current_user_id(),
+			'version'      => self::VERSION,
+			'spec'         => $spec,
+			'updated_at'   => $spec['updated_at'],
+			'created_at'   => is_array( $existing ) && ! empty( $existing['created_at'] ) ? $existing['created_at'] : $spec['updated_at'],
 		);
-
-		$result = $db->update_session_v3( $row_id, $update_data );
-
-		// Update in-memory cache
-		self::$current_spec = $spec;
-
-		return $result;
+		$receipt = BizCity_Business_JSONL_File_Store::write_with_receipt( self::BUSINESS_CONTRACT_ID, $record, 'upsert' );
+		if ( ! is_array( $receipt ) ) {
+			return false;
+		}
+		self::$current_specs[ self::cache_key( $session_id, $platform_type ) ] = $spec;
+		return true;
 	}
 
 	/* ──────────────────────────────────────────────
@@ -200,7 +179,8 @@ class BizCity_Session_Memory_Spec {
 		}
 
 		// Load existing spec or create blank
-		$spec = self::get( $session_id );
+		$platform_type = isset( $data['platform_type'] ) ? $data['platform_type'] : '';
+		$spec = self::get( $session_id, $platform_type );
 		if ( ! $spec ) {
 			$spec = self::blank( 'chat' );
 		}
@@ -250,7 +230,7 @@ class BizCity_Session_Memory_Spec {
 		$spec['open_loops']        = array_slice( $spec['open_loops'], 0, self::MAX_LOOPS );
 		$spec['next_best_actions'] = array_slice( $spec['next_best_actions'], 0, self::MAX_ACTIONS );
 
-		self::persist( $session_id, $spec );
+		self::persist( $session_id, $spec, $platform_type );
 
 		error_log( self::LOG . " Refreshed: session={$session_id}, mode=" . $spec['mode'] . ", topic=" . mb_substr( $spec['current_topic'], 0, 50 ) );
 	}
@@ -353,7 +333,8 @@ class BizCity_Session_Memory_Spec {
 		// always returns true (unknown layer fallback). Gate check was meaningless.
 		// Session spec injection is ALWAYS active when feature flag is on.
 
-		$spec = self::get( $session_id );
+		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-SPEC-FILESTORE — preserve the filter's explicit platform dimension when reading the filestore record.
+		$spec = self::get( $session_id, isset( $args['platform_type'] ) ? $args['platform_type'] : '' );
 		if ( ! $spec ) {
 			return $prompt;
 		}
@@ -523,13 +504,64 @@ class BizCity_Session_Memory_Spec {
 	 * Reset in-memory cache (for testing or between requests).
 	 */
 	public static function reset() {
-		self::$current_spec   = null;
-		self::$current_row_id = null;
+		self::$current_specs = array();
 	}
 
 	/* ══════════════════════════════════════════════
 	 *  PRIVATE HELPERS — Extract logic
 	 * ══════════════════════════════════════════════ */
+
+	/**
+	 * Check that the encrypted session-spec contract is loaded.
+	 *
+	 * @return bool
+	 */
+	private static function is_filestore_available() {
+		return class_exists( 'BizCity_File_Contract_Registry' )
+			&& class_exists( 'BizCity_Business_JSONL_File_Store' )
+			&& BizCity_File_Contract_Registry::has( self::BUSINESS_CONTRACT_ID );
+	}
+
+	/**
+	 * Normalize the channel dimension used by the stable record key.
+	 *
+	 * @param string $session_id    Session identifier.
+	 * @param string $platform_type Channel/platform type.
+	 * @return string
+	 */
+	private static function normalize_platform( $session_id, $platform_type = '' ) {
+		$platform_type = strtoupper( sanitize_key( (string) $platform_type ) );
+		if ( in_array( $platform_type, array( 'ADMINCHAT', 'WEBCHAT' ), true ) ) {
+			return $platform_type;
+		}
+		return strpos( (string) $session_id, 'adminchat_' ) === 0 ? 'ADMINCHAT' : 'WEBCHAT';
+	}
+
+	/**
+	 * Build a tenant/platform/session cache key.
+	 *
+	 * @param string $session_id    Session identifier.
+	 * @param string $platform_type Channel/platform type.
+	 * @return string
+	 */
+	private static function cache_key( $session_id, $platform_type = '' ) {
+		return (string) get_current_blog_id() . '|' . self::normalize_platform( $session_id, $platform_type ) . '|' . (string) $session_id;
+	}
+
+	/**
+	 * Build a stable opaque filestore record ID.
+	 *
+	 * @param string $session_id    Session identifier.
+	 * @param string $platform_type Channel/platform type.
+	 * @return string
+	 */
+	private static function filestore_record_id( $session_id, $platform_type = '' ) {
+		$scope = (string) get_current_blog_id() . '|' . self::normalize_platform( $session_id, $platform_type ) . '|' . (string) $session_id;
+		if ( class_exists( 'BizCity_Codec' ) && function_exists( 'wp_salt' ) ) {
+			return 'wss_' . BizCity_Codec::hmac_sha256( $scope, wp_salt( 'auth' ), false );
+		}
+		return 'wss_' . hash( 'sha256', $scope );
+	}
 
 	/**
 	 * Extract a topic label from user message.
