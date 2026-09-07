@@ -1187,13 +1187,25 @@ class BizCity_CRM_Repository {
 		$att_tbl = BizCity_CRM_DB_Installer_V2::tbl_attachments();
 		$limit  = max( 1, min( 500, $limit ) );
 
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM {$tbl}
-			 WHERE conversation_id = %d AND id > %d
-			 ORDER BY id ASC
-			 LIMIT %d",
-			$conversation_id, $after_id, $limit
-		), ARRAY_A );
+		// [2026-09-06 12:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39C-C3 — hydrate the detail pane from the newest bounded message window; the conversation list already points at last_message_id, while ASC-from-zero returned only stale history once a thread exceeded the page limit.
+		if ( $after_id > 0 ) {
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT * FROM {$tbl}
+				 WHERE conversation_id = %d AND id > %d
+				 ORDER BY id ASC
+				 LIMIT %d",
+				$conversation_id, $after_id, $limit
+			), ARRAY_A );
+		} else {
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT * FROM {$tbl}
+				 WHERE conversation_id = %d
+				 ORDER BY id DESC
+				 LIMIT %d",
+				$conversation_id, $limit
+			), ARRAY_A );
+			$rows = is_array( $rows ) ? array_reverse( $rows ) : array();
+		}
 
 		if ( ! $rows ) {
 			return array();

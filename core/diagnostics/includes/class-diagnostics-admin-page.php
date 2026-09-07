@@ -1077,6 +1077,7 @@ final class BizCity_Diagnostics_Admin_Page {
 				$replacement_status = (string) ( $r['replacement_status'] ?? 'not_applicable' );
 				$replacement_mode = (string) ( $r['replacement_mode'] ?? ( $jsonl_replacement['mode'] ?? 'retire_only' ) );
 				$replacement_detail = (string) ( $r['replacement_detail'] ?? 'No replacement log; retire after zero-row audit.' );
+				$disposal_status = (string) ( $r['disposal_status'] ?? ( $jsonl_replacement['disposal_status'] ?? '' ) );
 				?>
 				<tr style="background:<?php echo ( $r['safe_to_drop'] || $absent_verified ) ? '#e8f5e9' : ( $r['exists'] ? '#fff3e0' : '#f5f5f5' ); ?>">
 					<td><code><?php echo esc_html( $r['physical'] ); ?></code></td>
@@ -1139,7 +1140,11 @@ final class BizCity_Diagnostics_Admin_Page {
 						<?php elseif ( $r['safe_to_drop'] ) : ?>
 							<span style="color:#00674e;font-weight:bold">✓ eligible after sign-off</span>
 						<?php else : ?>
-							<span style="color:#b26a00;font-weight:bold">⚠ has data (kept)</span>
+							<span style="color:#b26a00;font-weight:bold">⚠ has data (kept pending purge/zero-row gate)</span>
+						<?php endif; ?>
+						<?php if ( $disposal_status === 'complete' ) : ?>
+							<br><span style="color:#00674e;font-weight:bold">✓ DISPOSAL DECISION DONE — no legacy data retention</span>
+							<br><small>Physical rows remain protected until the approved purge and zero-row verification are complete.</small>
 						<?php endif; ?>
 						<?php if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) : ?>
 							<br><small>state=<?php echo esc_html( (string) ( $r['policy_state'] ?? 'quarantine' ) ); ?><?php if ( ! empty( $r['approval_ref'] ) ) : ?> · approval=<?php echo esc_html( (string) $r['approval_ref'] ); ?><?php endif; ?></small>

@@ -166,6 +166,15 @@ require_once $gateway_dir . 'class-channel-messages.php';
 // [2026-07-28 Johnny Chu] PHASE-0.52 W8.1 — durable customer identity hub loads before compatibility linkers.
 require_once $gateway_dir . 'class-identity-hub.php';
 require_once $gateway_dir . 'class-channel-user-linker.php';
+// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — load the bounded channel-account grant projection without creating a second ownership table.
+$_bizcity_channel_grant_file = $gateway_dir . 'class-channel-user-grant.php';
+if ( class_exists( 'BizCity_Safe_Loader', false ) && is_file( $_bizcity_channel_grant_file ) && is_readable( $_bizcity_channel_grant_file ) ) {
+	BizCity_Safe_Loader::require_file( $_bizcity_channel_grant_file, 'channel_gateway.user_grant' );
+} elseif ( is_file( $_bizcity_channel_grant_file ) && is_readable( $_bizcity_channel_grant_file ) ) {
+	// [2026-09-05 Johnny Chu - Chu Hoàng Anh] R-SAFE-LOADER — retain the guarded standalone fallback when the shared loader is not available.
+	require_once $_bizcity_channel_grant_file;
+}
+unset( $_bizcity_channel_grant_file );
 if ( class_exists( 'BizCity_Schema_Registry' )
 	&& class_exists( 'BizCity_Identity_Hub' )
 	&& class_exists( 'BizCity_Channel_User_Linker' ) ) {

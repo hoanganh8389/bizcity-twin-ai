@@ -145,7 +145,8 @@ final class BizCity_Probe_Legacy_Contract_Scoreboard implements BizCity_Diagnost
 				'evidence_ts'     => isset( $last_results[ $probe_id ]['ts'] ) ? (int) $last_results[ $probe_id ]['ts'] : 0,
 				'basic_evidence'  => $basic_ok,
 				'context_bank_adapter' => $context_bank_ok,
-				'context_bank_status' => (string) ( $spec['context_bank_adapter'] ?? ( $mode === 'filestore' ? 'missing' : 'not_required' ) ),
+				// [2026-09-04 09:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE — expose explicit non-applicable Context Bank scope instead of reporting a false missing-adapter warning.
+				'context_bank_status' => (string) ( $spec['context_bank_adapter'] ?? ( ! empty( $spec['context_bank_role'] ) ? $spec['context_bank_role'] : ( $mode === 'filestore' ? 'missing' : 'not_required' ) ) ),
 			);
 			if ( $row_score === self::MAX_SCORE ) {
 				$complete_rows++;
@@ -225,6 +226,10 @@ final class BizCity_Probe_Legacy_Contract_Scoreboard implements BizCity_Diagnost
 
 	private function context_bank_adapter_ok( array $spec, $mode ) {
 		if ( $mode !== 'filestore' ) {
+			return true;
+		}
+		// [2026-09-04 09:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE — state metadata has no Context Bank payload role, so do not require a memory pointer contract.
+		if ( (string) ( $spec['context_bank_role'] ?? '' ) === 'not_applicable' ) {
 			return true;
 		}
 		return (string) ( $spec['context_bank_adapter'] ?? '' ) === 'registered'

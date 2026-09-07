@@ -35,6 +35,7 @@
                 alertSoundUrl: webchatVars.alert_sound_url || '/wp-content/uploads/alert.mp3',
                 enablePolling: webchatVars.enable_polling === true,
                 pollInterval: Number(webchatVars.poll_interval) > 0 ? Number(webchatVars.poll_interval) : 4000,
+                preChatForm: webchatVars.pre_chat_form || {},
                 typingSpeed: 18,
                 autoScrollDelay: 100,
             }, options);
@@ -48,6 +49,7 @@
             this.recognition = null;
             this.isRecording = false;
             this.lastMessageId = 0;
+            this.preChatData = null;
             
             this.init();
         }
@@ -58,6 +60,26 @@
             this.initKeyboardFix();
             this.restoreState();
             this.updateSendButton(); // Initialize send button state
+            this.initPreChatForm();
+        }
+
+        initPreChatForm() {
+            const form = $('#bizchat-pre-chat-form');
+            if (!form.length || !this.options.preChatForm.enabled) return;
+            const self = this;
+            $('.bizchat-input-wrapper, #bizchat-send-btn, .bizchat-icon-row').hide();
+            form.on('submit', function(e) {
+                e.preventDefault();
+                const data = {};
+                form.serializeArray().forEach(function(field) { data[field.name] = String(field.value || '').trim(); });
+                if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+                    alert('Vui lòng nhập email hợp lệ.');
+                    return;
+                }
+                self.preChatData = data;
+                form.hide();
+                $('.bizchat-input-wrapper, #bizchat-send-btn, .bizchat-icon-row').show();
+            });
         }
 
         bindEvents() {
@@ -410,6 +432,9 @@
                 character_id: this.options.characterId || 0,
                 _wpnonce: this.options.nonce
             };
+            if (this.preChatData) {
+                sendData.pre_chat = JSON.stringify(this.preChatData);
+            }
             
             // Add first image as image_data if present (backend expects single base64)
             if (hasImages && this.selectedImages.length > 0) {

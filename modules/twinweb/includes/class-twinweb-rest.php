@@ -280,6 +280,41 @@ class BizCity_TwinWeb_REST {
 			'callback'            => array( $this, 'delete_mychannels_zalo_personal_account' ),
 			'permission_callback' => '__return_true',
 		) );
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — expose exact channel-account grants through the member-owned Twin GPT surface.
+		register_rest_route( $ns, '/mychannels/channel-grants/(?P<channel>[a-z0-9_-]+)/(?P<account_id>[A-Za-z0-9_-]+)', array(
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_mychannels_channel_grants' ),
+				'permission_callback' => array( $this, 'require_mychannels_grant_member' ),
+			),
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'grant_mychannels_channel_user' ),
+				'permission_callback' => array( $this, 'require_mychannels_grant_member' ),
+				'args'                => array(
+					'user_id'          => array( 'type' => 'integer', 'required' => true, 'sanitize_callback' => 'absint' ),
+					'permissions'      => array( 'type' => 'array', 'required' => false ),
+					'idempotency_key'  => array( 'type' => 'string', 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ),
+				),
+			),
+		) );
+		register_rest_route( $ns, '/mychannels/channel-grants/(?P<channel>[a-z0-9_-]+)/(?P<account_id>[A-Za-z0-9_-]+)/(?P<user_id>\d+)', array(
+			'methods'             => 'DELETE',
+			'callback'            => array( $this, 'revoke_mychannels_channel_user' ),
+			'permission_callback' => array( $this, 'require_mychannels_grant_member' ),
+			'args'                => array(
+				'idempotency_key' => array( 'type' => 'string', 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ),
+			),
+		) );
+		register_rest_route( $ns, '/mychannels/channel-grants/(?P<channel>[a-z0-9_-]+)/(?P<account_id>[A-Za-z0-9_-]+)/transfer', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'transfer_mychannels_channel_primary' ),
+			'permission_callback' => array( $this, 'require_mychannels_grant_member' ),
+			'args'                => array(
+				'new_primary_user_id' => array( 'type' => 'integer', 'required' => true, 'sanitize_callback' => 'absint' ),
+				'idempotency_key'     => array( 'type' => 'string', 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ),
+			),
+		) );
 		// [2026-08-29 Johnny Chu] PHASE-0.45-TWINGPT-CHANNEL-CONNECT — member-owned Branch 20 OA routes use the local registry UID as the public reference.
 		register_rest_route( $ns, '/mychannels/zalo-oa/accounts', array(
 			'methods'             => 'GET',
@@ -1806,6 +1841,152 @@ class BizCity_TwinWeb_REST {
 		}
 
 		return $identity;
+	}
+
+	public function require_mychannels_grant_member() {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — REST grant operations require a logged-in tenant member with the WordPress read capability.
+		$identity = BizCity_TwinWeb_Identity::current();
+		return ! empty( $identity['user_id'] ) && empty( $identity['is_guest'] ) && function_exists( 'current_user_can' ) && current_user_can( 'read' );
+	}
+
+	public function get_mychannels_channel_grants( WP_REST_Request $request ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — list only the exact account roster visible to the current grant holder.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem quyền kênh.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		if ( ! class_exists( 'BizCity_Channel_User_Grant' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Quyền kênh chưa sẵn sàng.', 'Tải lại Channel Gateway rồi thử lại.', 'module_not_loaded' );
+		}
+		$channel = sanitize_key( (string) $request->get_param( 'channel' ) );
+		$account_id = sanitize_text_field( (string) $request->get_param( 'account_id' ) );
+		$viewer = BizCity_Channel_User_Grant::authorize( $channel, $account_id, (int) $identity['user_id'], 'view_connection' );
+		if ( empty( $viewer['ok'] ) ) {
+			return $this->channel_grant_error( $viewer );
+		}
+		$items = array();
+		foreach ( BizCity_Channel_User_Grant::users_for_account( $channel, $account_id ) as $grant ) {
+			$items[] = array(
+				'user_id'     => (int) ( $grant['user_id'] ?? 0 ),
+				'relation'    => sanitize_key( (string) ( $grant['relation'] ?? 'agent' ) ),
+				'permissions' => array_values( array_map( 'sanitize_key', (array) ( $grant['permissions'] ?? array() ) ) ),
+				'status'      => sanitize_key( (string) ( $grant['status'] ?? 'active' ) ),
+			);
+		}
+		return rest_ensure_response( array( 'success' => true, 'channel' => $channel, 'account_key' => BizCity_Channel_User_Grant::account_key( $channel, $account_id ), 'items' => $items ) );
+	}
+
+	public function grant_mychannels_channel_user( WP_REST_Request $request ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — grant exact account permissions through the server-resolved actor and idempotency boundary.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để cấp quyền kênh.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		$operation = $this->begin_channel_grant_operation( $request, (int) $identity['user_id'], 'grant' );
+		if ( empty( $operation['ok'] ) ) {
+			return $this->channel_grant_error( $operation );
+		}
+		if ( ! empty( $operation['replay'] ) ) {
+			return ! empty( $operation['result']['ok'] ) ? rest_ensure_response( array( 'success' => true, 'result' => $operation['result'] ) ) : $this->channel_grant_error( $operation['result'] );
+		}
+		try {
+			$result = class_exists( 'BizCity_Channel_User_Grant' )
+				? BizCity_Channel_User_Grant::grant(
+					sanitize_key( (string) $request->get_param( 'channel' ) ),
+					sanitize_text_field( (string) $request->get_param( 'account_id' ) ),
+					(int) $request->get_param( 'user_id' ),
+					(array) $request->get_param( 'permissions' ),
+					(int) $identity['user_id'],
+					array( 'source' => 'twinweb_member_grant' )
+				)
+				: array( 'ok' => false, 'reason' => 'channel_grant_owner_unavailable' );
+		} catch ( Throwable $e ) {
+			$result = array( 'ok' => false, 'reason' => 'grant_operation_failed' );
+		}
+		$result = $this->complete_channel_grant_operation( $operation, $result );
+		return ! empty( $result['ok'] )
+			? rest_ensure_response( array( 'success' => true, 'result' => $result ) )
+			: $this->channel_grant_error( $result );
+	}
+
+	public function revoke_mychannels_channel_user( WP_REST_Request $request ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — revoke one exact delegate without accepting a browser-supplied actor identity.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để thu hồi quyền kênh.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		$operation = $this->begin_channel_grant_operation( $request, (int) $identity['user_id'], 'revoke' );
+		if ( empty( $operation['ok'] ) ) { return $this->channel_grant_error( $operation ); }
+		if ( ! empty( $operation['replay'] ) ) { return ! empty( $operation['result']['ok'] ) ? rest_ensure_response( array( 'success' => true, 'result' => $operation['result'] ) ) : $this->channel_grant_error( $operation['result'] ); }
+		try {
+			$result = class_exists( 'BizCity_Channel_User_Grant' )
+				? BizCity_Channel_User_Grant::revoke( sanitize_key( (string) $request->get_param( 'channel' ) ), sanitize_text_field( (string) $request->get_param( 'account_id' ) ), (int) $request->get_param( 'user_id' ), (int) $identity['user_id'], array( 'source' => 'twinweb_member_revoke' ) )
+				: array( 'ok' => false, 'reason' => 'channel_grant_owner_unavailable' );
+		} catch ( Throwable $e ) {
+			$result = array( 'ok' => false, 'reason' => 'grant_operation_failed' );
+		}
+		$result = $this->complete_channel_grant_operation( $operation, $result );
+		return ! empty( $result['ok'] ) ? rest_ensure_response( array( 'success' => true, 'result' => $result ) ) : $this->channel_grant_error( $result );
+	}
+
+	public function transfer_mychannels_channel_primary( WP_REST_Request $request ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — transfer primary only through the explicit grant capability and idempotency contract.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để chuyển chủ kênh.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' );
+		}
+		$operation = $this->begin_channel_grant_operation( $request, (int) $identity['user_id'], 'transfer' );
+		if ( empty( $operation['ok'] ) ) { return $this->channel_grant_error( $operation ); }
+		if ( ! empty( $operation['replay'] ) ) { return ! empty( $operation['result']['ok'] ) ? rest_ensure_response( array( 'success' => true, 'result' => $operation['result'] ) ) : $this->channel_grant_error( $operation['result'] ); }
+		try {
+			$result = class_exists( 'BizCity_Channel_User_Grant' )
+				? BizCity_Channel_User_Grant::transfer_primary( sanitize_key( (string) $request->get_param( 'channel' ) ), sanitize_text_field( (string) $request->get_param( 'account_id' ) ), (int) $request->get_param( 'new_primary_user_id' ), (int) $identity['user_id'], array( 'source' => 'twinweb_member_transfer' ) )
+				: array( 'ok' => false, 'reason' => 'channel_grant_owner_unavailable' );
+		} catch ( Throwable $e ) {
+			$result = array( 'ok' => false, 'reason' => 'grant_operation_failed' );
+		}
+		$result = $this->complete_channel_grant_operation( $operation, $result );
+		return ! empty( $result['ok'] ) ? rest_ensure_response( array( 'success' => true, 'result' => $result ) ) : $this->channel_grant_error( $result );
+	}
+
+	private function begin_channel_grant_operation( WP_REST_Request $request, $actor_user_id, $operation ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — require a bounded client idempotency key and one short-lived per-operation lock.
+		$raw_key = (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: $request->get_param( 'idempotency_key' ) );
+		$raw_key = trim( sanitize_text_field( $raw_key ) );
+		if ( strlen( $raw_key ) < 8 || strlen( $raw_key ) > 128 ) {
+			return array( 'ok' => false, 'reason' => 'idempotency_key_required' );
+		}
+		$hash = hash( 'sha256', sanitize_key( (string) $operation ) . '|' . $raw_key );
+		$meta_key = '_bizcity_chgrant_idem_v1_' . sanitize_key( (string) $operation ) . '_' . $hash;
+		$existing = get_user_meta( (int) $actor_user_id, $meta_key, true );
+		if ( is_array( $existing ) && (int) ( $existing['expires_at'] ?? 0 ) >= time() && is_array( $existing['result'] ?? null ) ) {
+			$existing['result']['idempotent_replay'] = true;
+			return array( 'ok' => true, 'replay' => true, 'result' => $existing['result'] );
+		}
+		$lock_key = 'chgrant_op_' . (int) $actor_user_id . '_' . $hash;
+		if ( function_exists( 'wp_cache_add' ) && ! wp_cache_add( $lock_key, 1, 'bizcity_channel_grant', 60 ) ) {
+			return array( 'ok' => false, 'reason' => 'grant_operation_in_progress' );
+		}
+		return array( 'ok' => true, 'meta_key' => $meta_key, 'lock_key' => $lock_key, 'actor_user_id' => (int) $actor_user_id );
+	}
+
+	private function complete_channel_grant_operation( array $operation, array $result ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — persist only the bounded operation result and always release the short-lived lock.
+		if ( ! empty( $operation['meta_key'] ) && ! empty( $operation['actor_user_id'] ) ) {
+			update_user_meta( (int) $operation['actor_user_id'], (string) $operation['meta_key'], array( 'result' => $result, 'expires_at' => time() + DAY_IN_SECONDS ) );
+		}
+		if ( ! empty( $operation['lock_key'] ) && function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( (string) $operation['lock_key'], 'bizcity_channel_grant' );
+		}
+		return $result;
+	}
+
+	private function channel_grant_error( array $result ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — normalize grant failures into the required four-field user error envelope.
+		$reason = sanitize_key( (string) ( $result['reason'] ?? 'grant_operation_failed' ) );
+		$codes = array( 'auth_required' => 'auth_required', 'idempotency_key_required' => 'invalid_param', 'grant_operation_in_progress' => 'invalid_param', 'delegate_not_member' => 'permission_denied', 'grant_manage_denied' => 'permission_denied', 'primary_transfer_denied' => 'permission_denied', 'channel_primary_conflict' => 'invalid_param', 'channel_primary_missing' => 'not_found', 'grant_not_found' => 'not_found' );
+		$code = $codes[ $reason ] ?? 'permission_denied';
+		return $this->mychannels_error( $code, 'Thao tác quyền kênh chưa được thực hiện.', 'Kiểm tra quyền thành viên và thử lại với một idempotency key mới.', $code, array( 'reason' => $reason ) );
 	}
 
 	private function mychannels_user_meta_key() {

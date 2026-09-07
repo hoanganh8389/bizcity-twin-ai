@@ -49,9 +49,68 @@ class BizCity_TwinWeb_Page {
 		// Detection: any singular page whose post_content contains [bizcity_twin shortcode.
 		// No custom rewrite rule needed — zero /twin/ conflict with twinshell (Phase 0.11).
 		add_action( 'template_redirect', array( $this, 'maybe_render' ) );
+		// [2026-09-07 03:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — register public rewrites on init per R-CR; flush remains owned by BizCity_Rewrite_Flush_Registry.
+		add_action( 'init', array( $this, 'register_rewrite_rules' ), 5 );
+		add_filter( 'query_vars', array( $this, 'register_query_vars' ) );
 
 		// Shortcode [bizcity_twin] registered for do_shortcode() compatibility in other surfaces.
 		add_shortcode( 'bizcity_twin', array( $this, 'render_shortcode' ) );
+	}
+
+	/**
+	 * Public Twin GPT route contract owned by this page runtime.
+	 *
+	 * @return array<string, array<string, string>>
+	 */
+	public static function public_route_contract() {
+		return array(
+			'myaccount'   => array( 'slug' => 'myaccount',   'path' => '/gpt/myaccount/',   'query_var' => self::QUERY_VAR, 'query' => 'myaccount' ),
+			'mychannels'  => array( 'slug' => 'mychannels',  'path' => '/gpt/mychannels/',  'query_var' => self::QUERY_VAR, 'query' => 'mychannels' ),
+			'crm'         => array( 'slug' => 'crm',         'path' => '/gpt/crm/',         'query_var' => self::QUERY_VAR, 'query' => 'crm' ),
+			'myworkflows' => array( 'slug' => 'myworkflows', 'path' => '/gpt/myworkflows/', 'query_var' => self::QUERY_VAR, 'query' => 'myworkflows' ),
+			'mycontent'   => array( 'slug' => 'mycontent',   'path' => '/gpt/mycontent/',   'query_var' => self::QUERY_VAR, 'query' => 'mycontent' ),
+			'myplan'      => array( 'slug' => 'myplan',      'path' => '/gpt/myplan/',      'query_var' => self::QUERY_VAR, 'query' => 'myplan' ),
+			'mymcp'       => array( 'slug' => 'mymcp',       'path' => '/gpt/mymcp/',       'query_var' => self::QUERY_VAR, 'query' => 'mymcp' ),
+			'twinchat'    => array( 'slug' => 'twinchat',    'path' => '/gpt/twinchat/',    'query_var' => self::QUERY_VAR, 'query' => 'twinchat' ),
+			'astro'       => array( 'slug' => 'astro',       'path' => '/gpt/astro/',       'query_var' => self::QUERY_VAR, 'query' => 'astro' ),
+			'creator'     => array( 'slug' => 'creator',     'path' => '/gpt/creator/',     'query_var' => self::QUERY_VAR, 'query' => 'creator' ),
+			'doc'         => array( 'slug' => 'doc',         'path' => '/gpt/doc/',         'query_var' => self::QUERY_VAR, 'query' => 'doc' ),
+			'image'       => array( 'slug' => 'image',       'path' => '/gpt/image/',       'query_var' => self::QUERY_VAR, 'query' => 'image' ),
+			'profile'     => array( 'slug' => 'profile',     'path' => '/gpt/profile/',     'query_var' => self::QUERY_VAR, 'query' => 'profile' ),
+			'profile-care'=> array( 'slug' => 'profile-care','path' => '/gpt/profile-care/','query_var' => self::QUERY_VAR, 'query' => 'profile-care' ),
+			'profile-public' => array( 'slug' => 'profile-public', 'path' => '/gpt/profile-public/', 'query_var' => self::QUERY_VAR, 'query' => 'profile-public' ),
+		);
+	}
+
+	/**
+	 * Register public route rules after WordPress has initialized rewrite hooks.
+	 * The central registry owns the one-time flush, not this method.
+	 */
+	public function register_rewrite_rules() {
+		foreach ( self::public_route_contract() as $route ) {
+			$path_pattern = trim( (string) $route['path'], '/' );
+			add_rewrite_rule(
+				'^' . preg_quote( $path_pattern, '/' ) . '/?$',
+				'index.php?' . $route['query_var'] . '=' . $route['query'],
+				'top'
+			);
+		}
+	}
+
+	/**
+	 * Register the internal TwinWeb route query variable used by explicit rewrites.
+	 *
+	 * @param array $vars Existing public query vars.
+	 * @return array
+	 */
+	public function register_query_vars( $vars ) {
+		if ( ! is_array( $vars ) ) {
+			$vars = array();
+		}
+		if ( ! in_array( self::QUERY_VAR, $vars, true ) ) {
+			$vars[] = self::QUERY_VAR;
+		}
+		return $vars;
 	}
 
 	/**
@@ -62,6 +121,14 @@ class BizCity_TwinWeb_Page {
 	 * [2026-06-18 Johnny Chu] PHASE-TWINWEB — detect by post_content, not QUERY_VAR.
 	 */
 	public function maybe_render() {
+		// [2026-09-07 03:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — accept any route from the public contract before singular-page detection.
+		if ( self::is_public_rewrite_request() ) {
+			add_filter( 'show_admin_bar', '__return_false' );
+			status_header( 200 );
+			header( 'Content-Type: text/html; charset=UTF-8' );
+			echo self::get_page_html( self::current_request_url() );
+			exit;
+		}
 		// [2026-07-15 Johnny Chu] PHASE-TWINWEB — direct-path fallback for /gpt/.
 		// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER C-4 — also serve /gpt/myaccount/ from the same SPA shell.
 		// Guarantees public entry URL works even if page option/slug is stale.
@@ -98,6 +165,21 @@ class BizCity_TwinWeb_Page {
 		$page_url = (string) get_permalink( $post->ID );
 		echo self::get_page_html( $page_url );
 		exit;
+	}
+
+	/**
+	 * Resolve an explicit public rewrite using the canonical route contract.
+	 *
+	 * @return bool
+	 */
+	private static function is_public_rewrite_request() {
+		$query_value = (string) get_query_var( self::QUERY_VAR, '' );
+		foreach ( self::public_route_contract() as $route ) {
+			if ( $query_value === $route['query'] ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -608,7 +690,12 @@ window.twinwebMounts[' . $root_id_json . '] = Object.assign({}, window.twinwebCo
 		// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — allow async iframe shell routes /gpt/{app}/ without stealing /gpt/{uuid}/ thread links.
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — include My Channels/My Workflows so routes survive F5 and OAuth redirect-backs.
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — expose /gpt/myplan/ while keeping /gpt/mycontent/ as legacy alias.
-		if ( in_array( $tail, array( 'twinchat', 'astro', 'creator', 'doc', 'image', 'profile', 'profile-care', 'profile-public', 'mychannels', 'myworkflows' , 'mycontent', 'myplan', 'mymcp' ), true ) ) {
+		// [2026-09-07 03:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — direct fallback consumes the same public route contract as rewrite registration.
+		$contract_slugs = array();
+		foreach ( self::public_route_contract() as $route ) {
+			$contract_slugs[] = $route['slug'];
+		}
+		if ( in_array( $tail, $contract_slugs, true ) ) {
 			return true;
 		}
 		return (bool) preg_match( '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $tail );

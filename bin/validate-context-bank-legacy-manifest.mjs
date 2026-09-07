@@ -32,7 +32,9 @@ const deprecatedNames = deprecatedBlock
 if (manifest.schema_version !== '1.0.0') findings.push('unexpected manifest schema version');
 if (entries.length !== 29) findings.push(`expected 29 entries, found ${entries.length}`);
 if (retiredNames.length !== 47) findings.push(`expected retirement_count=47, found ${retiredNames.length}`);
-if (deprecatedNames.length !== 48) findings.push(`expected catalog_count=48, found ${deprecatedNames.length}`);
+// The lifecycle catalog gained the WebChat session and conversation quarantine
+// rows after the original 48-row baseline; the logical maturity manifest remains 29 entries.
+if (deprecatedNames.length !== 50) findings.push(`expected catalog_count=50, found ${deprecatedNames.length}`);
 if (!manifest.rules?.memory_payload_sql_forbidden) findings.push('memory SQL payload prohibition is not enabled');
 if (!manifest.rules?.context_bank_ledger_payload_forbidden) findings.push('ledger payload prohibition is not enabled');
 

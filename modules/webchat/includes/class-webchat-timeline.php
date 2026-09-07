@@ -250,7 +250,23 @@ class BizCity_WebChat_Timeline {
      * Get linked tools (for timeline sidebar)
      */
     public function get_linked_tools($task_id) {
-        // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-DEAD-SQL — linked tools cannot be read from the retired task-step projection.
-        return [];
+        // [2026-09-04 09:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-TOOL-REGISTRY — resolve caller-supplied linked tool IDs through the canonical registry without reviving retired task SQL.
+        if ( ! class_exists( 'BizCity_Tool_Registry' ) || ! is_array( $task_id ) || empty( $task_id['tool_ids'] ) ) {
+            return array();
+        }
+
+        $linked_tools = array();
+        foreach ( (array) $task_id['tool_ids'] as $tool_id ) {
+            $tool_id = sanitize_key( (string) $tool_id );
+            if ( $tool_id === '' ) {
+                continue;
+            }
+            $tool = BizCity_Tool_Registry::get( $tool_id );
+            if ( is_array( $tool ) ) {
+                $linked_tools[] = $tool;
+            }
+        }
+
+        return $linked_tools;
     }
 }

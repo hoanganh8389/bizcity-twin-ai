@@ -103,6 +103,7 @@ final class BizCity_Probe_B2B2C_Entitlement_Projector implements BizCity_Diagnos
 				'order_id_a'        => 980000000 + mt_rand( 1000, 399999 ),
 				'order_id_b'        => 980000000 + mt_rand( 400000, 799999 ),
 				'idempotency_prefix' => 'diag_h4:' . strtolower( str_replace( '-', '', wp_generate_uuid4() ) ),
+				'concurrency_prefix' => 'diag_h4_concurrent:' . strtolower( str_replace( '-', '', wp_generate_uuid4() ) ),
 			);
 			$this->persist_state();
 
@@ -135,6 +136,8 @@ final class BizCity_Probe_B2B2C_Entitlement_Projector implements BizCity_Diagnos
 			$end_d = gmdate( 'Y-m-d H:i:s', strtotime( '+30 days', strtotime( $end_c ) ) );
 			$record_c = array_merge( $common, array( 'event_uuid' => wp_generate_uuid4(), 'woo_order_id' => (int) $this->state['order_id_b'] + 1, 'woo_order_item_id' => 1, 'plan_code' => 'master_premium', 'period_start_at' => $start_a, 'period_end_at' => $end_c, 'idempotency_key' => $this->state['idempotency_prefix'] . ':c' ) );
 			$record_d = array_merge( $common, array( 'event_uuid' => wp_generate_uuid4(), 'woo_order_id' => (int) $this->state['order_id_b'] + 2, 'woo_order_item_id' => 1, 'period_start_at' => $end_c, 'period_end_at' => $end_d, 'idempotency_key' => $this->state['idempotency_prefix'] . ':d' ) );
+			$record_e = array_merge( $common, array( 'event_uuid' => wp_generate_uuid4(), 'woo_order_id' => (int) $this->state['order_id_b'] + 3, 'woo_order_item_id' => 2, 'period_start_at' => gmdate( 'Y-m-d H:i:s' ), 'period_end_at' => '', 'idempotency_key' => $this->state['concurrency_prefix'] . ':e' ) );
+			$record_f = array_merge( $common, array( 'event_uuid' => wp_generate_uuid4(), 'woo_order_id' => (int) $this->state['order_id_b'] + 4, 'woo_order_item_id' => 2, 'period_start_at' => gmdate( 'Y-m-d H:i:s' ), 'period_end_at' => '', 'idempotency_key' => $this->state['concurrency_prefix'] . ':f' ) );
 
 			$lock_ok = BizCity_Router_License_Ledger::acquire_key_lock( $key_id );
 			if ( $lock_ok ) {
@@ -182,12 +185,66 @@ final class BizCity_Probe_B2B2C_Entitlement_Projector implements BizCity_Diagnos
 				return array( 'status' => 'fail', 'summary' => 'H4 upgrade/downgrade projection semantics failed.', 'error' => 'plan_transition_projection_failed', 'fix_hint' => 'Select the highest active plan now and retain the lower-rank future period as scheduled metadata.' );
 			}
 
+			$concurrency_ok = false;
+			$concurrency_worker = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR . 'bin/license-ledger-concurrency-worker.php' : '';
+			if ( $concurrency_worker !== '' && is_file( $concurrency_worker ) && is_readable( $concurrency_worker ) && function_exists( 'proc_open' ) && function_exists( 'proc_close' ) ) {
+				$worker_host = sanitize_text_field( (string) ( $_SERVER['HTTP_HOST'] ?? 'bizcity.vn' ) );
+				$worker_records = array( $record_e, $record_f );
+				$children = array();
+				$stderr_sink = DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null';
+				foreach ( $worker_records as $worker_record ) {
+					$parts = array( PHP_BINARY, $concurrency_worker, ABSPATH . 'wp-load.php', base64_encode( wp_json_encode( $worker_record ) ), $worker_host );
+					$command = implode( ' ', array_map( array( __CLASS__, 'quote_process_arg' ), $parts ) );
+					// [2026-09-04 08:20 AM Johnny Chu - Chu Hoàng Anh] B2C-H4 — discard child bootstrap diagnostics so stderr cannot fill and deadlock the parent fixture reader.
+					$process = proc_open( $command, array( 1 => array( 'pipe', 'w' ), 2 => array( 'file', $stderr_sink, 'a' ) ), $pipes, ABSPATH );
+					if ( is_resource( $process ) ) {
+						$children[] = array( 'process' => $process, 'pipes' => $pipes );
+					}
+				}
+				$receipts = array();
+				$child_exit_codes = array();
+				foreach ( $children as $child ) {
+					$output = stream_get_contents( $child['pipes'][1] );
+					fclose( $child['pipes'][1] );
+					$child_exit_codes[] = (int) proc_close( $child['process'] );
+					if ( preg_match( '/__BIZCITY_H4__([A-Za-z0-9+\/=]+)/', $output, $matches ) ) {
+						$decoded = base64_decode( $matches[1], true );
+						$receipt = is_string( $decoded ) ? json_decode( $decoded, true ) : null;
+						if ( is_array( $receipt ) ) {
+							$receipts[] = $receipt;
+						}
+					}
+				}
+				if ( class_exists( 'BizCity_Cache' ) ) {
+					// [2026-09-04 08:45 AM Johnny Chu - Chu Hoàng Anh] B2C-H4 — invalidate the parent snapshot after child commits before verifying concurrent periods.
+					BizCity_Cache::flush_group( BizCity_Router_License_Ledger::CACHE_GROUP );
+				}
+				$rows_e = BizCity_Router_License_Ledger::get_grants_for_key( $key_id, true );
+				$fixture_prefix = (string) $this->state['concurrency_prefix'];
+				$parallel_rows = array_values( array_filter( $rows_e, function ( $row ) use ( $fixture_prefix ) {
+					return strpos( (string) ( $row['source'] ?? '' ), 'woo_order_paid' ) === false && strpos( (string) ( $row['idempotency_key'] ?? '' ), $fixture_prefix . ':' ) === 0;
+				} ) );
+				usort( $parallel_rows, function ( $left, $right ) { return (int) $left['id'] <=> (int) $right['id']; } );
+				$concurrency_ok = count( $receipts ) === 2 && count( array_filter( $receipts, function ( $receipt ) { return ! empty( $receipt['success'] ); } ) ) === 2 && count( $parallel_rows ) === 2 && absint( $parallel_rows[0]['duration_days'] ?? 0 ) + absint( $parallel_rows[1]['duration_days'] ?? 0 ) === 60 && (string) $parallel_rows[1]['period_start_at'] === (string) $parallel_rows[0]['period_end_at'];
+				$concurrency_detail = $concurrency_ok
+					? 'Two independent PHP workers serialized period allocation for one exact key without lost duration.'
+					: 'receipts=' . count( $receipts ) . ', exit_codes=' . wp_json_encode( $child_exit_codes ) . ', rows=' . count( $parallel_rows ) . ', periods=' . wp_json_encode( array_map( function ( $row ) { return array( 'id' => absint( $row['id'] ?? 0 ), 'duration_days' => absint( $row['duration_days'] ?? 0 ), 'start' => (string) ( $row['period_start_at'] ?? '' ), 'end' => (string) ( $row['period_end_at'] ?? '' ) ); }, $parallel_rows ) ) . ', receipts_ok=' . count( array_filter( $receipts, function ( $receipt ) { return ! empty( $receipt['success'] ); } ) );
+			} else {
+				$concurrency_detail = 'worker_unavailable';
+			}
+			$ctx->emit_step( array( 'label' => 'Runtime · concurrent paid callbacks', 'status' => $concurrency_ok ? 'pass' : 'fail', 'detail' => $concurrency_detail ) );
+			if ( ! $concurrency_ok ) {
+				return array( 'status' => 'fail', 'summary' => 'H4 concurrent paid callbacks were not serialized correctly.', 'error' => 'concurrent_period_allocation_failed', 'fix_hint' => 'Ensure two independent PHP workers use the shared exact-key period lock and leave two contiguous ledger periods.' );
+			}
+
 			$reversal_a = BizCity_Router_License_Ledger::append_grant( array_merge( $record_a, array( 'event_uuid' => wp_generate_uuid4(), 'event_type' => 'reversal', 'idempotency_key' => $this->state['idempotency_prefix'] . ':reversal_a' ) ) );
 			$reversal_b = BizCity_Router_License_Ledger::append_grant( array_merge( $record_b, array( 'event_uuid' => wp_generate_uuid4(), 'event_type' => 'reversal', 'idempotency_key' => $this->state['idempotency_prefix'] . ':reversal_b' ) ) );
 			$reversal_c = BizCity_Router_License_Ledger::append_grant( array_merge( $record_c, array( 'event_uuid' => wp_generate_uuid4(), 'event_type' => 'reversal', 'idempotency_key' => $this->state['idempotency_prefix'] . ':reversal_c' ) ) );
 			$reversal_d = BizCity_Router_License_Ledger::append_grant( array_merge( $record_d, array( 'event_uuid' => wp_generate_uuid4(), 'event_type' => 'reversal', 'idempotency_key' => $this->state['idempotency_prefix'] . ':reversal_d' ) ) );
-			$reversal_append_ok = ! empty( $reversal_a['success'] ) && ! empty( $reversal_b['success'] ) && ! empty( $reversal_c['success'] ) && ! empty( $reversal_d['success'] );
-			$ctx->emit_step( array( 'label' => 'Runtime · append-only refund reversals', 'status' => $reversal_append_ok ? 'pass' : 'fail', 'detail' => $reversal_append_ok ? 'Four compensating reversal rows were appended without changing the original grants.' : 'The disposable reversal rows could not be appended.' ) );
+			$reversal_e = BizCity_Router_License_Ledger::append_grant( array_merge( $record_e, array( 'event_uuid' => wp_generate_uuid4(), 'event_type' => 'reversal', 'idempotency_key' => $this->state['concurrency_prefix'] . ':reversal_e' ) ) );
+			$reversal_f = BizCity_Router_License_Ledger::append_grant( array_merge( $record_f, array( 'event_uuid' => wp_generate_uuid4(), 'event_type' => 'reversal', 'idempotency_key' => $this->state['concurrency_prefix'] . ':reversal_f' ) ) );
+			$reversal_append_ok = ! empty( $reversal_a['success'] ) && ! empty( $reversal_b['success'] ) && ! empty( $reversal_c['success'] ) && ! empty( $reversal_d['success'] ) && ! empty( $reversal_e['success'] ) && ! empty( $reversal_f['success'] );
+			$ctx->emit_step( array( 'label' => 'Runtime · append-only refund reversals', 'status' => $reversal_append_ok ? 'pass' : 'fail', 'detail' => $reversal_append_ok ? 'Six compensating reversal rows were appended without changing the original grants.' : 'The disposable reversal rows could not be appended.' ) );
 			if ( ! $reversal_append_ok ) {
 				return array( 'status' => 'fail', 'summary' => 'H4 refund reversal fixture could not append compensating events.', 'error' => 'reversal_append_failed', 'fix_hint' => 'Verify append-only reversal event uniqueness and Global ledger writes.' );
 			}
@@ -215,6 +272,15 @@ final class BizCity_Probe_B2B2C_Entitlement_Projector implements BizCity_Diagnos
 		// [2026-09-03 10:35 AM Johnny Chu - Chu Hoàng Anh] B2C-H4 - retry persisted fixture cleanup after pass, fail or interruption.
 		$this->load_persisted_state();
 		$this->cleanup_fixture();
+	}
+
+	private static function quote_process_arg( $value ) {
+		// [2026-09-03 12:20 PM Johnny Chu - Chu Hoàng Anh] B2C-H4 — keep the disposable worker command portable across Windows local CLI and POSIX B1 CLI.
+		$value = (string) $value;
+		if ( DIRECTORY_SEPARATOR === '\\' ) {
+			return preg_match( '/[\\s"]/', $value ) ? '"' . str_replace( '"', '\\"', $value ) . '"' : $value;
+		}
+		return escapeshellarg( $value );
 	}
 
 	private function load_persisted_state() {

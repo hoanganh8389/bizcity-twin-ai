@@ -53,6 +53,9 @@ final class BizCity_Probe_Context_Bank_Channel_Admission implements BizCity_Diag
 		$archive_file = $root . 'core/channel-gateway/includes/class-channel-conversation-archive.php';
 		$ledger_file = $root . 'core/context-bank/includes/class-context-bank-ledger.php';
 		$disk_ok = is_readable( $adapter_file ) && is_readable( $archive_file ) && is_readable( $ledger_file );
+		$adapter_source = is_readable( $adapter_file ) ? (string) file_get_contents( $adapter_file ) : '';
+		$archive_source = is_readable( $archive_file ) ? (string) file_get_contents( $archive_file ) : '';
+		$grant_key_contract_ok = strpos( $adapter_source, 'grant_account_key' ) !== false && strpos( $archive_source, 'grant_account_key' ) !== false;
 		$steps[] = array(
 			'label'  => 'Disk - channel archive adapter and pointer owners are readable',
 			'status' => $disk_ok ? 'pass' : 'fail',
@@ -60,6 +63,14 @@ final class BizCity_Probe_Context_Bank_Channel_Admission implements BizCity_Diag
 		);
 		if ( ! $disk_ok ) {
 			return array( 'status' => 'fail', 'summary' => 'Channel admission artifacts are incomplete.', 'fix_hint' => 'Restore the canonical archive, receipt and ledger artifacts, then rerun this probe.', 'steps' => $steps );
+		}
+		$steps[] = array(
+			'label'  => 'Disk - archive partition and grant ACL keys are distinct',
+			'status' => $grant_key_contract_ok ? 'pass' : 'fail',
+			'detail' => $grant_key_contract_ok ? 'Legacy archive partition HMAC and tenant/channel grant HMAC are both represented.' : 'Grant ACL key is missing from the archive admission contract.',
+		);
+		if ( ! $grant_key_contract_ok ) {
+			return array( 'status' => 'fail', 'summary' => 'Channel admission grant-key contract is incomplete.', 'fix_hint' => 'Preserve the archive partition key and add the canonical grant account key.', 'steps' => $steps );
 		}
 
 		$loader_ok = class_exists( 'BizCity_Context_Bank_Channel_Archive_Adapter' )
@@ -105,6 +116,23 @@ final class BizCity_Probe_Context_Bank_Channel_Admission implements BizCity_Diag
 				'status' => $malformed_ok ? 'pass' : 'fail',
 				'detail' => $malformed_ok ? 'Malformed archive identity cannot create a Context Bank pointer.' : 'Malformed archive identity was not rejected with the stable reason bucket.',
 			);
+			$legacy_key_missing = BizCity_Context_Bank_Channel_Archive_Adapter::project( array(
+				'entry' => array(
+					'channel' => 'zalo_personal',
+					'account_key' => 'a_' . str_repeat( 'a', 64 ),
+					'peer_key' => 'p_' . str_repeat( 'b', 64 ),
+					'conversation_id' => 1,
+				),
+				'receipt' => array(
+					'record_id' => 'cb-legacy-key-missing',
+					'event_uuid' => 'cb-legacy-key-event',
+				),
+			) );
+			$legacy_key_missing_ok = is_array( $legacy_key_missing ) && empty( $legacy_key_missing['projected'] ) && 'channel_archive_grant_key_missing' === (string) ( $legacy_key_missing['reason'] ?? '' );
+			$steps[] = array( 'label' => 'Runtime - legacy archive without grant ACL key fails closed', 'status' => $legacy_key_missing_ok ? 'pass' : 'fail', 'detail' => $legacy_key_missing_ok ? 'Legacy archive rows remain unavailable to Context Bank members until a receipt-safe migration exists.' : 'Legacy archive ACL-key absence did not fail closed with the stable reason bucket.' );
+			if ( ! $legacy_key_missing_ok ) {
+				return array( 'status' => 'fail', 'summary' => 'Legacy archive grant-key denial contract failed.', 'error' => 'channel_archive_grant_key_reason_mismatch', 'fix_hint' => 'Deploy the archive adapter and rerun the channel admission probe; legacy rows must return channel_archive_grant_key_missing.', 'steps' => $steps );
+			}
 
 			$unregistered = BizCity_Context_Bank_Channel_Archive_Adapter::project( array(
 				'entry' => array(
@@ -148,6 +176,7 @@ final class BizCity_Probe_Context_Bank_Channel_Admission implements BizCity_Diag
 				'channel' => 'zalo_personal',
 				'platform' => 'ZALO_PERSONAL',
 				'account_key' => 'a_' . $hash_method->invoke( null, $account_id, $archive_key ),
+				'grant_account_key' => class_exists( 'BizCity_Channel_User_Grant' ) ? BizCity_Channel_User_Grant::account_key( 'zalo_personal', $account_id, (int) get_current_blog_id() ) : '',
 				'peer_key' => 'p_' . $hash_method->invoke( null, $peer_uid, $archive_key ),
 				'conversation_id' => $conversation_id,
 				'inbox_id' => 910000001,

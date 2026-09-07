@@ -167,9 +167,17 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		return $this->get( $path );
 	}
 
+	/** Read the provider-backed group roster for an exact key-owned account. */
+	public function get_group_members( string $account_id, string $group_id ): array {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — route managed roster reads through Hub Branch 19 instead of degrading locally.
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/group-members?group_id=' . rawurlencode( $group_id ) );
+	}
+
 	/** Enqueue Personal outbound through the managed Hub. */
-	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user' ): array { // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry group delivery semantics through the managed Hub wrapper.
+	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user', array $mentions = array(), string $idempotency_key = '', array $quote = array() ): array { // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry group delivery semantics through the managed Hub wrapper.
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — keep native mentions inside the managed exact-key outbound boundary.
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — outbound remains inside exact key/account scope.
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — forward the stable outbound idempotency key to Branch 19.
 		return $this->post( '/zalo-personal-bridge/outbound', array(
 			'account_id'  => $account_id,
 			'recipient'   => $recipient,
@@ -177,6 +185,9 @@ final class BizCity_Zalo_Personal_Hub_Client {
 			'type'        => $type,
 			'attachments' => $attachments,
 			'thread_kind' => in_array( $thread_kind, array( 'user', 'group' ), true ) ? $thread_kind : 'user',
+			'mentions'    => $mentions,
+			'idempotency_key' => sanitize_key( $idempotency_key ),
+			'quote'       => $quote,
 		) );
 	}
 

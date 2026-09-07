@@ -221,6 +221,19 @@ class BizCity_Chat_Gateway {
         $message      = sanitize_textarea_field($_POST['message'] ?? '');
         $character_id = intval($_POST['character_id'] ?? 0);
         $session_id   = sanitize_text_field($_POST['session_id'] ?? '');
+        // [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.41A — carry allowlisted WebChat pre-chat fields into the unified inbound event.
+        $pre_chat     = [];
+        if ( $platform_type === 'WEBCHAT' && ! empty( $_POST['pre_chat'] ) ) {
+            $decoded_pre_chat = json_decode( wp_unslash( $_POST['pre_chat'] ), true );
+            if ( is_array( $decoded_pre_chat ) ) {
+                $pre_chat = array(
+                    'name'  => sanitize_text_field( (string) ( $decoded_pre_chat['name'] ?? '' ) ),
+                    'email' => sanitize_email( (string) ( $decoded_pre_chat['email'] ?? '' ) ),
+                    'phone' => sanitize_text_field( (string) ( $decoded_pre_chat['phone'] ?? '' ) ),
+                );
+                $pre_chat = array_filter( $pre_chat );
+            }
+        }
 
         // ── Concurrent request lock (per session + message) ──
         // If stream already logged this user message, skip re-logging.
@@ -302,7 +315,7 @@ class BizCity_Chat_Gateway {
 
         $user_id     = get_current_user_id();
         $user        = wp_get_current_user();
-        $client_name = $user->ID ? ($user->display_name ?: $user->user_login) : 'Guest';
+        $client_name = $user->ID ? ($user->display_name ?: $user->user_login) : ( $pre_chat['name'] ?? 'Guest' );
 
         /* ── KCI Ratio: load per-session Knowledge↔Execution ratio ── */
         $kci_ratio = 80; // default
@@ -409,7 +422,9 @@ class BizCity_Chat_Gateway {
                     'raw'         => [
                         'platform_type' => 'WEBCHAT',
                         'session_id'    => $session_id,
+                        'pre_chat'      => $pre_chat,
                     ],
+                    'pre_chat'    => $pre_chat,
                 ] );
             }
         }

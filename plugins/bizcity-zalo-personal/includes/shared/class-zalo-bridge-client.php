@@ -251,6 +251,15 @@ class BizCity_Zalo_Bridge_Client {
 		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/history/group' . $query );
 	}
 
+	/** Read the provider-backed full group roster through the server-side bridge boundary. */
+	public function get_group_members( string $account_id, string $group_id ): array {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — use public zca-js getGroupInfo/getGroupMembersInfo; never expose raw group IDs to the browser.
+		if ( $this->is_managed_mode() ) {
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->get_group_members( $account_id, $group_id ) : $this->degraded( 'managed_client_missing' );
+		}
+		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/group-members?groupId=' . rawurlencode( $group_id ) );
+	}
+
 	// ── Public: Zalo OA (OAuth) ────────────────────────────────────────────
 
 	/**
@@ -282,11 +291,13 @@ class BizCity_Zalo_Bridge_Client {
 	 * @param string $text        Message text.
 	 * @param string $type        'text'|'image'|'file'.
 	 * @param array  $attachments [{ url:string, name:string }].
-	 * @return array { success:bool, job_id?:string, _degraded?:bool }
+ 	 * @return array { success:bool, job_id?:string, idempotency_replayed?:bool, _degraded?:bool }
 	 */
-	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user' ): array { // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry the canonical Zalo thread kind through outbound transport.
+	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user', array $mentions = array(), string $idempotency_key = '', array $quote = array() ): array { // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry the canonical Zalo thread kind through outbound transport.
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — preserve one caller-owned idempotency key across custom and managed transports.
+		$idempotency_key = sanitize_key( $idempotency_key );
 		if ( $this->is_managed_mode() ) {
-			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->enqueue_outbound( $account_id, $recipient, $text, $type, $attachments, $thread_kind ) : $this->degraded( 'managed_client_missing' );
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->enqueue_outbound( $account_id, $recipient, $text, $type, $attachments, $thread_kind, $mentions, $idempotency_key, $quote ) : $this->degraded( 'managed_client_missing' );
 		}
 		return $this->post( 'wp/outbound', array(
 			'account_id'  => $account_id,
@@ -295,6 +306,9 @@ class BizCity_Zalo_Bridge_Client {
 			'type'        => $type,
 			'attachments' => $attachments,
 			'thread_kind' => in_array( $thread_kind, array( 'user', 'group' ), true ) ? $thread_kind : 'user',
+			'mentions'    => $mentions,
+			'idempotency_key' => $idempotency_key,
+			'quote'       => $quote,
 		) );
 	}
 

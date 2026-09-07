@@ -136,6 +136,12 @@ class BizCity_CRM_REST_Controller {
 			),
 		) );
 
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/group-members', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_group_members' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+		) );
+
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/notes', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_note' ),
@@ -1313,6 +1319,29 @@ class BizCity_CRM_REST_Controller {
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'post_crm_invoice' ),
 				'permission_callback' => array( __CLASS__, 'can_write' ),
+			),
+		) );
+		register_rest_route( $ns, '/crm-invoices/export', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'export_crm_invoices' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'args'                => array(
+				'status'     => array( 'type' => 'string' ),
+				'account_id' => array( 'type' => 'integer' ),
+				'contact_id' => array( 'type' => 'integer' ),
+				'q'          => array( 'type' => 'string' ),
+			),
+		) );
+		register_rest_route( $ns, '/wc-orders', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_wc_orders' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'args'                => array(
+				'status'    => array( 'type' => 'string' ),
+				'search'    => array( 'type' => 'string' ),
+				'gift_only' => array( 'type' => 'boolean' ),
+				'page'      => array( 'type' => 'integer', 'minimum' => 1, 'default' => 1 ),
+				'per_page'  => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 100, 'default' => 30 ),
 			),
 		) );
 		register_rest_route( $ns, '/crm-invoices/(?P<id>\d+)', array(
@@ -5893,6 +5922,42 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	public static function get_group_members( WP_REST_Request $req ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — resolve the CRM-owned group and fetch its public provider roster server-side.
+		return self::wrap( static function () use ( $req ) {
+			$id = (int) $req['id'];
+			$conversation = BizCity_CRM_Repository::get_conversation( $id );
+			if ( ! is_array( $conversation ) ) {
+				throw new \RuntimeException( 'conversation_not_found' );
+			}
+			$rows = BizCity_CRM_Repository::list_conversations( array( 'id' => $id, 'limit' => 1 ) );
+			$shaped = ! empty( $rows ) ? self::shape_conversation( $rows[0] ) : array();
+			$contact = is_array( $shaped['contact'] ?? null ) ? $shaped['contact'] : array();
+			if ( empty( $contact['is_group'] ) || (string) ( $contact['group_id'] ?? '' ) === '' ) {
+				throw new \RuntimeException( 'group_conversation_required' );
+			}
+			$inbox = BizCity_CRM_Repository::get_inbox( (int) ( $conversation['inbox_id'] ?? 0 ) );
+			if ( ! is_array( $inbox ) || (string) ( $inbox['channel_type'] ?? '' ) !== 'zalo_personal' ) {
+				throw new \RuntimeException( 'zalo_personal_group_required' );
+			}
+			$account_id = (string) ( $inbox['channel_ref_id'] ?? '' );
+			if ( $account_id === '' || ! class_exists( 'BizCity_Zalo_Bridge_Client' ) ) {
+				throw new \RuntimeException( 'zalo_personal_bridge_missing' );
+			}
+			$result = BizCity_Zalo_Bridge_Client::instance()->get_group_members( $account_id, (string) $contact['group_id'] );
+			if ( ! is_array( $result ) ) {
+				throw new \RuntimeException( 'group_members_unavailable' );
+			}
+			return array(
+				'success'      => empty( $result['_degraded'] ) && ! empty( $result['ok'] ),
+				'_degraded'    => ! empty( $result['_degraded'] ),
+				'members'      => is_array( $result['members'] ?? null ) ? $result['members'] : array(),
+				'provider'     => 'zca-js@getGroupInfo|getGroupMembersInfo',
+				'conversation_id' => $id,
+			);
+		} );
+	}
+
 	public static function get_goal_loop_trace( WP_REST_Request $req ) {
 		// [2026-08-03 Johnny Chu] R-TGL-CS — expose canonical CRM Goal/Case projection from message metadata.
 		return self::wrap( static function () use ( $req ) {
@@ -6027,7 +6092,14 @@ class BizCity_CRM_REST_Controller {
 		$ai = null;
 		if ( ! empty( $r['ai_metadata_json'] ) ) {
 			$decoded = json_decode( (string) $r['ai_metadata_json'], true );
-			if ( is_array( $decoded ) ) { $ai = $decoded; }
+			if ( is_array( $decoded ) ) {
+				// [2026-09-06 12:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39C-C3 — keep native provider quote fields server-side; the browser receives only the safe reply preview.
+				unset( $decoded['quote_src'] );
+				if ( is_array( $decoded['reply_to'] ?? null ) ) {
+					unset( $decoded['reply_to']['quote_src'] );
+				}
+				$ai = $decoded;
+			}
 		}
 		return array(
 			'id'                 => (int) $r['id'],
@@ -6206,6 +6278,19 @@ class BizCity_CRM_REST_Controller {
 			$conv_id = (int) $req['id'];
 			$body    = $req->get_json_params() ?: array();
 			$content = (string) ( $body['content'] ?? '' );
+			$reply_to = absint( $body['reply_to'] ?? 0 );
+			// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — validate native group mentions before CRM insert or provider dispatch.
+			$mentions = array();
+			if ( is_array( $body['mentions'] ?? null ) ) {
+				foreach ( array_slice( $body['mentions'], 0, 50 ) as $mention ) {
+					if ( ! is_array( $mention ) ) { continue; }
+					$pos = isset( $mention['pos'] ) ? (int) $mention['pos'] : -1;
+					$len = isset( $mention['len'] ) ? (int) $mention['len'] : 0;
+					$uid = sanitize_text_field( (string) ( $mention['uid'] ?? '' ) );
+					if ( $pos < 0 || $len < 1 || $uid === '' ) { throw new \RuntimeException( 'mentions_invalid' ); }
+					$mentions[] = array( 'pos' => $pos, 'len' => $len, 'uid' => $uid );
+				}
+			}
 			$ctype   = sanitize_key( (string) ( $body['content_type'] ?? 'text' ) );
 			$kind    = (string) ( $body['responder_kind'] ?? 'manual' );
 			$cid     = isset( $body['character_id'] ) ? (int) $body['character_id'] : 0;
@@ -6246,7 +6331,48 @@ class BizCity_CRM_REST_Controller {
 
 			$conv = BizCity_CRM_Repository::get_conversation( $conv_id );
 			if ( ! $conv ) { throw new \RuntimeException( 'conversation_not_found' ); }
+			$reply_meta = array();
+			if ( $reply_to > 0 ) {
+				$reply_row = BizCity_CRM_Repository::get_message( $reply_to );
+				if ( ! is_array( $reply_row ) || (int) ( $reply_row['conversation_id'] ?? 0 ) !== $conv_id ) {
+					throw new \RuntimeException( 'reply_message_not_found' );
+				}
+				$reply_meta = array(
+					'id'          => $reply_to,
+					'sender_name' => (string) ( $reply_row['sender_type'] ?? 'contact' ) === 'agent' ? 'bạn' : (string) ( $conv['contact_name'] ?? 'khách' ),
+					'content'     => wp_trim_words( (string) ( $reply_row['content'] ?? '' ), 32, '…' ),
+				);
+				$reply_source_meta = ! empty( $reply_row['ai_metadata_json'] ) ? json_decode( (string) $reply_row['ai_metadata_json'], true ) : array();
+				if ( is_array( $reply_source_meta ) && is_array( $reply_source_meta['quote_src'] ?? null ) && ! empty( $reply_source_meta['quote_src']['msgId'] ) ) {
+					$reply_meta['quote_src'] = $reply_source_meta['quote_src'];
+				}
+			}
 			$inbox_row = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
+			$conv_view_rows = BizCity_CRM_Repository::list_conversations( array( 'id' => $conv_id, 'limit' => 1 ) );
+			$conv_view = ! empty( $conv_view_rows ) ? self::shape_conversation( $conv_view_rows[0] ) : array();
+			$is_group_conversation = ! empty( $conv_view['contact']['is_group'] );
+			if ( ! empty( $mentions ) && ( ! $is_group_conversation || (string) ( $inbox_row['channel_type'] ?? '' ) !== 'zalo_personal' ) ) {
+				throw new \RuntimeException( 'mentions_group_personal_only' );
+			}
+			if ( ! empty( $mentions ) ) {
+				$group_id = (string) ( $conv_view['contact']['group_id'] ?? '' );
+				$bridge_account_id = (string) ( $inbox_row['channel_ref_id'] ?? '' );
+				$roster_result = ( $bridge_account_id !== '' && $group_id !== '' && class_exists( 'BizCity_Zalo_Bridge_Client' ) )
+					? BizCity_Zalo_Bridge_Client::instance()->get_group_members( $bridge_account_id, $group_id )
+					: array( '_degraded' => true );
+				$roster = is_array( $roster_result['members'] ?? null ) ? $roster_result['members'] : array();
+				$roster_ids = array_values( array_filter( array_map( static function ( $member ) {
+					return is_array( $member ) ? (string) ( $member['id'] ?? $member['globalId'] ?? '' ) : '';
+				}, $roster ) ) );
+				if ( ! empty( $roster_result['_degraded'] ) || empty( $roster_ids ) ) {
+					throw new \RuntimeException( 'mentions_roster_unavailable' );
+				}
+				foreach ( $mentions as $mention ) {
+					if ( ! in_array( (string) $mention['uid'], $roster_ids, true ) ) {
+						throw new \RuntimeException( 'mention_member_not_in_roster' );
+					}
+				}
+			}
 			$channel_descriptor = class_exists( 'BizCity_CRM_Channel_Contract' )
 				? BizCity_CRM_Channel_Contract::require_crm_enabled( (string) ( $inbox_row['channel_type'] ?? '' ) )
 				: new WP_Error( 'channel_contract_not_loaded', 'CRM channel contract chưa sẵn sàng.', array( 'status' => 503 ) );
@@ -6291,6 +6417,7 @@ class BizCity_CRM_REST_Controller {
 				) );
 			}
 
+			$message_meta = $reply_meta ? array( 'reply_to' => $reply_meta ) : array();
 			$msg_id = BizCity_CRM_Repository::insert_message( array(
 				'conversation_id'   => $conv_id,
 				'inbox_id'          => (int) $conv['inbox_id'],
@@ -6304,6 +6431,7 @@ class BizCity_CRM_REST_Controller {
 				'responder_kind'    => $kind,
 				'responder_user_id' => $user_id ?: null,
 				'character_id'      => $cid ?: null,
+				'ai_metadata'       => $message_meta,
 			) );
 
 			$result = array( 'sent' => false, 'error' => 'no-sender', 'platform' => $resolved['platform'] );
@@ -6332,6 +6460,8 @@ class BizCity_CRM_REST_Controller {
 							'content'      => $content,
 							'content_type' => $ctype,
 							'attachments'  => $attachments,
+							'mentions'     => $mentions,
+							'reply_to'     => $reply_to,
 						)
 					);
 					// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — normalize every channel outcome before CRM status and ledger updates.
@@ -10519,6 +10649,141 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	/**
+	 * GET /crm-invoices/export - bounded, whitelisted Invoice CSV export.
+	 */
+	public static function export_crm_invoices( WP_REST_Request $req ) {
+		// [2026-09-06 01:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48 — export only safe Invoice fields with active status/contact filters.
+		$args = array(
+			'status'     => (string) ( $req['status'] ?? '' ),
+			'account_id' => (int) ( $req['account_id'] ?? 0 ),
+			'contact_id' => (int) ( $req['contact_id'] ?? 0 ),
+			'search'     => (string) ( $req['q'] ?? '' ),
+			'limit'      => 200,
+			'offset'     => 0,
+		);
+		$rows = array();
+		while ( count( $rows ) <= BizCity_CRM_Export::MAX_ROWS ) {
+			$page = BizCity_CRM_Invoice_Repository::list( $args );
+			if ( empty( $page ) ) { break; }
+			foreach ( $page as $invoice ) {
+				$rows[] = array(
+					'invoice_id' => (int) ( $invoice['id'] ?? 0 ),
+					'number'     => (string) ( $invoice['number'] ?? '' ),
+					'contact_id' => $invoice['contact_id'] ? (int) $invoice['contact_id'] : '',
+					'account_id' => $invoice['account_id'] ? (int) $invoice['account_id'] : '',
+					'status'     => (string) ( $invoice['status'] ?? '' ),
+					'currency'   => (string) ( $invoice['currency'] ?? '' ),
+					'subtotal'   => (float) ( $invoice['subtotal'] ?? 0 ),
+					'tax_total'  => (float) ( $invoice['tax_total'] ?? 0 ),
+					'total'      => (float) ( $invoice['total'] ?? 0 ),
+					'amount_paid'=> (float) ( $invoice['amount_paid'] ?? 0 ),
+					'amount_due' => (float) ( $invoice['amount_due'] ?? 0 ),
+					'issue_date' => (string) ( $invoice['issue_date'] ?? '' ),
+					'due_date'   => (string) ( $invoice['due_date'] ?? '' ),
+					'wc_order_id'=> $invoice['wc_order_id'] ? (int) $invoice['wc_order_id'] : '',
+					'created_at' => (string) ( $invoice['created_at'] ?? '' ),
+					'updated_at' => (string) ( $invoice['updated_at'] ?? '' ),
+				);
+				if ( count( $rows ) > BizCity_CRM_Export::MAX_ROWS ) {
+					return new WP_Error( 'export_limit_exceeded', 'Thu hẹp bộ lọc trước khi xuất dữ liệu.', array( 'status' => 422 ) );
+				}
+			}
+			if ( count( $page ) < 200 ) { break; }
+			$args['offset'] += 200;
+		}
+
+		return BizCity_CRM_Export::response(
+			'crm-invoices-' . gmdate( 'Y-m-d' ) . '.csv',
+			array(
+				'invoice_id'  => 'Invoice ID',
+				'number'      => 'Invoice Number',
+				'contact_id'  => 'Contact ID',
+				'account_id'  => 'Account ID',
+				'status'      => 'Status',
+				'currency'    => 'Currency',
+				'subtotal'    => 'Subtotal',
+				'tax_total'   => 'Tax Total',
+				'total'       => 'Total',
+				'amount_paid' => 'Amount Paid',
+				'amount_due'  => 'Amount Due',
+				'issue_date'  => 'Issue Date',
+				'due_date'    => 'Due Date',
+				'wc_order_id' => 'Woo Order ID',
+				'created_at'  => 'Created At',
+				'updated_at'  => 'Updated At',
+			),
+			$rows
+		);
+	}
+
+	/**
+	 * GET /wc-orders - read-only WooCommerce order projection for Finance.
+	 */
+	public static function get_wc_orders( WP_REST_Request $req ) {
+		// [2026-09-06 03:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48 — restore Finance Woo projection with fail-graceful degraded state.
+		return self::wrap( static function () use ( $req ) {
+			if ( ! function_exists( 'wc_get_orders' ) ) {
+				return array(
+					'_degraded' => true,
+					'message'   => 'WooCommerce chưa sẵn sàng để tải đơn hàng.',
+					'rows'      => array(),
+					'total'     => 0,
+					'pages'     => 1,
+				);
+			}
+
+			$page     = max( 1, (int) ( $req['page'] ?? 1 ) );
+			$per_page = max( 1, min( 100, (int) ( $req['per_page'] ?? 30 ) ) );
+			$args     = array(
+				'limit'    => $per_page,
+				'page'     => $page,
+				'paginate' => true,
+				'orderby'  => 'date',
+				'order'    => 'DESC',
+				'return'   => 'objects',
+			);
+			$status = sanitize_key( (string) ( $req['status'] ?? '' ) );
+			$search = sanitize_text_field( (string) ( $req['search'] ?? '' ) );
+			if ( $status !== '' ) { $args['status'] = $status; }
+			if ( $search !== '' ) { $args['search'] = $search; }
+			if ( filter_var( $req['gift_only'] ?? false, FILTER_VALIDATE_BOOLEAN ) ) {
+				$args['meta_query'] = array(
+					array(
+						'key'     => '_bizcity_gift_label',
+						'compare' => 'EXISTS',
+					),
+				);
+			}
+
+			$result = wc_get_orders( $args );
+			$orders = is_object( $result ) && isset( $result->orders ) ? (array) $result->orders : (array) $result;
+			$total  = is_object( $result ) && isset( $result->total ) ? (int) $result->total : count( $orders );
+			$pages  = is_object( $result ) && isset( $result->max_num_pages ) ? (int) $result->max_num_pages : max( 1, (int) ceil( $total / $per_page ) );
+			$rows   = array();
+
+			foreach ( $orders as $order ) {
+				if ( ! is_object( $order ) || ! method_exists( $order, 'get_id' ) ) { continue; }
+				$order_id = (int) $order->get_id();
+				$rows[] = array(
+					'id'             => $order_id,
+					'number'         => (string) $order->get_order_number(),
+					'date_created'   => $order->get_date_created() ? $order->get_date_created()->date( 'c' ) : '',
+					'billing_name'   => trim( $order->get_formatted_billing_full_name() ),
+					'billing_phone'  => (string) $order->get_billing_phone(),
+					'status'         => (string) $order->get_status(),
+					'gift_label'     => (string) $order->get_meta( '_bizcity_gift_label', true ),
+					'item_count'     => count( $order->get_items() ),
+					'total'          => (float) $order->get_total(),
+					'currency'       => (string) $order->get_currency(),
+					'wc_order_url'   => admin_url( 'admin.php?page=wc-orders&id=' . $order_id ),
+				);
+			}
+
+			return array( 'rows' => $rows, 'total' => $total, 'pages' => $pages );
+		} );
+	}
+
 	public static function post_crm_invoice( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			$body = $req->get_json_params() ?: array();
@@ -12689,7 +12954,8 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 	public static function get_crm_assignable_users( WP_REST_Request $req ) {
 		return self::wrap( static function () {
 			$wp_users = get_users( array(
-				'role__in' => array( 'administrator', 'editor', 'author' ),
+				// [2026-09-07 09:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D-CRM-ADMIN-INBOX-MENU-V2 — expose every non-subscriber WP operator through the server-owned staff scope catalog
+				'role__not_in' => array( 'subscriber' ),
 				'number'   => 200,
 				'orderby'  => 'display_name',
 				'order'    => 'ASC',
@@ -12701,6 +12967,7 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 					'id'           => (int) $u->ID,
 					'display_name' => (string) $u->display_name,
 					'email'        => (string) $u->user_email,
+					'roles'        => array_values( array_map( 'sanitize_key', (array) $u->roles ) ),
 				);
 			}
 			return $out;

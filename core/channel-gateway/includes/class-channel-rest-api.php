@@ -687,7 +687,8 @@ class BizCity_Channel_REST_API {
 		$chat_id          = sanitize_text_field( (string) $request->get_param( 'chat_id' ) );
 		$status            = sanitize_key( (string) $request->get_param( 'status' ) );
 		$limit             = max( 1, min( 200, absint( $request->get_param( 'limit' ) ) ?: 100 ) );
-		$allowed_channels  = array( '', 'zalo_bot', 'facebook' );
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — include the owner-scoped Personal account projection in connected-users.
+		$allowed_channels  = array( '', 'zalo_bot', 'zalo_personal', 'facebook' );
 		if ( ! in_array( $channel, $allowed_channels, true ) ) {
 			return new WP_REST_Response( array( 'success' => true, 'items' => array(), 'total' => 0, 'filters' => array( 'channel' => $channel ), '_degraded' => false ), 200 );
 		}
@@ -767,6 +768,42 @@ class BizCity_Channel_REST_API {
 						'provider_user_id' => $page_id, 'chat_id' => 'fb_' . $page_id, 'chat_kind' => 'private', 'status' => sanitize_key( (string) ( $row['status'] ?? '' ) ),
 						'canonical_identity_key' => 'facebook:' . $page_id . ':' . $owner,
 						'log_scope' => array( 'channel' => 'facebook', 'account_id' => $page_id, 'chat_id' => 'fb_' . $page_id ),
+						'updated_at' => (string) ( $row['updated_at'] ?? '' ),
+					);
+				}
+			}
+		}
+
+		if ( $channel === '' || $channel === 'zalo_personal' ) {
+			if ( ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) || ! method_exists( 'BizCity_Zalo_Mapping_Repo', 'list_personal_accounts' ) ) {
+				$degraded[] = 'zalo_personal_mapping_repo_missing';
+			} else {
+				$personal_rows = BizCity_Zalo_Mapping_Repo::list_personal_accounts( array(
+					'account_id'       => $account_id,
+					'owner_user_id'    => $wp_user_id,
+					'provider_user_id' => $provider_user_id,
+					'status'           => $status,
+					'limit'            => $limit,
+				) );
+				foreach ( (array) $personal_rows as $row ) {
+					$bridge_id = sanitize_text_field( (string) ( $row['bridge_account_id'] ?? '' ) );
+					$zalo_uid  = sanitize_text_field( (string) ( $row['zalo_uid'] ?? '' ) );
+					// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — keep raw Personal provider UID server-side and expose only a stable operator hash.
+					$provider_hash = class_exists( 'BizCity_Codec' )
+						? substr( BizCity_Codec::hmac_sha256( $zalo_uid, wp_salt( 'auth' ), false ), 0, 12 )
+						: substr( hash( 'sha256', $zalo_uid ), 0, 12 );
+					$chat_id   = $bridge_id !== '' ? 'zalop_' . $bridge_id : '';
+					if ( $chat_id !== '' && $chat_id !== (string) $request->get_param( 'chat_id' ) && $request->get_param( 'chat_id' ) !== '' ) {
+						continue;
+					}
+					$owner = (int) ( $row['owner_user_id'] ?? 0 );
+					$user  = $owner > 0 ? get_userdata( $owner ) : false;
+					$items[] = array(
+						'channel' => 'zalo_personal', 'account_id' => $bridge_id, 'account_label' => sanitize_text_field( (string) ( $row['account_name'] ?? $row['label'] ?? '' ) ),
+						'wp_user_id' => $owner, 'display_name' => $user ? sanitize_text_field( (string) $user->display_name ) : '',
+						'provider_user_id' => $provider_hash, 'provider_user_id_hash' => $provider_hash, 'chat_id' => $chat_id, 'chat_kind' => 'private', 'status' => sanitize_key( (string) ( $row['status'] ?? '' ) ),
+						'canonical_identity_key' => 'zalo_personal:' . $bridge_id . ':' . $provider_hash,
+						'log_scope' => array( 'channel' => 'zalo_personal', 'account_id' => $bridge_id, 'provider_user_id' => $provider_hash, 'chat_id' => $chat_id ),
 						'updated_at' => (string) ( $row['updated_at'] ?? '' ),
 					);
 				}

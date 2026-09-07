@@ -231,6 +231,7 @@ final class BizCity_Channel_Conversation_Archive {
 		$archive_ids = array();
 		$duplicate_events = 0;
 		$malformed_lines = 0;
+		$grant_key_missing = 0;
 		$files_scanned = 0;
 		if ( $dir !== '' && is_dir( $dir ) ) {
 			$files = glob( $dir . DIRECTORY_SEPARATOR . '*.jsonl' );
@@ -245,6 +246,7 @@ final class BizCity_Channel_Conversation_Archive {
 					$message_id = is_array( $entry ) ? (int) ( $entry['crm_message_id'] ?? 0 ) : 0;
 					if ( ! is_array( $entry ) || $message_id <= 0 ) { $malformed_lines++; continue; }
 					if ( (string) ( $entry['channel'] ?? '' ) !== $normalized_channel || (int) ( $entry['blog_id'] ?? 0 ) !== (int) get_current_blog_id() || (string) ( $entry['account_key'] ?? '' ) !== $expected_account_key || (string) ( $entry['peer_key'] ?? '' ) !== $expected_peer_key ) { $malformed_lines++; continue; }
+					if ( ! preg_match( '/^a_[a-f0-9]{64}$/i', (string) ( $entry['grant_account_key'] ?? '' ) ) ) { $grant_key_missing++; }
 					$event_key = $message_id . '|' . (string) ( $entry['event_type'] ?? 'message' ) . '|' . (string) ( $entry['event_uuid'] ?? '' );
 					if ( isset( $archive_ids[ $message_id ] ) && isset( $archive_ids[ $message_id ][ $event_key ] ) ) { $duplicate_events++; }
 					$archive_ids[ $message_id ][ $event_key ] = true;
@@ -286,10 +288,100 @@ final class BizCity_Channel_Conversation_Archive {
 				BizCity_Channel_File_Logger::LEVEL_INFO,
 				'conversation_archive_reconciled',
 				'Archive metadata reconciliation completed.',
-				array( 'files_scanned' => $files_scanned, 'sql_messages' => count( $sql_ids ), 'archive_messages' => count( $archive_message_ids ), 'missing' => count( $missing ), 'orphan' => count( $orphan ), 'duplicate_events' => $duplicate_events, 'malformed_lines' => $malformed_lines )
+				array( 'files_scanned' => $files_scanned, 'sql_messages' => count( $sql_ids ), 'archive_messages' => count( $archive_message_ids ), 'missing' => count( $missing ), 'orphan' => count( $orphan ), 'duplicate_events' => $duplicate_events, 'malformed_lines' => $malformed_lines, 'grant_key_missing' => $grant_key_missing )
 			);
 		}
-		return array( 'ok' => true, 'channel' => $normalized_channel, 'files_scanned' => $files_scanned, 'sql_message_count' => count( $sql_ids ), 'archive_message_count' => count( $archive_message_ids ), 'missing_crm_message_ids' => $missing, 'orphan_archive_message_ids' => $orphan, 'duplicate_events' => $duplicate_events, 'malformed_lines' => $malformed_lines, 'truncated' => $truncated );
+		return array( 'ok' => true, 'channel' => $normalized_channel, 'files_scanned' => $files_scanned, 'sql_message_count' => count( $sql_ids ), 'archive_message_count' => count( $archive_message_ids ), 'missing_crm_message_ids' => $missing, 'orphan_archive_message_ids' => $orphan, 'duplicate_events' => $duplicate_events, 'malformed_lines' => $malformed_lines, 'grant_key_missing' => $grant_key_missing, 'truncated' => $truncated );
+	}
+
+	/**
+	 * Build a bounded, read-only plan for a future grant-key archive rewrite.
+	 *
+	 * This method never writes JSONL, receipts or ledger rows. It deliberately
+	 * exposes counts only; raw account IDs, paths, offsets and hashes stay inside
+	 * the maintenance owner.
+	 */
+	public static function plan_grant_key_rewrite( string $channel, string $account_id, string $peer_uid, callable $authorize, int $limit = self::MAX_RECONCILE_IDS ): array {
+		// [2026-09-06 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A-R0 — inventory a partition before any receipt-safe staged rewrite is allowed.
+		$key = self::archive_key();
+		$normalized_channel = sanitize_key( $channel );
+		$policy_channel = 'messenger' === $normalized_channel ? 'facebook' : $normalized_channel;
+		$limit = max( 1, min( self::MAX_RECONCILE_IDS, $limit ) );
+		$base = array(
+			'ok' => false,
+			'status' => 'blocked',
+			'channel' => $normalized_channel,
+			'rows_scanned' => 0,
+			'rows_rewritten' => 0,
+			'grant_key_missing' => 0,
+			'grant_key_mismatch' => 0,
+			'malformed_rows' => 0,
+			'duplicate_events' => 0,
+			'legal_hold_files' => 0,
+			'files_scanned' => 0,
+			'source_bytes' => 0,
+			'staged_bytes' => 0,
+			'truncated' => false,
+			'coverage_complete' => false,
+			'rollback_ready' => false,
+		);
+		if ( $key === '' ) { $base['reason'] = 'archive_key_missing'; return $base; }
+		if ( $account_id === '' || $peer_uid === '' || ! in_array( $normalized_channel, self::CHANNELS, true ) ) { $base['reason'] = 'invalid_param'; return $base; }
+		if ( ! class_exists( 'BizCity_Channel_User_Grant' ) ) { $base['reason'] = 'channel_grant_owner_unavailable'; return $base; }
+		$legacy_account_key = 'a_' . self::hash_identifier( $account_id, $key );
+		$peer_key = 'p_' . self::hash_identifier( $peer_uid, $key );
+		$grant_account_key = BizCity_Channel_User_Grant::account_key( $policy_channel, $account_id, (int) get_current_blog_id() );
+		if ( $grant_account_key === '' ) { $base['reason'] = 'grant_account_key_unavailable'; return $base; }
+		$context = array( 'blog_id' => (int) get_current_blog_id(), 'channel' => $normalized_channel, 'account_key' => $legacy_account_key, 'peer_key' => $peer_key );
+		if ( ! is_callable( $authorize ) || ! call_user_func( $authorize, $context ) ) { $base['reason'] = 'permission_denied'; return $base; }
+		$dir = self::archive_directory_path( $normalized_channel, $account_id, $peer_uid );
+		if ( $dir === '' || ! is_dir( $dir ) ) { $base['ok'] = true; $base['status'] = 'ready'; $base['coverage_complete'] = true; $base['rollback_ready'] = true; $base['reason'] = 'partition_empty'; return $base; }
+		$files = glob( $dir . DIRECTORY_SEPARATOR . '*.jsonl' );
+		$seen = array();
+		foreach ( is_array( $files ) ? $files : array() as $file ) {
+			if ( $base['files_scanned'] >= $limit ) { $base['truncated'] = true; break; }
+			$base['files_scanned']++;
+			$month = basename( $file, '.jsonl' );
+			if ( self::under_legal_hold( $normalized_channel, $file, $month ) ) { $base['legal_hold_files']++; continue; }
+			$handle = @fopen( $file, 'rb' );
+			if ( false === $handle ) { $base['malformed_rows']++; continue; }
+			while ( false !== ( $line = fgets( $handle ) ) ) {
+				if ( $base['rows_scanned'] >= $limit ) { $base['truncated'] = true; break; }
+				$base['rows_scanned']++;
+				$base['source_bytes'] += strlen( $line );
+				if ( strlen( $line ) > self::MAX_LINE_BYTES + 1 ) { $base['malformed_rows']++; continue; }
+				$entry = json_decode( trim( $line ), true );
+				$record_id = is_array( $entry ) ? (string) ( $entry['record_id'] ?? '' ) : '';
+				$event_uuid = is_array( $entry ) ? (string) ( $entry['event_uuid'] ?? '' ) : '';
+				if ( ! is_array( $entry ) || $record_id === '' || $event_uuid === '' || (int) ( $entry['blog_id'] ?? 0 ) !== (int) get_current_blog_id() || (string) ( $entry['channel'] ?? '' ) !== $normalized_channel || (string) ( $entry['account_key'] ?? '' ) !== $legacy_account_key || (string) ( $entry['peer_key'] ?? '' ) !== $peer_key ) { $base['malformed_rows']++; continue; }
+				$identity = $record_id . '|' . $event_uuid;
+				if ( isset( $seen[ $identity ] ) ) { $base['duplicate_events']++; }
+				$seen[ $identity ] = true;
+				$current_grant_key = (string) ( $entry['grant_account_key'] ?? '' );
+				if ( $current_grant_key === '' ) {
+					$entry['grant_account_key'] = $grant_account_key;
+					$base['grant_key_missing']++;
+					$base['rows_rewritten']++;
+				} elseif ( ! hash_equals( strtolower( $current_grant_key ), strtolower( $grant_account_key ) ) ) {
+					$base['grant_key_mismatch']++;
+				}
+				$staged_line = wp_json_encode( $entry, JSON_UNESCAPED_SLASHES );
+				if ( ! is_string( $staged_line ) || $staged_line === '' ) { $base['malformed_rows']++; continue; }
+				$base['staged_bytes'] += strlen( $staged_line ) + 1;
+			}
+			fclose( $handle );
+			if ( $base['truncated'] ) { break; }
+		}
+		$base['coverage_complete'] = ! $base['truncated'];
+		$base['rollback_ready'] = $base['coverage_complete'] && 0 === $base['legal_hold_files'];
+		$base['ok'] = true;
+		if ( ! $base['coverage_complete'] ) { $base['status'] = 'blocked'; $base['reason'] = 'plan_truncated'; }
+		elseif ( $base['legal_hold_files'] > 0 ) { $base['status'] = 'blocked'; $base['reason'] = 'legal_hold_active'; }
+		elseif ( $base['malformed_rows'] > 0 ) { $base['status'] = 'blocked'; $base['reason'] = 'malformed_rows_present'; }
+		elseif ( $base['duplicate_events'] > 0 ) { $base['status'] = 'blocked'; $base['reason'] = 'duplicate_events_present'; }
+		elseif ( $base['grant_key_mismatch'] > 0 ) { $base['status'] = 'blocked'; $base['reason'] = 'grant_key_mismatch_present'; }
+		else { $base['status'] = 'ready'; $base['reason'] = 0 === $base['grant_key_missing'] ? 'grant_keys_complete' : 'staged_backfill_planned'; }
+		return $base;
 	}
 
 	/** Erase one conversation from all monthly files in an authorized account/contact partition. */
@@ -451,6 +543,8 @@ final class BizCity_Channel_Conversation_Archive {
 				'channel'                => $archive_channel,
 				'platform'               => strtoupper( $archive_channel ),
 				'account_key'             => 'a_' . self::hash_identifier( $account_id, $key ),
+				// [2026-09-06 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — retain the archive partition key and add the tenant/channel grant key for Context Bank ACL matching.
+				'grant_account_key'       => class_exists( 'BizCity_Channel_User_Grant' ) ? BizCity_Channel_User_Grant::account_key( 'messenger' === $archive_channel ? 'facebook' : $archive_channel, $account_id, (int) get_current_blog_id() ) : '',
 				'peer_key'                => 'p_' . self::hash_identifier( $peer_uid, $key ),
 				'conversation_id'         => (int) $row['conversation_id'],
 				// [2026-08-29 Johnny Chu] PHASE-0.39F-CONTEXT — keep inbox correlation aligned with archive receipt writes.
@@ -609,6 +703,7 @@ final class BizCity_Channel_Conversation_Archive {
 			'blog_id'       => (int) get_current_blog_id(),
 			'channel'       => $channel,
 			'account_key'   => (string) ( $entry['account_key'] ?? '' ),
+			'grant_account_key' => (string) ( $entry['grant_account_key'] ?? '' ),
 			'peer_key'      => (string) ( $entry['peer_key'] ?? '' ),
 		) : false;
 		@flock( $handle, LOCK_UN );
@@ -655,7 +750,7 @@ final class BizCity_Channel_Conversation_Archive {
 		if ( ! is_array( $entry ) || (int) ( $entry['blog_id'] ?? -1 ) !== $blog_id || (string) ( $entry['record_id'] ?? '' ) !== (string) ( $receipt['record_id'] ?? '' ) || (string) ( $entry['event_uuid'] ?? '' ) !== (string) ( $receipt['event_uuid'] ?? '' ) ) {
 			return $fail( 'archive_pointer_envelope_mismatch' );
 		}
-		return array( 'ok' => true, 'operation' => (string) ( $entry['operation'] ?? 'upsert' ), 'entry' => array( 'record_id' => (string) $entry['record_id'], 'event_uuid' => (string) $entry['event_uuid'], 'blog_id' => $blog_id ) );
+		return array( 'ok' => true, 'operation' => (string) ( $entry['operation'] ?? 'upsert' ), 'entry' => array( 'record_id' => (string) $entry['record_id'], 'event_uuid' => (string) $entry['event_uuid'], 'blog_id' => $blog_id, 'grant_account_key' => (string) ( $entry['grant_account_key'] ?? '' ) ) );
 	}
 
 	private static function write_receipt( array $entry, string $key, string $channel, string $account_id, string $peer_uid ): bool {

@@ -111,6 +111,33 @@ class BizCity_Gateway_Sender {
 				return $result;
 			}
 
+			// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — route integration-owned channels through their canonical send_outbound() before legacy fallback.
+			$integration = $bridge->get_channel_integration( $platform );
+			if ( $integration && method_exists( $integration, 'send_outbound' ) ) {
+				// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — let integration-owned senders receive the request id for idempotent provider delivery.
+				$integration_result = $integration->send_outbound( $chat_id, $message, array_merge( $extra, array( 'type' => $type, 'idempotency_key' => (string) ( $extra['idempotency_key'] ?? '' ) ) ) );
+				$result = is_array( $integration_result ) ? $integration_result : array(
+					'sent'     => (bool) $integration_result,
+					'error'    => $integration_result ? '' : 'Channel integration send_outbound returned false',
+					'platform' => $platform,
+				);
+				$result['platform'] = $result['platform'] ?? $platform;
+
+				do_action( 'bizcity_channel_after_send', $result, $chat_id, $platform );
+				do_action( 'bizcity_channel_outbound_logged', array(
+					'chat_id'  => $chat_id,
+					'platform' => $platform,
+					'message'  => $this->sanitize_log_message( $message ),
+					'type'     => $type,
+					'extra'    => array_merge( $extra, array( '_trace' => $trace, 'side_effect_status' => ! empty( $result['sent'] ) ? 'sent' : 'failed', 'provider_request_id' => (string) ( $result['mid'] ?? $result['provider_request_id'] ?? '' ), 'idempotency_key' => (string) ( $extra['idempotency_key'] ?? '' ) ) ),
+					'sent'     => (bool) ( $result['sent'] ?? false ),
+					'error'    => (string) ( $result['error'] ?? '' ),
+				) );
+
+				$this->log_outbound( $chat_id, $this->sanitize_log_message( $message ), $platform, ! empty( $result['sent'] ) );
+				return $result;
+			}
+
 			// No adapter registered — use legacy send
 			$result = $this->send_legacy( $chat_id, $message, $type, $extra, $platform );
 

@@ -45,12 +45,21 @@ final class BizCity_Probe_Skills_Journal_Isolation implements BizCity_Diagnostic
 		$db_file   = $base . '/core/skills/includes/class-skill-database.php';
 		$rest_src  = file_exists( $rest_file ) ? (string) file_get_contents( $rest_file ) : '';
 		$db_src    = file_exists( $db_file ) ? (string) file_get_contents( $db_file ) : '';
+		$journal_rest_file = $base . '/core/skills/includes/class-journal-rest-api.php';
+		$journal_db_file   = $base . '/core/skills/includes/class-journal-database.php';
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A-DDV — verify Journal optimistic concurrency alongside Skill/Journal ownership isolation.
+		$journal_rest_src  = file_exists( $journal_rest_file ) ? (string) file_get_contents( $journal_rest_file ) : '';
+		$journal_db_src    = file_exists( $journal_db_file ) ? (string) file_get_contents( $journal_db_file ) : '';
 
 		$disk_ok = $rest_src !== ''
 			&& strpos( $rest_src, 'is_system_owned_skill' ) !== false
 			&& strpos( $rest_src, 'get_tree' ) !== false
 			&& strpos( $db_src, 'visibility' ) !== false
 			&& strpos( $db_src, 'source_module' ) !== false;
+		$journal_revision_ok = strpos( $journal_rest_src, 'expected_revision' ) !== false
+			&& strpos( $journal_rest_src, 'journal_revision_conflict' ) !== false
+			&& strpos( $journal_db_src, 'journal_revision_conflict' ) !== false
+			&& strpos( $journal_db_src, '$where[\'revision\'] = $expected_revision;' ) !== false;
 		$steps[] = array(
 			'label'  => 'Disk · provenance contract',
 			'status' => $disk_ok ? 'pass' : 'fail',
@@ -58,6 +67,14 @@ final class BizCity_Probe_Skills_Journal_Isolation implements BizCity_Diagnostic
 		);
 		if ( ! $disk_ok ) {
 			return self::fail( $steps, 'Wave 0 disk contract missing.' );
+		}
+		$steps[] = array(
+			'label'  => 'Disk · Journal revision boundary',
+			'status' => $journal_revision_ok ? 'pass' : 'fail',
+			'detail' => $journal_revision_ok ? 'REST and repository expose optimistic revision conflict protection.' : 'Journal revision conflict protection is incomplete.',
+		);
+		if ( ! $journal_revision_ok ) {
+			return self::fail( $steps, 'Journal revision boundary is incomplete.' );
 		}
 
 		$db = BizCity_Skill_Database::instance();

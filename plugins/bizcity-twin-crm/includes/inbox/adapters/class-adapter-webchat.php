@@ -87,6 +87,11 @@ class BizCity_CRM_Adapter_WebChat extends BizCity_CRM_Adapter_Base {
 		elseif ( $text === '' && $audio_url !== '' ) { $content_type = 'audio'; }
 
 		$client_name = trim( (string) ( $raw['client_name'] ?? '' ) );
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.41A — map WebChat pre-chat identity fields into the canonical CRM contact envelope.
+		$pre_chat = isset( $raw['pre_chat'] ) && is_array( $raw['pre_chat'] ) ? $raw['pre_chat'] : array();
+		if ( ! empty( $pre_chat['name'] ) ) {
+			$client_name = sanitize_text_field( (string) $pre_chat['name'] );
+		}
 		if ( $client_name === '' || strcasecmp( $client_name, 'Guest' ) === 0 ) {
 			$client_name = 'Visitor ' . substr( $session_id, -6 );
 		}
@@ -102,6 +107,8 @@ class BizCity_CRM_Adapter_WebChat extends BizCity_CRM_Adapter_Base {
 			'source_id'          => $session_id,
 			'contact_name'       => $client_name,
 			'contact_avatar'     => null,
+			'contact_email'      => sanitize_email( (string) ( $pre_chat['email'] ?? '' ) ),
+			'contact_phone'      => sanitize_text_field( (string) ( $pre_chat['phone'] ?? '' ) ),
 			'content'            => $text !== '' ? $text : ( $image_url !== '' ? '[image]' : ( $audio_url !== '' ? '[audio]' : '' ) ),
 			'content_type'       => $content_type,
 			'attachments'        => $attachments,

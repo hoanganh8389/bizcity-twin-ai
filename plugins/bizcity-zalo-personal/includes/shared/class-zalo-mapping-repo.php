@@ -9,7 +9,7 @@
  *
  * Cache Contract (R-CACHE):
  *   group: bz_zalo_map
- *   keys: account_bridge_{hash}, accounts_owner_{hash}, map_zalo_{hash}, map_crm_{hash}
+ *   keys: account_bridge_{hash}, accounts_owner_{hash}, accounts_list_{hash}, map_zalo_{hash}, map_crm_{hash}
  *   invalidations: account/map/window insert, update, delete and schema repair
  *
  * R-DCL: all schema changes MUST be reflected in modules.zalo-personal.json first.
@@ -277,6 +277,54 @@ class BizCity_Zalo_Mapping_Repo {
 		self::$owner_cache[ $owner_user_id ] = is_array( $rows ) ? $rows : array();
 		self::cache_set( $cache_key, self::$owner_cache[ $owner_user_id ] );
 		return self::$owner_cache[ $owner_user_id ];
+	}
+
+	/**
+	 * List Personal account projections for an authorized admin read model.
+	 *
+	 * @param array $filters account_id, owner_user_id, provider_user_id, status, limit
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function list_personal_accounts( array $filters = array() ): array {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — expose cached Personal account rows to the canonical connected-users reader.
+		global $wpdb;
+		$account_id       = sanitize_text_field( (string) ( $filters['account_id'] ?? '' ) );
+		$owner_user_id    = absint( $filters['owner_user_id'] ?? 0 );
+		$provider_user_id = sanitize_text_field( (string) ( $filters['provider_user_id'] ?? '' ) );
+		$status           = sanitize_key( (string) ( $filters['status'] ?? '' ) );
+		$limit            = max( 1, min( 200, absint( $filters['limit'] ?? 100 ) ?: 100 ) );
+		$cache_key = self::cache_key( 'accounts_list', md5( wp_json_encode( array( $account_id, $owner_user_id, $provider_user_id, $status, $limit ) ) ) );
+		$cached = self::cache_get( $cache_key );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$table  = $wpdb->prefix . 'bizcity_zalo_accounts';
+		$where  = array( "kind = 'personal'" );
+		$params = array();
+		if ( $account_id !== '' ) {
+			$where[]  = '(bridge_account_id = %s OR CAST(id AS CHAR) = %s)';
+			$params[] = $account_id;
+			$params[] = $account_id;
+		}
+		if ( $owner_user_id > 0 ) {
+			$where[]  = 'owner_user_id = %d';
+			$params[] = $owner_user_id;
+		}
+		if ( $provider_user_id !== '' ) {
+			$where[]  = 'zalo_uid = %s';
+			$params[] = $provider_user_id;
+		}
+		if ( $status !== '' ) {
+			$where[]  = 'status = %s';
+			$params[] = $status;
+		}
+		$params[] = $limit;
+		$sql = 'SELECT id, owner_user_id, account_name, label, bridge_account_id, zalo_uid, crm_inbox_id, status, updated_at FROM `' . $table . '` WHERE ' . implode( ' AND ', $where ) . ' ORDER BY id DESC LIMIT %d';
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+		$result = is_array( $rows ) ? $rows : array();
+		self::cache_set( $cache_key, $result );
+		return $result;
 	}
 
 	/** Find the local Zalo account attached to one CRM inbox. */

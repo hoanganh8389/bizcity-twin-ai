@@ -90,7 +90,10 @@ final class BizCity_Probe_Context_Bank_KG_Bridge implements BizCity_Diagnostics_
 			&& strpos( $bridge_source, 'self::citation_source_view' ) !== false
 			&& strpos( $bridge_source, "'context-bank-canonical-owner'" ) !== false;
 		$recheck_order_ok = is_string( $bridge_source )
+			&& strpos( $bridge_source, 'RECHECK_MAX_ATTEMPTS = 3' ) !== false
 			&& strpos( $bridge_source, 'private static function schedule_recheck' ) !== false
+			&& strpos( $bridge_source, "'kg_recheck_exhausted'" ) !== false
+			&& strpos( $bridge_source, "'attempt'" ) !== false
 			&& strpos( $bridge_source, 'wp_next_scheduled' ) !== false
 			&& strpos( $bridge_source, 'kg_recheck_scheduled' ) !== false
 			&& strpos( $bridge_source, 'kg_recheck_schedule_failed' ) !== false

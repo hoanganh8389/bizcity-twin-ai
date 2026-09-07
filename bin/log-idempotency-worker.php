@@ -24,8 +24,14 @@ if ( ! is_file( $wp_load ) || ! is_readable( $wp_load ) || ! is_string( $record_
 	exit( 2 );
 }
 
+// [2026-09-06  Johnny Chu - Chu Hoàng Anh] PHASE-1.30-G2 — preserve hostless diagnostics context instead of guessing localhost and triggering multisite domain refusal.
 $_SERVER['REQUEST_URI'] = '/';
-$_SERVER['HTTP_HOST'] = $worker_host !== '' ? $worker_host : ( getenv( 'HTTP_HOST' ) ?: 'localhost' );
+if ( $worker_host !== '' ) {
+	$_SERVER['HTTP_HOST']   = $worker_host;
+	$_SERVER['SERVER_NAME'] = $worker_host;
+} else {
+	unset( $_SERVER['HTTP_HOST'], $_SERVER['SERVER_NAME'] );
+}
 if ( ! defined( 'BIZCITY_DIAGNOSTICS_CLI' ) ) {
 	define( 'BIZCITY_DIAGNOSTICS_CLI', true );
 }

@@ -41,6 +41,14 @@ final class BizCity_Context_Bank_Access {
 		if ( isset( $filters['user_id'] ) && (int) $filters['user_id'] > 0 && (int) $filters['user_id'] !== $user_id ) {
 			return array( 'ok' => false, 'reason' => 'context_bank_owner_scope_denied' );
 		}
+		$channel_scope = self::channel_scope_from_filters( $filters, $user_id );
+		if ( ! empty( $channel_scope['requested'] ) ) {
+			if ( empty( $channel_scope['ok'] ) ) {
+				return $channel_scope;
+			}
+			unset( $filters['wp_user_id'], $filters['user_id'] );
+			return array( 'ok' => true, 'filters' => $filters, 'scope' => 'channel_grant', 'channel' => $channel_scope['channel'], 'account_key' => $channel_scope['account_key'] );
+		}
 		$filters['wp_user_id'] = $user_id;
 		unset( $filters['user_id'] );
 		return array( 'ok' => true, 'filters' => $filters, 'scope' => 'user' );
@@ -66,7 +74,11 @@ final class BizCity_Context_Bank_Access {
 			return array( 'ok' => false, 'reason' => 'context_bank_read_denied' );
 		}
 		if ( (int) ( $pointer['wp_user_id'] ?? 0 ) !== $user_id ) {
-			return array( 'ok' => false, 'reason' => 'context_bank_owner_scope_denied' );
+			$channel_scope = self::channel_scope_from_pointer( $pointer, $user_id );
+			if ( empty( $channel_scope['ok'] ) ) {
+				return array( 'ok' => false, 'reason' => 'context_bank_owner_scope_denied' );
+			}
+			return array( 'ok' => true, 'scope' => 'channel_grant', 'channel' => $channel_scope['channel'], 'account_key' => $channel_scope['account_key'] );
 		}
 		return array( 'ok' => true, 'scope' => 'user' );
 	}
@@ -89,5 +101,42 @@ final class BizCity_Context_Bank_Access {
 	private static function is_admin() {
 		// [2026-09-01 Johnny Chu] PHASE-CB-MVP — resolve administrative authority from the authenticated capability set.
 		return function_exists( 'current_user_can' ) && current_user_can( 'manage_options' );
+	}
+
+	private static function channel_scope_from_filters( array $filters, $user_id ) {
+		$entity_type = sanitize_key( (string) ( $filters['entity_type'] ?? '' ) );
+		$entity_key = trim( (string) ( $filters['entity_key'] ?? '' ) );
+		if ( $entity_type !== 'channel_account' && $entity_key === '' ) {
+			return array( 'requested' => false );
+		}
+		if ( $entity_type !== 'channel_account' || ! preg_match( '/^([a-z0-9_]+):(a_[a-f0-9]{64})$/i', $entity_key, $matches ) ) {
+			return array( 'requested' => true, 'ok' => false, 'reason' => 'context_bank_channel_scope_invalid' );
+		}
+		$authorized = self::authorize_channel_scope( strtolower( $matches[1] ), strtolower( $matches[2] ), $user_id );
+		$authorized['requested'] = true;
+		return $authorized;
+	}
+
+	private static function channel_scope_from_pointer( array $pointer, $user_id ) {
+		if ( (string) ( $pointer['entity_type'] ?? '' ) !== 'channel_account' ) {
+			return array( 'ok' => false, 'reason' => 'context_bank_owner_scope_denied' );
+		}
+		$entity_key = trim( (string) ( $pointer['entity_key'] ?? '' ) );
+		if ( ! preg_match( '/^([a-z0-9_]+):(a_[a-f0-9]{64})$/i', $entity_key, $matches ) ) {
+			return array( 'ok' => false, 'reason' => 'context_bank_channel_scope_invalid' );
+		}
+		return self::authorize_channel_scope( strtolower( $matches[1] ), strtolower( $matches[2] ), $user_id );
+	}
+
+	private static function authorize_channel_scope( $channel, $account_key, $user_id ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — bridge exact Context Bank account scope to the Channel Gateway grant owner immediately before follow.
+		if ( ! class_exists( 'BizCity_Channel_User_Grant' ) || ! method_exists( 'BizCity_Channel_User_Grant', 'authorize_account_key' ) ) {
+			return array( 'ok' => false, 'reason' => 'channel_grant_owner_unavailable' );
+		}
+		$authorized = BizCity_Channel_User_Grant::authorize_account_key( $channel, $account_key, (int) $user_id, 'view_context' );
+		if ( empty( $authorized['ok'] ) ) {
+			return array( 'ok' => false, 'reason' => (string) ( $authorized['reason'] ?? 'context_bank_channel_scope_denied' ) );
+		}
+		return array( 'ok' => true, 'channel' => $channel, 'account_key' => $account_key, 'grant' => $authorized );
 	}
 }

@@ -42,6 +42,8 @@ class BizCity_WebChat_Widget {
             'enable_file_upload' => get_option('bizcity_webchat_file_upload', true),
             'enable_voice' => get_option('bizcity_webchat_voice', true),
             'auto_open_delay' => get_option('bizcity_webchat_auto_open', 0), // 0 = không tự mở
+            // [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.41A — expose the configured pre-chat fields to the existing widget renderer.
+            'pre_chat_form' => get_option('bizcity_webchat_pre_chat_form', array()),
         ];
     }
     

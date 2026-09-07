@@ -141,6 +141,8 @@ class BizCity_Gateway_Bridge {
 	 */
 	private function detect_platform_legacy( string $chat_id ): string {
 		if ( strpos( $chat_id, 'zalobot_' )    === 0 ) return 'ZALO_BOT';
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — preserve the canonical Personal integration prefix during legacy fallback detection.
+		if ( strpos( $chat_id, 'zalop_' )      === 0 ) return 'ZALO_PERSONAL';
 		if ( strpos( $chat_id, 'webchat_' )    === 0 ) return 'WEBCHAT';
 		if ( strpos( $chat_id, 'sess_' )       === 0 ) return 'WEBCHAT';
 		if ( strpos( $chat_id, 'wcs_' )        === 0 ) return 'WEBCHAT';

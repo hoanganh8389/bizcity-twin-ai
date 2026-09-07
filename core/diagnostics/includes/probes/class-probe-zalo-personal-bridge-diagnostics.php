@@ -45,25 +45,45 @@ final class BizCity_Probe_Zalo_Personal_Bridge_Diagnostics implements BizCity_Di
 		$rest_file = $root . 'plugins/bizcity-zalo-personal/includes/shared/class-zalo-bridge-rest.php';
 		$dispatcher_file = $root . 'core/channel-gateway/includes/class-notify-dispatcher.php';
 		$hub_file = $root . '../bizcity-llm-router/includes/class-router-zalo-personal-bridge-rest.php';
-		$sidecar_file = $root . 'plugins/bizcity-zalo-personal/_library/zca-bridge-main/src/wp/wpRoutes.ts';
+		// [2026-09-05 11:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — read the deployed sidecar source from the canonical VPS runtime root; the plugin bundle is only a local fallback.
+		$runtime_bridge_root = getenv( 'BIZCITY_ZCA_BRIDGE_ROOT' );
+		if ( ! is_string( $runtime_bridge_root ) || trim( $runtime_bridge_root ) === '' ) {
+			$runtime_bridge_root = is_dir( '/home/vibeyeuc/zca-bridge' ) ? '/home/vibeyeuc/zca-bridge' : '';
+		}
+		$sidecar_source_origin = $runtime_bridge_root !== '' ? 'runtime' : 'bundle';
+		$sidecar_file = $runtime_bridge_root !== ''
+			? rtrim( $runtime_bridge_root, '/\\' ) . '/src/wp/wpRoutes.ts'
+			: $root . 'plugins/bizcity-zalo-personal/_library/zca-bridge-main/src/wp/wpRoutes.ts';
 		$rest_source = is_readable( $rest_file ) ? (string) file_get_contents( $rest_file ) : '';
 		$dispatcher_source = is_readable( $dispatcher_file ) ? (string) file_get_contents( $dispatcher_file ) : '';
 		$hub_source = is_readable( $hub_file ) ? (string) file_get_contents( $hub_file ) : '';
 		$sidecar_source = is_readable( $sidecar_file ) ? (string) file_get_contents( $sidecar_file ) : '';
-		$disk_ok = $rest_source !== ''
-			&& strpos( $rest_source, 'function normalize_qr_result' ) !== false
-			&& strpos( $rest_source, 'qrImageBase64' ) !== false
-			&& strpos( $rest_source, 'qr_response_empty' ) !== false
-			&& strpos( $rest_source, 'qr/reset' ) !== false
-			&& strpos( $hub_source, 'qr/reset' ) !== false
-			&& strpos( $sidecar_source, '/wp/accounts/:id/qr/reset' ) !== false
-			&& $dispatcher_source !== ''
-			&& strpos( $dispatcher_source, 'function on_qr_operation_result' ) !== false
-			&& strpos( $dispatcher_source, 'bridge_qr_operation_failed' ) !== false
-			&& strpos( $dispatcher_source, 'bridge_qr_operation_recovered' ) !== false
-			&& strpos( $dispatcher_source, 'wp_mail()' ) !== false
-			&& strpos( $dispatcher_source, 'if ( $smtp_uid === \'\' )' ) === false;
-		$emit( 'Disk - QR normalizer and independent notification owner exist', $disk_ok, $disk_ok ? 'REST normalizer, payload compatibility and QR alert owner artifacts are present.' : 'QR normalizer or independent notification owner artifact is missing.' );
+		$disk_checks = array(
+			'rest_normalizer_file' => $rest_source !== '',
+			'rest_normalizer_method' => strpos( $rest_source, 'function normalize_qr_result' ) !== false,
+			'rest_qr_payload' => strpos( $rest_source, 'qrImageBase64' ) !== false,
+			'rest_empty_reason' => strpos( $rest_source, 'qr_response_empty' ) !== false,
+			'rest_qr_reset_route' => strpos( $rest_source, 'qr/reset' ) !== false,
+			'hub_qr_reset_route' => strpos( $hub_source, 'qr/reset' ) !== false,
+			'sidecar_qr_reset_route' => strpos( $sidecar_source, '/wp/accounts/:id/qr/reset' ) !== false,
+			'dispatcher_file' => $dispatcher_source !== '',
+			'dispatcher_hook' => strpos( $dispatcher_source, 'function on_qr_operation_result' ) !== false,
+			'dispatcher_failure_event' => strpos( $dispatcher_source, 'bridge_qr_operation_failed' ) !== false,
+			'dispatcher_recovery_event' => strpos( $dispatcher_source, 'bridge_qr_operation_recovered' ) !== false,
+			'dispatcher_wp_mail' => strpos( $dispatcher_source, 'wp_mail()' ) !== false,
+			'dispatcher_no_smtp_uid_guard' => strpos( $dispatcher_source, 'if ( $smtp_uid === \'\' )' ) === false,
+		);
+		$disk_missing = array();
+		foreach ( $disk_checks as $check_name => $check_ok ) {
+			if ( ! $check_ok ) {
+				$disk_missing[] = $check_name;
+			}
+		}
+		$disk_ok = empty( $disk_missing );
+		$disk_detail = $disk_ok
+			? 'REST normalizer, payload compatibility, QR alert owner and ' . $sidecar_source_origin . ' sidecar route artifacts are present.'
+			: 'Missing D1B-Q Disk checks: ' . implode( ', ', $disk_missing ) . '.';
+		$emit( 'Disk - QR normalizer and independent notification owner exist', $disk_ok, $disk_detail );
 
 		$loader_ok = class_exists( 'BizCity_Zalo_Bridge_REST', false )
 			&& method_exists( 'BizCity_Zalo_Bridge_REST', 'normalize_qr_result' )

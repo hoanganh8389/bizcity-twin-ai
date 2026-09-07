@@ -238,10 +238,18 @@ class BizCity_CRM_Facebook_Ingestor {
 		if ( ! $inbox_id ) { return 0; }
 
 		// 2. Contact + contact_inbox.
-		$ids = BizCity_CRM_Repository::upsert_contact( $inbox_id, (string) $norm['source_id'], array(
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.41A — pass optional normalized contact email/phone through the existing CRM repository writer.
+		$contact_data = array(
 			'name'       => (string) ( $norm['contact_name'] ?? '' ),
 			'avatar_url' => $norm['contact_avatar'] ?? null,
-		) );
+		);
+		if ( ! empty( $norm['contact_email'] ) ) {
+			$contact_data['email'] = sanitize_email( (string) $norm['contact_email'] );
+		}
+		if ( ! empty( $norm['contact_phone'] ) ) {
+			$contact_data['phone'] = sanitize_text_field( (string) $norm['contact_phone'] );
+		}
+		$ids = BizCity_CRM_Repository::upsert_contact( $inbox_id, (string) $norm['source_id'], $contact_data );
 		if ( empty( $ids['contact_inbox_id'] ) ) { return 0; }
 
 		// 3. Conversation.

@@ -190,6 +190,7 @@ class BizCity_Zalo_Inbound_Emitter {
 			'image_url'        => (string) ( $body['image_url'] ?? '' ),
 			'file_url'         => (string) ( $body['file_url'] ?? '' ),
 			'file_name'        => (string) ( $body['file_name'] ?? '' ),
+			'quote_src'        => is_array( $body['quote_src'] ?? null ) ? $body['quote_src'] : array(),
 			'_zalo_local_account_id' => $local_account_id,
 		);
 

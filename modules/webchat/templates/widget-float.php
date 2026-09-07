@@ -61,6 +61,17 @@ $using_ai = isset($bot_setup['using_ai']) ? (string)$bot_setup['using_ai'] : '1'
 
     <!-- Input Area -->
     <div class="bizchat-input-area">
+        <?php /* [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.41A — render the configured pre-chat fields through the existing float widget. */ ?>
+        <?php $pre_chat_form = isset($config['pre_chat_form']) && is_array($config['pre_chat_form']) ? $config['pre_chat_form'] : []; ?>
+        <?php if (!empty($pre_chat_form['enabled']) && !empty($pre_chat_form['fields'])): ?>
+            <form id="bizchat-pre-chat-form" class="bizchat-pre-chat-form" novalidate>
+                <p class="bizchat-pre-chat-title">Trước khi bắt đầu</p>
+                <?php if (in_array('name', $pre_chat_form['fields'], true)): ?><input id="bizchat-pre-chat-name" name="name" type="text" placeholder="Họ tên" autocomplete="name"><?php endif; ?>
+                <?php if (in_array('email', $pre_chat_form['fields'], true)): ?><input id="bizchat-pre-chat-email" name="email" type="email" placeholder="Email" autocomplete="email"><?php endif; ?>
+                <?php if (in_array('phone', $pre_chat_form['fields'], true)): ?><input id="bizchat-pre-chat-phone" name="phone" type="tel" placeholder="Số điện thoại" autocomplete="tel"><?php endif; ?>
+                <button type="submit" class="bizchat-pre-chat-submit">Bắt đầu trò chuyện</button>
+            </form>
+        <?php endif; ?>
         <!-- Image Preview Area -->
         <div id="bizchat-image-preview" style="display: none;">
             <div class="bizchat-preview-images"></div>

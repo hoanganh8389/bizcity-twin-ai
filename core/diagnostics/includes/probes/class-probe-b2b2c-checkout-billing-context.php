@@ -91,6 +91,9 @@ final class BizCity_Probe_B2B2C_Checkout_Billing_Context implements BizCity_Diag
 			&& strpos( $account_source, 'woocommerce_checkout_create_order' ) !== false
 			&& strpos( $account_source, 'woocommerce_checkout_create_order_line_item' ) !== false
 			&& strpos( $account_source, '_bizcity_allowed_domain_snapshot' ) !== false;
+		$paid_route_context_ok = strpos( $account_source, 'BizCity_Router_Commerce_Service::create_checkout_context' ) !== false
+			&& strpos( $account_source, 'BizCity_Router_Commerce_Service::create_checkout( $payload' ) !== false
+			&& strpos( $account_source, "(float) ( \$plan['price_usd'] ?? 0 ) <= 0" ) !== false;
 		$ctx->emit_step( array(
 			'label'  => 'Disk - checkout-first owner markers',
 			'status' => $disk_ok ? 'pass' : 'fail',
@@ -98,6 +101,14 @@ final class BizCity_Probe_B2B2C_Checkout_Billing_Context implements BizCity_Diag
 		) );
 		if ( ! $disk_ok ) {
 			$failures[] = 'checkout_billing_source_markers_missing';
+		}
+		$ctx->emit_step( array(
+			'label'  => 'Disk - paid route uses checkout context',
+			'status' => $paid_route_context_ok ? 'pass' : 'fail',
+			'detail' => $paid_route_context_ok ? 'Paid plans route through signed Woo cart context; only the Free path uses immediate checkout compatibility.' : 'Account checkout route does not clearly separate paid checkout context from Free compatibility.',
+		) );
+		if ( ! $paid_route_context_ok ) {
+			$failures[] = 'paid_route_context_marker_missing';
 		}
 
 		$hook_ok = class_exists( 'BizCity_Router_Commerce_Service' )

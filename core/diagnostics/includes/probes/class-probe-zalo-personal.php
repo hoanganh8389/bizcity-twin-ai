@@ -7,6 +7,7 @@
  *   zp.bridge.health         — Disk: class exists | Loader: bootstrap loaded | Runtime: /health reachable
  *   zp.filter.catalog        — Disk: filter code | Loader: filter attached | Runtime: catalog có Personal tile
  *   zp.integration.registered— Disk: Personal class exists | Loader: registry loaded | Runtime: registry->get
+ *   zp.outbound.routing    — Disk: canonical prefix contract | Loader: bridge map | Runtime: zalop_ resolves to Personal integration
  *   zp.inbound.bridge        — Disk: emitter exists | Loader: hook attached | Runtime: synthetic event shape
  *   zp.schema.tables         — Disk: changelog JSON | Loader: installer class | Runtime: Personal tables tồn tại
  *   zp.zone.isolation        — Disk: emitter code | Loader: guard attached | Runtime: platform discriminator
@@ -279,6 +280,25 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 				) ) ),
 			);
 		}
+
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — verify canonical Personal outbound routing without provider or CRM side effects.
+		$bridge_route_ok = false;
+		$bridge_integration_ok = false;
+		if ( class_exists( 'BizCity_Gateway_Bridge' ) ) {
+			$gateway_bridge = BizCity_Gateway_Bridge::instance();
+			$bridge_route_ok = $gateway_bridge->detect_platform( 'zalop___probe_account___probe_thread' ) === 'ZALO_PERSONAL';
+			$personal_integration = $gateway_bridge->get_channel_integration( 'ZALO_PERSONAL' );
+			$bridge_integration_ok = $personal_integration && method_exists( $personal_integration, 'send_outbound' );
+		}
+		$personal_outbound_route_ok = $bridge_route_ok && $bridge_integration_ok;
+		if ( ! $personal_outbound_route_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.outbound.routing — Runtime: canonical zalop_ prefix and integration owner',
+			'status' => $personal_outbound_route_ok ? 'pass' : 'fail',
+			'detail' => $personal_outbound_route_ok
+				? 'zalop_ resolves to ZALO_PERSONAL and the registered integration owns send_outbound().'
+				: 'Canonical zalop_ prefix or registered Personal integration dispatch is missing.',
+		);
 
 		// ── ROW 4: zp.inbound.bridge ──────────────────────────────────────────
 
@@ -608,6 +628,33 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 			'status' => $crm_send_ok ? 'pass' : 'fail',
 			'detail' => $crm_send_ok ? 'Personal send delegates to canonical CRM post_message after owner/inbox validation.' : 'Personal CRM send boundary is missing.',
 		);
+		// [2026-09-06 11:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39C-C5 — preserve source evidence for identity-first and connected-only Twin GPT Personal CRM scoping.
+		$twinweb_rest_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/modules/twinweb/includes/class-twinweb-rest.php';
+		$twinweb_rest_source = is_readable( $twinweb_rest_file ) ? (string) file_get_contents( $twinweb_rest_file ) : '';
+		$twinweb_scope_disk_ok = $twinweb_rest_source !== ''
+			&& strpos( $twinweb_rest_source, 'mychannels_identity()' ) !== false
+			&& strpos( $twinweb_rest_source, 'mychannels_zalo_personal_inbox_ids' ) !== false
+			&& strpos( $twinweb_rest_source, 'connected_only' ) !== false
+			&& strpos( $twinweb_rest_source, 'shape_mychannels_zalo_personal_message' ) !== false;
+		if ( ! $twinweb_scope_disk_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.twin-gpt.crm-scope — Disk: identity/inbox/connected send contract',
+			'status' => $twinweb_scope_disk_ok ? 'pass' : 'fail',
+			'detail' => $twinweb_scope_disk_ok ? 'Twin GPT Personal CRM source preserves identity-first lookup, inbox scope, connected-only outbound and C-safe message shaping.' : 'Twin GPT Personal owner/inbox scope marker is incomplete.',
+		);
+		$repository_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcity-twin-crm/includes/class-repository.php';
+		$repository_source = is_readable( $repository_file ) ? (string) file_get_contents( $repository_file ) : '';
+		$recent_detail_disk_ok = $repository_source !== ''
+			&& strpos( $repository_source, 'if ( $after_id > 0 )' ) !== false
+			&& strpos( $repository_source, 'ORDER BY id DESC' ) !== false
+			&& strpos( $repository_source, 'array_reverse( $rows )' ) !== false
+			&& strpos( $repository_source, 'ORDER BY id ASC' ) !== false;
+		if ( ! $recent_detail_disk_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.crm.detail-history — Disk: newest initial message window',
+			'status' => $recent_detail_disk_ok ? 'pass' : 'fail',
+			'detail' => $recent_detail_disk_ok ? 'CRM detail loads the newest bounded message window, restores chronological order, and preserves after_id polling.' : 'CRM detail history query does not preserve newest-window and incremental polling semantics.',
+		);
 		$retention_hook_ok = $archive_loaded && false !== has_action( 'bizcity_channel_jsonl_retention', array( 'BizCity_Channel_Conversation_Archive', 'retention_tick' ) );
 		if ( ! $retention_hook_ok ) { $pass = false; }
 		$rows[] = array(
@@ -625,6 +672,33 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 			'label'  => 'zp.archive.rest — Loader/Runtime: authorized maintenance routes',
 			'status' => $archive_rest_ok ? 'pass' : 'fail',
 			'detail' => $archive_rest_ok ? 'Admin-only reconcile/export/erase routes are loaded behind tenant authorization.' : 'Archive maintenance REST boundary is incomplete.',
+		);
+		// [2026-09-06 10:45 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39C-C4 — keep exact-key denial reason evidence visible without requiring the client to load the Hub router plugin.
+		$hub_scope_file = WP_PLUGIN_DIR . '/bizcity-llm-router/includes/class-router-zalo-personal-bridge-rest.php';
+		$hub_scope_source = is_readable( $hub_scope_file ) ? (string) file_get_contents( $hub_scope_file ) : '';
+		$key_scope_disk_ok = $hub_scope_source !== ''
+			&& strpos( $hub_scope_source, 'function account_not_owned_response' ) !== false
+			&& strpos( $hub_scope_source, 'managed_account_not_owned' ) !== false
+			&& strpos( $hub_scope_source, 'key_domain_mismatch' ) !== false
+			&& strpos( $hub_scope_source, 'WHERE api_key_id = %d AND bridge_instance_id = %s AND bridge_account_id = %d' ) !== false;
+		if ( ! $key_scope_disk_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.key-scope.denial — Disk: exact-key ownership reason contract',
+			'status' => $key_scope_disk_ok ? 'pass' : 'fail',
+			'detail' => $key_scope_disk_ok ? 'Hub account controls preserve catalog permission_denied with managed_account_not_owned and key_domain_mismatch reason buckets.' : 'Hub exact-key or domain-denial reason marker is missing.',
+		);
+		$callback_scope_disk_ok = $hub_scope_source !== ''
+			&& strpos( $hub_scope_source, 'function handle_inbound' ) !== false
+			&& strpos( $hub_scope_source, 'find_by_bridge' ) !== false
+			&& strpos( $hub_scope_source, 'api_key_active' ) !== false
+			&& strpos( $hub_scope_source, 'tenant_mapping_missing' ) !== false
+			&& strpos( $hub_scope_source, 'callback_credential_missing' ) !== false
+			&& strpos( $hub_scope_source, 'reason_bucket' ) !== false;
+		if ( ! $callback_scope_disk_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'zp.callback.scope — Disk: registry/key/callback deny contract',
+			'status' => $callback_scope_disk_ok ? 'pass' : 'fail',
+			'detail' => $callback_scope_disk_ok ? 'Inbound relay checks registry scope, active key and callback credential before tenant relay with bounded reason buckets.' : 'Inbound callback ownership or bounded reason marker is missing.',
 		);
 
 		foreach ( $rows as $row ) {

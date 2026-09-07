@@ -94,6 +94,8 @@ class BizCity_Skill_Admin_Page {
 			'restBase'     => $rest_path,
 			'nonce'        => wp_create_nonce( 'wp_rest' ),
 			'toolsCatalog' => $this->build_tools_catalog(),
+			// [2026-09-04 Johnny Chu - Chu Hoàng Anh] PHASE-CB8.2 — keep the Context Bank read-through UI disabled unless the tenant explicitly opts in.
+			'contextBankEnabled' => (bool) get_option( 'bizcity_context_bank_ui_enabled', false ),
 		];
 		wp_add_inline_script( 'bizcity-skill-app', 'window.skillAppConfig = ' . wp_json_encode( $config ) . ';', 'before' );
 

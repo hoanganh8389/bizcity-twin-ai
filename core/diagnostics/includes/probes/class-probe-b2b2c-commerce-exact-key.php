@@ -260,9 +260,29 @@ final class BizCity_Probe_B2B2C_Commerce_Exact_Key implements BizCity_Diagnostic
 				return $result;
 			}
 
+			// [2026-09-05 11:15 AM Johnny Chu - Chu Hoàng Anh] B2C-H8 — reconcile the disposable Woo paid order to its grant, then exercise the canonical refund owner and reversal row.
+			global $wpdb;
+			$ledger_table = BizCity_Router_License_Ledger::table_name();
+			$paid_grant = $wpdb->get_row( $wpdb->prepare( "SELECT id, woo_order_item_id, key_id, owner_user_id, gross_amount FROM {$ledger_table} WHERE woo_order_id = %d AND event_type = 'grant' AND source = %s LIMIT 1", $this->state['order_id'], 'woo_order_paid' ), ARRAY_A );
+			$paid_reconcile_ok = is_array( $paid_grant ) && (int) $paid_grant['key_id'] === (int) $this->state['key_id'] && (int) $paid_grant['owner_user_id'] === (int) $user_id && (float) $paid_grant['gross_amount'] >= 0;
+			$ctx->emit_step( array( 'label' => 'Runtime · Woo paid to ledger reconciliation', 'status' => $paid_reconcile_ok ? 'pass' : 'fail', 'detail' => $paid_reconcile_ok ? 'Temporary Woo order has one matching exact-key paid grant with order item, owner and amount evidence.' : 'Woo paid fixture did not reconcile to a matching Global ledger grant.' ) );
+			if ( ! $paid_reconcile_ok ) {
+				$result = array( 'status' => 'fail', 'summary' => 'Woo paid order did not reconcile to its license grant.', 'error' => 'woo_paid_ledger_mismatch', 'fix_hint' => 'Compare the Woo order item exact-key metadata with the Global ledger grant before promoting H8.' );
+				return $result;
+			}
+
+			$refund = BizCity_Router_Commerce_Service::handle_woocommerce_refund( $this->state['order_id'] );
+			$reversal = $wpdb->get_row( $wpdb->prepare( "SELECT id, woo_order_item_id, key_id, owner_user_id, gross_amount FROM {$ledger_table} WHERE woo_order_id = %d AND event_type = 'reversal' AND source = %s LIMIT 1", $this->state['order_id'], 'woo_order_refund' ), ARRAY_A );
+			$refund_reconcile_ok = is_array( $refund ) && ! empty( $refund['success'] ) && is_array( $reversal ) && (int) $reversal['key_id'] === (int) $this->state['key_id'] && (int) $reversal['owner_user_id'] === (int) $user_id && (int) $reversal['woo_order_item_id'] === (int) $paid_grant['woo_order_item_id'];
+			$ctx->emit_step( array( 'label' => 'Runtime · Woo refund to reversal reconciliation', 'status' => $refund_reconcile_ok ? 'pass' : 'fail', 'detail' => $refund_reconcile_ok ? 'Canonical Woo refund owner appended a matching reversal for the same order item and exact key.' : 'Woo refund fixture did not reconcile to a matching Global reversal row.' ) );
+			if ( ! $refund_reconcile_ok ) {
+				$result = array( 'status' => 'fail', 'summary' => 'Woo refund did not reconcile to its reversal event.', 'error' => 'woo_refund_ledger_mismatch', 'fix_hint' => 'Verify the Woo refund callback, reversal idempotency key and order-item join before promoting H8.' );
+				return $result;
+			}
+
 			$result = array(
 				'status'  => 'pass',
-				'summary' => 'Paid exact-key checkout, immutable order metadata, exact-key activation, sibling isolation and duplicate callback idempotency passed.',
+				'summary' => 'Paid exact-key checkout, immutable metadata, exact-key activation, replay idempotency and direct Woo paid/refund-to-ledger reconciliation passed.',
 			);
 			return $result;
 		} catch ( Throwable $e ) {
@@ -380,7 +400,7 @@ final class BizCity_Probe_B2B2C_Commerce_Exact_Key implements BizCity_Diagnostic
 			$ledger_table = BizCity_Router_License_Ledger::table_name();
 			if ( bizcity_tbl_exists( $ledger_table ) ) {
 				global $wpdb;
-				$deleted = $wpdb->query( $wpdb->prepare( "DELETE FROM {$ledger_table} WHERE woo_order_id = %d AND source = %s", $order_id, 'woo_order_paid' ) );
+				$deleted = $wpdb->query( $wpdb->prepare( "DELETE FROM {$ledger_table} WHERE woo_order_id = %d AND source IN (%s, %s)", $order_id, 'woo_order_paid', 'woo_order_refund' ) );
 				if ( false === $deleted ) {
 					$cleanup_ok = false;
 				}

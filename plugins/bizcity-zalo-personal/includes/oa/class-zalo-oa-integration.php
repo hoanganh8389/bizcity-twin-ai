@@ -133,12 +133,13 @@ class BizCity_Zalo_OA_Integration extends BizCity_Channel_Integration {
 	 * @return array { sent:bool, error:string, platform:string, mid:string }
 	 */
 	// [2026-06-07 Johnny Chu] PHASE-0.39 — drop type hints: legacy Gateway_Sender::send() passes string args
-	public function send_outbound( $msg, $account = null ) {
+	public function send_outbound( $msg, $account = null, $options = array() ) {
 		// Legacy path: Gateway_Sender::send($chat_id, $message, ...) → send_outbound(string, string, array)
 		// chat_id format: zalooa_{oa_id}_{user_id}
 		if ( is_string( $msg ) ) {
 			$chat_id   = $msg;
 			$text      = is_string( $account ) ? $account : '';
+			$options   = is_array( $options ) ? $options : array();
 			// strrpos: use last underscore so oa_id can safely contain underscores
 			$stripped  = substr( $chat_id, strlen( 'zalooa_' ) );
 			$sep       = strrpos( $stripped, '_' );
@@ -184,13 +185,17 @@ class BizCity_Zalo_OA_Integration extends BizCity_Channel_Integration {
 		$text      = (string) ( $msg['text']      ?? '' );
 		$type      = (string) ( $msg['type']      ?? 'text' );
 		$media_url = (string) ( $msg['media_url'] ?? '' );
+		$idempotency_key = sanitize_key( (string) ( $msg['idempotency_key'] ?? $options['idempotency_key'] ?? '' ) );
+		if ( $idempotency_key === '' && ! empty( $msg['id'] ) ) {
+			$idempotency_key = 'crm_oa_' . absint( $msg['id'] );
+		}
 		$attachments = array();
 		if ( $media_url !== '' && $type !== 'text' ) {
 			$attachments[] = array( 'url' => $media_url, 'name' => '' );
 		}
 
 		$client = BizCity_Zalo_Bridge_Client::instance();
-		$result = $client->enqueue_outbound( $bridge_account_id, $recipient, $text, $type, $attachments );
+		$result = $client->enqueue_outbound( $bridge_account_id, $recipient, $text, $type, $attachments, 'user', array(), $idempotency_key );
 
 		$sent = ! empty( $result['success'] ) && empty( $result['_degraded'] );
 

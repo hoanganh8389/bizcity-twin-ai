@@ -400,6 +400,8 @@ final class BizCity_Diagnostics_Table_Registry {
 				'context_bank_probe_id'   => (string) ( $row['context_bank_probe_id'] ?? '' ),
 				// [2026-08-27 Johnny Chu] R-LOG-HYBRID — expose one replacement contract for every deprecated row so Diagnostics can distinguish verified JSONL from non-log retirement paths.
 				'jsonl_replacement' => self::replacement_spec( (string) $row['name'], $row ),
+				// [2026-09-04 09:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-DISPOSAL — expose the operator's no-retention decision separately from physical purge state.
+				'disposal_status' => (string) ( self::replacement_spec( (string) $row['name'], $row )['disposal_status'] ?? '' ),
 			];
 		}
 		return $norm;
@@ -436,7 +438,8 @@ final class BizCity_Diagnostics_Table_Registry {
 			// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-ZALO-FILESTORE — map the retired base-prefix table to the canonical user-memory filestore owner.
 			'bizcity_zalo_bot_memory' => [ 'mode' => 'filestore', 'label' => 'Canonical ZaloBot user-memory filestore', 'contract_id' => 'core.knowledge.user_memory', 'folder' => 'bizcity-memory-data', 'module' => 'user', 'writer' => 'BizCity_Business_JSONL_File_Store', 'probe_id' => 'modules.zalobot.memory_unify', 'context_bank_role' => 'memory', 'context_bank_adapter' => 'registered', 'context_bank_ledger' => 'bizcity_context_bank', 'context_bank_probe_id' => 'core.context_bank.memory_reference', 'replacement_status' => 'active', 'sql_status' => 'dead' ],
 			// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — declare encrypted WebChat session-state ownership for the retired SQL table.
-			'bizcity_webchat_sessions' => [ 'mode' => 'filestore', 'label' => 'Encrypted WebChat session-state filestore', 'contract_id' => 'modules.webchat.session_state', 'folder' => 'bizcity-memory-data', 'module' => 'session-state', 'writer' => 'BizCity_Business_JSONL_File_Store', 'probe_id' => 'core.webchat.session_filestore_parity', 'replacement_status' => 'active', 'sql_status' => 'quarantine' ],
+			// [2026-09-04 09:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE — session metadata is not Context Bank memory payload; keep pointer admission optional and explicit.
+			'bizcity_webchat_sessions' => [ 'mode' => 'filestore', 'label' => 'Encrypted WebChat session-state filestore', 'contract_id' => 'modules.webchat.session_state', 'folder' => 'bizcity-memory-data', 'module' => 'session-state', 'writer' => 'BizCity_Business_JSONL_File_Store', 'probe_id' => 'core.webchat.session_filestore_parity', 'context_bank_role' => 'not_applicable', 'replacement_status' => 'active', 'sql_status' => 'quarantine' ],
 			'bizcity_cg_flows' => [ 'mode' => 'repository', 'label' => 'Native Automation repository', 'contract_id' => '', 'folder' => '', 'module' => '', 'writer' => 'BizCity_Automation_Repo_Workflows', 'probe_id' => 'channel-gateway.flows' ],
 			// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — reserve a dedicated parity probe for message-owned conversation metadata.
 			'bizcity_webchat_conversations' => [ 'mode' => 'repository', 'label' => 'Canonical webchat_messages conversation metadata', 'contract_id' => '', 'folder' => '', 'module' => '', 'writer' => 'BizCity_TwinChat_Database / webchat_messages', 'probe_id' => 'core.webchat.conversation_message_unify' ],
@@ -456,6 +459,18 @@ final class BizCity_Diagnostics_Table_Registry {
 		if ( isset( $row['jsonl_replacement'] ) && is_array( $row['jsonl_replacement'] ) ) {
 			$spec = array_merge( $spec, $row['jsonl_replacement'] );
 		}
+		// [2026-09-04 09:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-DISPOSAL — mark only dead replacement-backed projections as no-retention complete; this never authorizes DROP.
+		$no_retention_tables = array(
+			'bizcity_facebook_bot_logs', 'bizcity_zalo_bot_logs',
+			'bizcity_google_usage_logs',
+			'bizcity_automation_logs', 'bizcity_kg_cleanup_log',
+			'bizcity_twin_context_logs', 'bizcity_skill_logs',
+			'bizcity_intent_logs', 'bizcity_intent_prompt_logs',
+			'bizcity_memory_logs', 'bizcity_mcp_audit_log',
+			'bizcity_kg_source_progress_log', 'bizcity_llm_usage_clients',
+			'bizcity_llm_usage',
+		);
+		$spec['disposal_status'] = in_array( $name, $no_retention_tables, true ) ? 'complete' : '';
 		$spec['status'] = $spec['mode'] === 'jsonl' ? 'pending' : 'not_applicable';
 		return $spec;
 	}

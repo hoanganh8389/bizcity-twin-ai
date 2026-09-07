@@ -40,7 +40,9 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 
 	const SLUG_PREFIX = '__healthtest_crmpath_';
 
-	public function id(): string          { return 'automation.crm_path'; }
+	public function id(): string          { // [2026-09-04 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CRM-PATH-4 — align the probe ID with the canonical core automation namespace.
+		return 'core.automation.crm_path';
+	}
 	public function label(): string       { return 'Automation · CRM-care Dual-Path (Zone isolation)'; }
 	public function description(): string {
 		return 'Verify PHASE-0.41: zone filter query, recipe catalog, crm-instantiate, bind, ZALO_OA/ZALO_BOT zone isolation (R-ZONE-2).';
@@ -53,6 +55,7 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 	public function precondition() {
 		$required = array(
 			'BizCity_Automation_Trigger_Matcher',
+			'BizCity_Automation_REST',
 			'BizCity_Automation_Repo_Workflows',
 			'BizCity_Automation_Repo_Templates',
 			'BizCity_Automation_Matcher_Trace',
@@ -226,39 +229,51 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 		);
 		$ctx->emit_step( $s );
 
+		// [2026-09-04 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CRM-PATH-4 — exercise the canonical bind callback for both Zone 1 Zalo platforms.
 		// ── Test 4: bind_channel ────────────────────────────────────────────
 		$bind_wf = BizCity_Automation_Repo_Workflows::create( array(
-			'slug'           => self::SLUG_PREFIX . 'bind_' . $rand,
-			'name'           => '__healthtest crm-path bind',
-			'trigger_type'   => 'zalo_inbound',
+			'slug'           => self::SLUG_PREFIX . 'bind_oa_' . $rand,
+			'name'           => '__healthtest crm-path bind oa',
+			'trigger_type'   => 'zalo_oa_inbound',
 			'trigger_config' => array( 'zone' => 'crm', 'instance_id' => '', 'filter' => '' ),
-			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_oa_inbound' ),
+			'enabled'        => 0,
+		) );
+		$bind_personal_wf = BizCity_Automation_Repo_Workflows::create( array(
+			'slug'           => self::SLUG_PREFIX . 'bind_personal_' . $rand,
+			'name'           => '__healthtest crm-path bind personal',
+			'trigger_type'   => 'zalo_oa_inbound',
+			'trigger_config' => array( 'zone' => 'crm', 'instance_id' => '', 'filter' => '' ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_oa_inbound' ),
 			'enabled'        => 0,
 		) );
 		$bind_pass   = false;
 		$bind_detail = 'create failed';
-		if ( ! is_wp_error( $bind_wf ) ) {
+		if ( ! is_wp_error( $bind_wf ) && ! is_wp_error( $bind_personal_wf ) ) {
 			$wf_ids[] = (int) $bind_wf['id'];
-			$cfg              = is_array( $bind_wf['trigger_config'] ) ? $bind_wf['trigger_config'] : array();
-			$cfg['platform']  = 'ZALO_OA';
-			$cfg['account_id'] = 'probe_oa_1234';
-			$cfg['zone']      = 'crm';
-			$updated = BizCity_Automation_Repo_Workflows::update( (int) $bind_wf['id'], array(
-				'trigger_config_json' => wp_json_encode( $cfg ),
-				'enabled'             => 1,
-			) );
-			if ( ! is_wp_error( $updated ) ) {
-				$after = BizCity_Automation_Repo_Workflows::find( (int) $bind_wf['id'] );
-				$after_cfg  = is_array( $after['trigger_config'] ) ? $after['trigger_config'] : array();
-				$bind_pass  = ( ( $after_cfg['platform'] ?? '' ) === 'ZALO_OA' )
-					&& ( ( $after_cfg['account_id'] ?? '' ) === 'probe_oa_1234' )
-					&& ( ( $after_cfg['zone'] ?? '' ) === 'crm' );
-				$bind_detail = 'platform=' . ( $after_cfg['platform'] ?? '?' )
-					. ' account_id=' . ( $after_cfg['account_id'] ?? '?' )
-					. ' zone=' . ( $after_cfg['zone'] ?? '?' );
-			} else {
-				$bind_detail = 'update failed: ' . $updated->get_error_message();
-			}
+			$wf_ids[] = (int) $bind_personal_wf['id'];
+			$bind_request = static function ( $workflow_id, $platform, $account_id ) {
+				$request = new WP_REST_Request( 'POST', '/bizcity-automation/v1/workflows/' . (int) $workflow_id . '/bind' );
+				$request->set_param( 'id', (int) $workflow_id );
+				$request->set_header( 'Content-Type', 'application/json; charset=utf-8' );
+				$request->set_body( wp_json_encode( array( 'platform' => $platform, 'account_id' => $account_id, 'enabled' => 1 ) ) );
+				add_filter( 'user_has_cap', array( 'BizCity_Probe_Automation_CRM_Path', 'grant_crm_manage' ), 99, 3 );
+				$result = BizCity_Automation_REST::bind_workflow( $request );
+				remove_filter( 'user_has_cap', array( 'BizCity_Probe_Automation_CRM_Path', 'grant_crm_manage' ), 99 );
+				return $result;
+			};
+			$oa_result = $bind_request( (int) $bind_wf['id'], 'ZALO_OA', 'probe_oa_1234' );
+			$personal_result = $bind_request( (int) $bind_personal_wf['id'], 'ZALO_PERSONAL', 'probe_personal_16' );
+			$oa_row = is_object( $oa_result ) && method_exists( $oa_result, 'get_data' ) ? (array) $oa_result->get_data() : array();
+			$personal_row = is_object( $personal_result ) && method_exists( $personal_result, 'get_data' ) ? (array) $personal_result->get_data() : array();
+			$after_oa = BizCity_Automation_Repo_Workflows::find( (int) $bind_wf['id'] );
+			$after_personal = BizCity_Automation_Repo_Workflows::find( (int) $bind_personal_wf['id'] );
+			$oa_cfg = is_array( $after_oa['trigger_config'] ?? null ) ? $after_oa['trigger_config'] : array();
+			$personal_cfg = is_array( $after_personal['trigger_config'] ?? null ) ? $after_personal['trigger_config'] : array();
+			$oa_ok = ! empty( $oa_row['ok'] ) && ( $oa_cfg['platform'] ?? '' ) === 'ZALO_OA' && ( $oa_cfg['account_id'] ?? '' ) === 'probe_oa_1234' && ( $oa_cfg['zone'] ?? '' ) === 'crm' && (int) ( $after_oa['enabled'] ?? 0 ) === 1;
+			$personal_ok = ! empty( $personal_row['ok'] ) && ( $personal_cfg['platform'] ?? '' ) === 'ZALO_PERSONAL' && ( $personal_cfg['account_id'] ?? '' ) === 'probe_personal_16' && ( $personal_cfg['zone'] ?? '' ) === 'crm' && (int) ( $after_personal['enabled'] ?? 0 ) === 1;
+			$bind_pass = $oa_ok && $personal_ok;
+			$bind_detail = 'ZALO_OA=' . ( $oa_ok ? 'PASS' : 'FAIL' ) . ' ZALO_PERSONAL=' . ( $personal_ok ? 'PASS' : 'FAIL' );
 		}
 		$steps[] = $s = array(
 			'label'  => 'bind_channel · trigger_config gains platform+account_id+zone=crm',
@@ -302,14 +317,23 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
 			'enabled'        => 1,
 		) );
+		$wf_personal_crm = BizCity_Automation_Repo_Workflows::create( array(
+			'slug'           => self::SLUG_PREFIX . 'iso_personal_crm_' . $rand,
+			'name'           => '__healthtest crmpath iso personal crm',
+			'trigger_type'   => 'zalo_oa_inbound',
+			'trigger_config' => array( 'zone' => 'crm', 'instance_id' => '', 'filter' => 'personal_probe' ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_oa_inbound' ),
+			'enabled'        => 1,
+		) );
 		$iso_pass   = false;
 		$iso_detail = 'create failed';
 
-		if ( ! is_wp_error( $wf_oa_crm ) && ! is_wp_error( $wf_oa_adm ) && ! is_wp_error( $wf_bot_crm ) && ! is_wp_error( $wf_bot_adm ) ) {
+		if ( ! is_wp_error( $wf_oa_crm ) && ! is_wp_error( $wf_oa_adm ) && ! is_wp_error( $wf_bot_crm ) && ! is_wp_error( $wf_bot_adm ) && ! is_wp_error( $wf_personal_crm ) ) {
 			$wf_ids[] = (int) $wf_oa_crm['id'];
 			$wf_ids[] = (int) $wf_oa_adm['id'];
 			$wf_ids[] = (int) $wf_bot_crm['id'];
 			$wf_ids[] = (int) $wf_bot_adm['id'];
+			$wf_ids[] = (int) $wf_personal_crm['id'];
 
 			$matcher = BizCity_Automation_Trigger_Matcher::instance();
 
@@ -318,6 +342,13 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			$matcher->on_channel_message( self::zalo_payload( 'ZALO_OA', 'hello' ) );
 			$crm2_run_after_oa  = self::workflow_has_run( (int) $wf_oa_crm['id'] );
 			$adm2_run_after_oa  = self::workflow_has_run( (int) $wf_oa_adm['id'] );
+			$crm_source_after_oa = self::workflow_has_run_source( (int) $wf_oa_crm['id'], 'crm_care' );
+
+			// Fire ZALO_PERSONAL inbound with a unique filter; it must also stamp crm_care.
+			BizCity_Automation_Matcher_Trace::clear();
+			$matcher->on_channel_message( self::zalo_payload( 'ZALO_PERSONAL', 'personal_probe' ) );
+			$personal_run = self::workflow_has_run( (int) $wf_personal_crm['id'] );
+			$personal_source = self::workflow_has_run_source( (int) $wf_personal_crm['id'], 'crm_care' );
 
 			// Fire ZALO_BOT inbound → should enqueue BOT admin wf, NOT BOT crm wf.
 			BizCity_Automation_Matcher_Trace::clear();
@@ -326,11 +357,12 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			$adm2_run_after_bot = self::workflow_has_run( (int) $wf_bot_adm['id'] );
 
 			// Clean runs created by synthetic dispatch before final cleanup.
-			self::cleanup_runs( array( (int) $wf_oa_crm['id'], (int) $wf_oa_adm['id'], (int) $wf_bot_crm['id'], (int) $wf_bot_adm['id'] ) );
+			self::cleanup_runs( array( (int) $wf_oa_crm['id'], (int) $wf_oa_adm['id'], (int) $wf_bot_crm['id'], (int) $wf_bot_adm['id'], (int) $wf_personal_crm['id'] ) );
 
-			$oa_ok  = $crm2_run_after_oa && ! $adm2_run_after_oa;
+			$oa_ok  = $crm2_run_after_oa && $crm_source_after_oa && ! $adm2_run_after_oa;
 			$bot_ok = $adm2_run_after_bot && ! $crm2_run_after_bot;
-			$iso_pass = $oa_ok && $bot_ok;
+			$personal_ok = $personal_run && $personal_source;
+			$iso_pass = $oa_ok && $bot_ok && $personal_ok;
 			$iso_detail = sprintf(
 				'ZALO_OA: crm_wf_run=%s admin_wf_run=%s | ZALO_BOT: admin_wf_run=%s crm_wf_run=%s',
 				$crm2_run_after_oa  ? 'YES' : 'NO',
@@ -338,6 +370,7 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 				$adm2_run_after_bot ? 'YES' : 'NO',
 				$crm2_run_after_bot ? 'YES' : 'NO'
 			);
+			$iso_detail .= ' | ZALO_OA run_source=crm_care:' . ( $crm_source_after_oa ? 'YES' : 'NO' ) . ' | ZALO_PERSONAL run_source=crm_care:' . ( $personal_ok ? 'YES' : 'NO' );
 		}
 		$steps[] = $s = array(
 			'label'  => 'zone_isolation · ZALO_OA→crm only; ZALO_BOT→admin only',
@@ -408,6 +441,8 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			'account_id'   => '',
 			'channel_role' => 'USER',
 			'mid'          => 'probe_mid_' . wp_generate_password( 8, false, false ),
+			// [2026-09-04 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CRM-PATH-4 — synthetic matcher input must suppress user-facing ACK side effects.
+			'_test'        => 1,
 		);
 	}
 
@@ -419,6 +454,22 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE workflow_id = %d", $wf_id )
 		);
 		return $count > 0;
+	}
+
+	private static function workflow_has_run_source( int $wf_id, string $expected ): bool {
+		if ( ! class_exists( 'BizCity_Automation_Repo_Runs' ) ) { return false; }
+		global $wpdb;
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( "SELECT trigger_payload_json FROM " . BizCity_Automation_Repo_Runs::table_runs() . " WHERE workflow_id = %d ORDER BY id DESC LIMIT 20", $wf_id ),
+			ARRAY_A
+		);
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$payload = json_decode( (string) ( $row['trigger_payload_json'] ?? '' ), true );
+			if ( is_array( $payload ) && (string) ( $payload['run_source'] ?? $payload['source'] ?? '' ) === $expected ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static function cleanup_runs( array $wf_ids ): void {

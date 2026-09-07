@@ -249,6 +249,17 @@ final class BizCity_Legacy_Table_Policy {
 	/** Drop one approved empty legacy table from an explicitly authorized cleanup context. */
 	public static function drop_approved_empty( $table ) {
 		// [2026-08-27 Johnny Chu] PHASE-1.30-APPROVED-DROP — every cleanup caller shares ready/approval/zero-row gates.
+		// [2026-09-06  Johnny Chu - Chu Hoàng Anh] PHASE-1.30-UNINSTALL-MATRIX — an already-dropped absent fixture is an idempotent cleanup success.
+		$record = self::get_record( $table );
+		if ( $record['state'] === self::STATE_DROPPED ) {
+			if ( ! function_exists( 'bizcity_tbl_exists' ) ) {
+				return false;
+			}
+			$physical = self::physical_name( $table );
+			if ( ! bizcity_tbl_exists( $physical ) ) {
+				return true;
+			}
+		}
 		if ( ! self::can_drop( $table ) ) {
 			return false;
 		}

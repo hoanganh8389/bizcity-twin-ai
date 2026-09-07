@@ -62,6 +62,9 @@ final class BizCity_Probe_Legacy_Table_Owner_Parity implements BizCity_Diagnosti
             'bizcity_memory_notes' => 'class-probe-memory-notes-filestore-parity.php',
             'bizcity_cg_flows' => 'class-probe-legacy-table-crud-stop.php',
             'bizcity_webchat_projects' => 'class-probe-legacy-table-crud-stop.php',
+            // [2026-09-04 09:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-OWNER-PARITY — bind quarantined WebChat state rows to their dedicated owner probes.
+            'bizcity_webchat_sessions' => 'class-probe-webchat-session-filestore.php',
+            'bizcity_webchat_conversations' => 'class-probe-webchat-conversation-message-unify.php',
             'bizcity_webchat_tasks' => 'class-probe-legacy-table-crud-stop.php',
             'bizcity_webchat_task_steps' => 'class-probe-legacy-table-crud-stop.php',
             'bizcity_kg_mentions' => 'class-probe-legacy-table-callers.php',
@@ -91,6 +94,9 @@ final class BizCity_Probe_Legacy_Table_Owner_Parity implements BizCity_Diagnosti
             'bizcity_memory_notes' => array( 'core.memory.notes_filestore_parity' ),
             'bizcity_cg_flows' => array( 'core.legacy_table.crud_stop', 'runtime_mutations_zero', 'static_writer_refs' ),
             'bizcity_webchat_projects' => array( 'core.legacy_table.crud_stop', 'reader_zero', 'runtime_mutations_zero' ),
+            // [2026-09-04 09:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-OWNER-PARITY — require the actual session/conversation owner probe IDs, not a generic CRUD marker.
+            'bizcity_webchat_sessions' => array( 'core.webchat.session_filestore_parity' ),
+            'bizcity_webchat_conversations' => array( 'core.webchat.conversation_message_unify' ),
             'bizcity_webchat_tasks' => array( 'core.legacy_table.crud_stop', 'fallback_blocked', 'runtime_mutations_zero' ),
             'bizcity_webchat_task_steps' => array( 'core.legacy_table.crud_stop', 'fallback_blocked', 'runtime_mutations_zero' ),
             'bizcity_kg_mentions' => array( 'core.legacy_table.callers' ),

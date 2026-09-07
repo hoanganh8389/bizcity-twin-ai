@@ -210,6 +210,11 @@ final class BizCity_Journal_Database {
 		if ( ! $row ) {
 			return new WP_Error( 'journal_not_found', 'Không tìm thấy nhật ký.' );
 		}
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — reject stale Journal editors before mutating the canonical owner row.
+		$expected_revision = array_key_exists( 'expected_revision', $data ) ? max( 0, (int) $data['expected_revision'] ) : 0;
+		if ( $expected_revision > 0 && $expected_revision !== (int) $row['revision'] ) {
+			return new WP_Error( 'journal_revision_conflict', 'Nhật ký đã được cập nhật ở nơi khác.' );
+		}
 		$write = array();
 		if ( array_key_exists( 'title', $data ) ) {
 			$write['title'] = sanitize_text_field( (string) $data['title'] );
@@ -228,15 +233,28 @@ final class BizCity_Journal_Database {
 		}
 		$write['revision'] = (int) $row['revision'] + 1;
 		global $wpdb;
-		if ( false === $wpdb->update( $this->table, $write, array( 'id' => $id ) ) ) {
+		$where = array( 'id' => $id );
+		if ( $expected_revision > 0 ) {
+			$where['revision'] = $expected_revision;
+		}
+		$updated = $wpdb->update( $this->table, $write, $where );
+		if ( false === $updated ) {
 			return new WP_Error( 'journal_update_failed', 'Không thể cập nhật nhật ký.' );
+		}
+		if ( $expected_revision > 0 && 1 !== (int) $updated ) {
+			return new WP_Error( 'journal_revision_conflict', 'Nhật ký đã được cập nhật ở nơi khác.' );
 		}
 		$this->flush_cache();
 		return $this->get( $id, $owner_user_id, $all );
 	}
 
-	public function archive( int $id, int $owner_user_id, bool $all = false ) {
-		return $this->update( $id, $owner_user_id, array( 'status' => 'archived' ), $all );
+	public function archive( int $id, int $owner_user_id, bool $all = false, int $expected_revision = 0 ) {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — archive uses the same optimistic revision boundary as Journal updates.
+		$data = array( 'status' => 'archived' );
+		if ( $expected_revision > 0 ) {
+			$data['expected_revision'] = $expected_revision;
+		}
+		return $this->update( $id, $owner_user_id, $data, $all );
 	}
 
 	/**

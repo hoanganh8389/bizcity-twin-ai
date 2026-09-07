@@ -102,6 +102,8 @@ class BizCity_CRM_Admin_Menu {
 			'schedulerRestUrl' => esc_url_raw( rest_url( 'bizcity-scheduler/v1/' ) ),
 			// [2026-06-13 Johnny Chu] PHASE-0.40 G7 CG-SCHEDULER-P7 — expose channel gateway base for FB retry mutation
 			'channelRestUrl'   => esc_url_raw( rest_url( 'bizcity-channel/v1/' ) ),
+			// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.41A — expose the canonical Channel Gateway admin target for CRM quick-config links.
+			'channelGatewayAdminUrl' => esc_url_raw( admin_url( 'admin.php?page=bizchat-gateway-spa' ) ),
 			// [2026-06-14 Johnny Chu] PHASE-0.41 CRM-PATH-3 — expose automation engine base for care recipe calls
 			'automationRestUrl' => esc_url_raw( rest_url( 'bizcity-automation/v1/' ) ),
 			'bzdocRestUrl'     => esc_url_raw( rest_url( 'bzdoc/v1/' ) ),
@@ -129,13 +131,22 @@ class BizCity_CRM_Admin_Menu {
 		);
 
 		// [2026-08-04 Johnny Chu] PHASE-0.48-HOTFIX — keep CRM shell height chain stable in wp-admin iframe/top-level context.
-		// Remove default wrap margin only on CRM page and force full-height inheritance to avoid Inbox pane compression.
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — scope the wrap reset to every registered CRM admin body class, not only the top-level Inbox page.
+		// Remove default wrap margin only on CRM pages and force full-height inheritance to avoid Inbox pane compression.
 		$style_handle = $has_built ? 'bizcity-crm-inbox-app' : 'bizcity-crm-inbox-fallback';
+		$crm_body = implode( ', ', array(
+			'body.toplevel_page-bizcity-crm',
+			'body.toplevel_page_bizcity-crm',
+			'body.bizcity-crm_page_bizcity-crm-channels',
+			'body.bizcity-crm_page_bizcity-crm-add-inbox',
+			'body.bizcity-crm_page_bizcity-crm-settings',
+			'body.bizcity-crm_page_bizcity-crm-identity-queue',
+		) );
 		wp_add_inline_style(
 			$style_handle,
-			'body.toplevel_page_bizcity-crm .wrap{margin:0 !important;height:calc(100vh - 32px);min-height:620px;}'
-			. 'body.toplevel_page_bizcity-crm #wpbody-content{padding-bottom:0;}'
-			. 'body.toplevel_page_bizcity-crm #bizcity-crm-inbox-root{height:100%;min-height:0;}'
+			$crm_body . ' .wrap{margin:0 !important;height:calc(100vh - 32px);min-height:620px;}'
+			. $crm_body . ' #wpbody-content{padding-bottom:0;}'
+			. $crm_body . ' #bizcity-crm-inbox-root{height:100%;min-height:0;}'
 		);
 
 		// [2026-06-19 Johnny Chu] PHASE-CG-CF7 — enqueue WP Media Library so window.wp.media

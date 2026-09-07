@@ -615,6 +615,38 @@ class BizCity_Zalo_Bridge_REST {
 			return new WP_REST_Response( array( 'ok' => false, '_degraded' => true, 'message' => 'Không tạo được CRM Inbox cho tài khoản Zalo.' ), 200 );
 		}
 		BizCity_Zalo_Mapping_Repo::update_account_status( $local_id, 'pending_qr', array( 'crm_inbox_id' => $inbox_id ) );
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — bind the server-resolved self-connect user as the sole channel primary only after mapping and CRM ownership persist.
+		if ( ! class_exists( 'BizCity_Channel_User_Grant' ) ) {
+			BizCity_Zalo_Mapping_Repo::update_account_status( $local_id, 'orphaned' );
+			$client->delete_account( $bridge_id );
+			return new WP_REST_Response( array(
+				'ok'        => false,
+				'_degraded' => true,
+				'code'      => 'channel_grant_unavailable',
+				'message'   => 'Chưa khởi tạo được quyền sở hữu kênh Zalo.',
+				'hint'      => 'Tải lại Channel Gateway rồi thử kết nối lại.',
+				'help_code' => 'module_not_loaded',
+			), 200 );
+		}
+		$grant = BizCity_Channel_User_Grant::bind_primary_from_current( 'zalo_personal', $bridge_id, array(
+			'connection_verified'    => true,
+			'connection_owner_user_id' => $owner_user_id,
+			'source'                 => 'twinweb_self_connect',
+		) );
+		if ( empty( $grant['ok'] ) ) {
+			self::trace_create_step( 'channel_grant_failed', array( 'reason' => sanitize_key( (string) ( $grant['reason'] ?? 'grant_write_failed' ) ) ) );
+			BizCity_Zalo_Mapping_Repo::update_account_status( $local_id, 'orphaned' );
+			$client->delete_account( $bridge_id );
+			$reason = sanitize_key( (string) ( $grant['reason'] ?? 'grant_write_failed' ) );
+			return new WP_REST_Response( array(
+				'ok'        => false,
+				'code'      => $reason,
+				'message'   => 'Không thể cấp quyền sở hữu tài khoản Zalo này.',
+				'hint'      => 'Kiểm tra tài khoản thành viên và trạng thái kết nối rồi thử lại.',
+				'help_code' => 'permission_denied',
+			), 200 );
+		}
+		self::trace_create_step( 'channel_grant_bound', array( 'relation' => 'primary' ) );
 		self::trace_create_step( 'create_complete', array( 'local_id' => (int) $local_id, 'inbox_id' => (int) $inbox_id ) );
 
 		return new WP_REST_Response( array( 'ok' => true, 'id' => $bridge_id, 'crm_inbox_id' => $inbox_id, 'owner_user_id' => $owner_user_id ), 200 );

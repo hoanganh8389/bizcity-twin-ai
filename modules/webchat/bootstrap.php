@@ -855,6 +855,8 @@ class BizCity_WebChat_Bot {
             'enable_polling' => $enable_polling,
             'llm_ready' => $llm_ready,
             'poll_interval' => 4000,
+            // [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.41A — pass pre-chat configuration through the existing localized WebChat contract.
+            'pre_chat_form' => BizCity_WebChat_Widget::instance()->get_config()['pre_chat_form'],
         ]);
         
         // Widget CSS cho floating chat - chỉ load nếu widget được bật

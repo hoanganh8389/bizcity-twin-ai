@@ -250,6 +250,9 @@ final class BizCity_Automation_Trigger_Matcher {
 			'media_kind'    => $payload['media_kind'] ?? '',
 			'raw'           => $payload['raw']        ?? null,
 			'_trigger'      => $trigger_type,
+			// [2026-09-04 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CRM-PATH-4 — preserve synthetic test flags through the canonical run payload so matcher ACKs stay side-effect-free.
+			'_test'         => ! empty( $payload['_test'] ),
+			'_dry_run'      => ! empty( $payload['_dry_run'] ),
 		);
 
 		// [2026-06-03 Johnny Chu] SCH-NC W5 — attach canonical inbound provenance

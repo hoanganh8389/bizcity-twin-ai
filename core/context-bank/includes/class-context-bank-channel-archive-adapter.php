@@ -45,11 +45,15 @@ final class BizCity_Context_Bank_Channel_Archive_Adapter {
 		// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — treat the legacy Messenger archive folder as a compatibility alias of canonical facebook, never as a new CRM channel.
 		$policy_channel = 'messenger' === $channel ? 'facebook' : $channel;
 		$account_key = (string) ( $entry['account_key'] ?? $receipt['account_key'] ?? '' );
+		$grant_account_key = (string) ( $entry['grant_account_key'] ?? $receipt['grant_account_key'] ?? '' );
 		$peer_key = (string) ( $entry['peer_key'] ?? $receipt['peer_key'] ?? '' );
 		$record_id = (string) ( $receipt['record_id'] ?? '' );
 		$event_uuid = (string) ( $receipt['event_uuid'] ?? '' );
 		if ( ! preg_match( '/^a_[a-f0-9]{64}$/i', $account_key ) || ! preg_match( '/^p_[a-f0-9]{64}$/i', $peer_key ) || $record_id === '' || $event_uuid === '' || (int) ( $entry['conversation_id'] ?? 0 ) <= 0 ) {
 			return array( 'ok' => false, 'projected' => false, 'reason' => 'channel_archive_identity_missing' );
+		}
+		if ( $grant_account_key !== '' && ! preg_match( '/^a_[a-f0-9]{64}$/i', $grant_account_key ) ) {
+			return array( 'ok' => false, 'projected' => false, 'reason' => 'channel_archive_grant_key_mismatch' );
 		}
 		// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — require the manifest registry itself before admitting a channel pointer; an absent registry is not an authorization signal.
 		if ( ! class_exists( 'BizCity_Framework_Manifest_Registry' ) || ! is_array( BizCity_Framework_Manifest_Registry::channel( $policy_channel ) ) ) {
@@ -61,6 +65,13 @@ final class BizCity_Context_Bank_Channel_Archive_Adapter {
 		$verified = BizCity_Channel_Conversation_Archive::read_receipt( $receipt );
 		if ( empty( $verified['ok'] ) ) {
 			return array( 'ok' => false, 'projected' => false, 'reason' => (string) ( $verified['reason'] ?? 'archive_pointer_verification_failed' ) );
+		}
+		$verified_grant_account_key = (string) ( $verified['entry']['grant_account_key'] ?? '' );
+		if ( $verified_grant_account_key === '' ) {
+			return array( 'ok' => false, 'projected' => false, 'reason' => 'channel_archive_grant_key_missing' );
+		}
+		if ( ! hash_equals( strtolower( $grant_account_key ), strtolower( $verified_grant_account_key ) ) ) {
+			return array( 'ok' => false, 'projected' => false, 'reason' => 'channel_archive_grant_key_mismatch' );
 		}
 		if ( (string) ( $verified['operation'] ?? 'upsert' ) === 'delete' ) {
 			$blog_id = (int) ( $receipt['blog_id'] ?? 0 );
@@ -77,7 +88,7 @@ final class BizCity_Context_Bank_Channel_Archive_Adapter {
 				'blog_id' => $blog_id,
 				'identity_uuid' => $policy_channel . ':' . $account_key . ':' . $peer_key,
 				'entity_type' => 'channel_account',
-				'entity_key' => $policy_channel . ':' . $account_key,
+				'entity_key' => $policy_channel . ':' . $grant_account_key,
 				'secondary_type' => 'conversation',
 				'secondary_key' => (string) ( $entry['conversation_id'] ?? '' ),
 				'scope_key' => $peer_key,
@@ -111,7 +122,7 @@ final class BizCity_Context_Bank_Channel_Archive_Adapter {
 			'source_record_id' => $event_uuid,
 			'identity_uuid' => $policy_channel . ':' . $account_key . ':' . $peer_key,
 			'entity_type' => 'channel_account',
-			'entity_key' => $policy_channel . ':' . $account_key,
+			'entity_key' => $policy_channel . ':' . $grant_account_key,
 			'secondary_type' => 'conversation',
 			'secondary_key' => (string) ( $entry['conversation_id'] ?? '' ),
 			'scope_key' => (string) ( $entry['peer_key'] ?? '' ),

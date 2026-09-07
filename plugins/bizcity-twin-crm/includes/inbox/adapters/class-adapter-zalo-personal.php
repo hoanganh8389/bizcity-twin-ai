@@ -60,6 +60,9 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		$normalized['inbox_name'] = 'Zalo Cá nhân ' . (string) ( $raw['account_name'] ?? $raw['conversation_id'] ?? '' );
 		$normalized['_zalo_local_account_id'] = (int) ( $raw['_zalo_local_account_id'] ?? 0 );
 		$normalized['_zalo_message_id']       = (string) ( $raw['message_id'] ?? '' );
+		if ( is_array( $raw['quote_src'] ?? null ) && ! empty( $raw['quote_src']['msgId'] ) ) {
+			$normalized['ai_metadata'] = array_merge( (array) ( $normalized['ai_metadata'] ?? array() ), array( 'quote_src' => $raw['quote_src'] ) );
+		}
 		// [2026-08-24 Johnny Chu] PHASE-0.39E-D1 — preserve sidecar correlation into the CRM event/archive boundary.
 		$trace_id = substr( sanitize_text_field( (string) ( $raw['trace_id'] ?? '' ) ), 0, 128 );
 		if ( $trace_id !== '' ) {
@@ -122,6 +125,24 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		$text         = (string) ( $message['content'] ?? '' );
 		$content_type = (string) ( $message['content_type'] ?? 'text' );
 		$attachments  = is_array( $message['attachments'] ?? null ) ? $message['attachments'] : array();
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — forward server-validated native group mentions only through Personal bridge transport.
+		$mentions     = is_array( $message['mentions'] ?? null ) ? $message['mentions'] : array();
+		$reply_to     = absint( $message['reply_to'] ?? 0 );
+		$quote        = array();
+		if ( $reply_to > 0 ) {
+			$reply_row = BizCity_CRM_Repository::get_message( $reply_to );
+			$reply_meta = is_array( $reply_row ) && ! empty( $reply_row['ai_metadata_json'] ) ? json_decode( (string) $reply_row['ai_metadata_json'], true ) : array();
+			$quote = is_array( $reply_meta ) && is_array( $reply_meta['quote_src'] ?? null )
+				? $reply_meta['quote_src']
+				: ( is_array( $reply_meta['reply_to']['quote_src'] ?? null ) ? $reply_meta['reply_to']['quote_src'] : array() );
+		}
+		$idempotency_key = sanitize_key( (string) ( $message['idempotency_key'] ?? '' ) );
+		if ( $idempotency_key === '' && ! empty( $message['id'] ) ) {
+			$idempotency_key = 'crm_zp_' . absint( $message['id'] );
+		}
+		if ( $idempotency_key === '' ) {
+			$idempotency_key = 'crm_zp_' . substr( hash( 'sha256', (int) ( $conversation['id'] ?? 0 ) . '|' . $recipient . '|' . $text ), 0, 32 );
+		}
 		$first        = $attachments[0] ?? array();
 		$attachment_url = is_array( $first ) ? (string) ( $first['data_url'] ?? '' ) : '';
 		$type         = ( $content_type === 'image' && $attachment_url !== '' ) ? 'image' : 'text';
@@ -138,7 +159,10 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			$text,
 			$type,
 			$type === 'image' ? array( array( 'url' => $attachment_url, 'name' => '' ) ) : array(),
-			$thread_kind
+			$thread_kind,
+			$mentions,
+			$idempotency_key,
+			$quote
 		);
 		$sent = ! empty( $result['success'] ) && empty( $result['_degraded'] );
 		self::log_send_result( $sent ? 'outbound_accepted' : 'outbound_failed', $sent, $conversation );

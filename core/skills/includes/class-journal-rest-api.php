@@ -56,11 +56,13 @@ final class BizCity_Journal_REST_API {
 				'methods'             => WP_REST_Server::EDITABLE,
 				'callback'            => array( $this, 'update_entry' ),
 				'permission_callback' => array( $this, 'check_logged_in' ),
+				'args'                => array( 'expected_revision' => array( 'type' => 'integer', 'required' => true, 'sanitize_callback' => 'absint' ) ),
 			),
 			array(
 				'methods'             => WP_REST_Server::DELETABLE,
 				'callback'            => array( $this, 'archive_entry' ),
 				'permission_callback' => array( $this, 'check_logged_in' ),
+				'args'                => array( 'expected_revision' => array( 'type' => 'integer', 'required' => true, 'sanitize_callback' => 'absint' ) ),
 			),
 		) );
 	}
@@ -121,19 +123,32 @@ final class BizCity_Journal_REST_API {
 
 	public function update_entry( WP_REST_Request $request ): WP_REST_Response {
 		$body = $request->get_json_params() ?: array();
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — carry the server-validated revision into the canonical Journal repository.
+		$body['expected_revision'] = absint( $request->get_param( 'expected_revision' ) );
+		if ( $body['expected_revision'] <= 0 ) {
+			return $this->error_response( new WP_Error( 'journal_revision_required', 'Thiếu phiên bản nhật ký.' ), 'Tải lại nhật ký để nhận phiên bản hiện tại rồi lưu lại.', 'invalid_param', 'invalid_param_generic' );
+		}
 		$db = $this->database();
 		$result = $db->update( (int) $request['id'], get_current_user_id(), $body, current_user_can( 'manage_options' ) );
 		if ( is_wp_error( $result ) ) {
-			return $this->error_response( $result, 'Kiểm tra quyền sở hữu và thử lưu lại.', 'not_found' );
+			$fallback = 'journal_revision_conflict' === $result->get_error_code() ? 'invalid_param' : 'not_found';
+			$hint = 'journal_revision_conflict' === $result->get_error_code() ? 'Tải lại nhật ký để nhận bản mới nhất rồi lưu lại.' : 'Kiểm tra quyền sở hữu và thử lưu lại.';
+			return $this->error_response( $result, $hint, $fallback, 'invalid_param_generic' );
 		}
 		return new WP_REST_Response( array( 'success' => true, 'entry' => $this->normalize_entry( $result ) ), 200 );
 	}
 
 	public function archive_entry( WP_REST_Request $request ): WP_REST_Response {
+		$expected_revision = absint( $request->get_param( 'expected_revision' ) );
+		if ( $expected_revision <= 0 ) {
+			return $this->error_response( new WP_Error( 'journal_revision_required', 'Thiếu phiên bản nhật ký.' ), 'Tải lại nhật ký để nhận phiên bản hiện tại rồi thử lại.', 'invalid_param', 'invalid_param_generic' );
+		}
 		$db = $this->database();
-		$result = $db->archive( (int) $request['id'], get_current_user_id(), current_user_can( 'manage_options' ) );
+		$result = $db->archive( (int) $request['id'], get_current_user_id(), current_user_can( 'manage_options' ), $expected_revision );
 		if ( is_wp_error( $result ) ) {
-			return $this->error_response( $result, 'Kiểm tra quyền sở hữu và thử lại.', 'not_found' );
+			$fallback = 'journal_revision_conflict' === $result->get_error_code() ? 'invalid_param' : 'not_found';
+			$hint = 'journal_revision_conflict' === $result->get_error_code() ? 'Tải lại nhật ký để nhận bản mới nhất rồi thử lại.' : 'Kiểm tra quyền sở hữu và thử lại.';
+			return $this->error_response( $result, $hint, $fallback, 'invalid_param_generic' );
 		}
 		return new WP_REST_Response( array( 'success' => true, 'entry' => $this->normalize_entry( $result ) ), 200 );
 	}

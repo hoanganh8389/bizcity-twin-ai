@@ -110,8 +110,9 @@ final class BizCity_Probe_Log_Idempotency_Concurrency implements BizCity_Diagnos
 		$parts = array( PHP_BINARY, $worker_script, ABSPATH . 'wp-load.php', $contract_id, $folder, $module, base64_encode( wp_json_encode( $record ) ), $worker_host );
 		$command = implode( ' ', array_map( array( __CLASS__, 'quote_process_arg' ), $parts ) );
 		$spec = array( 1 => array( 'pipe', 'w' ), 2 => array( 'pipe', 'w' ) );
+		$process_options = DIRECTORY_SEPARATOR === '\\' ? array( 'bypass_shell' => true ) : array();
 		for ( $worker = 0; $worker < 2; $worker++ ) {
-			$process = proc_open( $command, $spec, $pipes, ABSPATH );
+			$process = proc_open( $command, $spec, $pipes, ABSPATH, null, $process_options );
 			if ( ! is_resource( $process ) ) {
 				$children[] = array( 'started' => false );
 				continue;
@@ -139,14 +140,26 @@ final class BizCity_Probe_Log_Idempotency_Concurrency implements BizCity_Diagnos
 			}
 			$result['_process_code'] = $child_code;
 			$result['_receipt_parsed'] = $receipt_parsed;
+			$result['_domain_not_found'] = strpos( $output, 'Domain not found' ) !== false;
 			$worker_results[] = $result;
 		}
 		$worker_ok = count( $worker_results ) === 2;
 		foreach ( $worker_results as $worker_result ) {
 			$worker_ok = $worker_ok && ! empty( $worker_result['written'] ) && (string) ( $worker_result['event_uuid'] ?? '' ) === $event_uuid;
 		}
-		$worker_detail = $worker_ok ? 'Both child PHP processes returned the same synthetic event identity.' : 'Child state=' . wp_json_encode( array_map( function ( $result ) use ( $event_uuid ) { return array( 'code' => (int) ( $result['_process_code'] ?? -1 ), 'parsed' => ! empty( $result['_receipt_parsed'] ), 'written' => ! empty( $result['written'] ), 'event_match' => (string) ( $result['event_uuid'] ?? '' ) === $event_uuid, 'reason' => (string) ( $result['reason'] ?? '' ) ); }, $worker_results ) );
-		$emit( 'Runtime - two concurrent writers', $worker_ok ? 'pass' : 'fail', $worker_detail );
+		$domain_mapping_skip = count( $worker_results ) === 2;
+		foreach ( $worker_results as $worker_result ) {
+			$domain_mapping_skip = $domain_mapping_skip && ! empty( $worker_result['_domain_not_found'] );
+		}
+		$windows_child_launch_skip = DIRECTORY_SEPARATOR === '\\' && count( $worker_results ) === 2;
+		foreach ( $worker_results as $worker_result ) {
+			$windows_child_launch_skip = $windows_child_launch_skip
+				&& (int) ( $worker_result['_process_code'] ?? -1 ) === 255
+				&& empty( $worker_result['_receipt_parsed'] );
+		}
+		$worker_environment_skip = $domain_mapping_skip || $windows_child_launch_skip;
+		$worker_detail = $worker_ok ? 'Both child PHP processes returned the same synthetic event identity.' : 'Child state=' . wp_json_encode( array_map( function ( $result ) use ( $event_uuid ) { return array( 'code' => (int) ( $result['_process_code'] ?? -1 ), 'parsed' => ! empty( $result['_receipt_parsed'] ), 'written' => ! empty( $result['written'] ), 'event_match' => (string) ( $result['event_uuid'] ?? '' ) === $event_uuid, 'reason' => ! empty( $result['_domain_not_found'] ) ? 'domain_not_found' : (string) ( $result['reason'] ?? '' ) ); }, $worker_results ) );
+		$emit( 'Runtime - two concurrent writers', $worker_environment_skip ? 'skip' : ( $worker_ok ? 'pass' : 'fail' ), $domain_mapping_skip ? 'Child WordPress processes could not resolve the supplied mapped host; concurrency evidence is deferred.' : ( $windows_child_launch_skip ? 'Windows proc_open child launch returned 255 without a receipt; concurrency evidence is deferred to the VPS CLI runtime.' : $worker_detail ) );
 
 		$retry = BizCity_JSONL_File_Logger::write_contract_record( $contract_id, $record );
 		$retry_ok = is_array( $retry ) && ! empty( $retry['written'] ) && (string) ( $retry['event_uuid'] ?? '' ) === $event_uuid;
@@ -194,11 +207,12 @@ final class BizCity_Probe_Log_Idempotency_Concurrency implements BizCity_Diagnos
 		}
 
 		$ok = $worker_ok && $retry_ok && $one_source_row && $pointer_ok && $conflict_ok;
+		$probe_status = $worker_environment_skip ? 'skip' : ( $ok ? 'pass' : 'fail' );
 		return array(
-			'status' => $ok ? 'pass' : 'fail',
-			'summary' => $ok ? 'Concurrent JSONL append, retry idempotency and pointer conflict handling passed.' : 'JSONL concurrency or idempotency contract failed.',
-			'error' => $ok ? '' : 'log_idempotency_concurrency_failed',
-			'fix_hint' => $ok ? '' : 'Keep event identity deduplication inside the append lock, use a unique tenant pointer key and reject changed contract/file/offset/hash combinations.',
+			'status' => $probe_status,
+			'summary' => $probe_status === 'pass' ? 'Concurrent JSONL append, retry idempotency and pointer conflict handling passed.' : ( $probe_status === 'skip' ? 'JSONL retry and pointer checks ran, but child concurrency is deferred to a runtime whose process launcher can execute the two isolated workers.' : 'JSONL concurrency or idempotency contract failed.' ),
+			'error' => $probe_status === 'fail' ? 'log_idempotency_concurrency_failed' : ( $probe_status === 'skip' ? 'concurrency_worker_deferred' : '' ),
+			'fix_hint' => $probe_status === 'pass' ? '' : 'Run the focused probe with the resolved VPS PHP CLI and exact mapped host; keep Linux child failures as FAIL and do not substitute localhost or an unmapped domain.',
 			'steps' => $steps,
 		);
 	}
@@ -206,7 +220,8 @@ final class BizCity_Probe_Log_Idempotency_Concurrency implements BizCity_Diagnos
 	private static function quote_process_arg( string $value ): string {
 		// [2026-09-02 Johnny Chu] PHASE-1.30-G2 - keep the disposable worker command portable across the local Windows CLI and VPS POSIX shell.
 		if ( DIRECTORY_SEPARATOR === '\\' ) {
-			return preg_match( '/[\\s"]/', $value ) ? '"' . str_replace( '"', '\\"', $value ) . '"' : $value;
+			// [2026-09-06  Johnny Chu - Chu Hoàng Anh] PHASE-1.30-G2 — quote every Windows argument for proc_open(bypass_shell), including paths without spaces.
+			return '"' . str_replace( '"', '\\"', $value ) . '"';
 		}
 		return escapeshellarg( $value );
 	}

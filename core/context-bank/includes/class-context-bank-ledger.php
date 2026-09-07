@@ -43,6 +43,11 @@ final class BizCity_Context_Bank_Ledger {
 		return $wpdb->prefix . self::TABLE_BASE;
 	}
 
+	public static function invalidate_authorization_cache() {
+		// [2026-09-06 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — expose the narrow ledger cache invalidation owner for channel grant revoke/transfer changes.
+		self::invalidate_cache();
+	}
+
 	/**
 	 * Return current tenant route evidence without exposing connection details.
 	 *

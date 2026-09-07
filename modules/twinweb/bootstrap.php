@@ -31,7 +31,7 @@ define( 'BIZCITY_TWINWEB_VERSION', '1.0.0' );
 // [2026-06-18 Johnny Chu] PHASE-TWINWEB — bumped to 1.0.1 to flush old ^twin(?:/.*)? rule
 // that was hijacking /twin/ (twinshell's URL). Version bump triggers one-time flush via
 // BizCity_Rewrite_Flush_Registry on next admin_init. (NEVER use time() here)
-define( 'BIZCITY_TWINWEB_REWRITE_VERSION', '1.0.3' ); // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-TWINWEB — refresh direct shell routing for /gpt/mymcp/.
+define( 'BIZCITY_TWINWEB_REWRITE_VERSION', '1.0.7' ); // [2026-09-07 03:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — catalog all static Twin GPT public subpaths in one route contract.
 
 // ── Includes ──────────────────────────────────────────────────────────────────
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-installer.php';
@@ -129,59 +129,44 @@ if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
 	BizCity_Rewrite_Flush_Registry::register( 'bizcity-twinweb', BIZCITY_TWINWEB_REWRITE_VERSION );
 }
 
-// [2026-07-14 Johnny Chu] PHASE-TWINWEB-SEARCH W1 — load DDV probe (deferred: only on diagnostics page or REST)
-// [2026-07-15 Johnny Chu] PHASE-TWINWEB-SEARCH W2/W3/W4 — also load document_search + citation probes
+// [2026-07-14 Johnny Chu] PHASE-TWINWEB-SEARCH W1 — load DDV probes only in diagnostics contexts.
+function bizcity_twinweb_load_diagnostics_probes() {
+	static $loaded = false;
+	if ( $loaded || ! class_exists( 'BizCity_Safe_Loader' ) ) {
+		return;
+	}
+	$loaded = true;
+	// [2026-09-01 Johnny Chu] PHASE-0.45-DIAGNOSTICS — include direct PHP CLI in the same lazy probe path as Diagnostics UI/REST.
+	$probe_files = array(
+		'class-probe-twinweb-channel.php',
+		'class-probe-twinweb-document-search.php',
+		'class-probe-twinweb-citation.php',
+		'class-probe-twinweb-fb-connect.php',
+		'class-probe-twinweb-control-plane-dashboards.php',
+		'class-probe-twinweb-appearance.php',
+		'class-probe-twinweb-skin-renderer.php',
+		'class-probe-twinweb-shortcode-surfaces.php',
+		'class-probe-twinweb-customer-profile-grounding.php',
+	);
+	foreach ( $probe_files as $fname ) {
+		$path = BIZCITY_TWINWEB_DIR . 'includes/' . $fname;
+		if ( is_file( $path ) && is_readable( $path ) ) {
+			BizCity_Safe_Loader::require_file( $path, 'twinweb.diagnostics.' . sanitize_key( basename( $fname, '.php' ) ) );
+		}
+	}
+}
+
+if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+	bizcity_twinweb_load_diagnostics_probes();
+}
 add_action( 'current_screen', function ( $screen ) {
 	if ( $screen && false !== strpos( (string) $screen->id, 'bizcity-diagnostics' ) ) {
-		// [2026-07-15 Johnny Chu] PHASE-TWINWEB — load FB connect DDV probe for user_id-scope validation.
-		$probe_files = array(
-			'class-probe-twinweb-channel.php',
-			'class-probe-twinweb-document-search.php',
-			'class-probe-twinweb-citation.php',
-			'class-probe-twinweb-fb-connect.php',
-			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-CP — DDV for live Control Plane dashboard endpoints.
-			'class-probe-twinweb-control-plane-dashboards.php',
-			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-UI-SKINS — DDV for Appearance policy + public skin renderer.
-			'class-probe-twinweb-appearance.php',
-			'class-probe-twinweb-skin-renderer.php',
-			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-UI-SKINS — DDV for block/float shortcode surfaces.
-			'class-probe-twinweb-shortcode-surfaces.php',
-			// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — DDV for customer profile grounding.
-			'class-probe-twinweb-customer-profile-grounding.php',
-		);
-		foreach ( $probe_files as $fname ) {
-			$path = BIZCITY_TWINWEB_DIR . 'includes/' . $fname;
-			if ( file_exists( $path ) ) {
-				require_once $path;
-			}
-		}
+		bizcity_twinweb_load_diagnostics_probes();
 	}
 }, 1 );
 add_action( 'rest_api_init', function () {
-	if ( ! empty( $_SERVER['REQUEST_URI'] )
-		&& false !== strpos( (string) $_SERVER['REQUEST_URI'], '/bizcity-diagnostics/' ) ) {
-		// [2026-07-15 Johnny Chu] PHASE-TWINWEB — load FB connect DDV probe for REST smoke runs.
-		$probe_files = array(
-			'class-probe-twinweb-channel.php',
-			'class-probe-twinweb-document-search.php',
-			'class-probe-twinweb-citation.php',
-			'class-probe-twinweb-fb-connect.php',
-			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-CP — DDV for live Control Plane dashboard endpoints.
-			'class-probe-twinweb-control-plane-dashboards.php',
-			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-UI-SKINS — DDV for Appearance policy + public skin renderer.
-			'class-probe-twinweb-appearance.php',
-			'class-probe-twinweb-skin-renderer.php',
-			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-UI-SKINS — DDV for block/float shortcode surfaces.
-			'class-probe-twinweb-shortcode-surfaces.php',
-			// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — DDV for customer profile grounding.
-			'class-probe-twinweb-customer-profile-grounding.php',
-		);
-		foreach ( $probe_files as $fname ) {
-			$path = BIZCITY_TWINWEB_DIR . 'includes/' . $fname;
-			if ( file_exists( $path ) ) {
-				require_once $path;
-			}
-		}
+	if ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/bizcity-diagnostics/' ) ) {
+		bizcity_twinweb_load_diagnostics_probes();
 	}
 }, 1 );
 

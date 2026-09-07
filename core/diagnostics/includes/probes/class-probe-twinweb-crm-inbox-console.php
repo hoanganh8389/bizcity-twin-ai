@@ -102,6 +102,37 @@ final class BizCity_Probe_TwinWeb_CRM_Inbox_Console implements BizCity_Diagnosti
 			'detail' => $foreign_ok ? 'A ref not resolved to an allowed inbox returns the explicit permission boundary.' : 'Foreign account selector was not rejected by the C-surface scope.',
 		);
 
+		// [2026-09-04 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — prove a positive exact-account read using an inbox already granted by the resolved C-surface scope.
+		$positive_inbox = null;
+		foreach ( $allowed as $allowed_inbox_id ) {
+			$candidate = BizCity_CRM_Repository::get_inbox( (int) $allowed_inbox_id );
+			if ( is_array( $candidate ) && in_array( strtolower( (string) ( $candidate['channel_type'] ?? '' ) ), array( 'facebook', 'zalo_oa', 'zalo_personal' ), true ) && (string) ( $candidate['channel_ref_id'] ?? '' ) !== '' ) {
+				$positive_inbox = $candidate;
+				break;
+			}
+		}
+		$positive_ok = false;
+		$positive_detail = 'No supported assigned inbox is available for a positive read fixture.';
+		if ( is_array( $positive_inbox ) ) {
+			$positive_request = new WP_REST_Request( 'GET', '/bizcity-twinweb/v1/crm/inbox' );
+			$positive_request->set_param( 'channel', strtolower( (string) $positive_inbox['channel_type'] ) );
+			$positive_request->set_param( 'ref', (string) $positive_inbox['channel_ref_id'] );
+			$positive_result = BizCity_TwinWeb_REST::instance()->get_crm_exact_inbox( $positive_request );
+			$positive_data = is_object( $positive_result ) && method_exists( $positive_result, 'get_data' ) ? (array) $positive_result->get_data() : array();
+			$positive_ok = ! empty( $positive_data['success'] )
+				&& empty( $positive_data['_degraded'] )
+				&& (int) ( $positive_data['inbox']['id'] ?? 0 ) === (int) $positive_inbox['id']
+				&& (string) ( $positive_data['inbox']['channel'] ?? '' ) === strtolower( (string) $positive_inbox['channel_type'] )
+				&& (string) ( $positive_data['inbox']['ref'] ?? '' ) === (string) $positive_inbox['channel_ref_id']
+				&& is_array( $positive_data['items'] ?? null );
+			$positive_detail = $positive_ok ? 'Allowed inbox resolved by identity scope and returned the bounded CRM projection.' : 'Allowed inbox did not return the expected exact-account projection.';
+		}
+		$steps[] = array(
+			'label'  => 'Runtime - assigned exact account returns a bounded CRM projection',
+			'status' => is_array( $positive_inbox ) ? ( $positive_ok ? 'pass' : 'fail' ) : 'skip',
+			'detail' => $positive_detail,
+		);
+
 		$overall = $invalid_ok && $foreign_ok;
 		return array(
 			'status'  => $overall ? 'pass' : 'fail',

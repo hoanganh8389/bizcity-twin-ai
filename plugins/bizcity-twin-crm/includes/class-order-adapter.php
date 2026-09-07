@@ -569,7 +569,7 @@ class BizCity_CRM_Order_Adapter_Woo_Bank_QR implements BizCity_CRM_Order_Adapter
 		$out = array();
 		foreach ( $orders as $o ) {
 			$created = $o->get_date_created();
-			$out[] = array(
+			$out[] = array_merge( array(
 				'id'           => (int) $o->get_id(),
 				'status'       => (string) $o->get_status(),
 				'total'        => (float) $o->get_total(),
@@ -580,9 +580,73 @@ class BizCity_CRM_Order_Adapter_Woo_Bank_QR implements BizCity_CRM_Order_Adapter
 				'checkout_url' => (string) $o->get_checkout_payment_url( true ),
 				'gateway'      => (string) $o->get_payment_method_title(),
 				'item_count'   => (int) $o->get_item_count(),
-			);
+			), self::build_lifecycle_projection( $o ) );
 		}
 		return $out;
+	}
+
+	/**
+	 * Build a bounded read projection from canonical Woo dates and the existing
+	 * CRM shipment status log. ETA remains unknown until an approved promise
+	 * source exists; this method never invents a delivery estimate.
+	 */
+	private static function build_lifecycle_projection( $order ): array {
+		// [2026-09-06 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48 — expose bounded Woo lifecycle milestones without creating a timeline ledger.
+		$order_id = method_exists( $order, 'get_id' ) ? (int) $order->get_id() : 0;
+		$status   = method_exists( $order, 'get_status' ) ? sanitize_key( (string) $order->get_status() ) : '';
+		$milestones = array();
+		$add_milestone = static function ( $key, $label, $at, $source, $state = '' ) use ( &$milestones ) {
+			if ( ! $at ) { return; }
+			$milestones[] = array(
+				'key'    => sanitize_key( (string) $key ),
+				'label'  => (string) $label,
+				'at'     => (string) $at,
+				'source' => sanitize_key( (string) $source ),
+				'state'  => sanitize_key( (string) $state ),
+			);
+		};
+
+		$created = method_exists( $order, 'get_date_created' ) ? $order->get_date_created() : null;
+		$paid    = method_exists( $order, 'get_date_paid' ) ? $order->get_date_paid() : null;
+		$done    = method_exists( $order, 'get_date_completed' ) ? $order->get_date_completed() : null;
+		$add_milestone( 'created', 'Đã tạo đơn', $created ? $created->date( 'c' ) : '', 'woo', 'created' );
+		$add_milestone( 'paid', 'Đã thanh toán', $paid ? $paid->date( 'c' ) : '', 'woo', 'paid' );
+
+		$shipment_rows = array();
+		if ( $order_id > 0 && class_exists( 'BizCity_CRM_DB_Installer_V2' ) && method_exists( 'BizCity_CRM_DB_Installer_V2', 'tbl_shipment_status_log' ) ) {
+			global $wpdb;
+			$table = BizCity_CRM_DB_Installer_V2::tbl_shipment_status_log();
+			if ( BizCity_CRM_DB_Installer_V2::table_exists( $table ) ) {
+				$shipment_rows = $wpdb->get_results( $wpdb->prepare(
+					"SELECT new_status, provider, changed_at FROM {$table} WHERE order_id = %d ORDER BY changed_at ASC, id ASC",
+					$order_id
+				), ARRAY_A ) ?: array();
+			}
+		}
+		$shipped_at = '';
+		$delivered_at = $done ? $done->date( 'c' ) : '';
+		$provider = '';
+		foreach ( $shipment_rows as $shipment ) {
+			$new_status = sanitize_key( (string) ( $shipment['new_status'] ?? '' ) );
+			$changed_at = (string) ( $shipment['changed_at'] ?? '' );
+			$provider = $provider !== '' ? $provider : sanitize_key( (string) ( $shipment['provider'] ?? '' ) );
+			if ( $new_status === 'processing' && $shipped_at === '' ) { $shipped_at = $changed_at; }
+			if ( $new_status === 'completed' && $delivered_at === '' ) { $delivered_at = $changed_at; }
+		}
+		$add_milestone( 'processing', 'Đang xử lý', $shipped_at !== '' ? $shipped_at : ( in_array( $status, array( 'processing', 'completed' ), true ) && $created ? $created->date( 'c' ) : '' ), 'woo', 'processing' );
+		$add_milestone( 'shipped', 'Đã gửi hàng', $shipped_at, 'crm_shipment_status_log', 'shipped' );
+		$add_milestone( 'delivered', 'Đã giao hàng', $delivered_at, 'woo_or_crm_shipment', 'delivered' );
+
+		return array(
+			'milestones' => $milestones,
+			'lead_time'  => array(
+				'state'        => 'unknown',
+				'reason'       => 'no_approved_promise_source',
+				'promised_at'  => null,
+				'actual_at'    => $delivered_at !== '' ? $delivered_at : null,
+				'provider'     => $provider,
+			),
+		);
 	}
 }
 
