@@ -337,20 +337,21 @@ class BizCity_TwinChat_Settings_Page {
 	 * @return array<int,array{id:string,label:string,desc:string}>
 	 */
 	private function consumer_plugins(): array {
+		// [2026-09-13 08:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.29 — mark private utility packages as Pro instead of framework-active consumers.
 		$default = array(
 			array( 'id' => 'twinchat',             'label' => '💬 TwinChat — Webchat & React UI',           'desc' => 'LLM chat, embeddings, vector search, channel routing.', 'status' => 'ok' ),
 			array( 'id' => 'webchat',              'label' => '🌐 WebChat (legacy module)',                  'desc' => 'Public chat widget — LLM via BizCity_LLM_Client.',     'status' => 'ok' ),
 			array( 'id' => 'knowledge-kg-hub',     'label' => '📚 Knowledge KG Hub',                         'desc' => 'OCR + A/V Transcribe + Embeddings (KG ingestion).',     'status' => 'ok' ),
 			array( 'id' => 'research',             'label' => '🔬 Research module',                          'desc' => 'Web search (Tavily) + extract + crawl via gateway.',    'status' => 'ok' ),
-			array( 'id' => 'bizcoach-pro',         'label' => '🎴 BizCoach Pro — Astrology',                 'desc' => 'Western / Vedic / Chinese chart qua /astrology/*.',     'status' => 'ok' ),
+			array( 'id' => 'bizcoach-pro',         'label' => '🎴 BizCoach Pro — Astrology',                 'desc' => 'Tiện ích Pro riêng cho astrology; framework không yêu cầu plugin này.', 'status' => 'pro' ),
 			array( 'id' => 'bizcity-tarot',        'label' => '🔮 BizCity Tarot',                            'desc' => 'Tarot + astrology tool.',                                'status' => 'ok' ),
 			array( 'id' => 'bizcity-tool-content', 'label' => '✍ BizCity Tool — Content',                   'desc' => 'Content generation tool.',                               'status' => 'ok' ),
 			array( 'id' => 'bizcity-content-creator','label' => '📝 BizCity Content Creator',                'desc' => 'Long-form content via BizCity_LLM_Client.',              'status' => 'ok' ),
 			array( 'id' => 'bizgpt-custom-flows',  'label' => '🛠 BizGPT Custom Flows',                      'desc' => 'Flow runner gọi LLM qua BizCity_LLM_Client.',           'status' => 'ok' ),
-			array( 'id' => 'bizcity-doc',          'label' => '📄 BizCity Doc',                              'desc' => 'Document + prompt library — LLM canonical.',             'status' => 'ok' ),
+			array( 'id' => 'bizcity-doc',          'label' => '📄 BizCity Doc',                              'desc' => 'Tiện ích Pro cho document/export; framework hoạt động độc lập khi thiếu plugin.', 'status' => 'pro' ),
 			array( 'id' => 'bizcity-openrouter-mu','label' => '🔌 BizCity OpenRouter (mu-plugin)',           'desc' => 'Thin proxy: BizCity_LLM/Search/Video Client.',           'status' => 'ok' ),
-			array( 'id' => 'bizcity-tool-image',   'label' => '🎨 BizCity Tool — Image',                     'desc' => 'Image gen (FLUX/Gemini) — LEGACY: dùng `bztimg_api_key` riêng (migrating to canonical).',  'status' => 'migrating' ),
-			array( 'id' => 'bizcity-video-kling',  'label' => '🎬 BizCity Video Kling',                      'desc' => 'PiAPI video — LEGACY: `bizcity_video_kling_api_key` riêng (migrating).', 'status' => 'migrating' ),
+			array( 'id' => 'bizcity-tool-image',   'label' => '🎨 BizCity Tool — Image',                     'desc' => 'Tiện ích Pro cho Image Studio; không thuộc framework must-load.', 'status' => 'pro' ),
+			array( 'id' => 'bizcity-video-kling',  'label' => '🎬 BizCity Video Kling',                      'desc' => 'Tiện ích Pro cho video; không thuộc framework must-load.', 'status' => 'pro' ),
 			array( 'id' => 'core-automation',      'label' => '🤖 Core Automation (canonical)',              'desc' => 'Workflow runner sống ở core/automation/ — dùng BizCity_LLM_Client.', 'status' => 'ok' ),
 			array( 'id' => 'bizcity-automation',   'label' => '🗑 BizCity Automation (DEPRECATED)',          'desc' => 'Plugin deprecate 2026-06-02 — logic chuyển sang core/automation/. Chờ delete.', 'status' => 'migrating' ),
 			array( 'id' => 'bizcity-zalo-bot',     'label' => '💬 BizCity Zalo Bot',                         'desc' => 'Memory extraction qua BizCity_LLM_Client::chat() (fixed 2026-06-02).', 'status' => 'ok' ),
@@ -2350,7 +2351,8 @@ class BizCity_TwinChat_Settings_Page {
 						$status = isset( $c['status'] ) ? (string) $c['status'] : 'ok';
 						$badge  = $status === 'ok'      ? '<span style="color:#00a32a;">✅ Active</span>'
 						        : ( $status === 'migrating' ? '<span style="color:#dba617;">🚧 Migrating</span>'
-						        : '<span style="color:#d63638;">❌ Violation</span>' );
+						        : ( $status === 'pro' ? '<span style="color:#2271b1;">🔒 Pro package</span>'
+						        : '<span style="color:#d63638;">❌ Violation</span>' ) );
 						?>
 						<tr>
 							<td><strong><?php echo esc_html( (string) ( $c['label'] ?? '' ) ); ?></strong></td>

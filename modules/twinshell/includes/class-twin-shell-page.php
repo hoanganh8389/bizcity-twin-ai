@@ -213,8 +213,9 @@ class BizCity_Twin_Shell_Page {
 				$hub_covers_plan = BizCity_Twin_Shell_Registry::plan_order( $hub_plan )
 				                   >= BizCity_Twin_Shell_Registry::plan_order( $p['plan'] );
 
+				// [2026-09-13 09:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.29 — private Pro utilities stay locked when their package is absent, even if the Hub plan is sufficient.
 				$plugin_locked = ( ! $plan_locked )
-				                 && ( ! $hub_covers_plan )
+				                 && ( ! empty( $p['pro_package'] ) || ! $hub_covers_plan )
 				                 && ( ! empty( $p['requires'] ) )
 				                 && ( ! BizCity_Twin_Shell_Registry::requirement_met( $p['requires'] ) );
 
@@ -399,6 +400,7 @@ class BizCity_Twin_Shell_Page {
 		$label       = isset( $p['label'] ) ? (string) $p['label'] : (string) $p['id'];
 		$emoji       = isset( $p['emoji'] ) && $p['emoji'] !== '' ? (string) $p['emoji'] : '🔒';
 		$desc        = isset( $p['desc'] ) ? (string) $p['desc'] : '';
+		$pro_package = isset( $p['pro_package'] ) ? (string) $p['pro_package'] : '';
 		$lang        = esc_attr( get_bloginfo( 'language' ) );
 		$site_name   = esc_html( get_bloginfo( 'name' ) );
 
@@ -434,7 +436,10 @@ class BizCity_Twin_Shell_Page {
 		echo '<div class="emoji">' . esc_html( $emoji ) . '</div>' . "\n";
 		echo '<div class="badge">' . esc_html__( 'Pro / Add-on', 'bizcity-twin-ai' ) . '</div>' . "\n";
 		echo '<h1>' . esc_html( $label ) . '</h1>' . "\n";
-		echo '<p>' . esc_html__( 'Plugin này chưa được kích hoạt trên site, hoặc thuộc gói Pro của BizCity.', 'bizcity-twin-ai' ) . '</p>' . "\n";
+		$notice = $pro_package !== ''
+			? sprintf( 'Tính năng này thuộc gói Pro của BizCity. Cài đặt và kích hoạt plugin %s để tiếp tục.', $pro_package )
+			: 'Tính năng này thuộc gói Pro của BizCity. Cài đặt và kích hoạt plugin tương ứng để tiếp tục.';
+		echo '<p>' . esc_html( $notice ) . '</p>' . "\n";
 		if ( '' !== $desc ) {
 			echo '<p style="margin-top:8px;color:#7b8294;">' . esc_html( $desc ) . '</p>' . "\n";
 		}
@@ -462,6 +467,7 @@ class BizCity_Twin_Shell_Page {
 		$emoji       = isset( $p['emoji'] ) && '' !== $p['emoji'] ? (string) $p['emoji'] : '⭐';
 		$desc        = isset( $p['desc'] ) ? (string) $p['desc'] : '';
 		$plan_badge  = isset( $p['plan_badge'] ) ? strtoupper( (string) $p['plan_badge'] ) : 'PRO';
+		$pro_package = isset( $p['pro_package'] ) ? (string) $p['pro_package'] : '';
 		$lang        = esc_attr( get_bloginfo( 'language' ) );
 		$site_name   = esc_html( get_bloginfo( 'name' ) );
 
@@ -503,8 +509,10 @@ class BizCity_Twin_Shell_Page {
 		echo '<div class="emoji">' . esc_html( $emoji ) . '</div>' . "\n";
 		echo '<div class="badge">⭐ ' . esc_html( $plan_badge ) . '</div>' . "\n";
 		echo '<h1>' . esc_html( $label ) . '</h1>' . "\n";
-		/* translators: 1: plan badge label e.g. PRO */
-		echo '<p>' . sprintf( esc_html__( 'Tính năng này yêu cầu gói %s. Nâng cấp để sử dụng ngay.', 'bizcity-twin-ai' ), '<strong>' . esc_html( $plan_badge ) . '</strong>' ) . '</p>' . "\n";
+		$notice = $pro_package !== ''
+			? sprintf( 'Tính năng này thuộc gói Pro của BizCity. Cài đặt và kích hoạt plugin %s để tiếp tục.', $pro_package )
+			: sprintf( 'Tính năng này yêu cầu gói %s. Nâng cấp để sử dụng ngay.', $plan_badge );
+		echo '<p>' . esc_html( $notice ) . '</p>' . "\n";
 		if ( '' !== $desc ) {
 			echo '<p style="margin-top:8px;color:#7b8294;">' . esc_html( $desc ) . '</p>' . "\n";
 		}

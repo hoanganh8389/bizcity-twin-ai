@@ -86,7 +86,7 @@ declares its public surface (hooks + REST + classes) in the catalogs above.
 
 - **Hand-curated narrative:** [docs/extension/HOOKS.md](../extension/HOOKS.md) (40+ entries with examples).
 - **Auto-inventory (this dir):** generated from `core/` source on 2026-06-02 via the audit subagent.
-- **Re-generate:** run an exploration pass against `core/` and update each `.md` table here — or wire a generator script (see [PHASE-0.99-FRAMEWORK-V1.md §6](../roadmaps/PHASE-0.99-FRAMEWORK-V1.md#6-out-of-scope-phase-1x-trở-đi) for backlog).
+- **Re-generate:** run an exploration pass against `core/` and update each `.md` table here — or wire a generator script as an internal maintenance task.
 
 ---
 

@@ -38,6 +38,68 @@ if ( ! defined( 'BIZCITY_LLM_URL' ) ) {
     define( 'BIZCITY_LLM_URL', plugin_dir_url( __FILE__ ) );
 }
 
+// [2026-09-13 10:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — register LLM-owned Setting Panel metadata without moving option or entitlement ownership.
+if ( ! defined( 'BIZCITY_LLM_SETTING_PANEL_REGISTERED' )
+    && class_exists( 'BizCity_Twin_Plugin_SDK' )
+    && class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+    BizCity_Twin_Plugin_SDK::register_ui( array(
+        'setting_panel' => array(
+            array(
+                'contract'     => 'setting-panel-registration',
+                'version'      => '1.0.0',
+                'id'           => 'core.bizcity-llm.api-gateway',
+                'owner'        => 'core/bizcity-llm',
+                'origin'       => 'core',
+                'destination'  => 'settings',
+                'group'        => 'api-gateway',
+                'label_key'    => 'settings.api_gateway.label',
+                'description_key' => 'settings.api_gateway.description',
+                'icon'         => 'cil-cloud',
+                'capability'   => 'manage_options',
+                'scope'        => 'site',
+                'surface'      => 'admin_shell',
+                'renderer'     => array(
+                    'type'  => 'deep_link',
+                    'id'    => 'core.bizcity-llm.api-gateway',
+                    'canonical_slug' => 'bizcity-twinchat-settings',
+                ),
+                'availability' => array(
+                    'policy' => 'registered-owner',
+                    'dependency_ids' => array( 'core.bizcity-llm' ),
+                ),
+                'position'     => 100,
+                'aliases'      => array( 'bizcity-llm' ),
+            ),
+            array(
+                'contract'     => 'setting-panel-registration',
+                'version'      => '1.0.0',
+                'id'           => 'core.bizcity-llm.master-plan',
+                'owner'        => 'core/bizcity-llm',
+                'origin'       => 'core',
+                'destination'  => 'settings',
+                'group'        => 'account-master-plan',
+                'label_key'    => 'settings.master_plan.label',
+                'description_key' => 'settings.master_plan.description',
+                'icon'         => 'cil-star',
+                'capability'   => 'manage_options',
+                'scope'        => 'site',
+                'surface'      => 'admin_shell',
+                'renderer'     => array(
+                    'type'  => 'route',
+                    'id'    => 'core.bizcity-llm.master-plan',
+                    'route' => '/settings/master-plan',
+                ),
+                'availability' => array(
+                    'policy' => 'registered-owner',
+                    'dependency_ids' => array( 'core.bizcity-llm' ),
+                ),
+                'position'     => 220,
+            ),
+        ),
+    ) );
+    define( 'BIZCITY_LLM_SETTING_PANEL_REGISTERED', true );
+}
+
 /* ── Load sub-classes (skip if already loaded by legacy mu-plugin) ── */
 if ( class_exists( 'BizCity_LLM_Client' ) ) {
     return; // Already loaded by legacy mu-plugin — skip duplicate requires

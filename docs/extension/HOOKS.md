@@ -324,4 +324,4 @@
 
 - Contracts: [core/twin-core/contracts/framework-contracts.php](../../core/twin-core/contracts/framework-contracts.php)
 - Deprecation: [core/bizcity-llm/includes/helpers-deprecation.php](../../core/bizcity-llm/includes/helpers-deprecation.php)
-- Phase doc: [docs/roadmaps/PHASE-0.99-FRAMEWORK-V1.md](../roadmaps/PHASE-0.99-FRAMEWORK-V1.md)
+- Delivery planning is maintained in the private development workspace.

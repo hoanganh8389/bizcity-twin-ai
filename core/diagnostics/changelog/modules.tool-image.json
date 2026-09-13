@@ -1,0 +1,303 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.tool-image",
+  "owner": "plugins/bizcity-tool-image",
+  "installer_id": "tool-image",
+  "current_version": "6.3.0",
+  "version_option": "bztimg_schema_version",
+  "tables": {
+    "bztimg_jobs": {
+      "since": "2.0.0",
+      "purpose": "Per-user image generation jobs and Media Library output references.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "2.0.0", "pk": true },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "prompt": { "type": "TEXT NOT NULL", "since": "2.0.0" },
+        "model": { "type": "VARCHAR(50) NOT NULL DEFAULT 'flux-pro'", "since": "2.0.0" },
+        "size": { "type": "VARCHAR(20) NOT NULL DEFAULT '1024x1024'", "since": "2.0.0" },
+        "style": { "type": "VARCHAR(30) NOT NULL DEFAULT 'auto'", "since": "2.0.0" },
+        "ref_image": { "type": "TEXT", "since": "2.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'processing'", "since": "2.0.0" },
+        "image_url": { "type": "TEXT", "since": "2.0.0" },
+        "attachment_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "error_message": { "type": "TEXT", "since": "2.0.0" },
+        "session_id": { "type": "VARCHAR(100) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "chat_id": { "type": "VARCHAR(100) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.0.0" },
+        "updated_at": { "type": "DATETIME NULL", "since": "2.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "2.0.0" },
+        "user_id": { "cols": ["user_id"], "since": "2.0.0" },
+        "status": { "cols": ["status"], "since": "2.0.0" },
+        "model": { "cols": ["model"], "since": "2.0.0" },
+        "created_at": { "cols": ["created_at"], "since": "2.0.0" }
+      }
+    },
+    "bztimg_template_categories": {
+      "since": "2.0.0",
+      "purpose": "Image prompt template taxonomy and Hub synchronization metadata.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "2.0.0", "pk": true },
+        "slug": { "type": "VARCHAR(50) NOT NULL", "since": "2.0.0" },
+        "name": { "type": "VARCHAR(100) NOT NULL", "since": "2.0.0" },
+        "description": { "type": "TEXT", "since": "2.0.0" },
+        "icon_emoji": { "type": "VARCHAR(10) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "icon_url": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "parent_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "sort_order": { "type": "INT NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "2.0.0" },
+        "source": { "type": "VARCHAR(20) NOT NULL DEFAULT 'local'", "since": "3.7.2" },
+        "hub_slug": { "type": "VARCHAR(150) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_version": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_synced_at": { "type": "DATETIME NULL", "since": "3.7.2" },
+        "protected_from_sync": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "3.7.2" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "2.0.0" },
+        "slug": { "cols": ["slug"], "since": "2.0.0", "unique": true },
+        "idx_source": { "cols": ["source"], "since": "3.7.2" }
+      }
+    },
+    "bztimg_templates": {
+      "since": "2.0.0",
+      "purpose": "Image prompt template catalog and Hub synchronization metadata.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "2.0.0", "pk": true },
+        "slug": { "type": "VARCHAR(100) NOT NULL", "since": "2.0.0" },
+        "category_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "subcategory": { "type": "VARCHAR(50) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "title": { "type": "VARCHAR(200) NOT NULL", "since": "2.0.0" },
+        "description": { "type": "TEXT", "since": "2.0.0" },
+        "thumbnail_url": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "badge_text": { "type": "VARCHAR(50) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "badge_color": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "tags": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "prompt_template": { "type": "TEXT NOT NULL", "since": "2.0.0" },
+        "negative_prompt": { "type": "TEXT", "since": "2.0.0" },
+        "form_fields": { "type": "LONGTEXT", "since": "2.0.0" },
+        "recommended_model": { "type": "VARCHAR(50) NOT NULL DEFAULT 'flux-pro'", "since": "2.0.0" },
+        "recommended_size": { "type": "VARCHAR(20) NOT NULL DEFAULT '1024x1024'", "since": "2.0.0" },
+        "style": { "type": "VARCHAR(30) NOT NULL DEFAULT 'auto'", "since": "2.0.0" },
+        "num_outputs": { "type": "INT NOT NULL DEFAULT 1", "since": "2.0.0" },
+        "version": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "extra_data": { "type": "LONGTEXT", "since": "2.0.0" },
+        "use_count": { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "is_featured": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "sort_order": { "type": "INT NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "2.0.0" },
+        "author_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "source": { "type": "VARCHAR(20) NOT NULL DEFAULT 'local'", "since": "3.7.2" },
+        "hub_slug": { "type": "VARCHAR(150) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_version": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_synced_at": { "type": "DATETIME NULL", "since": "3.7.2" },
+        "protected_from_sync": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "3.7.2" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.0.0" },
+        "updated_at": { "type": "DATETIME NULL", "since": "2.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "2.0.0" },
+        "slug": { "cols": ["slug"], "since": "2.0.0", "unique": true },
+        "idx_category": { "cols": ["category_id"], "since": "2.0.0" },
+        "idx_status": { "cols": ["status"], "since": "2.0.0" },
+        "idx_featured": { "cols": ["is_featured"], "since": "2.0.0" },
+        "idx_sort": { "cols": ["sort_order"], "since": "2.0.0" },
+        "idx_source": { "cols": ["source"], "since": "3.7.2" }
+      }
+    },
+    "bztimg_projects": {
+      "since": "2.0.0",
+      "purpose": "Per-user design editor project documents.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "2.0.0", "pk": true },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.0.0" },
+        "title": { "type": "VARCHAR(200) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "data": { "type": "LONGTEXT", "since": "2.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "2.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.0.0" },
+        "updated_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "2.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "2.0.0" },
+        "idx_user": { "cols": ["user_id"], "since": "2.0.0" },
+        "idx_status": { "cols": ["status"], "since": "2.0.0" }
+      }
+    },
+    "bztimg_compositions": {
+      "since": "2.0.0",
+      "purpose": "Per-user multi-image composition drafts and Media Library outputs.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "2.0.0", "pk": true },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.0.0" },
+        "title": { "type": "VARCHAR(200) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "layout_data": { "type": "LONGTEXT", "since": "2.0.0" },
+        "images": { "type": "LONGTEXT", "since": "2.0.0" },
+        "canvas_width": { "type": "INT NOT NULL DEFAULT 1024", "since": "2.0.0" },
+        "canvas_height": { "type": "INT NOT NULL DEFAULT 1024", "since": "2.0.0" },
+        "output_url": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "2.0.0" },
+        "attachment_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'draft'", "since": "2.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.0.0" },
+        "updated_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "2.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "2.0.0" },
+        "idx_user": { "cols": ["user_id"], "since": "2.0.0" },
+        "idx_status": { "cols": ["status"], "since": "2.0.0" }
+      }
+    },
+    "bztimg_editor_shapes": {
+      "since": "3.0.0",
+      "purpose": "Design editor shape asset catalog.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "3.0.0", "pk": true },
+        "clip_path": { "type": "TEXT NOT NULL", "since": "3.0.0" },
+        "description": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "background": { "type": "VARCHAR(50) NOT NULL DEFAULT 'rgb(0,0,0)'", "since": "3.0.0" },
+        "width": { "type": "INT UNSIGNED NOT NULL DEFAULT 256", "since": "3.0.0" },
+        "height": { "type": "INT UNSIGNED NOT NULL DEFAULT 256", "since": "3.0.0" },
+        "img_url": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "attachment_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "content_hash": { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "sort_order": { "type": "INT NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "3.0.0" },
+        "source": { "type": "VARCHAR(20) NOT NULL DEFAULT 'local'", "since": "3.7.2" },
+        "hub_slug": { "type": "VARCHAR(150) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_version": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_synced_at": { "type": "DATETIME NULL", "since": "3.7.2" },
+        "protected_from_sync": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "3.7.2" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "3.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "3.0.0" },
+        "uk_hash": { "cols": ["content_hash"], "since": "3.0.0", "unique": true },
+        "idx_source": { "cols": ["source"], "since": "3.7.2" },
+        "ft_desc": { "cols": ["description"], "since": "3.0.0" }
+      }
+    },
+    "bztimg_editor_frames": {
+      "since": "3.0.0",
+      "purpose": "Design editor frame asset catalog.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "3.0.0", "pk": true },
+        "clip_path": { "type": "TEXT NOT NULL", "since": "3.0.0" },
+        "description": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "width": { "type": "INT UNSIGNED NOT NULL DEFAULT 256", "since": "3.0.0" },
+        "height": { "type": "INT UNSIGNED NOT NULL DEFAULT 256", "since": "3.0.0" },
+        "img_url": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "attachment_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "content_hash": { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "sort_order": { "type": "INT NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "3.0.0" },
+        "source": { "type": "VARCHAR(20) NOT NULL DEFAULT 'local'", "since": "3.7.2" },
+        "hub_slug": { "type": "VARCHAR(150) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_version": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_synced_at": { "type": "DATETIME NULL", "since": "3.7.2" },
+        "protected_from_sync": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "3.7.2" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "3.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "3.0.0" },
+        "uk_hash": { "cols": ["content_hash"], "since": "3.0.0", "unique": true },
+        "idx_source": { "cols": ["source"], "since": "3.7.2" },
+        "ft_desc": { "cols": ["description"], "since": "3.0.0" }
+      }
+    },
+    "bztimg_editor_fonts": {
+      "since": "3.0.0",
+      "purpose": "Design editor font family catalog.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "3.0.0", "pk": true },
+        "family": { "type": "VARCHAR(200) NOT NULL", "since": "3.0.0" },
+        "styles_json": { "type": "LONGTEXT NOT NULL", "since": "3.0.0" },
+        "sort_order": { "type": "INT NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "3.0.0" },
+        "source": { "type": "VARCHAR(20) NOT NULL DEFAULT 'local'", "since": "3.7.2" },
+        "hub_slug": { "type": "VARCHAR(150) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_version": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_synced_at": { "type": "DATETIME NULL", "since": "3.7.2" },
+        "protected_from_sync": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "3.7.2" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "3.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "3.0.0" },
+        "uk_family": { "cols": ["family"], "since": "3.0.0", "unique": true },
+        "idx_source": { "cols": ["source"], "since": "3.7.2" }
+      }
+    },
+    "bztimg_editor_text_presets": {
+      "since": "3.0.0",
+      "purpose": "Design editor text preset asset catalog.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "3.0.0", "pk": true },
+        "description": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "data_json": { "type": "LONGTEXT NOT NULL", "since": "3.0.0" },
+        "width": { "type": "INT UNSIGNED NOT NULL DEFAULT 256", "since": "3.0.0" },
+        "height": { "type": "INT UNSIGNED NOT NULL DEFAULT 256", "since": "3.0.0" },
+        "img_url": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "attachment_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "content_hash": { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "sort_order": { "type": "INT NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "3.0.0" },
+        "source": { "type": "VARCHAR(20) NOT NULL DEFAULT 'local'", "since": "3.7.2" },
+        "hub_slug": { "type": "VARCHAR(150) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_version": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_synced_at": { "type": "DATETIME NULL", "since": "3.7.2" },
+        "protected_from_sync": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "3.7.2" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "3.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "3.0.0" },
+        "uk_hash": { "cols": ["content_hash"], "since": "3.0.0", "unique": true },
+        "idx_source": { "cols": ["source"], "since": "3.7.2" },
+        "ft_desc": { "cols": ["description"], "since": "3.0.0" }
+      }
+    },
+    "bztimg_editor_templates": {
+      "since": "3.0.0",
+      "purpose": "Design editor composition template asset catalog.",
+      "engine": "InnoDB",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "3.0.0", "pk": true },
+        "description": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "data_json": { "type": "LONGTEXT NOT NULL", "since": "3.0.0" },
+        "pages": { "type": "INT UNSIGNED NOT NULL DEFAULT 1", "since": "3.0.0" },
+        "width": { "type": "INT UNSIGNED NOT NULL DEFAULT 256", "since": "3.0.0" },
+        "height": { "type": "INT UNSIGNED NOT NULL DEFAULT 256", "since": "3.0.0" },
+        "img_url": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "attachment_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "content_hash": { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "3.0.0" },
+        "sort_order": { "type": "INT NOT NULL DEFAULT 0", "since": "3.0.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "3.0.0" },
+        "source": { "type": "VARCHAR(20) NOT NULL DEFAULT 'local'", "since": "3.7.2" },
+        "hub_slug": { "type": "VARCHAR(150) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_version": { "type": "VARCHAR(20) NOT NULL DEFAULT ''", "since": "3.7.2" },
+        "hub_synced_at": { "type": "DATETIME NULL", "since": "3.7.2" },
+        "protected_from_sync": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "3.7.2" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "3.0.0" }
+      },
+      "indexes": {
+        "PRIMARY": { "cols": ["id"], "since": "3.0.0" },
+        "uk_hash": { "cols": ["content_hash"], "since": "3.0.0", "unique": true },
+        "idx_source": { "cols": ["source"], "since": "3.7.2" },
+        "ft_desc": { "cols": ["description"], "since": "3.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "2.0.0", "date": "2026-03-01", "change": "Baseline image jobs, prompt template catalog, categories, projects and compositions schema." },
+    { "version": "3.0.0", "date": "2026-04-01", "change": "Add design editor shapes, frames, fonts, text presets and editor templates asset tables." },
+    { "version": "3.7.2", "date": "2026-08-21", "change": "Add source, Hub synchronization and protected-from-sync metadata to image and editor asset catalogs." },
+    { "version": "6.3.0", "date": "2026-09-07", "change": "Record the current installer schema as the R-DCL baseline before any tool-image retirement or table cleanup automation." }
+  ]
+}

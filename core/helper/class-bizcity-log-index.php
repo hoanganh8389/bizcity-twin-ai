@@ -23,6 +23,8 @@ final class BizCity_Log_Index {
 	const TABLE_SUFFIX      = 'bizcity_log_index';
 	const DB_VERSION        = '1.0.0';
 	const DB_VERSION_OPTION = 'bizcity_log_index_db_version';
+	const EMPTY_MIGRATION_VERSION = '2026-09-08.v1';
+	const EMPTY_MIGRATION_OPTION = 'bizcity_log_index_empty_migration';
 	const RECONCILE_CURSOR_OPTION = 'bizcity_log_index_reconcile_cursor_v1';
 
 	private static $table_ready = array();
@@ -102,6 +104,44 @@ final class BizCity_Log_Index {
 		unset( self::$table_ready[ self::availability_key() ] );
 	}
 
+	/**
+	 * Empty this rebuildable pointer index once per physical tenant blog.
+	 *
+	 * JSONL files remain canonical and are never touched. The option marker is
+	 * written only after the tenant table has been emptied successfully, so a
+	 * later retention tick can retry a failed site without repeating completed
+	 * work.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function empty_index_once() {
+		// [2026-09-08 01:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — one-time per-blog rebuildable log-index reset; filestore remains canonical.
+		$state = (string) get_option( self::EMPTY_MIGRATION_OPTION, '' );
+		if ( strpos( $state, self::EMPTY_MIGRATION_VERSION . ':' ) === 0 ) {
+			return array( 'ok' => true, 'skipped' => true, 'reason' => 'already_completed', 'rows_affected' => 0 );
+		}
+		if ( ! self::is_available() ) {
+			if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( self::table() ) ) {
+				// [2026-09-08 09:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — mark a tenant without the optional rebuildable index so the fleet migration advances once without creating the table.
+				update_option( self::EMPTY_MIGRATION_OPTION, self::EMPTY_MIGRATION_VERSION . ':absent', false );
+				return array( 'ok' => true, 'skipped' => false, 'reason' => 'index_table_absent', 'rows_affected' => 0 );
+			}
+			return array( 'ok' => false, 'skipped' => false, 'reason' => 'index_table_unavailable', 'rows_affected' => 0 );
+		}
+		global $wpdb;
+		$table = self::table();
+		$affected = $wpdb->query( 'TRUNCATE TABLE `' . esc_sql( $table ) . '`' );
+		if ( false === $affected ) {
+			return array( 'ok' => false, 'skipped' => false, 'reason' => 'index_truncate_failed', 'rows_affected' => 0 );
+		}
+		update_option( self::EMPTY_MIGRATION_OPTION, self::EMPTY_MIGRATION_VERSION . ':truncated', false );
+		self::reset_availability();
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::flush_group( 'bzlogidx' );
+		}
+		return array( 'ok' => true, 'skipped' => false, 'reason' => 'truncated_once', 'rows_affected' => (int) $affected );
+	}
+
 	public static function is_enabled( $contract_id = '', array $row = array() ) {
 		// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-G4 — expose one owner-controlled rollback boundary; disabled indexing never disables canonical JSONL writes.
 		if ( ! function_exists( 'apply_filters' ) ) {
@@ -168,6 +208,16 @@ final class BizCity_Log_Index {
 				return false;
 			}
 			$byte_offset = max( 0, (int) ( $pointer['byte_offset'] ?? 0 ) );
+			if ( ! array_key_exists( 'relative_file', $pointer ) || ! array_key_exists( 'byte_offset', $pointer ) || ! array_key_exists( 'row_hash', $pointer ) || ! preg_match( '/^[a-f0-9]{64}$/i', $row_hash ) ) {
+				return false;
+			}
+			if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'verify_pointer' ) ) {
+				return false;
+			}
+			$verified = BizCity_JSONL_File_Logger::verify_pointer( $folder, $module, $relative_file, $byte_offset, $row_hash );
+			if ( empty( $verified['valid'] ) ) {
+				return false;
+			}
 			$ref_id = self::reference_id( $row );
 			$meta_json = self::meta_json( $row );
 			// [2026-08-30 Johnny Chu] R-LOG-IDEMPOTENCY - avoid a duplicate unique-key query for an already indexed event.

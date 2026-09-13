@@ -76,6 +76,8 @@ class BizCity_Channel_File_Logger {
 	const CH_TELEGRAM        = 'telegram';
 	const CH_WEBCHAT         = 'webchat';
 	const CH_CF7             = 'cf7';
+	// [2026-09-10 Johnny Chu - Chu Hoàng Anh] PHASE-0.55-MABEL-WHEEL - register the passive wheel evidence bucket.
+	const CH_MABEL_WHEEL     = 'mabel_wheel';
 	const CH_CHANNEL_GATEWAY = 'channel_gateway'; // Generic fallback
 	// [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — astro hub call log (client → llm router)
 	const CH_ASTRO           = 'astro';
@@ -119,6 +121,7 @@ class BizCity_Channel_File_Logger {
 				self::CH_TELEGRAM,
 				self::CH_WEBCHAT,
 				self::CH_CF7,
+				self::CH_MABEL_WHEEL,
 				self::CH_CHANNEL_GATEWAY,
 				self::CH_ASTRO,
 			);
@@ -257,7 +260,7 @@ class BizCity_Channel_File_Logger {
 		if ( in_array( $zone, array( 'customer', 'admin', 'system' ), true ) ) {
 			return $zone;
 		}
-		if ( in_array( $channel, array( self::CH_FACEBOOK, self::CH_MESSENGER, self::CH_ZALO_OA, self::CH_ZALO_PERSONAL, self::CH_WEBCHAT ), true ) ) {
+		if ( in_array( $channel, array( self::CH_FACEBOOK, self::CH_MESSENGER, self::CH_ZALO_OA, self::CH_ZALO_PERSONAL, self::CH_WEBCHAT, self::CH_MABEL_WHEEL ), true ) ) {
 			return 'customer';
 		}
 		if ( in_array( $channel, array( self::CH_ZALO_BOT, self::CH_TELEGRAM ), true ) ) {
@@ -431,7 +434,7 @@ class BizCity_Channel_File_Logger {
 	 */
 	public static function query_records( array $args = array() ) {
 		// [2026-09-01 Johnny Chu] R-CH-10 — one bounded account-scoped reader for every channel diagnostics consumer.
-		$channels = array( self::CH_EMAIL, self::CH_FACEBOOK, self::CH_MESSENGER, self::CH_ZALO_OA, self::CH_ZALO_BOT, self::CH_ZALO_PERSONAL, self::CH_ZALO_ZNS, self::CH_TELEGRAM, self::CH_WEBCHAT, self::CH_CF7, self::CH_CHANNEL_GATEWAY, self::CH_ASTRO );
+		$channels = array( self::CH_EMAIL, self::CH_FACEBOOK, self::CH_MESSENGER, self::CH_ZALO_OA, self::CH_ZALO_BOT, self::CH_ZALO_PERSONAL, self::CH_ZALO_ZNS, self::CH_TELEGRAM, self::CH_WEBCHAT, self::CH_CF7, self::CH_MABEL_WHEEL, self::CH_CHANNEL_GATEWAY, self::CH_ASTRO );
 		$requested_channel = sanitize_key( (string) ( $args['channel'] ?? '' ) );
 		if ( $requested_channel !== '' ) {
 			if ( ! in_array( $requested_channel, $channels, true ) ) {

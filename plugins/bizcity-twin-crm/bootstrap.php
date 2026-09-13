@@ -293,6 +293,11 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'inbox/adapters/class-adapter-email-imap.php';
 		require_once $inc . 'inbox/adapters/class-adapter-web-widget.php';
 		require_once $inc . 'inbox/adapters/class-adapter-webchat.php';
+		$mabel_wheel_adapter = $inc . 'inbox/adapters/class-adapter-mabel-wheel.php';
+		if ( is_file( $mabel_wheel_adapter ) && is_readable( $mabel_wheel_adapter ) && class_exists( 'BizCity_Safe_Loader' ) ) {
+			// [2026-09-10 Johnny Chu - Chu Hoàng Anh] PHASE-0.55-MABEL-WHEEL - load the passive intake adapter through Safe Loader.
+			BizCity_Safe_Loader::require_file( $mabel_wheel_adapter, 'crm.adapter.mabel_wheel' );
+		}
 		require_once $inc . 'inbox/class-fb-ingestor.php';
 
 		// v1.16.0 — Customer Source adapter pattern (Sales Pipeline auto-fill).
@@ -321,6 +326,8 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'class-service-templates.php';
 		require_once $inc . 'class-guru-roles-admin.php';
 		require_once $inc . 'class-order-adapter.php';
+		// [2026-09-13 11:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.3 — load the provider-neutral fulfillment registry without enabling a provider or treating local Woo tracking as fulfillment truth.
+		require_once $inc . 'class-fulfillment-adapter.php';
 
 		// PHASE 0.35 M-CRM.M8.W1 — WooCommerce bridge orchestrator (loads
 		// all sub-bridges only when WooCommerce is active). Order adapter
@@ -572,6 +579,9 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 			}
 			if ( ! isset( $adapters['webchat'] ) && class_exists( 'BizCity_CRM_Adapter_WebChat' ) ) {
 				$adapters['webchat'] = new BizCity_CRM_Adapter_WebChat();
+			}
+			if ( ! isset( $adapters['mabel_wheel'] ) && class_exists( 'BizCity_CRM_Adapter_Mabel_Wheel' ) ) {
+				$adapters['mabel_wheel'] = new BizCity_CRM_Adapter_Mabel_Wheel();
 			}
 			return $adapters;
 		}, 5 );

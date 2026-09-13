@@ -58,6 +58,15 @@ if ( class_exists( 'BizCity_Context_Bank_Identity_Registry', false ) ) {
 }
 unset( $_context_bank_identity_registry );
 
+// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-1.33B-B1 — load the Context Bank Brain mode policy through the guarded contract boundary.
+$_context_bank_mode_policy = __DIR__ . '/contracts/class-context-bank-mode-policy.php';
+if ( class_exists( 'BizCity_Safe_Loader', false )
+	&& is_file( $_context_bank_mode_policy )
+	&& is_readable( $_context_bank_mode_policy ) ) {
+	BizCity_Safe_Loader::require_file( $_context_bank_mode_policy, 'context_bank.mode_policy' );
+}
+unset( $_context_bank_mode_policy );
+
 // [2026-09-01 Johnny Chu] CB3.1 — load the pointer ledger only after the
 // contract and identity registries exist; schema work remains Provisioner-only.
 $_context_bank_ledger = __DIR__ . '/includes/class-context-bank-ledger.php';
@@ -210,6 +219,15 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	BizCity_Safe_Loader::require_file( $_context_bank_scope_resolver, 'context_bank.scope_resolver' );
 }
 unset( $_context_bank_scope_resolver );
+
+// [2026-09-08 03:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX2 — load the CRM user-inbox-scope bridge after the Context Bank scope owner.
+$_context_bank_crm_scope_adapter = __DIR__ . '/includes/class-context-bank-crm-scope-adapter.php';
+if ( class_exists( 'BizCity_Safe_Loader', false )
+	&& is_file( $_context_bank_crm_scope_adapter )
+	&& is_readable( $_context_bank_crm_scope_adapter ) ) {
+	BizCity_Safe_Loader::require_file( $_context_bank_crm_scope_adapter, 'context_bank.crm_scope_adapter' );
+}
+unset( $_context_bank_crm_scope_adapter );
 
 // [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — load the Skill reference adapter through the Context Bank owner so canonical Skill lifecycle events reach one pointer-only projection path.
 $_context_bank_rule_reference_adapter = __DIR__ . '/includes/class-context-bank-rule-reference-adapter.php';

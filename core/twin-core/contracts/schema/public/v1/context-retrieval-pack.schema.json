@@ -33,7 +33,7 @@
       "additionalProperties": false,
       "required": ["mode", "blog_id"],
       "properties": {
-        "mode": { "enum": ["vertical", "notebook", "hybrid", "recent_identity", "skip"] },
+        "mode": { "enum": ["context_bank", "vertical", "notebook", "hybrid", "recent_identity", "skip"] },
         "blog_id": { "type": "integer", "minimum": 1 },
         "vertical_id": { "type": "string", "minLength": 2, "maxLength": 120 },
         "notebook_id": { "type": "integer", "minimum": 1 },

@@ -1,13 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://bizcity.vn/schema/twin-extension-manifest-v1.json",
+  "$id": "https://bizcity.vn/schema/twin-extension-manifest-v1.1.json",
   "title": "BizCity Twin Extension Manifest",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "id", "name", "version", "capabilities"],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0" },
+    "schema_version": { "type": "string", "const": "1.1" },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$" },
+    "package_role": {
+      "enum": ["core", "module", "channel_owner", "framework_integrated", "vertical_extension", "optional_utility", "private_pro_utility", "legacy_adapter", "reference_only"]
+    },
     "name": { "type": "string", "minLength": 1, "maxLength": 120 },
     "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
     "taxonomy": {
@@ -67,6 +70,9 @@
         "changelog": { "type": "string", "minLength": 1, "maxLength": 255 }
       }
     },
+    "storage_context": {
+      "$ref": "public/v1/extension-storage-context.schema.json"
+    },
     "capabilities": {
       "type": "object",
       "additionalProperties": false,
@@ -89,6 +95,40 @@
     "navigation": {
       "type": "array",
       "items": { "$ref": "#/$defs/navigationItem" }
+    },
+    "setting_panel": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/settingPanelItem" }
+    },
+    "spine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "channel": { "$ref": "#/$defs/spineChannel" },
+        "crm": { "$ref": "#/$defs/spineCrm" },
+        "context_bank": { "$ref": "#/$defs/spineContextBank" },
+        "knowledge": { "$ref": "#/$defs/spineKnowledge" },
+        "brain": { "$ref": "#/$defs/spineBrain" },
+        "mcp": { "$ref": "#/$defs/spineMcp" },
+        "action": { "$ref": "#/$defs/spineAction" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "probe_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,160}$" }
+        },
+        "negative_cases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" }
+        }
+      }
     },
     "permissions": {
       "type": "array",
@@ -171,6 +211,73 @@
     }
   },
   "$defs": {
+    "contractRefList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}@[0-9]+(?:\\.[0-9]+|\\.x){0,2}$" }
+    },
+    "spineChannel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["producer", "consumer", "none"] },
+        "contracts": { "$ref": "#/$defs/contractRefList" },
+        "zone": { "enum": ["customer", "admin", "system"] },
+        "account_scope": { "enum": ["exact", "single", "multiple", "none"] }
+      }
+    },
+    "spineCrm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["repository_event", "projection", "consumer", "none", "not_applicable"] },
+        "owner": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "contract": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}@[0-9]+(?:\\.[0-9]+|\\.x){0,2}$" }
+      }
+    },
+    "spineContextBank": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["producer", "consumer", "none", "not_applicable"] },
+        "contracts": { "$ref": "#/$defs/contractRefList" },
+        "payload_owner": { "enum": ["encrypted_filestore", "business_filestore", "event_stream", "sql_projection", "none"] }
+      }
+    },
+    "spineKnowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["kg_adapter", "retrieval_consumer", "none", "not_applicable"] },
+        "contracts": { "$ref": "#/$defs/contractRefList" },
+        "owner": { "type": "string", "minLength": 2, "maxLength": 160 }
+      }
+    },
+    "spineBrain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["canonical_runtime", "vertical_mode", "consumer", "none", "not_applicable"] },
+        "vertical_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" }
+      }
+    },
+    "spineMcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["tool_consumer", "action_provider", "none"] },
+        "permissions": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$" } }
+      }
+    },
+    "spineAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "side_effects": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" } },
+        "mutation_contract": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}@[0-9]+(?:\\.[0-9]+|\\.x){0,2}$" },
+        "runtime_policy": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}@[0-9]+(?:\\.[0-9]+|\\.x){0,2}$" }
+      }
+    },
     "capability": {
       "type": "object",
       "additionalProperties": false,
@@ -257,6 +364,62 @@
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" }
         }
+      }
+    },
+    "settingPanelItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "version", "id", "owner", "origin", "destination", "group", "label_key", "icon", "capability", "scope", "surface", "renderer", "availability", "position"],
+      "properties": {
+        "contract": { "const": "setting-panel-registration" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" },
+        "owner": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "origin": { "enum": ["core", "module", "bundle", "extension", "legacy_adapter"] },
+        "destination": { "enum": ["workspace", "settings", "control-panel", "channel-settings", "crm-inbox", "plugins-store"] },
+        "group": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,80}$" },
+        "label_key": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,160}$" },
+        "description_key": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,160}$" },
+        "icon": { "type": "string", "pattern": "^cil-[a-z0-9-]+$" },
+        "capability": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){0,4}$" },
+        "scope": { "enum": ["site", "network", "user", "site_user"] },
+        "surface": { "enum": ["admin_shell", "admin_page", "network_admin", "external"] },
+        "renderer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id"],
+          "properties": {
+            "type": { "enum": ["coreui", "route", "embed", "deep_link", "external"] },
+            "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" },
+            "canonical_slug": { "type": "string", "pattern": "^[a-z][a-z0-9._/-]{2,160}$" },
+            "route": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]*$" },
+            "target_url": { "type": "string", "pattern": "^https://[A-Za-z0-9.-]+(?:/[^\\s]*)?$" },
+            "allowed_query_keys": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" } },
+            "shell_mode": { "enum": ["detail", "full", "external"] }
+          }
+        },
+        "availability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["policy"],
+          "properties": {
+            "policy": { "enum": ["registered-owner", "all", "any", "always"] },
+            "dependency_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" } },
+            "min_framework": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+            "min_php": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+            "min_wp": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" }
+          }
+        },
+        "position": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "keywords": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9 _.-]{0,63}$" } },
+        "badge": { "enum": ["new", "beta", "pro", "update", "deprecated"] },
+        "zone": { "enum": ["customer", "admin", "system"] },
+        "plan": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
+        "required": { "type": "boolean" },
+        "aliases": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9._/-]{2,160}$" } },
+        "native_contract": { "type": "boolean" },
+        "migration_owner": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "sunset_after": { "type": "string", "pattern": "^[A-Z0-9._-]{2,80}$" }
       }
     }
   }

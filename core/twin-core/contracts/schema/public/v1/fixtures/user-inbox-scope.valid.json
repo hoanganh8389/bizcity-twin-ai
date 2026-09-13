@@ -1,0 +1,76 @@
+{
+  "contract": "user-inbox-scope",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "principal": {
+    "blog_id": 1258,
+    "user_id": 42
+  },
+  "phone_spine": {
+    "status": "verified",
+    "phone_key": "8d9f17a071f3b27e8c0e2be70cf4ce12",
+    "phone_masked": "09******21",
+    "verification_source": "woo.billing_phone",
+    "verified_at": "2026-09-08T06:00:00Z"
+  },
+  "branches": {
+    "customer": [
+      {
+        "scope_id": "inbox_personal_17",
+        "branch": "customer",
+        "zone": "customer",
+        "channel": "zalo_personal",
+        "access_mode": "owner_only",
+        "account_key": "f86ba8575e613ef1",
+        "account_label": "Zalo Personal 09******21",
+        "crm_mode": "customer_inbox",
+        "capabilities": ["conversation.read", "conversation.reply", "contact.read", "group.roster.read", "group.mention", "attachment.send", "context.read"],
+        "context_policy": "conversation_summary"
+      },
+      {
+        "scope_id": "inbox_facebook_22",
+        "branch": "customer",
+        "zone": "customer",
+        "channel": "facebook",
+        "access_mode": "owner_or_membership",
+        "account_key": "7fe82fc9e1611d13",
+        "account_label": "Fanpage Kinh doanh",
+        "crm_mode": "customer_inbox",
+        "capabilities": ["conversation.read", "conversation.reply", "conversation.assign", "contact.read", "contact.write", "attachment.send", "broadcast.send", "context.read"],
+        "context_policy": "conversation_summary"
+      },
+      {
+        "scope_id": "inbox_zalo_oa_28",
+        "branch": "customer",
+        "zone": "customer",
+        "channel": "zalo_oa",
+        "access_mode": "membership",
+        "account_key": "5402cb5924c7f492",
+        "account_label": "Zalo OA CSKH",
+        "crm_mode": "customer_inbox",
+        "capabilities": ["conversation.read", "conversation.reply", "contact.read", "context.read"],
+        "context_policy": "conversation_summary"
+      }
+    ],
+    "admin": [
+      {
+        "scope_id": "admin_zalobot_5",
+        "branch": "admin",
+        "zone": "admin",
+        "channel": "zalo_bot",
+        "access_mode": "linked_user",
+        "account_key": "4924a263259b7a08",
+        "account_label": "Zalo Bot quản trị",
+        "crm_mode": "disabled",
+        "capabilities": ["context.read", "brain.command"],
+        "context_policy": "admin_command"
+      }
+    ]
+  },
+  "denied": [
+    {
+      "scope_id": "inbox_personal_99",
+      "reason": "personal_owner_mismatch"
+    }
+  ]
+}

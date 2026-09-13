@@ -5,6 +5,9 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
 
 jobs:
 
@@ -56,6 +59,12 @@ jobs:
 
       - name: Reject new active contract bypasses
         run: node bin/framework-contract-audit.mjs
+
+      - name: Validate deterministic contract fixtures
+        run: node bin/validate-framework-contract-fixtures.mjs
+
+      - name: Enforce legacy table lifecycle gates
+        run: node bin/validate-legacy-table-lifecycle.mjs
 
       - name: Enforce R-SAFE-LOADER bootstrap rule
         shell: bash
@@ -226,6 +235,10 @@ jobs:
 
       - name: Install dependencies
         run: composer install --no-progress --prefer-dist --no-interaction
+
+      - name: Run PHPUnit contract tests
+        if: matrix.php == '7.4'
+        run: composer test -- --testdox
 
       - name: PHP syntax check
         run: |
@@ -480,6 +493,29 @@ jobs:
       - name: Activate plugin
         run: wp plugin activate bizcity-twin-ai
 
+      - name: Run wp bizcity health smoke
+        run: |
+          set -euo pipefail
+          output='wp-content/plugins/bizcity-twin-ai/build/framework-health.json'
+          mkdir -p "$(dirname "$output")"
+          wp bizcity health --format=json > "$output"
+          php -r '
+            $data = json_decode( file_get_contents( $argv[1] ), true );
+            if ( ! is_array( $data ) || "diagnostics-verdict" !== ( $data["contract"] ?? "" ) ) {
+              fwrite( STDERR, "wp bizcity health did not produce diagnostics-verdict output.\n" );
+              fwrite( STDERR, file_get_contents( $argv[1] ) . "\n" );
+              exit( 1 );
+            }
+            if ( ! in_array( $data["verdict"] ?? "", array( "pass", "warn" ), true ) ) {
+              fwrite( STDERR, "wp bizcity health returned an unexpected verdict: " . (string) ( $data["verdict"] ?? "<missing>" ) . "\n" );
+              fwrite( STDERR, "counts=" . json_encode( $data["counts"] ?? array() ) . "\n" );
+              foreach ( (array) ( $data["results"] ?? array() ) as $result ) {
+                fwrite( STDERR, json_encode( array( "id" => $result["id"] ?? "", "status" => $result["status"] ?? "", "error" => $result["error"] ?? "", "summary" => $result["summary"] ?? "" ) ) . "\n" );
+              }
+              exit( 1 );
+            }
+          ' "$output"
+
       - name: Composer install
         working-directory: wp-content/plugins/bizcity-twin-ai
         run: composer install --no-dev --no-progress --prefer-dist
@@ -488,10 +524,152 @@ jobs:
         working-directory: wp-content/plugins/bizcity-twin-ai
         env:
           BIZCITY_WP_ROOT: ${{ github.workspace }}
-        run: php bin/diagnostics-run.php --skip-network --junit=build/junit.xml --filter='*'
+        run: >-
+          php bin/diagnostics-run.php --host=cli.local --skip-network
+          --junit=build/junit.xml
+          --filter='core.legacy_table.lifecycle,core.legacy_table.install_prevention,core.legacy_table.callers,core.legacy_table.state_machine,core.legacy_table.drop_zero_row_guard,core.legacy_table.approved_drop,core.legacy_table.uninstall_matrix,core.legacy_table.multisite_scope,core.legacy_table.owner_parity,core.legacy_table.jsonl_source_parity,core.legacy_table.contract_scoreboard,core.memory.filestore_parity,core.memory.notes_filestore_parity,core.knowledge.kg_source_progress_parity,core.knowledge.kg_cleanup_audit_parity,core.knowledge.kg_usage_ledger_parity,integrations.google_usage_parity,core.skills.usage_parity,modules.zalobot.memory_unify'
 
       - name: Run framework production smoke
         run: wp --user=1 eval-file wp-content/plugins/bizcity-twin-ai/bin/framework-smoke.php
+
+      - name: Run wp bizcity diagnostics smoke
+        working-directory: wp-content/plugins/bizcity-twin-ai
+        run: |
+          set -euo pipefail
+          output='build/framework-diagnostics.json'
+          mkdir -p "$(dirname "$output")"
+          php bin/diagnostics-run.php --host=cli.local --skip-network --filter='core.module-registry' > build/canonical-diagnostics.txt
+          wp bizcity diagnostics --skip-network --filter='core.module-registry' --format=json > "$output"
+          php -r '
+            $data = json_decode( file_get_contents( $argv[1] ), true );
+            if ( ! is_array( $data ) || "diagnostics-verdict" !== ( $data["contract"] ?? "" ) ) {
+              fwrite( STDERR, "wp bizcity diagnostics did not produce diagnostics-verdict output.\n" );
+              exit( 1 );
+            }
+            if ( ! isset( $data["results"], $data["counts"], $data["verdict"] ) ) {
+              fwrite( STDERR, "wp bizcity diagnostics output is incomplete.\n" );
+              exit( 1 );
+            }
+          ' "$output"
+
+      - name: Run isolated diagnostics batches (nightly/manual)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        working-directory: wp-content/plugins/bizcity-twin-ai
+        env:
+          BIZCITY_WP_ROOT: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          run_id="diag_${GITHUB_RUN_ID}_${{ matrix.php }}_${{ matrix.wp }}"
+          artifact_dir="build/diagnostics-batches"
+          mkdir -p "$artifact_dir"
+          status=0
+          first_batch=1
+          for batch in health schema core channel knowledge twinweb external; do
+            json="$artifact_dir/${batch}.json"
+            junit="$artifact_dir/${batch}.xml"
+            stderr_log="$artifact_dir/${batch}.stderr.log"
+            provision_flag=""
+            if [ "$first_batch" -eq 0 ]; then
+              provision_flag="--skip-provision"
+            fi
+            first_batch=0
+            set +e
+            php bin/diagnostics-run.php \
+              --host=cli.local \
+              --batch="$batch" \
+              --run-id="$run_id" \
+              --skip-network \
+              $provision_flag \
+              --junit="$junit" \
+              --format=json > "$json" 2> "$stderr_log"
+            batch_exit=$?
+            set -e
+            if ! php -r '
+              $data = json_decode( file_get_contents( $argv[1] ), true );
+              if ( ! is_array( $data ) || "diagnostics-verdict" !== ( $data["contract"] ?? "" ) ) {
+                fwrite( STDERR, "Batch did not produce diagnostics-verdict JSON.\n" );
+                exit( 1 );
+              }
+              if ( ( $data["run_id"] ?? "" ) === "" || ( $data["batch"] ?? "" ) !== $argv[2] ) {
+                fwrite( STDERR, "Batch JSON has incorrect run_id or batch.\n" );
+                exit( 1 );
+              }
+            ' "$json" "$batch"; then
+              status=1
+            fi
+            if [ "$batch_exit" -ne 0 ]; then
+              status=1
+            fi
+          done
+
+          aggregate_json="$artifact_dir/aggregate.json"
+          aggregate_stderr="$artifact_dir/aggregate.stderr.log"
+          set +e
+          php bin/diagnostics-run.php \
+            --host=cli.local \
+            --aggregate="$run_id" \
+            --require-complete \
+            --format=json > "$aggregate_json" 2> "$aggregate_stderr"
+          aggregate_exit=$?
+          set -e
+          php -r '
+            $data = json_decode( file_get_contents( $argv[1] ), true );
+            if ( ! is_array( $data ) || "diagnostics-verdict" !== ( $data["contract"] ?? "" ) ) {
+              fwrite( STDERR, "Aggregate did not produce diagnostics-verdict JSON.\n" );
+              exit( 1 );
+            }
+            if ( ! empty( $data["coverage"]["deferred"] ) || empty( $data["coverage"]["complete"] ) ) {
+              fwrite( STDERR, "Aggregate coverage is incomplete.\n" );
+              exit( 1 );
+            }
+            if ( ! empty( $data["counts"]["fail"] ) ) {
+              fwrite( STDERR, "Aggregate contains failing probes.\n" );
+              exit( 1 );
+            }
+          ' "$aggregate_json" || status=1
+          if [ "$aggregate_exit" -ne 0 ]; then
+            status=1
+          fi
+          exit "$status"
+
+      - name: Upload isolated diagnostics artifacts
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-batches-php${{ matrix.php }}-wp${{ matrix.wp }}
+          path: wp-content/plugins/bizcity-twin-ai/build/diagnostics-batches
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Aggregate isolated diagnostics through wp bizcity facade (nightly)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        working-directory: wp-content/plugins/bizcity-twin-ai
+        run: |
+          set -euo pipefail
+          output='build/framework-diagnostics-full.json'
+          mkdir -p "$(dirname "$output")"
+          run_id="diag_${GITHUB_RUN_ID}_${{ matrix.php }}_${{ matrix.wp }}"
+          wp bizcity diagnostics --aggregate="$run_id" --require-complete --format=json > "$output"
+          php -r '
+            $data = json_decode( file_get_contents( $argv[1] ), true );
+            if ( ! is_array( $data ) || "diagnostics-verdict" !== ( $data["contract"] ?? "" ) ) {
+              fwrite( STDERR, "Aggregated wp bizcity diagnostics did not produce diagnostics-verdict output.\n" );
+              exit( 1 );
+            }
+            if ( ! isset( $data["results"], $data["counts"], $data["coverage"], $data["verdict"] ) ) {
+              fwrite( STDERR, "Aggregated wp bizcity diagnostics output is incomplete.\n" );
+              exit( 1 );
+            }
+            if ( empty( $data["coverage"]["complete"] ) || ! empty( $data["coverage"]["deferred"] ) ) {
+              fwrite( STDERR, "Aggregated wp bizcity diagnostics coverage is incomplete.\n" );
+              exit( 1 );
+            }
+            if ( ! empty( $data["counts"]["fail"] ) ) {
+              fwrite( STDERR, "Aggregated wp bizcity diagnostics reported failing probes.\n" );
+              exit( 1 );
+            }
+          ' "$output"
 
       - name: Upload JUnit
         if: always()

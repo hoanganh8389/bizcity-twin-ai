@@ -42,6 +42,7 @@ final class BizCity_Probe_Framework_Extension_Manifest implements BizCity_Diagno
 	public function precondition() { return true; }
 
 	public function run( $ctx ): array {
+		// [2026-09-08 01:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — include user-inbox-scope in the public contract catalog gate.
 		// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — verify the public manifest catalog and negative policy fixtures without provider or database side effects.
 		$steps = array();
 		$root  = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( dirname( dirname( dirname( dirname( __FILE__ ) ) ) ) ) . '/';
@@ -91,7 +92,7 @@ final class BizCity_Probe_Framework_Extension_Manifest implements BizCity_Diagno
 			'label'  => 'Disk - public catalog, schemas and fixtures are readable JSON',
 			'status' => $catalog_ok && empty( $missing ) && empty( $json_errors ) ? 'pass' : 'fail',
 			'detail' => $catalog_ok && empty( $missing ) && empty( $json_errors )
-				? 'Catalog 1.7.0 and every referenced contract artifact are readable.'
+				? 'Catalog 1.8.0 and every referenced contract artifact are readable.'
 				: 'Missing or invalid public contract artifacts: ' . implode( ', ', array_merge( $missing, $json_errors ) ),
 		);
 		if ( ! $catalog_ok || ! empty( $missing ) || ! empty( $json_errors ) ) {
@@ -177,20 +178,59 @@ final class BizCity_Probe_Framework_Extension_Manifest implements BizCity_Diagno
 			'status' => $n_minus_one_ok && $future_policy_ok ? 'pass' : 'fail',
 			'detail' => $n_minus_one_ok && $future_policy_ok ? 'N-1 manifest remains valid on the current contract and Slack/TikTok/Shopee policies keep identity, zone and commerce boundaries.' : 'Compatibility or future channel policy matrix failed.',
 		);
-		$runtime_ok = '1.7.0' === (string) ( $catalog['catalog_version'] ?? '' )
-			&& 23 === count( $contracts )
+		$user_inbox_contract = null;
+		foreach ( $contracts as $contract ) {
+			if ( is_array( $contract ) && (string) ( $contract['id'] ?? '' ) === 'user-inbox-scope' ) {
+				$user_inbox_contract = $contract;
+				break;
+			}
+		}
+		$user_inbox_valid = $this->read_json( $dir . 'fixtures/user-inbox-scope.valid.json' );
+		$user_inbox_invalid = $this->read_json( $dir . 'fixtures/user-inbox-scope.invalid.json' );
+		$valid_customer = is_array( $user_inbox_valid ) ? (array) ( $user_inbox_valid['branches']['customer'] ?? array() ) : array();
+		$valid_admin = is_array( $user_inbox_valid ) ? (array) ( $user_inbox_valid['branches']['admin'] ?? array() ) : array();
+		$personal_row = array_values( array_filter( $valid_customer, static function ( $row ) { return is_array( $row ) && (string) ( $row['channel'] ?? '' ) === 'zalo_personal'; } ) );
+		$zalobot_row = array_values( array_filter( $valid_admin, static function ( $row ) { return is_array( $row ) && (string) ( $row['channel'] ?? '' ) === 'zalo_bot'; } ) );
+		$user_inbox_policy_ok = is_array( $user_inbox_contract )
+			&& isset( $personal_row[0], $zalobot_row[0] )
+			&& (string) ( $personal_row[0]['access_mode'] ?? '' ) === 'owner_only'
+			&& (string) ( $personal_row[0]['crm_mode'] ?? '' ) === 'customer_inbox'
+			&& (string) ( $zalobot_row[0]['branch'] ?? '' ) === 'admin'
+			&& (string) ( $zalobot_row[0]['crm_mode'] ?? '' ) === 'disabled'
+			&& is_array( $user_inbox_invalid )
+			&& isset( $user_inbox_invalid['phone_spine']['raw_phone'] )
+			&& (string) ( $user_inbox_invalid['branches']['customer'][0]['access_mode'] ?? '' ) === 'membership';
+		$steps[] = array(
+			'label'  => 'Runtime - user-centric Inbox branches and Personal owner isolation',
+			'status' => $user_inbox_policy_ok ? 'pass' : 'fail',
+			'detail' => $user_inbox_policy_ok ? 'Customer and admin branches remain separate; Personal is owner-only and raw phone/membership negative fixture is present.' : 'User Inbox scope contract or owner-isolation fixture matrix is incomplete.',
+		);
+		$resolver_ok = class_exists( 'BizCity_CRM_Inbox_Access', false )
+			&& method_exists( 'BizCity_CRM_Inbox_Access', 'resolve_user_inbox_scope' );
+		$admin_producer_ok = function_exists( 'has_filter' )
+			&& false !== has_filter( 'bizcity_user_inbox_scope_admin_items' );
+		$steps[] = array(
+			'label'  => 'Loader - user Inbox resolver and admin-branch producer',
+			'status' => $resolver_ok && $admin_producer_ok ? 'pass' : 'fail',
+			'detail' => $resolver_ok && $admin_producer_ok ? 'CRM scope resolver and Zalo Bot admin-branch producer are registered.' : 'User Inbox resolver or admin-branch producer is not loaded.',
+		);
+		$runtime_ok = '1.8.0' === (string) ( $catalog['catalog_version'] ?? '' )
+			&& 24 === count( $contracts )
 			&& is_array( $manifest_contract )
 			&& empty( $semantic_errors )
 			&& $negative_ok
 			&& $unsupported_ok
 			&& $range_ok
 			&& $n_minus_one_ok
-			&& $future_policy_ok;
+			&& $future_policy_ok
+			&& $user_inbox_policy_ok
+			&& $resolver_ok
+			&& $admin_producer_ok;
 		$steps[] = array(
 			'label'  => 'Runtime - valid manifest and fail-closed negative matrix',
 			'status' => $runtime_ok ? 'pass' : 'fail',
 			'detail' => $runtime_ok
-				? 'Catalog 1.7.0, 23 contracts, valid policy and unsupported/range negatives passed.'
+				? 'Catalog 1.8.0, 24 contracts, manifest policy, user Inbox branches and negative matrices passed.'
 				: 'Manifest semantic policy or negative fixture expectation failed.',
 		);
 

@@ -1,0 +1,44 @@
+{
+  "contract": "extension-storage-context",
+  "version": "1.0.0",
+  "extension_id": "bizcity.ibs-hi",
+  "package_role": "vertical_extension",
+  "storage_decisions": [
+    {
+      "decision_id": "bad_log",
+      "data_role": "operational_trace",
+      "criticality": "C_supporting",
+      "storage_target": "tenant_sql",
+      "crud_shape": "typed_crud",
+      "canonical_owner": "plugins/ibs-hi",
+      "contract_id_or_equivalent": "missing",
+      "context_bank_role": "none",
+      "runtime_probe_id": "ibs.storage.bad",
+      "rollback_owner": "plugins/ibs-hi"
+    }
+  ],
+  "context_bank": {
+    "mode": "producer",
+    "record_contracts": [],
+    "encrypted_payload_owner": "plugins/ibs-hi-private-store",
+    "receipt_required": false,
+    "ledger_projection": "pointer_only",
+    "rollup_policy": "required",
+    "retrieval_contract": "context-retrieval-pack@1.x"
+  },
+  "mpr_bridge": {
+    "mode": "vertical_bridge",
+    "retrieval_contract": "context-retrieval-pack@1.x",
+    "owner": "extension",
+    "citation_policy": "metadata_only",
+    "phase_events": []
+  },
+  "evidence": {
+    "decision_record": "",
+    "probe_ids": [],
+    "disk": true,
+    "loader": false,
+    "runtime": false,
+    "rollback_owner": "plugins/ibs-hi"
+  }
+}

@@ -46,7 +46,7 @@ final class BizCity_CRM_Channel_Contract {
 		}
 		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - classify CRM enablement independently from zone.
 		// [2026-09-01 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — keep bare Messenger and Zalo aliases quarantined until a matching runtime adapter manifest exists (core.channel.crm_adapter_matrix guards this).
-		$customer_channels = array( 'facebook', 'zalo_oa', 'zalo_personal', 'webchat', 'web_widget', 'email', 'email_imap', 'instagram', 'whatsapp', 'whatsapp_cloud' );
+		$customer_channels = array( 'facebook', 'zalo_oa', 'zalo_personal', 'webchat', 'web_widget', 'email', 'email_imap', 'instagram', 'whatsapp', 'whatsapp_cloud', 'mabel_wheel' );
 		$admin_channels    = array( 'zalo_bot', 'telegram', 'twinchat_be' );
 		$legacy_channels   = array( 'zalo', 'messenger' );
 		$zone = in_array( $code, $customer_channels, true )
@@ -165,10 +165,15 @@ final class BizCity_CRM_Channel_Contract {
 		$success = ! empty( $result['success'] );
 		$error = (string) ( $result['error'] ?? $result['message'] ?? '' );
 		$explicit_code = (string) ( $result['code'] ?? $result['error_code'] ?? '' );
+		$explicit_outcome = sanitize_key( (string) ( $result['outcome'] ?? $result['delivery_status'] ?? '' ) );
+		$accepted_outcomes = array( 'accepted', 'queued', 'sent', 'delivered' );
+		if ( ! in_array( $explicit_outcome, $accepted_outcomes, true ) ) {
+			$explicit_outcome = '';
+		}
 		$normalized = array_merge( $result, array(
 			'success'            => $success,
-			'outcome'            => $success ? 'accepted' : 'failed',
-			'code'               => sanitize_key( $explicit_code !== '' ? $explicit_code : ( $success ? 'sent' : 'channel_send_failed' ) ),
+			'outcome'            => $success ? ( $explicit_outcome !== '' ? $explicit_outcome : 'accepted' ) : 'failed',
+			'code'               => sanitize_key( $explicit_code !== '' ? $explicit_code : ( $success ? ( $explicit_outcome !== '' ? $explicit_outcome : 'accepted' ) : 'channel_send_failed' ) ),
 			'external_source_id' => isset( $result['external_source_id'] ) && $result['external_source_id'] !== '' ? (string) $result['external_source_id'] : null,
 			'error'              => $error !== '' ? $error : null,
 			'retryable'          => isset( $result['retryable'] ) ? (bool) $result['retryable'] : false,

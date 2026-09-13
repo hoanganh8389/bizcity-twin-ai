@@ -1,0 +1,29 @@
+{
+  "contract": "user-inbox-scope",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "principal": {
+    "blog_id": 1258,
+    "user_id": 42
+  },
+  "phone_spine": {
+    "status": "verified",
+    "raw_phone": "0912345678"
+  },
+  "branches": {
+    "customer": [
+      {
+        "scope_id": "inbox_personal_99",
+        "branch": "customer",
+        "zone": "customer",
+        "channel": "zalo_personal",
+        "access_mode": "membership",
+        "account_key": "154b8863a47ee6a9",
+        "crm_mode": "customer_inbox",
+        "capabilities": ["conversation.read"],
+        "context_policy": "conversation_summary"
+      }
+    ],
+    "admin": []
+  }
+}

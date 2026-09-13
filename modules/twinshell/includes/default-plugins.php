@@ -132,6 +132,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'params'      => [ 'id', 'tab', 'hash' ],
 			'desc'        => __( 'Western & Vedic natal charts, transit calendar.', $td ),
 			'requires'    => [ 'class' => 'BizCoach_Pro_Self_Service_Page' ],
+			'plan'        => 'pro',
+			'pro_package' => 'BizCoach Pro',
 		],
 		[
 			'id'          => 'doc',
@@ -144,6 +146,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'section'     => 'top',
 			'params'      => [ 'doc', 'id', 'tab' ],
 			'requires'    => [ 'const' => 'BZDOC_VERSION' ],
+			'plan'        => 'pro',
+			'pro_package' => 'BizCity Doc',
 		],
 		[
 			'id'          => 'creator',
@@ -168,6 +172,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab' ],
 			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
+			'plan'        => 'pro',
+			'pro_package' => 'BizCity Tool Image',
 		],
 		[
 			'id'          => 'video',
@@ -180,6 +186,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab', 'mode' ],
 			'requires'    => [ 'const' => 'BIZCITY_VIDEO_KLING_VERSION' ],
+			'plan'        => 'pro',
+			'pro_package' => 'BizCity Video Kling',
 		],
 		[
 			'id'          => 'profile',
@@ -192,6 +200,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab' ],
 			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
+			'plan'        => 'pro',
+			'pro_package' => 'BizCity Tool Image',
 		],
 		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — expose the existing
 		// QR Studio page in the shared TwinShell ActivityBar.

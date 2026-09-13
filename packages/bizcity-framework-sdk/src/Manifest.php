@@ -23,6 +23,23 @@ final class Manifest {
 		return (string) ( $this->data['version'] ?? '' );
 	}
 
+	// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-1.22A-WP1 — expose optional package spine adoption metadata.
+	public function packageRole() {
+		return (string) ( $this->data['package_role'] ?? '' );
+	}
+
+	public function spine() {
+		return isset( $this->data['spine'] ) && is_array( $this->data['spine'] )
+			? $this->data['spine']
+			: array();
+	}
+
+	public function evidence() {
+		return isset( $this->data['evidence'] ) && is_array( $this->data['evidence'] )
+			? $this->data['evidence']
+			: array();
+	}
+
 	public function capabilities() {
 		return isset( $this->data['capabilities'] ) && is_array( $this->data['capabilities'] )
 			? $this->data['capabilities']

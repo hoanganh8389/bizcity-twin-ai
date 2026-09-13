@@ -1,0 +1,66 @@
+{
+  "contract": "extension-storage-context",
+  "version": "1.0.0",
+  "extension_id": "bizcity.ibs-hi",
+  "package_role": "vertical_extension",
+  "storage_decisions": [
+    {
+      "decision_id": "work_items",
+      "data_role": "core_state",
+      "criticality": "A_critical",
+      "storage_target": "tenant_sql",
+      "crud_shape": "typed_crud",
+      "canonical_owner": "plugins/ibs-hi",
+      "contract_id_or_equivalent": "ibs.work-item@1.0.0",
+      "context_bank_role": "rollup_source",
+      "payload_owner": "plugins/ibs-hi",
+      "retention_days": 2555,
+      "rollup_id": "ibs_work_coordination",
+      "rollup_decision": "required",
+      "runtime_probe_id": "ibs.storage.work_items",
+      "rollback_owner": "plugins/ibs-hi"
+    },
+    {
+      "decision_id": "work_trace",
+      "data_role": "operational_trace",
+      "criticality": "C_supporting",
+      "storage_target": "contracted_jsonl_log",
+      "crud_shape": "append_only",
+      "canonical_owner": "core/helper/jsonl-log",
+      "contract_id_or_equivalent": "plugins.ibs-hi.work_item",
+      "context_bank_role": "operational_reference",
+      "payload_owner": "core/helper/jsonl-log",
+      "retention_days": 365,
+      "rollup_decision": "optional",
+      "runtime_probe_id": "ibs.storage.work_trace",
+      "rollback_owner": "plugins/ibs-hi"
+    }
+  ],
+  "context_bank": {
+    "mode": "producer_consumer",
+    "record_contracts": ["context-bank-record@1.x", "context-rollup-definition@1.x"],
+    "encrypted_payload_owner": "core/context-bank + BizCity_Business_JSONL_File_Store",
+    "receipt_required": true,
+    "ledger_projection": "pointer_only",
+    "rollup_policy": "required",
+    "rollup_contracts": ["context-rollup-definition@1.x"],
+    "retrieval_contract": "context-retrieval-pack@1.x",
+    "kg_promotion": "approved_summary_only"
+  },
+  "mpr_bridge": {
+    "mode": "vertical_bridge",
+    "retrieval_contract": "context-retrieval-pack@1.x",
+    "owner": "core/twinbrain",
+    "citation_policy": "required",
+    "phase_events": ["ibs.context.admitted", "ibs.context.rollup_ready", "ibs.mpr.evidence_used"],
+    "vertical_id": "ibs.factory_operations"
+  },
+  "evidence": {
+    "decision_record": "plugins/ibs-hi/docs/PHASE-0-IBS-HI-DOMAIN-STORAGE.md",
+    "probe_ids": ["ibs.storage.work_items", "ibs.context.mpr_bridge"],
+    "disk": true,
+    "loader": true,
+    "runtime": false,
+    "rollback_owner": "plugins/ibs-hi"
+  }
+}

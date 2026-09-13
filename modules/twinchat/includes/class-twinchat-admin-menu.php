@@ -64,6 +64,7 @@ class BizCity_TwinChat_Admin_Menu {
 	 * @return array
 	 */
 	public static function build_activity_bar(): array {
+		// [2026-09-13 09:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.29 — preserve shared Pro badge metadata from TwinShell in the TwinChat ActivityBar.
 		// Primary: use the Twin Shell registry (same source as /twin/).
 		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) ) {
 			$plugins = BizCity_Twin_Shell_Registry::instance()->all();
@@ -92,6 +93,8 @@ class BizCity_TwinChat_Admin_Menu {
 						// ActivityBar JS can redirect to another plugin+iurl when set.
 						'nav_plugin' => isset( $p['nav_plugin'] ) ? (string) $p['nav_plugin'] : '',
 						'nav_iurl'   => isset( $p['nav_iurl'] )   ? (string) $p['nav_iurl']   : '',
+						'plan_badge' => isset( $p['plan_badge'] ) ? (string) $p['plan_badge'] : '',
+						'pro_package' => isset( $p['pro_package'] ) ? (string) $p['pro_package'] : '',
 					];
 				}
 				if ( ! empty( $out ) ) {

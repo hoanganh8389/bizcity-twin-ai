@@ -164,13 +164,19 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			$idempotency_key,
 			$quote
 		);
-		$sent = ! empty( $result['success'] ) && empty( $result['_degraded'] );
-		self::log_send_result( $sent ? 'outbound_accepted' : 'outbound_failed', $sent, $conversation );
+		$accepted = ! empty( $result['success'] ) && empty( $result['_degraded'] );
+		$bridge_outcome = sanitize_key( (string) ( $result['outcome'] ?? $result['delivery_status'] ?? '' ) );
+		$delivered = $accepted && in_array( $bridge_outcome, array( 'sent', 'delivered' ), true );
+		$outcome = $delivered ? $bridge_outcome : ( $accepted ? 'queued' : 'failed' );
+		self::log_send_result( $accepted ? ( 'queued' === $outcome ? 'outbound_queued' : 'outbound_sent' ) : 'outbound_failed', $accepted, $conversation );
 
 		return array(
-			'success'            => $sent,
+			'success'            => $accepted,
+			'outcome'            => $outcome,
+			'code'               => $accepted ? $outcome : 'zalo_personal_send_failed',
 			'external_source_id' => (string) ( $result['message_id'] ?? ( $result['job_id'] ?? '' ) ),
-			'error'              => $sent ? null : (string) ( $result['message'] ?? 'zalo_personal_send_failed' ),
+			'error'              => $accepted ? null : (string) ( $result['message'] ?? 'zalo_personal_send_failed' ),
+			'retryable'          => ! empty( $result['retryable'] ),
 		);
 	}
 

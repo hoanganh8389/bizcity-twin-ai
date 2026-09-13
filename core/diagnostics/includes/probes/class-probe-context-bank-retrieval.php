@@ -28,7 +28,7 @@ final class BizCity_Probe_Context_Bank_Retrieval implements BizCity_Diagnostics_
 
 	public function description(): string {
 		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7-DDV — describe server-owned mode and budget coverage.
-		return 'Checks server-owned vertical/notebook/hybrid scope policy, group denial, bounded budgets and source-layer contract filtering without payload or provider access.';
+		return 'Checks server-owned context_bank/vertical/notebook/hybrid scope policy, group denial, bounded budgets and source-layer contract filtering without payload or provider access.';
 	}
 
 	public function severity(): string { return 'critical'; }
@@ -38,7 +38,7 @@ final class BizCity_Probe_Context_Bank_Retrieval implements BizCity_Diagnostics_
 
 	public function precondition() {
 		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7-DDV — require the canonical scope resolver before retrieval assertions.
-		if ( ! class_exists( 'BizCity_Context_Bank_Scope_Resolver' ) ) {
+		if ( ! class_exists( 'BizCity_Context_Bank_Scope_Resolver' ) || ! class_exists( 'BizCity_Context_Bank_Mode_Policy' ) ) {
 			return new WP_Error( 'context_bank_retrieval_scope_missing', 'Context Bank scope resolver is not loaded.' );
 		}
 		return true;
@@ -47,12 +47,22 @@ final class BizCity_Probe_Context_Bank_Retrieval implements BizCity_Diagnostics_
 	public function run( $ctx ): array {
 		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7-DDV — verify server-owned retrieval modes and bounded source-layer policy without storage side effects.
 		$current_user = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-1.33B-B6 — prove the mode registry is server-owned and bounded before resolving a request.
+		$mode_policy = BizCity_Context_Bank_Mode_Policy::describe();
+		$mode_policy_ok = (string) ( $mode_policy['mode_id'] ?? '' ) === 'context_bank'
+			&& (string) ( $mode_policy['scope_kind'] ?? '' ) === 'horizontal_context'
+			&& (string) ( $mode_policy['group_private_scope'] ?? '' ) === 'deny'
+			&& in_array( 'core.channel_gateway.context_corpus', (array) ( $mode_policy['allowed_contracts'] ?? array() ), true )
+			&& ! in_array( 'core.knowledge.user_memory', (array) ( $mode_policy['allowed_contracts'] ?? array() ), true );
 		$group = BizCity_Context_Bank_Scope_Resolver::resolve( array( 'mode' => 'hybrid', 'channel' => 'twinchat', 'chat_kind' => 'group', 'user_id' => 999999, 'blog_id' => 999999 ) );
 		$group_ok = (string) ( $group['effective_mode'] ?? '' ) === 'skip' && (string) ( $group['reason_bucket'] ?? '' ) === 'group_private_scope_denied' && (int) ( $group['owner_user_id'] ?? 0 ) === 0;
 		$unknown_vertical = BizCity_Context_Bank_Scope_Resolver::resolve( array( 'mode' => 'vertical', 'channel' => 'twin_gpt', 'vertical_id' => '__not_registered__' ) );
 		$unknown_vertical_ok = $current_user > 0
 			? (string) ( $unknown_vertical['effective_mode'] ?? '' ) === 'skip' && (string) ( $unknown_vertical['reason_bucket'] ?? '' ) === 'vertical_not_registered'
 			: (string) ( $unknown_vertical['effective_mode'] ?? '' ) === 'skip';
+		$unknown_mode = BizCity_Context_Bank_Scope_Resolver::resolve( array( 'mode' => 'unregistered_mode', 'channel' => 'twin_gpt' ) );
+		$unknown_mode_ok = (string) ( $unknown_mode['effective_mode'] ?? '' ) === 'skip'
+			&& (string) ( $unknown_mode['reason_bucket'] ?? '' ) === 'mode_unknown';
 		$vertical = BizCity_Context_Bank_Scope_Resolver::resolve( array( 'mode' => 'vertical', 'channel' => 'twin_gpt', 'vertical_id' => 'woo_bizops' ) );
 		$vertical_ok = $current_user > 0
 			? (string) ( $vertical['effective_mode'] ?? '' ) === 'vertical' && (string) ( $vertical['vertical_id'] ?? '' ) === 'woo_bizops' && ! empty( $vertical['policy_contracts'] )
@@ -61,6 +71,16 @@ final class BizCity_Probe_Context_Bank_Retrieval implements BizCity_Diagnostics_
 		$hybrid_ok = $current_user > 0
 			? (string) ( $hybrid['effective_mode'] ?? '' ) === 'hybrid' && count( (array) ( $hybrid['policy_contracts'] ?? array() ) ) > 0
 			: (string) ( $hybrid['effective_mode'] ?? '' ) === 'skip';
+		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-1.33B-B6 — prove Context Bank Brain resolves without a Notebook and keeps the business allowlist bounded.
+		$context_bank = BizCity_Context_Bank_Scope_Resolver::resolve( array( 'mode' => 'context_bank', 'channel' => 'twin_gpt', 'identity_uuid' => 'diagnostics_context_bank_identity' ) );
+		$context_bank_contracts = (array) ( $context_bank['policy_contracts'] ?? array() );
+		$context_bank_ok = $current_user > 0
+			? (string) ( $context_bank['effective_mode'] ?? '' ) === 'context_bank'
+				&& (int) ( $context_bank['notebook_id'] ?? 0 ) === 0
+				&& in_array( 'core.channel_gateway.context_corpus', $context_bank_contracts, true )
+				&& in_array( 'core.context_bank.rollup', $context_bank_contracts, true )
+				&& ! in_array( 'core.knowledge.user_memory', $context_bank_contracts, true )
+			: (string) ( $context_bank['effective_mode'] ?? '' ) === 'skip';
 		$budget_ok = (int) ( $vertical['budgets']['max_rows'] ?? 0 ) === 50
 			&& (int) ( $vertical['budgets']['max_pointer_follows'] ?? 0 ) === 10
 			&& (int) ( $vertical['budgets']['max_decrypted_bytes'] ?? 0 ) === 262144
@@ -93,14 +113,40 @@ final class BizCity_Probe_Context_Bank_Retrieval implements BizCity_Diagnostics_
 				&& empty( $candidates[0]['citation'] )
 				&& strpos( (string) ( $candidates[0]['excerpt'] ?? '' ), 'Bounded owner excerpt' ) !== false;
 		}
+		$feature_off_ok = false;
+		if ( class_exists( 'BizCity_TwinBrain_Notebook_Source_Layer' ) && function_exists( 'get_option' ) && function_exists( 'delete_option' ) ) {
+			// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-1.33B-B6 — prove feature-off parity at the Context Bank source boundary without provider, ledger or payload side effects.
+			$missing_flag = '__context_bank_mpr_flag_missing__';
+			$previous_flag = get_option( 'bizcity_context_bank_mpr_enabled', $missing_flag );
+			try {
+				delete_option( 'bizcity_context_bank_mpr_enabled' );
+				$layer = BizCity_TwinBrain_Notebook_Source_Layer::instance();
+				$method = new ReflectionMethod( $layer, 'collect_context_bank_refs' );
+				$method->setAccessible( true );
+				$feature_off = $method->invoke( $layer, array( 'context_bank_enabled' => false, 'context_bank_mode' => 'context_bank' ) );
+				$feature_off_ok = is_array( $feature_off ) && 0 === (int) ( $feature_off['count'] ?? -1 ) && empty( $feature_off['refs'] ) && 'context_bank_disabled_or_unavailable' === (string) ( $feature_off['meta']['reason'] ?? '' );
+			} catch ( \Throwable $e ) {
+				$feature_off_ok = false;
+			} finally {
+				if ( $previous_flag === $missing_flag ) {
+					delete_option( 'bizcity_context_bank_mpr_enabled' );
+				} else {
+					update_option( 'bizcity_context_bank_mpr_enabled', $previous_flag, false );
+				}
+			}
+		}
 		$checks = array(
+			array( 'label' => 'Context Bank mode policy is registered', 'ok' => $mode_policy_ok, 'detail' => $mode_policy_ok ? 'The server-owned mode policy declares horizontal scope, group denial and a bounded business allowlist.' : 'Context Bank mode policy is missing or over-broad.' ),
 			array( 'label' => 'Group private scope denied', 'ok' => $group_ok, 'detail' => $group_ok ? 'Group retrieval resolves to skip with no personal owner.' : 'Group retrieval can inherit private owner scope.' ),
 			array( 'label' => 'Unknown vertical denied', 'ok' => $unknown_vertical_ok, 'detail' => $unknown_vertical_ok ? 'Unknown vertical does not expand retrieval scope.' : 'Unknown vertical was accepted.' ),
+			array( 'label' => 'Unknown mode denied', 'ok' => $unknown_mode_ok, 'detail' => $unknown_mode_ok ? 'Unknown mode fails closed before retrieval policy expansion.' : 'Unknown mode silently fell back to another retrieval mode.' ),
 			array( 'label' => 'Vertical mode is server-owned', 'ok' => $vertical_ok, 'detail' => $vertical_ok ? 'Registered vertical policy resolves from the canonical bridge registry.' : 'Vertical mode is not resolved through the canonical owner.' ),
 			array( 'label' => 'Hybrid mode is server-owned', 'ok' => $hybrid_ok, 'detail' => $hybrid_ok ? 'Hybrid mode retains server-owned policy contracts and mode metadata.' : 'Hybrid mode is not resolved through the canonical owner.' ),
+			array( 'label' => 'Context Bank Brain mode is bounded', 'ok' => $context_bank_ok, 'detail' => $context_bank_ok ? 'Context Bank mode resolves without a Notebook and excludes private memory contracts by default.' : 'Context Bank mode is missing, requires an unexpected Notebook, or has an over-broad contract allowlist.' ),
 			array( 'label' => 'Retrieval budgets bounded', 'ok' => $budget_ok, 'detail' => $budget_ok ? 'Rows, follows, decrypted bytes and elapsed time are capped.' : 'Retrieval budget contract is incomplete.' ),
 			array( 'label' => 'Source layer filters before pointer follow', 'ok' => $source_policy_ok, 'detail' => $source_policy_ok ? 'Mode policy contracts are passed to typed search and provenance dedupe remains bounded.' : 'Source layer does not expose the typed policy filter boundary.' ),
 			array( 'label' => 'Owner excerpts blend without pointer leakage', 'ok' => $owner_candidates_ok, 'detail' => $owner_candidates_ok ? 'Pointer-only rows are excluded; one verified owner excerpt is deduplicated into the existing W0.20 candidate shape.' : 'Context Bank owner excerpt adapter is missing, leaks pointer-only metadata or duplicates provenance.' ),
+			array( 'label' => 'Feature-off parity at Context Bank boundary', 'ok' => $feature_off_ok, 'detail' => $feature_off_ok ? 'Context Bank source lookup returns no refs and performs no source-layer work when the feature flag is off.' : 'Context Bank feature-off boundary did not return the expected empty/degraded result.' ),
 		);
 		$pass = true;
 		foreach ( $checks as $check ) {

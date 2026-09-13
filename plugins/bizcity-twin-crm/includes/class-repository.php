@@ -107,6 +107,13 @@ class BizCity_CRM_Repository {
 		return $cache[ $table ];
 	}
 
+	public static function invalidate_read_models(): void {
+		// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — invalidate scoped contact membership projections after CRM writes.
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::flush_group( 'crm_repository' );
+		}
+	}
+
 	public static function get_inbox( int $id ): ?array {
 		global $wpdb;
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
@@ -262,6 +269,107 @@ class BizCity_CRM_Repository {
 	 * ============================================================ */
 
 	/**
+	 * Upsert one contact across the tenant by canonical email/phone identity,
+	 * then attach the source to the supplied inbox.
+	 *
+	 * @param int    $inbox_id
+	 * @param string $source_id Stable channel identity hash.
+	 * @param array  $contact_data
+	 * @return array{contact_id:int,contact_inbox_id:int,action:string}
+	 */
+	public static function upsert_contact_by_identity( int $inbox_id, string $source_id, array $contact_data = array() ): array {
+		// [2026-09-10 Johnny Chu - Chu Hoàng Anh] PHASE-0.55-MABEL-WHEEL - unify Wheel captures with existing tenant contacts before inbox attachment.
+		if ( $inbox_id <= 0 || $source_id === '' ) {
+			return array( 'contact_id' => 0, 'contact_inbox_id' => 0, 'action' => 'skipped' );
+		}
+		global $wpdb;
+		$contacts_table = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$inboxes_table  = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$email = sanitize_email( (string) ( $contact_data['email'] ?? '' ) );
+		$phone = (string) ( $contact_data['phone'] ?? '' );
+		if ( $phone !== '' && class_exists( 'BizCity_Phone_Normalizer' ) ) {
+			$phone = BizCity_Phone_Normalizer::normalize_vn( $phone );
+		}
+		$contact_id = 0;
+		if ( $email !== '' ) {
+			$contact_id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$contacts_table} WHERE email = %s AND deleted_at IS NULL ORDER BY id ASC LIMIT 1", $email ) );
+		}
+		if ( $contact_id <= 0 && $phone !== '' ) {
+			$contact_id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$contacts_table} WHERE phone = %s AND deleted_at IS NULL ORDER BY id ASC LIMIT 1", $phone ) );
+		}
+		$name = sanitize_text_field( (string) ( $contact_data['name'] ?? '' ) );
+		$attrs = isset( $contact_data['additional_attributes'] ) && is_array( $contact_data['additional_attributes'] ) ? $contact_data['additional_attributes'] : array();
+		if ( $contact_id > 0 ) {
+			$existing = self::get_contact( $contact_id );
+			$old_attrs = is_array( json_decode( (string) ( $existing['additional_attributes'] ?? '' ), true ) ) ? json_decode( (string) $existing['additional_attributes'], true ) : array();
+			$update = array( 'updated_at' => current_time( 'mysql' ) );
+			if ( $name !== '' && empty( $existing['name'] ) ) { $update['name'] = $name; }
+			if ( $email !== '' && empty( $existing['email'] ) ) { $update['email'] = $email; }
+			if ( $phone !== '' && empty( $existing['phone'] ) ) { $update['phone'] = $phone; }
+			if ( $attrs ) { $update['additional_attributes'] = wp_json_encode( array_merge( $old_attrs, $attrs ) ); }
+			if ( ! empty( $contact_data['acquisition_source'] ) && empty( $existing['acquisition_source'] ) ) { $update['acquisition_source'] = sanitize_key( (string) $contact_data['acquisition_source'] ); }
+			$wpdb->update( $contacts_table, $update, array( 'id' => $contact_id ) );
+			$action = 'updated';
+		} else {
+			$wpdb->insert( $contacts_table, array(
+				'name'                  => $name,
+				'email'                 => $email !== '' ? $email : null,
+				'phone'                 => $phone !== '' ? $phone : null,
+				'acquisition_source'    => sanitize_key( (string) ( $contact_data['acquisition_source'] ?? 'mabel_wheel' ) ),
+				'acquisition_meta_json' => ! empty( $contact_data['acquisition_meta'] ) ? wp_json_encode( $contact_data['acquisition_meta'] ) : null,
+				'additional_attributes' => $attrs ? wp_json_encode( $attrs ) : null,
+				'created_at'            => current_time( 'mysql' ),
+				'updated_at'            => current_time( 'mysql' ),
+			) );
+			$contact_id = (int) $wpdb->insert_id;
+			$action = $contact_id > 0 ? 'created' : 'error';
+		}
+		if ( $contact_id <= 0 ) {
+			return array( 'contact_id' => 0, 'contact_inbox_id' => 0, 'action' => 'error' );
+		}
+		$contact_inbox_id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$inboxes_table} WHERE inbox_id = %d AND contact_id = %d AND source_id = %s LIMIT 1", $inbox_id, $contact_id, $source_id ) );
+		if ( $contact_inbox_id <= 0 ) {
+			$wpdb->insert( $inboxes_table, array( 'contact_id' => $contact_id, 'inbox_id' => $inbox_id, 'source_id' => $source_id, 'last_seen_at' => current_time( 'mysql' ), 'created_at' => current_time( 'mysql' ) ) );
+			$contact_inbox_id = (int) $wpdb->insert_id;
+		} else {
+			$wpdb->update( $inboxes_table, array( 'last_seen_at' => current_time( 'mysql' ) ), array( 'id' => $contact_inbox_id ) );
+		}
+		self::invalidate_read_models();
+		return array( 'contact_id' => $contact_id, 'contact_inbox_id' => $contact_inbox_id, 'action' => $action );
+	}
+
+	/**
+	 * Insert one resolved passive intake message idempotently.
+	 *
+	 * @param int   $inbox_id
+	 * @param int   $contact_inbox_id
+	 * @param array $data
+	 * @return array{duplicate:bool,conversation_id:int,message_id:int}
+	 */
+	public static function ingest_resolved_intake( int $inbox_id, int $contact_inbox_id, array $data = array() ): array {
+		// [2026-09-10 Johnny Chu - Chu Hoàng Anh] PHASE-0.55-MABEL-WHEEL - create one resolved intake through Repository ownership.
+		global $wpdb;
+		$external_id = (string) ( $data['external_source_id'] ?? '' );
+		$message_table = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		if ( $external_id !== '' ) {
+			$existing_message = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$message_table} WHERE inbox_id = %d AND external_source_id = %s LIMIT 1", $inbox_id, $external_id ) );
+			if ( $existing_message > 0 ) {
+				return array( 'duplicate' => true, 'conversation_id' => 0, 'message_id' => $existing_message );
+			}
+		}
+		$conversation_id = self::open_or_get_conversation( $inbox_id, $contact_inbox_id );
+		if ( $conversation_id <= 0 ) {
+			return array( 'duplicate' => false, 'conversation_id' => 0, 'message_id' => 0 );
+		}
+		$message_id = self::insert_message( array_merge( $data, array( 'conversation_id' => $conversation_id, 'inbox_id' => $inbox_id ) ) );
+		if ( $message_id <= 0 ) {
+			return array( 'duplicate' => false, 'conversation_id' => $conversation_id, 'message_id' => 0 );
+		}
+		self::set_conversation_status( $conversation_id, 'resolved' );
+		return array( 'duplicate' => false, 'conversation_id' => $conversation_id, 'message_id' => $message_id );
+	}
+
+	/**
 	 * Upsert contact identified by (inbox_id, source_id) tuple.
 	 * Returns assoc array {contact_id, contact_inbox_id}.
 	 */
@@ -284,13 +392,18 @@ class BizCity_CRM_Repository {
 		if ( $ci ) {
 			$wpdb->update( $ci_tbl, array( 'last_seen_at' => $now ), array( 'id' => $ci['id'] ) );
 			// Refresh contact name / avatar if we have new data and old is empty.
-			if ( ! empty( $contact_data['name'] ) || ! empty( $contact_data['avatar_url'] ) || ! empty( $contact_data['acquisition_source'] ) || ! empty( $contact_data['name_source'] ) ) {
+			if ( ! empty( $contact_data['name'] ) || ! empty( $contact_data['avatar_url'] ) || ! empty( $contact_data['acquisition_source'] ) || ! empty( $contact_data['name_source'] ) || ! empty( $contact_data['additional_attributes'] ) ) {
 				$existing_contact = $wpdb->get_row( $wpdb->prepare(
 					"SELECT * FROM {$ct_tbl} WHERE id = %d", (int) $ci['contact_id']
 				), ARRAY_A );
 				$update = array( 'updated_at' => $now );
 				$existing_attrs = json_decode( (string) ( $existing_contact['additional_attributes'] ?? '' ), true );
 				$existing_attrs = is_array( $existing_attrs ) ? $existing_attrs : array();
+				if ( ! empty( $contact_data['additional_attributes'] ) && is_array( $contact_data['additional_attributes'] ) ) {
+					// [2026-09-08 04:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48-CX2 — merge bounded group label metadata without overwriting canonical contact identity fields.
+					$existing_attrs = array_merge( $existing_attrs, array_intersect_key( $contact_data['additional_attributes'], array_flip( array( 'group_name' ) ) ) );
+					$update['additional_attributes'] = wp_json_encode( $existing_attrs );
+				}
 				$incoming_name_source = sanitize_key( (string) ( $contact_data['name_source'] ?? '' ) );
 				$existing_name_source = sanitize_key( (string) ( $existing_attrs['contact_name_source'] ?? '' ) );
 				$old_name        = (string) ( $existing_contact['name'] ?? '' );
@@ -333,6 +446,7 @@ class BizCity_CRM_Repository {
 					$wpdb->update( $ct_tbl, $update, array( 'id' => $ci['contact_id'] ) );
 				}
 			}
+			self::invalidate_read_models();
 			return array(
 				'contact_id'       => (int) $ci['contact_id'],
 				'contact_inbox_id' => (int) $ci['id'],
@@ -381,6 +495,7 @@ class BizCity_CRM_Repository {
 			'created_at'   => $now,
 		) );
 		$ci_id = (int) $wpdb->insert_id;
+		self::invalidate_read_models();
 
 		BizCity_CRM_Event_Emitter::emit( 'crm_contact_upserted', array(
 			'contact_id' => $contact_id,
@@ -414,6 +529,7 @@ class BizCity_CRM_Repository {
 	 *   3. wp_usermeta.billing_phone = $phone
 	 */
 	public static function resolve_wp_user_id( string $email, string $phone ): int {
+		// [2026-09-08 01:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — fail closed on phone/email identity collisions; never auto-link the first matching user.
 		global $wpdb;
 		$email = trim( $email );
 		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — normalize phone before WP billing lookup.
@@ -421,23 +537,30 @@ class BizCity_CRM_Repository {
 			? BizCity_Phone_Normalizer::normalize_vn( $phone )
 			: trim( $phone );
 
+		$email_ids = array();
+		$phone_ids = array();
 		if ( $email !== '' ) {
 			$user = get_user_by( 'email', $email );
-			if ( $user ) { return (int) $user->ID; }
-			$uid = (int) $wpdb->get_var( $wpdb->prepare(
-				"SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key='billing_email' AND meta_value=%s LIMIT 1",
+			if ( $user ) { $email_ids[] = (int) $user->ID; }
+			$email_meta_ids = $wpdb->get_col( $wpdb->prepare(
+				"SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key='billing_email' AND meta_value=%s",
 				$email
 			) );
-			if ( $uid > 0 ) { return $uid; }
+			$email_ids = array_values( array_unique( array_merge( $email_ids, array_map( 'intval', is_array( $email_meta_ids ) ? $email_meta_ids : array() ) ) ) );
 		}
 		if ( $phone !== '' ) {
-			$uid = (int) $wpdb->get_var( $wpdb->prepare(
-				"SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key='billing_phone' AND meta_value=%s LIMIT 1",
-				$phone
+			$phone_values = array_values( array_unique( array_filter( array( $phone, trim( $phone ) ) ) ) );
+			$phone_placeholders = implode( ',', array_fill( 0, count( $phone_values ), '%s' ) );
+			$phone_params = array_merge( array( 'billing_phone' ), $phone_values );
+			$phone_meta_ids = $wpdb->get_col( $wpdb->prepare(
+				"SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key=%s AND meta_value IN ({$phone_placeholders})",
+				$phone_params
 			) );
-			if ( $uid > 0 ) { return $uid; }
+			$phone_ids = array_values( array_unique( array_map( 'intval', is_array( $phone_meta_ids ) ? $phone_meta_ids : array() ) ) );
 		}
-		return 0;
+		if ( count( $email_ids ) > 1 || count( $phone_ids ) > 1 ) { return 0; }
+		if ( ! empty( $email_ids ) && ! empty( $phone_ids ) && (int) $email_ids[0] !== (int) $phone_ids[0] ) { return 0; }
+		return ! empty( $email_ids ) ? (int) $email_ids[0] : ( ! empty( $phone_ids ) ? (int) $phone_ids[0] : 0 );
 	}
 
 	public static function get_contact( int $id ): ?array {
@@ -485,6 +608,7 @@ class BizCity_CRM_Repository {
 			'updated_at'       => $now,
 		) );
 		$id = (int) $wpdb->insert_id;
+		self::invalidate_read_models();
 
 		BizCity_CRM_Event_Emitter::emit( 'crm_conversation_opened', array(
 			'conversation_id'  => $id,
@@ -505,7 +629,7 @@ class BizCity_CRM_Repository {
 	/**
 	 * List conversations with optional inbox filter, status filter, and pagination.
 	 *
-	 * @param array $args { id?, inbox_id?, status?, priority?, snoozed?, assignee_id?, q?, limit?, before_id? }
+	 * @param array $args { id?, inbox_id?, status?, priority?, snoozed?, assignee_id?, unassigned?, participating_user_id?, unattended?, q?, limit?, before_id? }
 	 *                    priority: int 0..3 OR string low|med|high|urgent
 	 *                    snoozed:  bool — true => snoozed_until > now; false => null OR <= now
 	 */
@@ -516,79 +640,7 @@ class BizCity_CRM_Repository {
 		$tbl_ct   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 		$tbl_msg  = BizCity_CRM_DB_Installer_V2::tbl_messages();
 		$tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
-
-		$where  = array( '1=1' );
-		$params = array();
-
-		if ( ! empty( $args['id'] ) ) {
-			$where[]  = 'c.id = %d';
-			$params[] = (int) $args['id'];
-		}
-		if ( ! empty( $args['inbox_id'] ) ) {
-			$where[]  = 'c.inbox_id = %d';
-			$params[] = (int) $args['inbox_id'];
-		}
-		if ( isset( $args['inbox_ids'] ) && is_array( $args['inbox_ids'] ) ) {
-			$inbox_ids = array_values( array_filter( array_map( 'absint', $args['inbox_ids'] ) ) );
-			if ( empty( $inbox_ids ) ) {
-				return array();
-			}
-			$where[] = 'c.inbox_id IN (' . implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) ) . ')';
-			$params = array_merge( $params, $inbox_ids );
-		}
-		if ( ! empty( $args['status'] ) ) {
-			$where[]  = 'c.status = %s';
-			$params[] = (string) $args['status'];
-		}
-		if ( isset( $args['priority'] ) && $args['priority'] !== '' && $args['priority'] !== null ) {
-			$pri_map = array( 'low' => 0, 'med' => 1, 'medium' => 1, 'high' => 2, 'urgent' => 3 );
-			$pri_raw = $args['priority'];
-			$pri_int = is_numeric( $pri_raw ) ? (int) $pri_raw : ( $pri_map[ strtolower( (string) $pri_raw ) ] ?? null );
-			if ( $pri_int !== null && $pri_int >= 0 && $pri_int <= 3 ) {
-				$where[]  = 'c.priority = %d';
-				$params[] = $pri_int;
-			}
-		}
-		if ( isset( $args['snoozed'] ) ) {
-			$snoozed = filter_var( $args['snoozed'], FILTER_VALIDATE_BOOLEAN );
-			$now_ts  = time();
-			if ( $snoozed ) {
-				$where[]  = 'c.snoozed_until IS NOT NULL AND c.snoozed_until > %d';
-				$params[] = $now_ts;
-			} else {
-				$where[]  = '(c.snoozed_until IS NULL OR c.snoozed_until <= %d)';
-				$params[] = $now_ts;
-			}
-		}
-		if ( ! empty( $args['assignee_id'] ) ) {
-			$where[]  = 'c.assignee_id = %d';
-			$params[] = (int) $args['assignee_id'];
-		}
-		if ( ! empty( $args['unassigned'] ) ) {
-			$where[] = '(c.assignee_id IS NULL OR c.assignee_id = 0)';
-		}
-		if ( ! empty( $args['q'] ) ) {
-			$like     = '%' . $wpdb->esc_like( (string) $args['q'] ) . '%';
-			$where[]  = '(ct.name LIKE %s OR ct.email LIKE %s OR ct.phone LIKE %s)';
-			$params[] = $like; $params[] = $like; $params[] = $like;
-		}
-		if ( ! empty( $args['before_id'] ) ) {
-			$where[]  = 'c.id < %d';
-			$params[] = (int) $args['before_id'];
-		}
-		if ( ! empty( $args['label_id'] ) ) {
-			$cl_tbl   = BizCity_CRM_DB_Installer_V2::tbl_conversation_labels();
-			$where[]  = 'c.id IN ( SELECT conversation_id FROM ' . $cl_tbl . ' WHERE label_id = %d )';
-			$params[] = (int) $args['label_id'];
-		}
-		if ( ! empty( $args['contact_wp_user_id'] ) ) {
-			$where[]  = 'ct.wp_user_id = %d';
-			$params[] = (int) $args['contact_wp_user_id'];
-		}
-		if ( isset( $args['thread_kind'] ) && in_array( (string) $args['thread_kind'], array( 'group', 'personal' ), true ) ) {
-			// [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — filter by canonical group contact key, never by display name.
-			$where[] = 'group' === (string) $args['thread_kind'] ? "ci.source_id LIKE 'group:%'" : "ci.source_id NOT LIKE 'group:%'"; // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — scope list reads by canonical group key.
-		}
+		list( $where, $params ) = self::build_conversation_where( $args );
 
 		$limit = max( 1, min( 200, (int) ( $args['limit'] ?? 50 ) ) );
 
@@ -602,6 +654,7 @@ class BizCity_CRM_Repository {
 					c.created_at, c.updated_at,
 					ci.source_id, ci.contact_id,
 					ct.name AS contact_name, ct.avatar_url AS contact_avatar,
+					ct.additional_attributes AS contact_attributes,
 					m.content AS last_message_content,
 					m.message_type AS last_message_type,
 					m.sender_type AS last_sender_type,
@@ -619,6 +672,79 @@ class BizCity_CRM_Repository {
 		$prepared = $params ? $wpdb->prepare( $sql, $params ) : $sql;
 		$rows     = $wpdb->get_results( $prepared, ARRAY_A );
 		return $rows ?: array();
+	}
+
+	/**
+	 * Count conversations with the exact same predicates used by list_conversations().
+	 */
+	public static function count_conversations( array $args = array() ): int {
+		// [2026-09-08 10:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — add server-owned Inbox counts using the same predicates as the list query.
+		global $wpdb;
+		$tbl_conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$tbl_ct   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$tbl_msg  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+		list( $where, $params ) = self::build_conversation_where( $args );
+		$sql = "SELECT COUNT(*)
+				FROM {$tbl_conv} c
+				LEFT JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+				LEFT JOIN {$tbl_ibx} i ON i.id = c.inbox_id
+				LEFT JOIN {$tbl_ct} ct ON ct.id = ci.contact_id
+				LEFT JOIN {$tbl_msg} m ON m.id = c.last_message_id
+				WHERE " . implode( ' AND ', $where );
+		$prepared = $params ? $wpdb->prepare( $sql, $params ) : $sql;
+		return (int) $wpdb->get_var( $prepared );
+	}
+
+	private static function build_conversation_where( array $args ): array {
+		// [2026-09-08 10:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — centralize Inbox filter semantics so list and count cannot drift.
+		global $wpdb;
+		$where  = array( '1=1' );
+		$params = array();
+
+		if ( ! empty( $args['id'] ) ) { $where[] = 'c.id = %d'; $params[] = (int) $args['id']; }
+		if ( ! empty( $args['inbox_id'] ) ) { $where[] = 'c.inbox_id = %d'; $params[] = (int) $args['inbox_id']; }
+		if ( isset( $args['inbox_ids'] ) && is_array( $args['inbox_ids'] ) ) {
+			$inbox_ids = array_values( array_filter( array_map( 'absint', $args['inbox_ids'] ) ) );
+			if ( empty( $inbox_ids ) ) { $where[] = '1=0'; return array( $where, $params ); }
+			$where[] = 'c.inbox_id IN (' . implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) ) . ')';
+			$params = array_merge( $params, $inbox_ids );
+		}
+		if ( ! empty( $args['status'] ) ) { $where[] = 'c.status = %s'; $params[] = (string) $args['status']; }
+		if ( isset( $args['priority'] ) && $args['priority'] !== '' && $args['priority'] !== null ) {
+			$pri_map = array( 'low' => 0, 'med' => 1, 'medium' => 1, 'high' => 2, 'urgent' => 3 );
+			$pri_raw = $args['priority'];
+			$pri_int = is_numeric( $pri_raw ) ? (int) $pri_raw : ( $pri_map[ strtolower( (string) $pri_raw ) ] ?? null );
+			if ( $pri_int !== null && $pri_int >= 0 && $pri_int <= 3 ) { $where[] = 'c.priority = %d'; $params[] = $pri_int; }
+		}
+		if ( isset( $args['snoozed'] ) ) {
+			$now_ts = time();
+			if ( filter_var( $args['snoozed'], FILTER_VALIDATE_BOOLEAN ) ) { $where[] = 'c.snoozed_until IS NOT NULL AND c.snoozed_until > %d'; $params[] = $now_ts; }
+			else { $where[] = '(c.snoozed_until IS NULL OR c.snoozed_until <= %d)'; $params[] = $now_ts; }
+		}
+		if ( ! empty( $args['assignee_id'] ) ) { $where[] = 'c.assignee_id = %d'; $params[] = (int) $args['assignee_id']; }
+		if ( ! empty( $args['unassigned'] ) ) { $where[] = '(c.assignee_id IS NULL OR c.assignee_id = 0)'; }
+		if ( ! empty( $args['participating_user_id'] ) ) {
+			$where[] = "EXISTS (SELECT 1 FROM " . BizCity_CRM_DB_Installer_V2::tbl_messages() . " pm WHERE pm.conversation_id = c.id AND pm.responder_user_id = %d AND pm.sender_type = 'agent' AND pm.message_type = 'outgoing')";
+			$params[] = (int) $args['participating_user_id'];
+		}
+		if ( ! empty( $args['unattended'] ) ) { $where[] = "c.status = 'open' AND m.sender_type = 'contact' AND m.message_type = 'incoming'"; }
+		if ( ! empty( $args['q'] ) ) {
+			$like = '%' . $wpdb->esc_like( (string) $args['q'] ) . '%';
+			$where[] = '(ct.name LIKE %s OR ct.email LIKE %s OR ct.phone LIKE %s)';
+			$params[] = $like; $params[] = $like; $params[] = $like;
+		}
+		if ( ! empty( $args['before_id'] ) ) { $where[] = 'c.id < %d'; $params[] = (int) $args['before_id']; }
+		if ( ! empty( $args['label_id'] ) ) {
+			$where[] = 'c.id IN ( SELECT conversation_id FROM ' . BizCity_CRM_DB_Installer_V2::tbl_conversation_labels() . ' WHERE label_id = %d )';
+			$params[] = (int) $args['label_id'];
+		}
+		if ( ! empty( $args['contact_wp_user_id'] ) ) { $where[] = 'ct.wp_user_id = %d'; $params[] = (int) $args['contact_wp_user_id']; }
+		if ( isset( $args['thread_kind'] ) && in_array( (string) $args['thread_kind'], array( 'group', 'personal' ), true ) ) {
+			$where[] = 'group' === (string) $args['thread_kind'] ? "ci.source_id LIKE 'group:%'" : "ci.source_id NOT LIKE 'group:%'";
+		}
+		return array( $where, $params );
 	}
 
 	/**
@@ -651,6 +777,57 @@ class BizCity_CRM_Repository {
 		return is_array( $rows ) ? $rows : array();
 	}
 
+	/** Return contact-scoped care projections after Inbox scope is resolved. */
+	public static function get_contact_care_projection( int $contact_id, array $allowed_inbox_ids, int $limit = 30 ): array {
+		// [2026-09-10 03:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CARE — keep notes/tasks/labels contact-scoped in the canonical CRM repository.
+		if ( $contact_id <= 0 || empty( $allowed_inbox_ids ) ) { return array( 'notes' => array(), 'tasks' => array(), 'labels' => array() ); }
+		global $wpdb;
+		$allowed_inbox_ids = array_values( array_unique( array_filter( array_map( 'absint', $allowed_inbox_ids ) ) ) );
+		if ( empty( $allowed_inbox_ids ) ) { return array( 'notes' => array(), 'tasks' => array(), 'labels' => array() ); }
+		$limit = max( 1, min( 100, $limit ) );
+		$cache_key = 'contact_care_' . get_current_blog_id() . '_' . md5( (string) ( $wpdb->dbname ?? '' ) ) . '_' . md5( $contact_id . ':' . implode( ',', $allowed_inbox_ids ) . ':' . $limit );
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			$cached = BizCity_Cache::get( 'crm_repository', $cache_key );
+			if ( false !== $cached && is_array( $cached ) ) { return $cached; }
+		}
+		$placeholders = implode( ',', array_fill( 0, count( $allowed_inbox_ids ), '%d' ) );
+		$params = array_merge( array( $contact_id ), $allowed_inbox_ids, array( $limit ) );
+		$messages = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$conversations = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$contact_inboxes = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$notes_sql = "SELECT m.id, m.conversation_id, m.content, m.created_at, m.responder_user_id
+			FROM `{$messages}` m
+			JOIN `{$conversations}` c ON c.id = m.conversation_id
+			JOIN `{$contact_inboxes}` ci ON ci.id = c.contact_inbox_id
+			WHERE ci.contact_id = %d AND ci.inbox_id IN ({$placeholders})
+				AND m.message_type = 'private_note'
+			ORDER BY m.id DESC LIMIT %d";
+		$notes = $wpdb->get_results( $wpdb->prepare( $notes_sql, $params ), ARRAY_A );
+
+		$tasks = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+		$task_sql = "SELECT id, title, status, priority, due_date, assignee_id, related_entity_type, related_entity_id, notes, completed, completed_at, created_at, updated_at
+			FROM `{$tasks}` WHERE deleted_at IS NULL AND related_entity_type = 'contact' AND related_entity_id = %d
+				AND EXISTS ( SELECT 1 FROM `{$contact_inboxes}` scoped_ci WHERE scoped_ci.contact_id = related_entity_id AND scoped_ci.inbox_id IN ({$placeholders}) )
+			ORDER BY due_date IS NULL ASC, due_date ASC, id DESC LIMIT %d";
+		$task_rows = $wpdb->get_results( $wpdb->prepare( $task_sql, array_merge( array( $contact_id ), $allowed_inbox_ids, array( $limit ) ) ), ARRAY_A );
+
+		$labels = array();
+		$label_rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT DISTINCT l.id, l.title, l.description, l.color, l.show_on_sidebar
+			 FROM " . BizCity_CRM_DB_Installer_V2::tbl_conversation_labels() . " cl
+			 JOIN " . BizCity_CRM_DB_Installer_V2::tbl_labels() . " l ON l.id = cl.label_id
+			 JOIN {$conversations} c ON c.id = cl.conversation_id
+			 JOIN {$contact_inboxes} ci ON ci.id = c.contact_inbox_id
+			 WHERE ci.contact_id = %d AND ci.inbox_id IN ({$placeholders})
+			 ORDER BY l.title ASC LIMIT %d",
+			array_merge( array( $contact_id ), $allowed_inbox_ids, array( $limit ) )
+		), ARRAY_A );
+		$labels = is_array( $label_rows ) ? $label_rows : array();
+		$result = array( 'notes' => is_array( $notes ) ? $notes : array(), 'tasks' => is_array( $task_rows ) ? $task_rows : array(), 'labels' => $labels );
+		if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::set( 'crm_repository', $cache_key, $result, BizCity_Cache::TTL_SHORT ); }
+		return $result;
+	}
+
 	/** Return canonical contacts linked to a WordPress user for order projection. */
 	public static function list_contacts_for_wp_user( int $wp_user_id, int $limit = 20 ): array {
 		// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — resolve order subjects from tenant CRM contacts, never posted contact IDs.
@@ -661,6 +838,105 @@ class BizCity_CRM_Repository {
 		$limit = max( 1, min( 20, $limit ) );
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM `{$table}` WHERE wp_user_id = %d AND deleted_at IS NULL ORDER BY id DESC LIMIT %d", $wp_user_id, $limit ), ARRAY_A );
 		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * Return CRM contacts and their raw server-side membership rows for an
+	 * already-authorized Inbox scope. Public callers must use the CRM access
+	 * projection, which replaces provider identifiers with opaque keys.
+	 *
+	 * @param int[]|null $allowed_inbox_ids Null means tenant-wide B2 scope.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function list_contacts_for_inbox_scope( $allowed_inbox_ids, int $limit = 100 ): array {
+		// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — derive unified Contacts from canonical contact_inboxes without creating a second store.
+		if ( is_array( $allowed_inbox_ids ) ) {
+			$allowed_inbox_ids = array_values( array_unique( array_filter( array_map( 'absint', $allowed_inbox_ids ) ) ) );
+			if ( empty( $allowed_inbox_ids ) ) { return array(); }
+		} elseif ( null !== $allowed_inbox_ids ) {
+			return array();
+		}
+
+		global $wpdb;
+		$limit = max( 1, min( 200, $limit ) );
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$scope_key = null === $allowed_inbox_ids ? 'all' : implode( ',', $allowed_inbox_ids );
+		$cache_key = 'contacts_scope_' . $blog_id . '_' . md5( $database ) . '_' . md5( $scope_key ) . '_' . $limit;
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			$cached = BizCity_Cache::get( 'crm_repository', $cache_key );
+			if ( false !== $cached && is_array( $cached ) ) { return $cached; }
+		}
+
+		$contacts = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$contact_inboxes = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$inboxes = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+		$conversations = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$scope_sql = '';
+		$scope_params = array();
+		if ( is_array( $allowed_inbox_ids ) ) {
+			$scope_sql = ' AND ci.inbox_id IN (' . implode( ',', array_fill( 0, count( $allowed_inbox_ids ), '%d' ) ) . ')';
+			$scope_params = $allowed_inbox_ids;
+		}
+		$contact_rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT DISTINCT c.id, c.name, c.first_name, c.last_name, c.updated_at
+			 FROM `{$contacts}` c
+			 JOIN `{$contact_inboxes}` ci ON ci.contact_id = c.id
+			 JOIN `{$inboxes}` i ON i.id = ci.inbox_id AND i.is_active = 1
+			 WHERE c.deleted_at IS NULL{$scope_sql}
+			 ORDER BY c.updated_at DESC, c.id DESC LIMIT %d",
+			array_merge( $scope_params, array( $limit ) )
+		), ARRAY_A );
+		if ( empty( $contact_rows ) ) {
+			if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::set( 'crm_repository', $cache_key, array(), BizCity_Cache::TTL_SHORT ); }
+			return array();
+		}
+
+		$contact_ids = array_values( array_map( 'intval', wp_list_pluck( $contact_rows, 'id' ) ) );
+		$contact_placeholders = implode( ',', array_fill( 0, count( $contact_ids ), '%d' ) );
+		$membership_where = "ci.contact_id IN ({$contact_placeholders})";
+		$membership_params = $contact_ids;
+		if ( is_array( $allowed_inbox_ids ) ) {
+			$membership_where .= ' AND ci.inbox_id IN (' . implode( ',', array_fill( 0, count( $allowed_inbox_ids ), '%d' ) ) . ')';
+			$membership_params = array_merge( $membership_params, $allowed_inbox_ids );
+		}
+		$membership_rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT ci.contact_id, ci.id AS contact_inbox_id, ci.inbox_id, ci.source_id,
+				i.channel_type, i.channel_ref_id,
+				cv.id AS conversation_id, cv.status AS conversation_status, cv.last_activity_at
+			 FROM `{$contact_inboxes}` ci
+			 JOIN `{$inboxes}` i ON i.id = ci.inbox_id AND i.is_active = 1
+			 LEFT JOIN `{$conversations}` cv ON cv.contact_inbox_id = ci.id
+			 WHERE {$membership_where}
+			 ORDER BY ci.contact_id ASC, ci.id ASC, cv.last_activity_at DESC, cv.id DESC",
+			$membership_params
+		), ARRAY_A );
+
+		$memberships = array();
+		$seen = array();
+		foreach ( is_array( $membership_rows ) ? $membership_rows : array() as $membership ) {
+			$contact_inbox_id = (int) ( $membership['contact_inbox_id'] ?? 0 );
+			if ( $contact_inbox_id <= 0 || isset( $seen[ $contact_inbox_id ] ) ) { continue; }
+			$seen[ $contact_inbox_id ] = true;
+			$contact_id = (int) ( $membership['contact_id'] ?? 0 );
+			$memberships[ $contact_id ][] = $membership;
+		}
+		$result = array();
+		foreach ( $contact_rows as $contact ) {
+			$contact_id = (int) ( $contact['id'] ?? 0 );
+			$name = trim( (string) ( $contact['first_name'] ?? '' ) . ' ' . (string) ( $contact['last_name'] ?? '' ) );
+			if ( '' === $name ) { $name = trim( (string) ( $contact['name'] ?? '' ) ); }
+			$result[] = array(
+				'contact_id' => $contact_id,
+				'display_name' => $name,
+				'updated_at' => $contact['updated_at'] ?? null,
+				'memberships' => array_values( $memberships[ $contact_id ] ?? array() ),
+			);
+		}
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::set( 'crm_repository', $cache_key, $result, BizCity_Cache::TTL_SHORT );
+		}
+		return $result;
 	}
 
 	public static function can_user_move_order_care( string $object_type, int $object_id, int $user_id = 0 ): bool {
@@ -788,6 +1064,7 @@ class BizCity_CRM_Repository {
 				'by_user_id'      => $actor_id,
 			) );
 		}
+		if ( $ok ) { self::invalidate_read_models(); }
 		if ( $ok && $status === 'resolved' && $previous_status !== 'resolved' ) {
 			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_resolved', array(
 				'conversation_id' => $conv_id,
@@ -979,6 +1256,7 @@ class BizCity_CRM_Repository {
 			),
 			array( 'id' => $conv_id )
 		);
+		self::invalidate_read_models();
 
 		// Emit appropriate event.
 		$event_type = $msg_type === 'outgoing' ? 'crm_message_sent' : 'crm_message_received';
@@ -1064,8 +1342,13 @@ class BizCity_CRM_Repository {
 		} elseif ( $error === '' ) {
 			$reason_code = 'unknown';
 		}
+		$delivery_outcome = sanitize_key( (string) ( $result['outcome'] ?? ( ! empty( $result['sent'] ) ? 'sent' : 'failed' ) ) );
+		if ( ! in_array( $delivery_outcome, array( 'queued', 'accepted', 'sent', 'delivered', 'failed' ), true ) ) {
+			$delivery_outcome = ! empty( $result['sent'] ) ? 'sent' : 'failed';
+		}
 		$payload['delivery'] = array(
-			'sent'        => ! empty( $result['sent'] ),
+			'sent'        => in_array( $delivery_outcome, array( 'sent', 'delivered' ), true ),
+			'outcome'     => $delivery_outcome,
 			'platform'    => (string) ( $result['platform'] ?? '' ),
 			'error'       => $error,
 			'reason_code' => $reason_code,
@@ -1076,7 +1359,9 @@ class BizCity_CRM_Repository {
 			$tbl,
 			array(
 				'payload_json' => wp_json_encode( $payload ),
-				'status'       => ! empty( $result['sent'] ) ? 'sent' : 'failed',
+				'status'       => in_array( $delivery_outcome, array( 'sent', 'delivered' ), true )
+					? 'sent'
+					: ( in_array( $delivery_outcome, array( 'queued', 'accepted' ), true ) ? 'queued' : 'failed' ),
 			),
 			array( 'id' => $message_id ),
 			array( '%s', '%s' ),
@@ -1087,7 +1372,8 @@ class BizCity_CRM_Repository {
 			$event_uuid = class_exists( 'BizCity_CRM_Event_Emitter' )
 				? BizCity_CRM_Event_Emitter::emit( 'crm_message_delivery_updated', array(
 					'message_id'  => $message_id,
-					'sent'        => ! empty( $result['sent'] ),
+					'sent'        => in_array( $delivery_outcome, array( 'sent', 'delivered' ), true ),
+					'outcome'     => $delivery_outcome,
 					'platform'    => (string) ( $result['platform'] ?? '' ),
 					'reason_code' => $reason_code,
 				) )
@@ -2031,5 +2317,7 @@ class BizCity_CRM_Repository {
 if ( class_exists( 'BizCity_Cache_Registry' ) ) {
 	BizCity_Cache_Registry::register( 'crm_repository', 'modules.twin-crm', array(
 		'inbox_by_ref_{blog_id}_{database_hash}_{tuple_hash}' => array( 'ttl' => 60, 'desc' => 'Active CRM inbox by exact channel and account reference' ),
+		'contacts_scope_{blog_id}_{database_hash}_{scope_hash}_{limit}' => array( 'ttl' => 60, 'desc' => 'Contacts and source memberships for one authorized Inbox scope' ),
+		'contact_care_{blog_id}_{database_hash}_{contact_scope_hash}_{limit}' => array( 'ttl' => 30, 'desc' => 'Contact-scoped CRM notes, tasks and assigned labels' ),
 	) );
 }

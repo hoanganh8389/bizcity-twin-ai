@@ -142,6 +142,41 @@ final class BizCity_Probe_Framework_Production_Contract implements BizCity_Diagn
 			'status' => $scope_ok ? 'pass' : 'fail',
 		);
 
+		$redaction_ok = false;
+		if ( class_exists( 'BizCity_Framework_Handle' ) ) {
+			// [2026-09-09 11:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W5.5 — prove public framework metadata redacts secrets, tokens, passwords and owner identifiers.
+			$public_manifest = ( new BizCity_Framework_Handle( array(
+				'contract' => 'extension-manifest',
+				'version' => '1.0.0',
+				'extension_id' => 'probe.redaction',
+				'extension_version' => '1.0.0',
+				'requires_framework' => '>=1.3 <2.0',
+				'capabilities' => array( 'channel.inbound' ),
+				'secret' => 'must-not-leak',
+				'token' => 'must-not-leak',
+				'password' => 'must-not-leak',
+				'owner_user_id' => 999,
+				'channels' => array( array(
+					'slug' => 'probe',
+					'platform' => 'PROBE',
+					'zone' => 'customer',
+					'identity_policy' => 'account_peer',
+					'account_scope' => 'single',
+					'secret' => 'must-not-leak',
+					'token' => 'must-not-leak',
+					'owner_user_id' => 999,
+				) ),
+			) ) )->public_manifest();
+			$serialized_manifest = wp_json_encode( $public_manifest );
+			$redaction_ok = false === strpos( $serialized_manifest, 'must-not-leak' )
+				&& false === strpos( $serialized_manifest, 'owner_user_id' );
+		}
+		$steps[] = array(
+			'label'  => 'Runtime — public framework metadata is redacted',
+			'status' => $redaction_ok ? 'pass' : 'fail',
+			'detail' => $redaction_ok ? 'Public manifest metadata excludes secret, token, password and owner identity fields.' : 'Public framework metadata exposed a forbidden secret or owner field.',
+		);
+
 		$http_ok = false;
 		$http_args = array();
 		$mock = function ( $pre, $args ) use ( &$http_args ) {
@@ -162,7 +197,7 @@ final class BizCity_Probe_Framework_Production_Contract implements BizCity_Diagn
 			'status' => $http_ok ? 'pass' : 'fail',
 		);
 
-		$status = $secret_ok && $mutation_ok && $consent_ok && $scope_ok && $http_ok ? 'pass' : 'fail';
+		$status = $secret_ok && $mutation_ok && $consent_ok && $scope_ok && $redaction_ok && $http_ok ? 'pass' : 'fail';
 		return array(
 			'status'  => $status,
 			'summary' => $status === 'pass' ? 'Core production security and reliability contract passed.' : 'Core production contract has runtime failures.',

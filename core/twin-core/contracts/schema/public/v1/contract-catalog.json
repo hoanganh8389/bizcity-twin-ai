@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "catalog_id": "bizcity-twin-public-contracts",
-  "catalog_version": "1.7.0",
+  "catalog_version": "1.9.0",
   "namespace": "bizcity.twin.contracts.public.v1",
   "semver_policy": "semver",
   "stability": "stable",
@@ -230,6 +230,28 @@
       }
     },
     {
+      "id": "setting-panel-registration",
+      "version": "1.0.0",
+      "schema": "setting-panel-registration.schema.json",
+      "fixtures": {
+        "valid": "fixtures/setting-panel-registration.valid.json",
+        "invalid": "fixtures/setting-panel-registration.invalid.json",
+        "additional_invalid": [
+          "fixtures/setting-panel-registration.invalid-missing-capability.json",
+          "fixtures/setting-panel-registration.invalid-ambiguous-scope.json",
+          "fixtures/setting-panel-registration.invalid-unsafe-url.json"
+        ]
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
       "id": "diagnostics-verdict",
       "version": "1.0.0",
       "schema": "diagnostics-verdict.schema.json",
@@ -343,11 +365,14 @@
     },
     {
       "id": "context-retrieval-pack",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "schema": "context-retrieval-pack.schema.json",
       "fixtures": {
         "valid": "fixtures/context-retrieval-pack.valid.json",
-        "invalid": "fixtures/context-retrieval-pack.invalid.json"
+        "invalid": "fixtures/context-retrieval-pack.invalid.json",
+        "additional_valid": [
+          "fixtures/context-retrieval-pack.context-bank.valid.json"
+        ]
       },
       "compatibility": {
         "producer": "1.x",
@@ -375,6 +400,23 @@
           "fixtures/extension-manifest.shopee.valid.json",
           "fixtures/extension-manifest.n-minus-one.valid.json"
         ]
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "extension-storage-context",
+      "version": "1.0.0",
+      "schema": "extension-storage-context.schema.json",
+      "fixtures": {
+        "valid": "fixtures/extension-storage-context.valid.json",
+        "invalid": "fixtures/extension-storage-context.invalid.json"
       },
       "compatibility": {
         "producer": "1.x",
@@ -426,6 +468,23 @@
       "fixtures": {
         "valid": "fixtures/fulfillment-result.valid.json",
         "invalid": "fixtures/fulfillment-result.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "user-inbox-scope",
+      "version": "1.0.0",
+      "schema": "user-inbox-scope.schema.json",
+      "fixtures": {
+        "valid": "fixtures/user-inbox-scope.valid.json",
+        "invalid": "fixtures/user-inbox-scope.invalid.json"
       },
       "compatibility": {
         "producer": "1.x",

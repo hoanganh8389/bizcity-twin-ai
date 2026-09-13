@@ -1,0 +1,23 @@
+{
+  "contract": "setting-panel-registration",
+  "version": "1.0.0",
+  "items": [
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "invalid.unsafe-url",
+      "owner": "plugins/example",
+      "origin": "extension",
+      "destination": "plugins-store",
+      "group": "example",
+      "label_key": "example.label",
+      "icon": "cil-puzzle",
+      "capability": "manage_options",
+      "scope": "site",
+      "surface": "external",
+      "renderer": { "type": "external", "id": "example.renderer", "target_url": "http://evil.example/path", "shell_mode": "external" },
+      "availability": { "policy": "registered-owner" },
+      "position": 10
+    }
+  ]
+}

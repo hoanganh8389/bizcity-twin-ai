@@ -68,7 +68,9 @@ function validate(schema, value, pathLabel = '$', rootSchema = schema) {
 
       if (schema.additionalProperties === false && schema.properties) {
         for (const key of Object.keys(value)) {
-          if (!Object.prototype.hasOwnProperty.call(schema.properties, key)) {
+          const matchesPattern = schema.patternProperties
+            && Object.keys(schema.patternProperties).some((pattern) => new RegExp(pattern).test(key));
+          if (!Object.prototype.hasOwnProperty.call(schema.properties, key) && !matchesPattern) {
             errors.push(`${pathLabel}: unexpected property '${key}'`);
           }
         }
@@ -229,6 +231,31 @@ function validateExtensionManifestSemantics(manifest, label) {
   assert.ok(manifest.diagnostics.requires.includes('disk'), `${label}: diagnostics must require disk evidence`);
   assert.ok(manifest.diagnostics.requires.includes('loader'), `${label}: diagnostics must require loader evidence`);
   assert.ok(manifest.diagnostics.requires.includes('runtime'), `${label}: diagnostics must require runtime evidence`);
+
+  if (Array.isArray(manifest.setting_panel)) {
+    const settingIds = new Set();
+    const rendererIds = new Set();
+    const destinations = new Set([
+      'workspace',
+      'settings',
+      'control-panel',
+      'channel-settings',
+      'crm-inbox',
+      'plugins-store',
+    ]);
+    for (const item of manifest.setting_panel) {
+      assert.ok(!settingIds.has(item.id), `${label}: duplicate setting_panel id: ${item.id}`);
+      settingIds.add(item.id);
+      assert.ok(destinations.has(item.destination),
+        `${label}: unsupported setting_panel destination: ${item.id}`);
+      assert.ok(!rendererIds.has(item.renderer.id),
+        `${label}: duplicate setting_panel renderer: ${item.renderer.id}`);
+      rendererIds.add(item.renderer.id);
+      if (item.destination === 'channel-settings') {
+        assert.ok(item.zone, `${label}: channel setting_panel item must declare zone: ${item.id}`);
+      }
+    }
+  }
 }
 
 function run() {
@@ -314,6 +341,40 @@ function run() {
           `admin-navigation item slot must belong to group: ${item.id}`);
         assert.ok(['core', 'bundle', 'extension'].includes(item.origin),
           `admin-navigation item has invalid origin: ${item.id}`);
+      }
+    }
+
+    if (contract.id === 'setting-panel-registration') {
+      const ids = new Set();
+      const nativeRendererIds = new Set();
+      const destinations = new Set([
+        'workspace',
+        'settings',
+        'control-panel',
+        'channel-settings',
+        'crm-inbox',
+        'plugins-store',
+      ]);
+
+      for (const item of validFixture.items) {
+        assert.ok(!ids.has(item.id), `setting-panel duplicate id: ${item.id}`);
+        ids.add(item.id);
+        assert.ok(destinations.has(item.destination),
+          `setting-panel invalid destination: ${item.id}`);
+        if (item.origin !== 'legacy_adapter') {
+          assert.ok(!nativeRendererIds.has(item.renderer.id),
+            `setting-panel renderer collision: ${item.renderer.id}`);
+          nativeRendererIds.add(item.renderer.id);
+        }
+        if (item.destination === 'channel-settings') {
+          assert.ok(item.zone, `setting-panel channel item missing zone: ${item.id}`);
+        }
+        if (item.origin === 'legacy_adapter') {
+          assert.equal(item.native_contract, false,
+            `setting-panel legacy adapter must be marked non-native: ${item.id}`);
+          assert.ok(item.migration_owner && item.sunset_after,
+            `setting-panel legacy adapter migration metadata missing: ${item.id}`);
+        }
       }
     }
   }

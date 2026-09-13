@@ -177,6 +177,50 @@ class BizCity_Zalo_Bot_Plugin {
 		// diagnostics, new-blog multisite provisioning and manual self-heal
 		// still create the active bizcity_zalo_bots configuration table.
 		add_filter( 'bizcity_register_installers', array( $this, 'register_site_provisioner_installer' ) );
+		// [2026-09-08 01:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — contribute linked Zalo Bot scopes to the separate admin branch.
+		add_filter( 'bizcity_user_inbox_scope_admin_items', array( $this, 'register_user_inbox_admin_items' ), 10, 3 );
+	}
+
+	public function register_user_inbox_admin_items( $items, $user_id, $surface ) {
+		// [2026-09-08 01:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — resolve linked-user bots without a cross-tier SQL join or raw provider identity exposure.
+		$items = is_array( $items ) ? $items : array();
+		$user_id = (int) $user_id;
+		unset( $surface );
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_Zalobot_User_Linker' ) || ! function_exists( 'bizcity_tbl_exists' ) ) { return $items; }
+		global $wpdb;
+		$link_table = BizCity_Zalobot_User_Linker::table();
+		$bot_table = $wpdb->prefix . 'bizcity_zalo_bots';
+		if ( ! bizcity_tbl_exists( $link_table ) || ! bizcity_tbl_exists( $bot_table ) ) { return $items; }
+		$bot_ids = $wpdb->get_col( $wpdb->prepare(
+			"SELECT DISTINCT bot_id FROM `{$link_table}` WHERE blog_id = %d AND wp_user_id = %d AND status = 'linked' ORDER BY linked_at DESC LIMIT 100",
+			(int) get_current_blog_id(),
+			$user_id
+		) );
+		$bot_ids = array_values( array_filter( array_unique( array_map( 'intval', is_array( $bot_ids ) ? $bot_ids : array() ) ) ) );
+		if ( empty( $bot_ids ) ) { return $items; }
+		$placeholders = implode( ',', array_fill( 0, count( $bot_ids ), '%d' ) );
+		$bots = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, bot_name FROM `{$bot_table}` WHERE id IN ({$placeholders}) AND status = 'active' ORDER BY id ASC",
+			$bot_ids
+		), ARRAY_A );
+		foreach ( is_array( $bots ) ? $bots : array() as $bot ) {
+			$bot_id = (int) ( $bot['id'] ?? 0 );
+			if ( $bot_id <= 0 ) { continue; }
+			$key = substr( hash_hmac( 'sha256', 'zalo_bot|' . $bot_id . '|' . $user_id, wp_salt( 'auth' ) ), 0, 32 );
+			$items[] = array(
+				'scope_id' => 'admin_zalobot_' . substr( $key, 0, 12 ),
+				'branch' => 'admin',
+				'zone' => 'admin',
+				'channel' => 'zalo_bot',
+				'access_mode' => 'linked_user',
+				'account_key' => $key,
+				'account_label' => sanitize_text_field( (string) ( $bot['bot_name'] ?? 'Zalo Bot' ) ),
+				'crm_mode' => 'disabled',
+				'capabilities' => array( 'context.read', 'brain.command' ),
+				'context_policy' => 'admin_command',
+			);
+		}
+		return $items;
 	}
 
 	/**

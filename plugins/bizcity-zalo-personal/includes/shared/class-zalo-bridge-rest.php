@@ -932,15 +932,50 @@ class BizCity_Zalo_Bridge_REST {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
 		}
 		$id = (string) ( $account['bridge_account_id'] ?? '' );
-		$result = $id !== '' ? BizCity_Zalo_Bridge_Client::instance()->get_qr_status( $id ) : array( 'success' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy tài khoản Zalo.', 'hint' => 'Tải lại danh sách Kênh của tôi rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' );
+		$client = BizCity_Zalo_Bridge_Client::instance();
+		$result = $id !== '' ? $client->get_qr_status( $id ) : array( 'success' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy tài khoản Zalo.', 'hint' => 'Tải lại danh sách Kênh của tôi rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' );
 		if ( ! empty( $result['_degraded'] ) || empty( $result['success'] ) ) {
-			return new WP_REST_Response( array_merge( array( 'ok' => false ), $result ), 200 );
+			return new WP_REST_Response( array_merge( array( 'ok' => false ), $result, self::readiness_envelope( $account, $result, $client ) ), 200 );
 		}
 		$status = (string) ( $result['status'] ?? 'pending_qr' );
 		if ( class_exists( 'BizCity_Zalo_Mapping_Repo' ) && ! empty( $account['id'] ) && in_array( $status, array( 'connected', 'expired', 'logged_out' ), true ) ) {
 			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $account['id'], $status );
 		}
-		return new WP_REST_Response( array( 'ok' => true, 'status' => $status, 'success' => true ), 200 );
+		return new WP_REST_Response( array( 'ok' => true, 'status' => $status, 'success' => true, 'qr_status' => $status, 'can_relogin' => in_array( $status, array( 'expired', 'logged_out', 'revoked' ), true ), 'readiness' => self::readiness_envelope( $account, $result, $client ) ), 200 );
+	}
+
+	/** Build a redacted readiness envelope without treating account mapping as bridge health. */
+	private static function readiness_envelope( array $account, array $qr_result, BizCity_Zalo_Bridge_Client $client ): array {
+		// [2026-09-09 10:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W4.8 — expose mapping, bridge, session, queue and callback evidence as separate states.
+		$health = method_exists( $client, 'health' ) ? $client->health() : array( 'success' => false, '_degraded' => true, 'code' => 'health_method_missing' );
+		$health_ok = ( ! empty( $health['success'] ) || ! empty( $health['ok'] ) ) && empty( $health['_degraded'] ) && empty( $health['degraded'] );
+		$callback_ts = 0;
+		if ( class_exists( 'BizCity_Zalo_Hook_Log' ) ) {
+			foreach ( BizCity_Zalo_Hook_Log::read( 100 ) as $row ) {
+				if ( ! is_array( $row ) || (string) ( $row['dir'] ?? '' ) !== 'inbound' ) { continue; }
+				if ( (string) ( $row['account_id'] ?? '' ) !== (string) ( $account['bridge_account_id'] ?? '' ) ) { continue; }
+				$callback_ts = max( $callback_ts, (int) ( $row['ts'] ?? 0 ) );
+			}
+		}
+		$queue_status = sanitize_key( (string) ( $qr_result['queue_status'] ?? $qr_result['queue']['status'] ?? '' ) );
+		if ( ! in_array( $queue_status, array( 'healthy', 'ready', 'queued', 'stalled', 'offline', 'unknown' ), true ) ) { $queue_status = 'unknown'; }
+		$session_status = sanitize_key( (string) ( $qr_result['session_status'] ?? $qr_result['status'] ?? 'unknown' ) );
+		return array(
+			'readiness_version' => '1.0.0',
+			'checked_at' => gmdate( 'c' ),
+			'account_mapping' => array(
+				'status' => ! empty( $account['bridge_account_id'] ) && (int) ( $account['owner_user_id'] ?? 0 ) > 0 ? 'mapped' : 'missing',
+				'account_key' => substr( hash( 'sha256', (string) ( $account['bridge_account_id'] ?? '' ) ), 0, 16 ),
+			),
+			'bridge_health' => array(
+				'status' => $health_ok ? 'healthy' : ( ! empty( $health['_degraded'] ) ? 'degraded' : 'unavailable' ),
+				'code' => sanitize_key( (string) ( $health['code'] ?? '' ) ),
+			),
+			'session_status' => $session_status,
+			'queue_status' => $queue_status,
+			'last_callback_at' => $callback_ts > 0 ? gmdate( 'c', $callback_ts ) : null,
+			'callback_observed' => $callback_ts > 0,
+		);
 	}
 
 	// ── OA OAuth ─────────────────────────────────────────────────────────

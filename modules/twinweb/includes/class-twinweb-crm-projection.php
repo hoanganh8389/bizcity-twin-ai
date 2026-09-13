@@ -23,12 +23,15 @@ final class BizCity_TwinWeb_CRM_Projection {
 		$current_user_id = (int) get_current_user_id();
 		// [2026-08-25 Johnny Chu] PHASE-0.39F-S1 — reject stale or forged identity objects before any CRM scope resolution or query.
 		if ( $user_id <= 0 || $current_user_id <= 0 || $user_id !== $current_user_id ) {
-			return array( 'conversations' => array(), 'care_tasks' => array(), 'orders' => array(), '_degraded' => true, 'reason' => 'crm_identity_mismatch' );
+			// [2026-09-10 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CARE — keep degraded member projections shape-compatible with the Scheduler event DTO.
+			return array( 'contacts' => array(), 'conversations' => array(), 'care_tasks' => array(), 'care_events' => array(), 'orders' => array(), '_degraded' => true, 'reason' => 'crm_identity_mismatch' );
 		}
 		if ( ! class_exists( 'BizCity_CRM_Repository' ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
-			return array( 'conversations' => array(), 'care_tasks' => array(), 'orders' => array(), '_degraded' => true, 'reason' => 'crm_projection_unavailable' );
+			return array( 'contacts' => array(), 'conversations' => array(), 'care_tasks' => array(), 'care_events' => array(), 'orders' => array(), '_degraded' => true, 'reason' => 'crm_projection_unavailable' );
 		}
 		$limit = max( 1, min( 100, $limit ) );
+		// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — reuse the CRM-owned redacted Contacts projection for C current-user scope.
+		$contact_projection = BizCity_CRM_Inbox_Access::resolve_user_contact_projection( $user_id, 'c', $limit );
 		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — /crm/me is always a C projection, including for users with manage_options.
 		$scope = BizCity_CRM_Inbox_Access::resolve_scope( $user_id, 'c' );
 		$allowed = isset( $scope['inbox_ids'] ) && is_array( $scope['inbox_ids'] ) ? $scope['inbox_ids'] : null;
@@ -42,6 +45,7 @@ final class BizCity_TwinWeb_CRM_Projection {
 		foreach ( $tasks as $task ) {
 			$task_items[] = self::task_item( $task );
 		}
+		$event_items = self::events_for_user( $user_id, $limit );
 		return array(
 			'contract_version' => '1.0.0',
 			'surface' => 'C_PUBLIC_TWINGPT',
@@ -50,8 +54,10 @@ final class BizCity_TwinWeb_CRM_Projection {
 				'owner_user_id' => $user_id,
 				'allowed_inbox_count' => is_array( $allowed ) ? count( $allowed ) : null,
 			),
+			'contacts' => isset( $contact_projection['contacts'] ) && is_array( $contact_projection['contacts'] ) ? $contact_projection['contacts'] : array(),
 			'conversations' => $conversation_items,
 			'care_tasks' => $task_items,
+			'care_events' => $event_items,
 			'orders' => self::orders_for_user( $user_id ),
 			'member_safe' => true,
 			'_degraded' => false,
@@ -86,6 +92,29 @@ final class BizCity_TwinWeb_CRM_Projection {
 			'related_entity_id' => ! empty( $row['related_entity_id'] ) ? (int) $row['related_entity_id'] : null,
 			'updated_at' => $row['updated_at'] ?? null,
 		);
+	}
+
+	private static function events_for_user( int $user_id, int $limit ): array {
+		// [2026-09-10 05:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CARE — expose Scheduler-owned personal work without creating a second calendar store.
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_Scheduler_Manager' ) ) { return array(); }
+		$rows = BizCity_Scheduler_Manager::instance()->get_events( $user_id, gmdate( 'Y-m-d H:i:s', time() - 90 * DAY_IN_SECONDS ), gmdate( 'Y-m-d H:i:s', time() + 365 * DAY_IN_SECONDS ) );
+		$items = array();
+		foreach ( array_slice( (array) $rows, 0, $limit ) as $row ) {
+			$raw = is_object( $row ) ? (array) $row : (array) $row;
+			$metadata = json_decode( (string) ( $raw['metadata'] ?? '' ), true );
+			if ( ! is_array( $metadata ) ) { $metadata = array(); }
+			$items[] = array(
+				'id' => (int) ( $raw['id'] ?? 0 ),
+				'title' => sanitize_text_field( (string) ( $raw['title'] ?? '' ) ),
+				'event_type' => sanitize_key( (string) ( $raw['event_type'] ?? '' ) ),
+				'start_at' => $raw['start_at'] ?? null,
+				'end_at' => $raw['end_at'] ?? null,
+				'status' => sanitize_key( (string) ( $raw['status'] ?? '' ) ),
+				'contact_id' => ! empty( $metadata['contact_id'] ) ? (int) $metadata['contact_id'] : null,
+				'conversation_id' => ! empty( $metadata['conversation_id'] ) ? (int) $metadata['conversation_id'] : null,
+			);
+		}
+		return $items;
 	}
 
 	private static function orders_for_user( int $user_id ): array {

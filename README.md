@@ -32,7 +32,28 @@ Nguyên tắc triển khai cho Dev là cách hiện thực hóa tuyên ngôn đ�
 
 > **Muốn thêm khả năng, hãy thêm plugin. Không sửa Core.**
 
+> **Directive:** Johnny Chu - Chu Hoàng Anh · 2026-09-13. Mọi plugin mới hoặc
+> plugin migrate dữ liệu phải khai báo `extension-storage-context@1.0.0` trước
+> khi thêm bảng/file/option/usermeta/CPT/KG artifact.
+
 Core giữ những năng lực dùng chung và nhạy cảm: danh tính, ranh giới dữ liệu doanh nghiệp, trí nhớ, đồ thị tri thức, Cổng LLM, suy luận, quyền truy cập, luồng sự kiện, nhật ký, lịch biểu và chẩn đoán. Plugin chỉ bổ sung chuyên môn, nguồn dữ liệu, hành động hoặc giao diện thông qua hợp đồng công khai.
+
+Storage decision gate của mọi plugin:
+
+```text
+log/trace/audit              -> canonical JSONL logger/filestore
+important reusable context   -> encrypted Business JSONL File Store
+                                -> receipt -> Context Bank pointer ledger
+                                -> rollup -> bounded MPR retrieval pack
+small low-volume data        -> existing CPT/options/usermeta/repository
+large/atomic/hot state       -> typed tenant SQL + Context Bank/MPR decision
+```
+
+`bizcity_context_bank` chỉ là pointer/correlation/provenance ledger, không phải
+kho payload. Brain Chat chỉ đọc `context-retrieval-pack@1.x` qua Context Bank/
+TwinBrain owner; plugin không được scan file, query KG trực tiếp hoặc dựng
+retrieval/brain riêng. Contract và fixtures:
+[EXTENSION-STORAGE-CONTEXT-CONTRACT-v1.md](docs/contracts/EXTENSION-STORAGE-CONTEXT-CONTRACT-v1.md).
 
 ```text
 All Channel, One Brain

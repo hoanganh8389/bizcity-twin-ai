@@ -45,6 +45,7 @@ final class BizCity_Probe_Table_Metadata implements BizCity_Diagnostics_Probe {
 
 		$api = class_exists( 'BizCity_Table_Metadata' )
 			&& method_exists( 'BizCity_Table_Metadata', 'table_exists' )
+			&& method_exists( 'BizCity_Table_Metadata', 'tables_exist' )
 			&& method_exists( 'BizCity_Table_Metadata', 'table_type' )
 			&& method_exists( 'BizCity_Table_Metadata', 'column_exists' )
 			&& method_exists( 'BizCity_Table_Metadata', 'columns_exist' )
@@ -86,6 +87,26 @@ final class BizCity_Probe_Table_Metadata implements BizCity_Diagnostics_Probe {
 			'label' => 'Runtime · existing table static/object cache',
 			'status' => $cache_reads_ok ? 'pass' : 'fail',
 			'detail' => $cache_reads_ok ? 'The first existing-table read queried metadata and the repeated read used cache.' : 'Existing-table metadata did not demonstrate one query followed by a cache hit.',
+		);
+
+		$batch_cache_ok = false;
+		if ( $api && $query_count() >= 0 ) {
+			$batch_missing_table = (string) $wpdb->prefix . 'bizcity_metadata_probe_batch_missing_' . (int) get_current_blog_id();
+			BizCity_Table_Metadata::invalidate( $true_table );
+			BizCity_Table_Metadata::invalidate( $batch_missing_table );
+			$before_batch = $query_count();
+			$batch_ready = ! BizCity_Table_Metadata::tables_exist( array( $true_table, $batch_missing_table ) );
+			$after_first_batch = $query_count();
+			$batch_repeat_ready = ! BizCity_Table_Metadata::tables_exist( array( $true_table, $batch_missing_table ) );
+			$after_second_batch = $query_count();
+			$batch_cache_ok = $batch_ready && $batch_repeat_ready
+				&& $after_first_batch === $before_batch + 1
+				&& $after_second_batch === $after_first_batch;
+		}
+		$steps[] = array(
+			'label' => 'Runtime · batched cold metadata cache',
+			'status' => $batch_cache_ok ? 'pass' : 'fail',
+			'detail' => $batch_cache_ok ? 'A mixed existing/missing table set used one metadata query and the repeated batch used cache.' : 'Batched metadata checks did not demonstrate one cold query followed by a cache hit.',
 		);
 
 		if ( $api && $query_count() >= 0 ) {

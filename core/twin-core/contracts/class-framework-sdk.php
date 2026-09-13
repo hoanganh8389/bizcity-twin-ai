@@ -115,7 +115,21 @@ if ( ! class_exists( 'BizCity_Framework_Handle' ) ) {
 			$public = array();
 			foreach ( $allowed as $field ) {
 				if ( array_key_exists( $field, $this->manifest ) ) {
-					$public[ $field ] = $this->manifest[ $field ];
+					if ( 'channels' === $field ) {
+						// [2026-09-09 11:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W5.5 — apply the public channel allowlist before returning nested manifest metadata.
+						$public[ $field ] = array();
+						$channel_allowed = array( 'slug', 'platform', 'zone', 'identity_policy', 'account_scope', 'crm_policy', 'brain_policy', 'context_policy', 'surface_policy' );
+						foreach ( (array) $this->manifest[ $field ] as $channel ) {
+							if ( ! is_array( $channel ) ) { continue; }
+							$public_channel = array();
+							foreach ( $channel_allowed as $channel_field ) {
+								if ( array_key_exists( $channel_field, $channel ) ) { $public_channel[ $channel_field ] = $channel[ $channel_field ]; }
+							}
+							$public[ $field ][] = $public_channel;
+						}
+					} else {
+						$public[ $field ] = $this->manifest[ $field ];
+					}
 				}
 			}
 			return $public;

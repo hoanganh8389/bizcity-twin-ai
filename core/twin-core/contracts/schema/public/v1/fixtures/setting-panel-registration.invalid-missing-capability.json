@@ -1,0 +1,22 @@
+{
+  "contract": "setting-panel-registration",
+  "version": "1.0.0",
+  "items": [
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "invalid.missing-capability",
+      "owner": "plugins/example",
+      "origin": "extension",
+      "destination": "control-panel",
+      "group": "example",
+      "label_key": "example.label",
+      "icon": "cil-puzzle",
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": { "type": "deep_link", "id": "example.renderer", "canonical_slug": "example" },
+      "availability": { "policy": "registered-owner" },
+      "position": 10
+    }
+  ]
+}

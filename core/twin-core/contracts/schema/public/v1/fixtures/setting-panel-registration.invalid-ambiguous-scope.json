@@ -1,0 +1,23 @@
+{
+  "contract": "setting-panel-registration",
+  "version": "1.0.0",
+  "items": [
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "invalid.ambiguous-scope",
+      "owner": "plugins/example",
+      "origin": "extension",
+      "destination": "settings",
+      "group": "example",
+      "label_key": "example.label",
+      "icon": "cil-puzzle",
+      "capability": "manage_options",
+      "scope": "tenant",
+      "surface": "admin_page",
+      "renderer": { "type": "route", "id": "example.renderer", "route": "/settings/example" },
+      "availability": { "policy": "registered-owner" },
+      "position": 10
+    }
+  ]
+}

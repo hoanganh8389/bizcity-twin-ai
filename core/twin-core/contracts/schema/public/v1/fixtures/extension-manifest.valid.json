@@ -9,6 +9,25 @@
     "channel.outbound",
     "context.admit"
   ],
+  "setting_panel": [
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "extension.shopee.settings",
+      "owner": "extension/vendor.shopee",
+      "origin": "extension",
+      "destination": "control-panel",
+      "group": "commerce",
+      "label_key": "shopee.settings.label",
+      "icon": "cil-puzzle",
+      "capability": "manage_options",
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": { "type": "deep_link", "id": "extension.shopee.settings", "canonical_slug": "shopee-settings" },
+      "availability": { "policy": "registered-owner", "dependency_ids": ["extension.vendor.shopee"] },
+      "position": 500
+    }
+  ],
   "channels": [
     {
       "slug": "zalo_bot",

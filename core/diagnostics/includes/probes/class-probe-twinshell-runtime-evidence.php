@@ -32,7 +32,7 @@ final class BizCity_Probe_TwinShell_Runtime_Evidence implements BizCity_Diagnost
 	public function id(): string          { return 'core.twinshell.runtime-evidence'; }
 	public function label(): string       { return 'TwinShell · Runtime Evidence Matrix (2-5)'; }
 	public function description(): string {
-		return 'R-DDV runtime matrix for TwinShell checklist sections 2-5: activity timeline contract, account hub usage/entitlement contract, and self-scope API shape.';
+		return 'R-DDV runtime matrix for TwinShell checklist sections 2-5: activity timeline contract, membership account shape, self-scope API shape, and optional BizCoach Pro account evidence.';
 	}
 	public function severity(): string    { return 'warning'; }
 	public function order(): int          { return 63; }
@@ -51,8 +51,13 @@ final class BizCity_Probe_TwinShell_Runtime_Evidence implements BizCity_Diagnost
 		// consolidation for checklist sections 2-5.
 		$failed          = false;
 		$runtime_skipped = false;
+		// [2026-09-13 10:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.29 — treat private BizCoach Pro account routes as optional in core-only runtime evidence.
+		$bizcoach_skipped = false;
 		$uid             = (int) get_current_user_id();
 		$blog_id         = (int) get_current_blog_id();
+		$bizcoach_runtime_available = class_exists( 'BizCoach_Pro_Self_Service_Page' )
+			|| defined( 'BCPRO_VERSION' )
+			|| defined( 'BCPRO_DIR' );
 
 		/* ------------------------------------------------------------
 		 * Layer 1 — Disk markers
@@ -67,17 +72,28 @@ final class BizCity_Probe_TwinShell_Runtime_Evidence implements BizCity_Diagnost
 				'label'   => 'BizCoach FE bootstrap keys (bcproSS)',
 				'path'    => WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcoach-pro/includes/frontend/class-self-service-shortcode.php',
 				'markers' => array( 'bcproSS', 'membershipBase', 'nonce', 'isLoggedIn', 'currentUserId', 'paypalEnabled' ),
+				'optional_pro' => true,
 			),
 			array(
 				'label'   => 'BizCoach REST account routes',
 				'path'    => WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcoach-pro/includes/frontend/class-self-service-rest.php',
 				'markers' => array( '/me/usage-summary', '/me/entitlement', 'normalize_usage_summary_payload' ),
+				'optional_pro' => true,
 			),
 		);
 
 		foreach ( $disk_specs as $spec ) {
 			$path = (string) $spec['path'];
 			if ( ! file_exists( $path ) ) {
+				if ( ! empty( $spec['optional_pro'] ) ) {
+					$bizcoach_skipped = true;
+					$ctx->emit_step( array(
+						'label'  => 'Layer 1 · Disk · ' . (string) $spec['label'],
+						'status' => 'skip',
+						'detail' => 'Optional BizCoach Pro package is not deployed in this core-only runtime.',
+					) );
+					continue;
+				}
 				$failed = true;
 				$ctx->emit_step( array(
 					'label'  => 'Layer 1 · Disk · ' . (string) $spec['label'],
@@ -113,15 +129,25 @@ final class BizCity_Probe_TwinShell_Runtime_Evidence implements BizCity_Diagnost
 		 * ------------------------------------------------------------ */
 		$routes = (array) rest_get_server()->get_routes();
 		$route_expect = array(
-			'/bizcity-twin/v1/events/my_activity'    => 'GET',
-			'/bizcity-membership/v1/me'              => 'GET',
-			'/bizcity-bizcoach/v1/me/usage-summary'  => 'GET',
-			'/bizcity-bizcoach/v1/me/entitlement'    => 'GET',
+			'/bizcity-twin/v1/events/my_activity'    => array( 'method' => 'GET', 'optional_pro' => false ),
+			'/bizcity-membership/v1/me'              => array( 'method' => 'GET', 'optional_pro' => false ),
+			'/bizcity-bizcoach/v1/me/usage-summary'  => array( 'method' => 'GET', 'optional_pro' => true ),
+			'/bizcity-bizcoach/v1/me/entitlement'    => array( 'method' => 'GET', 'optional_pro' => true ),
 		);
 
-		foreach ( $route_expect as $route_key => $must_method ) {
+		foreach ( $route_expect as $route_key => $expectation ) {
+			$must_method = (string) $expectation['method'];
 			$methods = $this->collect_route_methods( $routes, $route_key );
 			$ok = in_array( strtoupper( (string) $must_method ), $methods, true );
+			if ( ! $ok && ! empty( $expectation['optional_pro'] ) && ! $bizcoach_runtime_available ) {
+				$bizcoach_skipped = true;
+				$ctx->emit_step( array(
+					'label'  => 'Layer 2 · REST · ' . $route_key,
+					'status' => 'skip',
+					'detail' => 'Optional BizCoach Pro package is not active in this core-only runtime.',
+				) );
+				continue;
+			}
 			if ( ! $ok ) {
 				$failed = true;
 			}
@@ -289,6 +315,16 @@ final class BizCity_Probe_TwinShell_Runtime_Evidence implements BizCity_Diagnost
 					: 'invalid /membership/me response for account mapping',
 			) );
 
+			if ( ! $bizcoach_runtime_available ) {
+				$bizcoach_skipped = true;
+				foreach ( array( '7d', '30d', '90d' ) as $range ) {
+					$ctx->emit_step( array(
+						'label'  => 'Layer 3 · /me/usage-summary range=' . $range,
+						'status' => 'skip',
+						'detail' => 'Optional BizCoach Pro package is not active in this core-only runtime.',
+					) );
+				}
+			} else {
 			foreach ( array( '7d', '30d', '90d' ) as $range ) {
 				$usage_data = $this->rest_data( 'GET', '/bizcity-bizcoach/v1/me/usage-summary', array( 'range' => $range ) );
 
@@ -328,7 +364,17 @@ final class BizCity_Probe_TwinShell_Runtime_Evidence implements BizCity_Diagnost
 						: 'invalid usage-summary contract for range=' . $range,
 				) );
 			}
+			}
 
+			if ( ! $bizcoach_runtime_available ) {
+				$bizcoach_skipped = true;
+				$ctx->emit_step( array(
+					'label'  => 'Layer 3 · /me/entitlement fail-open contract',
+					'status' => 'skip',
+					'detail' => 'Optional BizCoach Pro package is not active in this core-only runtime.',
+				) );
+				$ent_data = null;
+			} else {
 			$ent_data = $this->rest_data( 'GET', '/bizcity-bizcoach/v1/me/entitlement' );
 			$ent_ok = is_array( $ent_data )
 				&& array_key_exists( 'success', $ent_data )
@@ -351,13 +397,14 @@ final class BizCity_Probe_TwinShell_Runtime_Evidence implements BizCity_Diagnost
 					)
 					: 'invalid entitlement payload (expected success+tier+features)',
 			) );
+			}
 		}
 
 		if ( $failed ) {
 			return array(
 				'status'   => 'fail',
 				'summary'  => 'TwinShell runtime evidence probe failed — some checklist runtime contracts are not satisfied.',
-				'fix_hint' => 'Check TwinShell activity endpoint contract, membership /me shape, and BizCoach /me/usage-summary + /me/entitlement response normalization.',
+				'fix_hint' => 'Check TwinShell activity endpoint contract and membership /me shape; deploy BizCoach Pro separately before requiring its optional account routes.',
 			);
 		}
 
@@ -368,9 +415,11 @@ final class BizCity_Probe_TwinShell_Runtime_Evidence implements BizCity_Diagnost
 			);
 		}
 
-		return array(
+			return array(
 			'status'  => 'pass',
-			'summary' => 'TwinShell runtime evidence PASS: timeline/account hub contracts are executable and parseable via diagnostics.',
+				'summary'  => $bizcoach_skipped
+					? 'TwinShell runtime evidence PASS for core contracts; BizCoach Pro checks were skipped because the private utility is not active.'
+					: 'TwinShell runtime evidence PASS: timeline/account hub contracts are executable and parseable via diagnostics.',
 		);
 	}
 

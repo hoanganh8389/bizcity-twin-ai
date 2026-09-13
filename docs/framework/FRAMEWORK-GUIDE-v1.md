@@ -1,5 +1,7 @@
 # BizCity Twin Framework Guide v1
 
+> **Directive:** Johnny Chu - Chu Hoàng Anh · 2026-09-13
+
 > Status: Orientation guide
 > Scope: `bizcity-twin-ai`, active satellite plugins, `bizcity-llm-router`
 > Audience: framework developers, extension authors, reviewers, operators
@@ -11,13 +13,16 @@
 
 Use this priority order when documents disagree:
 
-1. **Product direction:** [PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md](../rules/PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md)
-2. **Ownership and topology:** [PHASE-0-RULE-BRAIN-UNIFICATION.md](../rules/PHASE-0-RULE-BRAIN-UNIFICATION.md)
-3. **Enterprise context:** [PHASE-0-RULE-CONTEXT-BANK.md](../rules/PHASE-0-RULE-CONTEXT-BANK.md)
-4. **Cross-cutting rules:** [PHASE-0-CANON.md](../rules/PHASE-0-CANON.md) and the linked Tier 0/Tier 1 rule documents
-5. **Stable public API:** [PUBLIC-CONTRACTS-v1.md](../contracts/PUBLIC-CONTRACTS-v1.md)
-6. **Extension conventions:** [HOOKS.md](../extension/HOOKS.md), [getting-started.md](../getting-started.md), and [sub-plugin-quickstart.md](../extending/sub-plugin-quickstart.md)
-7. **Feature roadmap and current implementation status:** the applicable `PHASE-*` document, especially [PHASE-1.25](../roadmaps/PHASE-1.25-PIAPI-IMAGE-GATEWAY-PLUGIN-FRAMEWORK-AUDIT.md)
+1. **Stable public API:** [PUBLIC-CONTRACTS-v1.md](../contracts/PUBLIC-CONTRACTS-v1.md)
+2. **Extension conventions:** [HOOKS.md](../extension/HOOKS.md), [getting-started.md](../getting-started.md), and [sub-plugin-quickstart.md](../extending/sub-plugin-quickstart.md)
+3. **Security and capability baseline:** [CAPABILITY-SECURITY-v1.md](../contracts/CAPABILITY-SECURITY-v1.md)
+4. **Runtime and reliability baseline:** [RUNTIME-PRODUCTION-CONTRACT-v1.md](../contracts/RUNTIME-PRODUCTION-CONTRACT-v1.md)
+5. **Internal architecture and release governance:** maintained in the approved development workspace and intentionally omitted from the public package.
+
+The public guide does not link to private roadmaps, audit reports, diagnostics
+evidence or plugin distribution decisions. Public extension authors should use
+the versioned schemas, SDK interfaces and onboarding checks; internal release
+governance is reviewed separately.
 
 A roadmap explains delivery state. It does not create a new architectural authority.
 A helper or existing code path is not automatically a public contract. For all
@@ -28,6 +33,27 @@ Before designing a new capability, apply the Enterprise Brain direction gate:
 identify its Channel Gateway intake, Vertical Brain Mode/extension contract,
 Context Bank stream/rollup contract, KG Graph evidence path, shared spine owner,
 and non-duplicated UI/data owner.
+
+### 1.1a Public framework distribution boundary
+
+The public GitHub package contains the reusable framework spine: `core/`,
+framework-owned `modules/`, and channel/brain contracts that implement the
+**all channels, one brain** direction. Customer-specific utility packages are
+not part of that distribution and must never become `must-load` dependencies:
+
+- `bizcity-video-kling`
+- `bizcity-tool-image`
+- `bizcity-doc`
+- `bizcoach-pro`
+- `ibs-hi`
+- legacy `bizcity-personal`
+
+These packages may remain in an approved private deployment as separately
+installed Pro utilities. Their absence from the public checkout must degrade
+to a clear Pro-required state, not a fatal, a missing route, or a second
+framework owner. `bizcity-zalo-personal` is intentionally different: it is an
+active Zone 1 channel package and remains governed by the Channel Gateway
+contracts until a separate channel migration decision is approved.
 
 ## 1.1 Safe PHP Artifact Loading
 
@@ -86,7 +112,8 @@ owner for the same state.
 | You are trying to... | Start with | Required boundary |
 |---|---|---|
 | Add an LLM/Search/Video/Astro/PiAPI feature | [API catalog](../api/README.md) | Existing client wrapper first; no direct provider HTTP |
-| Add a browser or SPA capability | [Sub-plugin quickstart](../extending/sub-plugin-quickstart.md) | Same-origin REST/AJAX + nonce, then PHP wrapper |
+| Add a browser or SPA capability | [Sub-plugin quickstart](../extending/sub-plugin-quickstart.md) | Same-origin REST/AJAX + nonce, then PHP wrapper; optional utility UI must use the Pro-required fallback when its package is absent |
+| Add or change a module/plugin settings page | [R-SETTING-PANEL](../rules/PHASE-0-RULE-SETTING-PANEL.md) and [registration contract](../contracts/SETTING-PANEL-REGISTRATION-CONTRACT-v1.md) | Register into TwinShell Control Panel; keep renderer/value ownership; no new top-level menu |
 | Add a Tool/Agent/Skill/Channel/Adapter | [Agent/tool recipe](../extending/agent-tool-recipe.md) and [HOOKS.md](../extension/HOOKS.md) | Typed contract or explicit legacy adapter |
 | Build a community plugin scaffold | [PLUGIN-STANDARD.md](../extending/PLUGIN-STANDARD.md) and [PLUGIN-TWIN-STANDARD.md](../extending/PLUGIN-TWIN-STANDARD.md) | `manifest.json` + bootstrap + declared capability contract |
 | Receive or send a channel message | [Channel-Only R-CH-10](../rules/PHASE-0-RULE-CHANNEL-ONLY.md#r-ch-10--all-channels-one-diagnostics-contract) | `channel-payload` + exact tenant/account/identity/zone + `channel-diagnostics-record`; one logger/index/Log Explorer |
@@ -98,14 +125,15 @@ apply the same gate: encrypted JSONL/business filestore is the payload source
 of truth, while `bizcity_context_bank` is a pointer/correlation projection.
 Do not create new SQL memory payload writes or copy decrypted memory into the
 ledger; use the lifecycle roadmap for legacy-row retention and cleanup.
-| Implement a Context Bank wave or sprint | [Phase 1.33 Context Bank roadmap](../roadmaps/PHASE-1.33-CONTEXT-BANK-IMPLEMENTATION-ROADMAP.md) | Follow hard dependencies, owning files, focused probe, rollback and exit gate for that sprint |
+| Implement a Context Bank capability | Public Context Bank contracts | Follow the published owner, pointer and bounded-retrieval contracts |
 | Read/write KG or memory | [Brain Unification](../rules/PHASE-0-RULE-BRAIN-UNIFICATION.md) | Facade/service only; no direct KG table access |
 | Add a REST/AJAX error | [Error UX rule](../rules/PHASE-0-RULE-ERROR-UX.md) | `code`, `message`, `hint`, `help_code` |
 | Add a mutation, queue, or external side effect | [Public contracts](../contracts/PUBLIC-CONTRACTS-v1.md) | Permission, idempotency, trace, retry, outcome evidence |
 | Add or change a table/column/index | [Diagnostics changelog rule](../diagnostics/PHASE-0-RULE-DIAGNOSTICS-CHANGELOG.md) | R-DCL + schema registry + provisioner + DDV |
-| Change a loader or bootstrap | [Phase 1.23 loader roadmap](../roadmaps/PHASE-1.23-R-PERF-LOADER.md) | Surface gate + focused memory/load evidence |
-| Prepare a release | [Phase 1.24 readiness](../roadmaps/PHASE-1.24-FRAMEWORK-ADOPTION-RELEASE-READINESS.md) | CI, runtime probes, registry, SDK, schema and residual-risk scorecard |
-| Add or extend a WP-CLI command | [Phase 1.31 `wp bizcity` command family roadmap](../roadmaps/PHASE-1.31-WP-CLI-BIZCITY-COMMAND-FAMILY.md) | Root `bizcity` namespace, reuse the diagnostics-verdict contract, no parallel Diagnostics engine |
+| Change a loader or bootstrap | Loader/runtime contract | Declare the surface gate and collect focused load evidence |
+| Prepare a release | CI and diagnostics contracts | Validate public contracts, package metadata and applicable runtime evidence |
+| Enforce complete extension adoption | Public extension contracts | Prove the applicable Channel, CRM, Context Bank/KG, Brain and MCP/action boundaries |
+| Add or extend a WP-CLI command | `diagnostics-verdict` and CLI contract | Use the root `bizcity` namespace and do not create a parallel diagnostics engine |
 
 When two rows appear to apply, follow both boundaries. The more restrictive
 security, identity, storage, or runtime rule wins.
@@ -145,16 +173,9 @@ script under `bin/`, `core/diagnostics/includes/probes/`, or
 step list.
 
 Local developer, GitHub Actions, Codex, and an in-editor agent should all be
-able to run the exact same command and get the exact same verdict. That
-property does **not** fully hold yet — see
-[PHASE-1.27-AGENTIC-CLI-DIAGNOSTICS-PARITY.md](../roadmaps/PHASE-1.27-AGENTIC-CLI-DIAGNOSTICS-PARITY.md)
-for the gap analysis (per-plugin `twin diagnostics plugin <slug>`, the
-10-point structural checklist, and the WordPress-runtime dependency that
-currently breaks parity in sandboxes without a booted WordPress instance),
-and [PHASE-1.28-RUNTIME-READINESS-CLOSURE.md](../roadmaps/PHASE-1.28-RUNTIME-READINESS-CLOSURE.md)
-for the verdict contract, CI adoption gate, and runtime boundary proofs
-(multisite isolation, error envelope, idempotency, channel identity, and
-per-package adoption) required before any of that can be called done.
+able to run the same public validation commands and get the same contract
+verdict. Detailed parity gaps and release closure evidence are internal
+governance artifacts and are not distributed in the public package.
 
 ## 2. The One-Sentence Architecture
 
@@ -235,6 +256,39 @@ Zone 1 customer channels and Zone 2 admin channels must remain separate. Raw hoo
 ### 4.5 Need knowledge or memory
 
 Use the KG/Memory facade and canonical services. Do not query `bizcity_kg_*` directly from an extension. Do not create a second memory table or a surface-specific “brain”.
+
+### 4.6 Need to add or migrate data
+
+Before creating a table, file contract, option, user meta, CPT, repository,
+Event Stream projection or knowledge artifact, declare the public
+`extension-storage-context@1.0.0` contract. Use the smallest canonical storage
+that preserves correctness:
+
+```text
+operational log/audit/trace
+  -> canonical JSONL logger and optional pointer index
+
+reusable business/context payload
+  -> encrypted Business JSONL File Store
+  -> lock-captured receipt
+  -> pointer-only Context Bank ledger
+  -> registered rollup or explicit no-rollup decision
+
+small low-churn configuration/profile/editorial data
+  -> existing CPT / option / site option / user meta / repository
+
+large, atomic, relational or hot-path state
+  -> typed tenant SQL/canonical repository
+  -> Context Bank adapter or reviewed no-context decision
+  -> bounded Context Retrieval Pack/MPR bridge when reusable
+```
+
+Never put full payloads into `bizcity_context_bank`, never scan filestore files
+inside a chat/MPR request, and never create a second vector/KG/retrieval path.
+An extension that creates a SQL table must also declare its payload owner,
+receipt/ledger policy, rollup/rebuild policy, retention, rollback owner and
+`context-retrieval-pack@1.x`/MPR relationship. A missing framework capability is
+a deferred framework proposal, not permission to add a private replacement.
 
 ### 4.6 Need a mutation or external side effect
 

@@ -383,6 +383,11 @@ require_once $gateway_dir . 'class-webhook-replay.php';
 require_once $gateway_dir . 'listener/class-listener-bus.php';
 require_once $gateway_dir . 'listener/class-listener-rest.php';
 require_once $gateway_dir . 'listener/class-listener-automation-bridge.php';
+// [2026-09-10 Johnny Chu - Chu Hoàng Anh] PHASE-0.55-MABEL-WHEEL - bridge Mabel passive intake hooks into canonical CRM/channel owners.
+$mabel_wheel_listener = $gateway_dir . 'adapters/class-mabel-wheel-channel-listener.php';
+if ( is_file( $mabel_wheel_listener ) && is_readable( $mabel_wheel_listener ) && class_exists( 'BizCity_Safe_Loader' ) ) {
+	BizCity_Safe_Loader::require_file( $mabel_wheel_listener, 'channel-gateway.mabel_wheel_listener' );
+}
 
 // Schema install + admin-side network OAuth page registration.
 add_action( 'admin_init', array( 'BizCity_Channel_Messages', 'maybe_install' ) );
@@ -407,6 +412,9 @@ BizCity_Webhook_Inspector::init();
 BizCity_Listener_Bus::init();
 BizCity_Listener_REST::init();
 BizCity_Listener_Automation_Bridge::init();
+if ( class_exists( 'BizCity_Mabel_Wheel_Channel_Listener' ) ) {
+	BizCity_Mabel_Wheel_Channel_Listener::init();
+}
 
 // PHASE 0.37 M3.W3 — Register built-in stub adapters with Gateway Bridge.
 // These provide coverage for legacy platforms until full adapters are built (M5).

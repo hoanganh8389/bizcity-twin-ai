@@ -47,6 +47,9 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 		if ( ! class_exists( 'BizCity_Context_Bank_Access' ) ) {
 			return new WP_Error( 'context_bank_access_missing', 'Context Bank access boundary is not loaded.' );
 		}
+		if ( ! class_exists( 'BizCity_Context_Bank_Scope_Resolver' ) ) {
+			return new WP_Error( 'context_bank_scope_missing', 'Context Bank scope resolver is not loaded.' );
+		}
 		if ( ! function_exists( 'get_current_user_id' ) || (int) get_current_user_id() <= 0 ) {
 			return new WP_Error( 'channel_user_grant_operator_missing', 'An authenticated diagnostic operator is required.' );
 		}
@@ -129,6 +132,8 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 		$delegate_channel_access = array( 'ok' => false );
 		$delegate_personal_denied = false;
 		$outsider_channel_denied = false;
+		$delegate_mode_scope = array( 'ok' => false );
+		$outsider_mode_scope = array( 'ok' => false );
 		$admin_channel_access = array( 'ok' => false );
 		if ( $delegate_id > 0 && $outsider_id > 0 ) {
 			// [2026-09-06 11:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.33A-DDV — prove channel grants do not widen personal pointer ownership before any filestore follow.
@@ -136,8 +141,10 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 				wp_set_current_user( $delegate_id );
 				$delegate_channel_access = BizCity_Context_Bank_Access::authorize_pointer( $channel_pointer );
 				$delegate_personal_denied = empty( BizCity_Context_Bank_Access::authorize_pointer( $personal_pointer )['ok'] );
+				$delegate_mode_scope = BizCity_Context_Bank_Scope_Resolver::resolve( array( 'mode' => 'context_bank', 'channel' => 'zalo_personal', 'account_key' => $account_key ) );
 				wp_set_current_user( $outsider_id );
 				$outsider_channel_denied = empty( BizCity_Context_Bank_Access::authorize_pointer( $channel_pointer )['ok'] );
+				$outsider_mode_scope = BizCity_Context_Bank_Scope_Resolver::resolve( array( 'mode' => 'context_bank', 'channel' => 'zalo_personal', 'account_key' => $account_key ) );
 				wp_set_current_user( $this->primary_user_id );
 				$admin_channel_access = BizCity_Context_Bank_Access::authorize_pointer( $channel_pointer );
 			} finally {
@@ -145,6 +152,8 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 			}
 		}
 		$delegate_channel_matrix_ok = $delegate_id > 0 && ! empty( $delegate_channel_access['ok'] ) && 'channel_grant' === (string) ( $delegate_channel_access['scope'] ?? '' );
+		$delegate_mode_scope_ok = $delegate_id > 0 && ! empty( $delegate_mode_scope['ok'] ) && 'context_bank' === (string) ( $delegate_mode_scope['effective_mode'] ?? '' ) && in_array( 'core.channel_gateway.context_corpus', (array) ( $delegate_mode_scope['policy_contracts'] ?? array() ), true );
+		$outsider_mode_scope_denied = $outsider_id > 0 && 'skip' === (string) ( $outsider_mode_scope['effective_mode'] ?? '' ) && in_array( (string) ( $outsider_mode_scope['reason_bucket'] ?? '' ), array( 'grant_not_found', 'grant_scope_mismatch', 'context_bank_channel_scope_denied', 'grant_permission_denied' ), true );
 		$admin_channel_matrix_ok = ! empty( $admin_channel_access['ok'] ) && 'tenant_admin' === (string) ( $admin_channel_access['scope'] ?? '' );
 		$revoke = $delegate_id > 0 ? BizCity_Channel_User_Grant::revoke( 'zalo_personal', $account_id, $delegate_id, $this->primary_user_id, array( 'source' => 'diagnostics' ) ) : array( 'ok' => false );
 		$revoke_ok = $delegate_id > 0 && ! empty( $revoke['ok'] ) && empty( BizCity_Channel_User_Grant::authorize( 'zalo_personal', $account_id, $delegate_id, 'view_context' )['ok'] );
@@ -180,8 +189,10 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 			array( 'label' => 'Malformed grant payload is denied', 'ok' => $malformed_denied, 'detail' => $malformed_denied ? 'An active but malformed usermeta payload is denied.' : 'Malformed grant metadata was accepted.' ),
 			array( 'label' => 'Unlisted user is denied', 'ok' => $outsider_denied, 'detail' => $outsider_denied ? 'A user without the exact meta-key grant is denied.' : 'An unlisted user received channel access.' ),
 			array( 'label' => 'Delegate can follow only the exact channel pointer scope', 'ok' => $delegate_channel_matrix_ok, 'detail' => $delegate_channel_matrix_ok ? 'The delegated user is authorized for the exact channel account before any filestore follow.' : 'The exact channel pointer was not authorized through the Context Bank access boundary.' ),
+			array( 'label' => 'Delegate Context Bank mode uses exact grant', 'ok' => $delegate_mode_scope_ok, 'detail' => $delegate_mode_scope_ok ? 'The delegated user resolves context_bank with the exact granted account contract allowlist.' : 'The delegated context_bank mode did not resolve through the exact grant.' ),
 			array( 'label' => 'Delegate cannot follow primary personal pointer', 'ok' => $delegate_personal_denied, 'detail' => $delegate_personal_denied ? 'Channel access did not widen the primary user personal scope.' : 'A channel delegate crossed into the primary personal pointer scope.' ),
 			array( 'label' => 'Outsider is denied before channel pointer follow', 'ok' => $outsider_channel_denied, 'detail' => $outsider_channel_denied ? 'An unlisted user was denied at pointer authorization.' : 'An outsider reached the channel pointer authorization boundary.' ),
+			array( 'label' => 'Outsider Context Bank mode is denied', 'ok' => $outsider_mode_scope_denied, 'detail' => $outsider_mode_scope_denied ? 'An unlisted user cannot resolve context_bank for the account.' : 'An outsider resolved context_bank: mode=' . sanitize_key( (string) ( $outsider_mode_scope['effective_mode'] ?? '' ) ) . ', reason=' . sanitize_key( (string) ( $outsider_mode_scope['reason_bucket'] ?? '' ) ) . ', scope=' . sanitize_key( (string) ( $outsider_mode_scope['scope'] ?? '' ) ) ),
 			array( 'label' => 'Tenant admin can inspect the current channel pointer', 'ok' => $admin_channel_matrix_ok, 'detail' => $admin_channel_matrix_ok ? 'The explicit tenant-admin branch authorizes the current tenant pointer.' : 'The tenant-admin Context Bank branch did not authorize the current tenant pointer.' ),
 			array( 'label' => 'Revoke removes access immediately', 'ok' => $revoke_ok, 'detail' => $revoke_ok ? 'Revocation makes the delegated permission fail closed.' : 'Revocation did not remove the effective permission.' ),
 			array( 'label' => 'Multiple primary state fails closed', 'ok' => $conflict_ok, 'detail' => $conflict_ok ? 'Two active primary projections return channel_primary_conflict.' : 'The service selected an implicit primary.' ),

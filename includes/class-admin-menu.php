@@ -37,6 +37,7 @@ class BizCity_Admin_Menu {
 	 *  Menu slug constants
 	 * ══════════════════════════════════════ */
 	const SLUG_CHAT      = 'bizcity-twinchat';          // End-user: Twin (TwinChat) React SPA — default dashboard since 2026-05-06
+	const SLUG_CONTROL_PANEL = 'bizcity-twin-control-panel'; // [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — one visible Twin ecosystem entry.
 	const SLUG_WORKSPACE = 'bizcity-twin-workspace';   // [2026-08-19 Johnny Chu] HOTFIX — core/module surfaces live here; bundled plugin surfaces live under Twin Plugins.
 	const SLUG_PLUGINS   = 'bizcity-twin-plugins';     // [2026-08-19 Johnny Chu] HOTFIX — keep bundled plugin menus outside the core/module Workspace.
 	const SLUG_NOTEBOOK  = 'bizcity-notebook';          // End-user: React Notebook SPA
@@ -71,6 +72,17 @@ class BizCity_Admin_Menu {
 	 * ══════════════════════════════════════════════════════════ */
 	public static function register_toplevel_menus(): void {
 		$td = 'bizcity-twin-ai';
+
+		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — materialize one protected Control Panel root; legacy parents remain direct-link compatible until the observation window ends.
+		add_menu_page(
+			__( 'Control Panel', $td ),
+			__( 'Control Panel', $td ),
+			'manage_options',
+			self::SLUG_CONTROL_PANEL,
+			[ __CLASS__, 'render_control_panel_page' ],
+			'dashicons-admin-generic',
+			4
+		);
 
 		/* ── End-user: Chat React SPA — DISABLED 2026-05-06 ──
 		 * TwinChat (modules/twinchat) is now the default dashboard at position 2.
@@ -676,6 +688,8 @@ class BizCity_Admin_Menu {
 	 *     Chat → Notebook → BizCity AI → rest of WP
 	 * ══════════════════════════════════════ */
 	public static function reorder_sidebar(): void {
+		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — keep the canonical Control Panel at the first Twin slot during the migration window.
+		self::move_menu_item( self::SLUG_CONTROL_PANEL, 4 );
 		self::move_menu_item( self::SLUG_ADMIN,        4 );
 		// [2026-08-11 Johnny Chu] PHASE-1.26 — keep exactly three visible groups in a stable order.
 		self::move_menu_item( self::SLUG_WORKSPACE,    5 );
@@ -718,6 +732,11 @@ class BizCity_Admin_Menu {
 	 */
 	public static function cleanup_duplicate_gateway_menus(): void {
 		global $submenu;
+
+		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — hide legacy Twin roots after their child registrations exist; direct slugs remain compatibility aliases.
+		remove_menu_page( self::SLUG_ADMIN );
+		remove_menu_page( self::SLUG_WORKSPACE );
+		remove_menu_page( self::SLUG_PLUGINS );
 
 		// [2026-08-19 Johnny Chu] HOTFIX — collect diagnostic Tools pages for the Twin Diagnostics control panel before hiding their duplicate links.
 		$diagnostic_terms = array( 'diag', 'diagnostic', 'filestore', 'permission', 'intent', 'shadow', 'hook', 'cron', 'event', 'replace', 'action', 'roadmap', 'profile', 'log', 'webhook' );
@@ -923,6 +942,40 @@ class BizCity_Admin_Menu {
 		<div class="wrap">
 			<h1><?php esc_html_e( 'Twin Plugins', $td ); ?></h1>
 			<p><?php esc_html_e( 'Các plugin mở rộng của Twin AI: nội dung, hình ảnh, video, CRM, Zalo, Facebook và Page Builder.', $td ); ?></p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the protected Control Panel wrapper around the canonical TwinShell.
+	 *
+	 * @return void
+	 */
+	public static function render_control_panel_page(): void {
+		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — fail closed on capability and retain a non-React deep-link fallback.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to access the Control Panel.', 'bizcity-twin-ai' ) );
+		}
+
+		$shell_url = class_exists( 'BizCity_Twin_Shell_Page' )
+			? BizCity_Twin_Shell_Page::shell_url()
+			: '';
+		?>
+		<div class="wrap" style="margin:0 -20px 0 -2px;">
+			<h1 class="screen-reader-text"><?php esc_html_e( 'Control Panel', 'bizcity-twin-ai' ); ?></h1>
+			<?php if ( '' !== $shell_url ) : ?>
+				<iframe
+					title="<?php echo esc_attr__( 'Control Panel', 'bizcity-twin-ai' ); ?>"
+					src="<?php echo esc_url( $shell_url ); ?>"
+					style="display:block;width:100%;min-height:calc(100vh - 32px);border:0;background:#0f1115;"
+					loading="eager"
+				></iframe>
+			<?php else : ?>
+				<div class="notice notice-warning">
+					<p><?php esc_html_e( 'The Control Panel shell is not available on this deployment.', 'bizcity-twin-ai' ); ?></p>
+					<p><a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SLUG_WORKSPACE ) ); ?>"><?php esc_html_e( 'Open Twin Workspace fallback', 'bizcity-twin-ai' ); ?></a></p>
+				</div>
+			<?php endif; ?>
 		</div>
 		<?php
 	}

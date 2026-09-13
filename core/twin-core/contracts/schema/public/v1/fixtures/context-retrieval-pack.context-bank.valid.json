@@ -1,0 +1,53 @@
+{
+  "contract": "context-retrieval-pack",
+  "version": "1.1.0",
+  "query_id": "query_context_bank_01",
+  "scope": {
+    "mode": "context_bank",
+    "blog_id": 1511,
+    "case_id": "case_synthetic_1001"
+  },
+  "authorization": {
+    "allowed": true,
+    "identity_scope": "case",
+    "denied_count": 0
+  },
+  "budget": {
+    "max_records": 50,
+    "max_bytes": 262144,
+    "max_ms": 250,
+    "max_tokens": 3000
+  },
+  "matched_count": 3,
+  "returned_count": 3,
+  "truncated": false,
+  "records": [
+    {
+      "record_id": "crm_context_synthetic_01",
+      "kind": "event",
+      "source_contract_id": "core.channel_gateway.context_corpus"
+    }
+  ],
+  "rollups": [
+    {
+      "record_id": "order_rollup_synthetic_5001",
+      "kind": "rollup",
+      "source_contract_id": "core.context_bank.rollup"
+    }
+  ],
+  "references": [],
+  "relations": [
+    {
+      "relation_id": "rel_case_order_synthetic_5001",
+      "predicate": "related_to_case"
+    }
+  ],
+  "evidence_refs": [
+    "crm_context_synthetic_01",
+    "order_rollup_synthetic_5001"
+  ],
+  "kg_candidates": [],
+  "degraded": false,
+  "incomplete": false,
+  "reason_bucket": "ok"
+}

@@ -11,7 +11,7 @@
 // [2026-07-29 Johnny Chu] PHASE-1.21-I — reference implementations for all content contracts.
 defined( 'ABSPATH' ) || exit;
 
-if ( ! class_exists( 'BizCity_Tool_Interface' ) ) {
+if ( ! interface_exists( 'BizCity_Tool_Interface' ) ) {
 	return;
 }
 
@@ -72,6 +72,76 @@ final class BizCity_Reference_Source_Adapter implements BizCity_KG_Source_Adapte
 	public function fetch( array $source, array $context = [] ) { return array( 'text' => (string) ( $source['text'] ?? '' ) ); }
 	public function to_passages( array $payload, array $context = [] ) { return array( array( 'text' => (string) ( $payload['text'] ?? '' ), 'source_type' => $this->source_type() ) ); }
 	public function meta() { return array( 'scope' => 'tenant' ); }
+
+	public function ingest_to_kg( $notebook_id, $user_id = 0, $trace_id = '' ) {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-KG — route reference source data through the central KG facade.
+		if ( ! class_exists( 'BizCity_KG' ) ) {
+			return new WP_Error( 'reference_kg_unavailable', 'Central KG facade is unavailable.' );
+		}
+		$source = array(
+			'text' => 'Reference extension fixture: the customer insight source is indexed in the Twin KG Hub for citation and analysis.',
+			'type' => $this->source_type(),
+		);
+		$fetched = $this->fetch( $source, array( 'trace_id' => $trace_id, 'user_id' => (int) $user_id ) );
+		$passages = $this->to_passages( $fetched, array( 'trace_id' => $trace_id ) );
+		$content = isset( $passages[0]['text'] ) ? trim( (string) $passages[0]['text'] ) : '';
+		return BizCity_KG::ingest_extension_source(
+			array(
+				'plugin'      => 'bizcity.reference',
+				'notebook_id' => (int) $notebook_id,
+				'user_id'     => (int) $user_id,
+			),
+			array(
+				'type'     => 'reference_source',
+				'title'    => 'Reference customer insight source',
+				'content'  => $content,
+				'metadata' => array(
+					'adapter_id' => $this->id(),
+					'source_type'=> $this->source_type(),
+					'trace_id'   => (string) $trace_id,
+				),
+			)
+		);
+	}
+}
+
+final class BizCity_Reference_Wave5_Evidence {
+	const LOG_CONTRACT = 'plugins.bizcity_reference.wave5';
+
+	public static function register_contract() {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-LOG — keep the fixture contract available regardless of extension load order.
+		return class_exists( 'BizCity_Log_Contract_Registry' ) && BizCity_Log_Contract_Registry::register( self::LOG_CONTRACT, array(
+			'owner_module'       => 'examples/bizcity-reference-plugin',
+			'label'              => 'Reference extension Wave 5 evidence',
+			'jsonl_folder'       => 'bizcity-reference-logs',
+			'jsonl_module'       => 'wave5',
+			'retention_days'     => 7,
+			'indexed'            => true,
+			'related_sql_tables' => array(),
+		) );
+	}
+
+	public static function write_log( $trace_id, array $context = array() ) {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-LOG — write Wave 5 evidence through the canonical JSONL contract.
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			return false;
+		}
+		$context['trace_id'] = (string) $trace_id;
+		$context['ref_id'] = (string) $trace_id;
+		return BizCity_JSONL_File_Logger::write_contract( self::LOG_CONTRACT, 'info', 'wave5_ingest_attempt', 'Reference Wave 5 ingest evidence.', $context );
+	}
+
+	public static function indexed_rows( $trace_id ) {
+		// [2026-08-29 Johnny Chu] PHASE-VIBE-LOG — read the indexed pointer ledger by immutable contract and trace reference.
+		if ( ! class_exists( 'BizCity_Log_Index' ) ) {
+			return array();
+		}
+		return BizCity_Log_Index::search( array( 'contract_id' => self::LOG_CONTRACT, 'ref_id' => (string) $trace_id, 'limit' => 10 ) );
+	}
+}
+
+if ( class_exists( 'BizCity_Reference_Wave5_Evidence' ) ) {
+	BizCity_Reference_Wave5_Evidence::register_contract();
 }
 
 final class BizCity_Reference_Workflow_Block implements BizCity_Workflow_Block_Interface {
@@ -115,3 +185,12 @@ add_filter( 'bizcity_twin_register_extension_capabilities', function ( $groups )
 	$groups['output_renderers'][]   = new BizCity_Reference_Text_Renderer();
 	return $groups;
 } );
+
+// [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — exercise typed Tool registration through the runtime registry bridge.
+add_filter( 'bizcity_twin_register_tool', function ( $registry ) {
+	if ( ! is_array( $registry ) ) {
+		$registry = array();
+	}
+	$registry['reference.echo'] = new BizCity_Reference_Echo_Tool();
+	return $registry;
+}, 20 );

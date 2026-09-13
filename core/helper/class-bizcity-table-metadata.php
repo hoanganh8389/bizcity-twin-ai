@@ -77,6 +77,52 @@ final class BizCity_Table_Metadata {
 		return $memo[ $memo_key ];
 	}
 
+	/** Check several tables with one information_schema query for cold keys. */
+	public static function tables_exist( $table_names ) {
+		// [2026-09-07 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — batch cold table metadata checks for installer verification.
+		$table_names = array_values( array_unique( array_filter( array_map( 'strval', (array) $table_names ) ) ) );
+		if ( empty( $table_names ) ) {
+			return true;
+		}
+
+		$present = array();
+		$missing = array();
+		foreach ( $table_names as $table_name ) {
+			$cache_key = self::cache_key( 'bz_tbl', $table_name );
+			$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
+			if ( false === $cached ) {
+				$missing[] = $table_name;
+				continue;
+			}
+			$present[ $table_name ] = (bool) $cached;
+		}
+
+		if ( ! empty( $missing ) ) {
+			global $wpdb;
+			if ( ! is_object( $wpdb ) ) {
+				return false;
+			}
+			$placeholders = implode( ',', array_fill( 0, count( $missing ), '%s' ) );
+			$found        = $wpdb->get_col( $wpdb->prepare(
+				"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({$placeholders})",
+				$missing
+			) );
+			$found_lookup = array_fill_keys( array_map( 'strval', (array) $found ), true );
+			foreach ( $missing as $table_name ) {
+				$table_present       = isset( $found_lookup[ $table_name ] );
+				$present[ $table_name ] = $table_present;
+				wp_cache_set( self::cache_key( 'bz_tbl', $table_name ), $table_present ? 1 : 0, self::CACHE_GROUP, self::CACHE_TTL );
+			}
+		}
+
+		foreach ( $table_names as $table_name ) {
+			if ( empty( $present[ $table_name ] ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	/** Return TABLE_TYPE using the same tenant/database cache contract. */
 	public static function table_type( $table_name ) {
 		// [2026-08-29 Johnny Chu] R-METADATA-CACHE — share database-scoped TABLE_TYPE caching with table checks.
@@ -241,6 +287,11 @@ final class BizCity_Table_Metadata {
 if ( ! function_exists( 'bizcity_tbl_exists' ) ) {
 	function bizcity_tbl_exists( $table_name ) {
 		return BizCity_Table_Metadata::table_exists( $table_name );
+	}
+}
+if ( ! function_exists( 'bizcity_tables_exist' ) ) {
+	function bizcity_tables_exist( $table_names ) {
+		return BizCity_Table_Metadata::tables_exist( $table_names );
 	}
 }
 if ( ! function_exists( 'bizcity_table_exists' ) ) {

@@ -25,6 +25,8 @@ final class BizCity_MCP_Installer {
 
 	const DB_VERSION        = '1.1.0'; // [2026-07-28 Johnny Chu] PHASE-0.53-MCP — R-DCL 1.1.0 ownership/audit indexes.
 	const DB_VERSION_OPTION = 'bizcity_mcp_db_version';
+	const PHYSICAL_CHECK_TTL = 600;
+	const PHYSICAL_CHECK_OPTION = 'bizcity_mcp_last_physical_check';
 
 	/**
 	 * Idempotent — only runs dbDelta() when the stored option differs from
@@ -43,31 +45,52 @@ final class BizCity_MCP_Installer {
 	}
 
 	private static function has_required_tables(): bool {
-		global $wpdb;
+		// [2026-09-07 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — trust a tenant/database-scoped physical verification stamp within its bounded TTL.
+		if ( self::physical_check_is_fresh() ) {
+			return true;
+		}
+		$required_tables = self::required_tables();
+		$ready = function_exists( 'bizcity_tables_exist' ) && bizcity_tables_exist( $required_tables );
+		if ( $ready ) {
+			self::mark_physical_check();
+		}
+		return $ready;
+	}
 
-		$required_tables = array(
+	private static function required_tables(): array {
+		global $wpdb;
+		return array(
 			$wpdb->prefix . 'bizcity_mcp_api_keys',
 			$wpdb->prefix . 'bizcity_mcp_retrieval_snapshots',
 			$wpdb->prefix . 'bizcity_mcp_context_packs',
 		);
-		foreach ( $required_tables as $table_name ) {
-			if ( ! self::table_exists( $table_name ) ) {
-				return false;
-			}
-		}
+	}
 
-		return true;
+	private static function physical_check_is_fresh(): bool {
+		$stamp = get_option( self::PHYSICAL_CHECK_OPTION, array() );
+		global $wpdb;
+		$database = is_object( $wpdb ) && isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		return is_array( $stamp )
+			&& (string) ( $stamp['version'] ?? '' ) === self::DB_VERSION
+			&& (int) ( $stamp['blog_id'] ?? 0 ) === (int) get_current_blog_id()
+			&& (string) ( $stamp['database'] ?? '' ) === $database
+			&& (int) ( $stamp['checked_at'] ?? 0 ) >= time() - self::PHYSICAL_CHECK_TTL;
+	}
+
+	private static function mark_physical_check(): void {
+		global $wpdb;
+		// [2026-09-07 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — persist only successful physical verification metadata, never schema repair state.
+		update_option( self::PHYSICAL_CHECK_OPTION, array(
+			'version'    => self::DB_VERSION,
+			'blog_id'    => (int) get_current_blog_id(),
+			'database'   => is_object( $wpdb ) && isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '',
+			'checked_at' => time(),
+		), false );
 	}
 
 	private static function table_exists( string $table_name ): bool {
-		global $wpdb;
-
-		return (bool) $wpdb->get_var(
-			$wpdb->prepare(
-				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-				$table_name
-			)
-		);
+		// [2026-09-07 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — keep legacy internal callers on the canonical metadata cache.
+		return function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $table_name );
 	}
 
 	/**
@@ -141,6 +164,12 @@ final class BizCity_MCP_Installer {
 
 		foreach ( $sql as $statement ) {
 			dbDelta( $statement );
+		}
+		// [2026-09-07 04:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — invalidate cached missing-table results after MCP DDL completes.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			foreach ( self::required_tables() as $table_name ) {
+				bizcity_tbl_invalidate( $table_name );
+			}
 		}
 	}
 

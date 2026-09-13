@@ -8,7 +8,8 @@
   },
   "autoload": {
     "psr-4": {
-      "BizCity\\Twin\\Contracts\\": "src/"
+      "BizCity\\Twin\\Contracts\\": "src/",
+      "BizCity\\Twin\\Sdk\\": "src/"
     },
     "files": [
       "src/Contracts.php"

@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "id": "fixture.customer-owner",
+  "name": "Invalid Customer Channel Fixture",
+  "version": "1.0.0",
+  "package_role": "channel_owner",
+  "spine": {
+    "channel": {
+      "mode": "producer",
+      "zone": "customer",
+      "account_scope": "exact"
+    },
+    "crm": {
+      "mode": "not_applicable"
+    }
+  },
+  "capabilities": {}
+}

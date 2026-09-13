@@ -15,9 +15,441 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > [core/diagnostics/changelog/](core/diagnostics/changelog) and are NOT duplicated here.
 > See rule [R-DCL · Diagnostics Changelog](docs/diagnostics/PHASE-0-RULE-DIAGNOSTICS-CHANGELOG.md).
 
----
 
 ## [Unreleased]
+
+### PHASE-0.41-C10/W7-C Diagnostics - 2026-09-10
+
+Added a fail-open boundary around Scheduler Google create/update/delete hooks
+so a Google sync exception cannot invalidate a committed local Scheduler event.
+Registered `modules.twin_gpt.crm_google_independent_cron`, whose focused local
+probe passes on PHP 7.4.4 with `1 pass · 0 fail · 0 skip` and no provider or
+Scheduler/CRM fixture side effect. Added a diagnostic-only member-scoped
+fixture fallback for `modules.twin_gpt.crm_care_scope`, using canonical CRM
+Repository/Team Manager owners and cleanup through the marked diagnostic inbox
+boundary. Its focused local run now passes on PHP 7.4.4, blog `1532`, with
+`1 pass · 0 fail · 0 skip`. Added the canonical bounded mutation store to care
+note/task/event/label writes, fixed nested note JSON forwarding and verified a
+same-key note retry returns the stored response without a duplicate CRM note.
+The successful local run required `-d max_execution_time=0` because the
+diagnostics/WooCommerce bootstrap exceeds the default 120-second CLI limit;
+it also emitted an existing `bizcity_crm_working_hours` auto-create warning.
+A/B denial, Scheduler event replay, disconnected reminder/cron, provider
+delivery and browser evidence remain open.
+
+### PHASE-0.41-W8.1 Order draft read path - 2026-09-13
+
+Added the first W8 slice as a read-only exact-conversation product search:
+TwinWeb revalidates the current C Inbox/contact scope, delegates to the
+canonical `BizCity_CRM_Order_Adapter_Registry`, and returns an explicit
+`draft_only` policy with `creates_order=false`, `payment=false` and
+`shipping=false`. No Woo order, payment or shipping side effect is performed.
+The C action catalog exposes `order_draft` only when the adapter is available
+and the current user has write capability. PHP 7.4.4 lint and the TwinWeb
+build pass. The registered W8.1 probe is lint-clean but its local Runtime run
+was deferred by existing CRM schema auto-create drift and the diagnostics/
+`wpdb` 120-second execution limit before a result could be returned; product
+fixture/UI/runtime evidence remains pending.
+
+W8.2 now exposes exact-scope, redacted payment options through the same
+canonical Order Adapter. Full payment link/QR issuance remains blocked behind
+confirmation/idempotency and provider-owner evidence; full bank account values
+are not returned and no payment ledger is created by this read path.
+
+W8.4 now has a generic `BizCity_Twin_Action_Confirmation` boundary loaded by
+Twin Core. The prepare-only C order confirmation route binds blog/user/action/
+resource/request hash, and one-time consume rejects replay and foreign users.
+Focused `modules.twin_gpt.crm_order_confirmation` Runtime passed on blog `1533`;
+order/payment/shipping mutations remain disabled until the remaining W8 gates.
+
+W8.3 now has a provider-neutral `BizCity_CRM_Fulfillment_Adapter_Interface` and
+registry with `quote/create/track/eta` capability boundaries. The registry has
+no built-in provider and fails closed until a verified fulfillment adapter is
+registered; the existing Woo tracking reader remains read-only compatibility
+input. PHP 7.4.4 lint passes, and focused
+`modules.twin_gpt.employee_fulfillment` Runtime passed on blog `1533` with
+`1 pass · 0 fail · 0 skip`; the selected probe was complete but the overall
+catalog remained incomplete (`1/264`). Provider adapter and real fulfillment
+Runtime evidence remain pending.
+
+W8.5 reuses the existing Scheduler target resolver precedence for the future
+post-mutation notification boundary: an explicitly resolved target wins, with
+`metadata.inbound` as the canonical fallback. W8.6 now has the
+metadata-only `BizCity_Twin_Action_Evidence` envelope, which preserves action
+correlation and before/after state hashes without storing protected payloads.
+Focused `modules.twin_gpt.employee_action_evidence` Runtime passed on blog
+`1533` with `1 pass · 0 fail · 0 skip`; the selected probe was complete while
+the overall catalog remained incomplete (`1/265`). Mutation producer, order
+lifecycle worker/reconcile, provider notification and W8.7 disposable Woo
+evidence remain pending.
+
+W8.7 remains explicitly blocked after tracing the active mutation owners. The
+only existing Woo create route is the legacy CRM
+`BizCity_CRM_REST_Controller::post_conversation_order()` path, which invokes
+the side-effecting adapter without the C confirmation consume, durable
+idempotency, before/after evidence, order-lifecycle event or exact-channel
+notification boundary required by W8. The C surface remains read/draft/
+prepare-only; no second create route was added.
+
+Registered `modules.twin_gpt.employee_order_mutation_gate` to make that
+rollback boundary executable. Its scoped local Runtime passed on PHP `7.4.4`,
+blog `1533`, with `1 pass · 0 fail · 0 skip`: TwinWeb's prepare-only
+confirmation route is present and the C `order-create` route is absent. The
+selected probe was complete, but the overall catalog remained incomplete
+(`1/266`); this is fail-closed evidence, not order-creation evidence.
+
+### PHASE-0.48C Composer and mutation contract - 2026-09-12
+
+Completed the source/build contract for the next C CRM slice. Attachment
+capability is now server-driven: only writable Zalo Personal Inbox scope exposes
+the attachment action, while MIME and size policy are returned by the server and
+unsupported channels stay read-only. The TwinWeb composer consumes that policy.
+
+Contact facts now use the bounded mutation store with caller-owned idempotency
+keys, replay/conflict/pending handling and Enter-to-save IME protection. Zalo
+Personal outbound text/attachment sends claim the same mutation store before
+CRM/provider work, preserve the key across retry and normalize the canonical CRM
+response envelope for the C client.
+
+PHP 7.4.4 lint, editor diagnostics and TwinWeb Vite build pass. Runtime
+attachment ownership/MIME/provider delivery, contact-facts replay, outbound
+replay and browser evidence remain deferred to the probe pass.
+
+Added the CX2 C-safe group-roster wrapper. It revalidates the exact current-user
+conversation scope, delegates provider retrieval to the canonical CRM/ZCA owner,
+and returns only HMAC member references plus bounded display/avatar fields. Raw
+provider UIDs and group identity are not exposed to the browser. PHP lint, editor
+diagnostics and TwinWeb build pass; provider freshness and Runtime roster evidence
+remain deferred.
+
+The `/gpt/crm/` context rail now consumes that server-authorized roster only when
+`group_roster` capability is present, clears loading state on degraded/error
+responses, and keeps group members separate from personal profile enrichment.
+
+Added the C add-customer wrapper and context-rail form. The server derives the
+authorized CRM Inbox from the current `channel/ref` scope, rejects browser
+owner/inbox ACL inputs, creates the contact through `BizCity_CRM_Repository`,
+and uses the bounded mutation store for replay safety. Friend request and group
+invite remain provider-contract gaps. PHP lint, editor diagnostics and TwinWeb
+build pass; Runtime contact-creation evidence remains deferred.
+
+### PHASE-0.41-W7-C VPS focused evidence - 2026-09-12
+
+Operator-run mapped-host batch on `libedemo.bizcity.vn`, blog `1511`, PHP
+`7.4.33` returned `6 pass · 0 fail · 0 skip` for exact Inbox lookup, B2/C
+scope, Twin GPT console denial, care A/B isolation and idempotency, Scheduler
+correlation/reminder dedupe, and attachment upload/delete ownership.
+
+The result is a filtered batch with `coverage.complete=false`, and nested SKIPs
+remain for missing multi-account/Context Bank/foreign-Personal/positive-account
+fixtures. The supplied output did not include the canonical VPS PHP error-log
+tail, so production log correlation, provider outbound delivery and browser
+evidence remain open.
+
+### PHASE-0.48C Runtime closure plan - 2026-09-12
+
+Added the single W7-C/0.48C closure plan and checklist for the remaining
+multi-account/OA fixtures, Context Bank receipt admission, foreign Personal
+canary, positive assigned-account projection, attachment provider delivery,
+contact-facts replay, outbound replay, group-roster freshness and add-customer
+Runtime evidence. Each gate now names its owner, disposable fixture,
+acceptance evidence, cleanup/rollback boundary and planned probe ID.
+
+The planned probe IDs are explicitly marked not registered and cannot be treated
+as Runtime PASS until they enter the canonical Diagnostics catalog and fixed
+batch. The plan also requires canonical VPS PHP error-log correlation and a
+complete aggregate (`coverage.complete=true`, `deferred=0`, `fail=0`) before
+W7-C/C-13/C-14 can be release-ready.
+Registered and locally passed the combined
+`modules.twin_gpt.crm_contact_mutation_replay` probe for RC-6/RC-9. The
+disposable fixture proved contact-facts `success -> replay -> conflict` and
+add-customer `success -> replay -> foreign denial` on blog `1533`. VPS rerun,
+contact audit correlation and production evidence remain pending; existing
+auto-create warnings for `working_hours` and `conversation_labels` remain
+separate infrastructure debt.
+
+### PHASE-0.41-W7-C Scheduler correlation - 2026-09-11
+
+Registered `modules.twin_gpt.crm_scheduler_correlation` and added a disposable
+fixture probe for the canonical CRM Scheduler adapter. Local PHP 7.4.4 Runtime
+passed on blog `1533`: Scheduler metadata retained source/contact/conversation/
+inbound correlation, the due reminder was claimed exactly once, and repeated
+reminder handling produced one canonical CRM system note through the existing
+`external_source_id` dedupe path. Google provider and production cron evidence
+remain separate pending gates.
+
+### PHASE-0.48C Customer-scoped care tools contract - 2026-09-10
+
+Implemented the C CRM contact-care slice around server-resolved `contact_id`: the care
+route/repository projection reads private notes, contact-related tasks,
+scheduled events and assigned CRM labels only within the authorized Inbox
+scope. The UI now provides a `Ghi chú / Đặt lịch` composer, contact-specific
+lists, Enter-to-save fact fields with IME guards, and a `Gán nhãn` picker using
+the CRM admin label catalog. No new table was added. User-owned labels remain
+blocked until owner/visibility, collision/deletion and R-DCL/Schema Registry/
+Site Provisioner review are approved. PHP lint, editor diagnostics and TwinWeb
+build pass; authenticated Runtime evidence remains pending.
+
+The Scheduler event form now creates contact-linked appointments through
+`BizCity_CRM_Scheduler_Adapter`, and `/gpt/myaccount/` includes current-user CRM
+tasks and Scheduler events in Work history. The CRM composer reuses the existing
+owner-scoped Media upload contract for one attachment per outbound message and
+supports Enter-to-send with Shift+Enter newline plus IME protection. These are
+source/build/lint results only; Scheduler reminder, Google-disconnected cron,
+provider attachment delivery, cache/idempotency and authenticated browser
+evidence remain open.
+### PHASE-0.41 W5.4/W5.5 framework gates - 2026-09-09
+
+Mapped the existing loader gates to W5.4 and the existing framework security
+probes to W5.5. Extended `core.framework.production_contract` with a runtime
+public-manifest fixture that rejects secret, token, password and owner-ID
+exposure. The fixture caught a real nested-channel allowlist gap in
+`BizCity_Framework_Handle::public_manifest()`, which is now fixed. PHP 7.4.4
+lint, editor diagnostics and a dependency-free nested redaction smoke pass.
+Ordinary-frontend memory measurement and focused diagnostics execution remain
+deferred because the local WordPress diagnostics bootstrap times out before
+returning JSON.
+
+### PHASE-0.48 CRM connection and responsive workspace UX - 2026-09-09
+
+My Channels now displays owner-scoped Zalo Personal bridge/session readiness on
+the main Connection surface, including expired-session recovery, instead of
+hiding the state inside the connection modal. Connection actions now use
+`Quản lý kết nối`. CRM shows an immediate expiry banner, changes refresh to
+`Hết phiên · Đăng nhập lại` when the exact account is not ready, and persists
+desktop conversation/tools column collapse state across F5. Tablet uses a
+two-column workspace and mobile retains the list/thread/context-sheet flow.
+TwinWeb build and editor diagnostics pass; production browser verification
+still requires deployment of the new bundle and PHP artifacts.
+
+The `Hết phiên · Đăng nhập lại` action now opens the connection manager directly
+on Zalo Cá nhân and automatically starts QR reset for the current account,
+instead of opening the generic all-channel view. The retry guard resets when
+the manager closes so a failed QR attempt can be retried.
+
+Aligned the expired-session branch with Core Channel Gateway: `startQR` is used
+for `expired`, `logged_out` and `revoked`; `resetQR` is reserved for an active
+`connected` session. Structured QR error fields are now shown when the bridge
+returns them instead of collapsing the failure to `HTTP 500`.
+
+After QR status becomes `connected`, TwinWeb now refetches account/status, CRM
+Inbox and member projections before reloading the C surface. Core Channel
+Gateway now refetches account and bridge health before reloading its admin
+surface. This rehydrates messages already accepted through the sidecar callback
+and CRM owner; it does not claim historical provider import.
+
+### PHASE-0.41/0.48 - Zalo readiness and C CRM contact facts - 2026-09-09
+
+Live browser checkpoint remains deployment-blocked: `/gpt/crm/` serves the
+previous Twin GPT bundle (`index-BOavQmYN.js`), and the new same-origin contact
+route returns `404 rest_no_route`. No production PASS is claimed until the
+current PHP and Vite artifacts are deployed together and the authenticated
+status/contact probes are rerun.
+
+Added an owner-scoped Zalo Personal readiness projection to the existing QR
+status route. Account mapping, bridge health, session status, queue status and
+callback freshness are now separate fields; missing sidecar evidence remains
+`unknown`/degraded instead of being inferred from local `connected` state. QR
+recovery continues to preserve the account and CRM mapping.
+
+Added a C exact-conversation contact-facts wrapper for editable phone/email. It
+revalidates identity and Inbox scope, uses the canonical Vietnamese phone
+normalizer, rejects conflicts, and delegates mutation to the existing CRM
+contact owner. Source/build and editor diagnostics pass; authenticated Runtime,
+worker and provider evidence remain pending.
+
+Order draft creation remains blocked because the current Woo adapter exposes
+only `create_order()` and immediately creates a real pending order; no
+draft-only canonical owner exists yet. The C capability catalog therefore
+returns `order_draft=false` and keeps `Tạo đơn hàng` disabled. Customer 360
+timeline/insight remains read-only and evidence-backed.
+
+### PHASE-0.39H CRM focus-area collapse - 2026-09-05
+
+Collapsed the left-rail `Công cụ` section and the conversation-list filter
+stack by default. Search and conversation rows stay visible; status, labels,
+priority, assignee and thread-type controls expand on demand. This preserves
+filter state while giving the message and care workspace more room.
+
+### PHASE-0.39H Inbox action hierarchy - 2026-09-05
+
+Moved Inbox `Công cụ`, conversation search, `Bộ lọc` and `Bảng` actions into
+the TopBar beside notifications; search opens only on icon or `Ctrl+F`.
+Moved the sidebar collapse arrow beside the brand and narrowed the conversation
+list column to prioritize the message and order surfaces.
+
+Also fixed the production `CAN_MANAGE_INBOXES is not defined` runtime crash by
+restoring the boot-configured capability guard, and synchronized iframe CRM
+tab/deep-link hashes into the outer Twin shell `_url` so refresh preserves the
+active menu and Inbox route.
+
+### Context Bank channel-user ownership contract - 2026-09-04
+
+Added PHASE-1.33A as the canonical extension for one fixed primary user per
+channel account, bounded delegated users, `/gpt/` current-user self-binding and
+SQL-index-to-filestore authorization. The MVP grant store reuses exact-key
+WordPress user meta with tenant/channel/HMAC account identity and creates no new
+ACL table; credentials, phone numbers, provider/customer IDs and payloads are
+forbidden. User meta remains approved only for bounded low-churn grants and must
+migrate to CRM inbox/team membership or an R-DCL table when atomic, high-volume
+or multidimensional membership queries are required. PHASE-1.33 master now
+requires the 1.33A U1/U2/admin grant matrix before channel-owned Context Bank
+evidence is exposed to member UI.
+
+### PHASE-0.39H group participants fallback - 2026-09-04
+
+Added a group-only `Members` tab in the CRM Inbox. It derives a latest-first
+list of unique recently seen senders from existing message metadata and labels
+the limitation clearly; it does not claim a complete provider roster, create
+schema, add a REST route or call a private Zalo API. Full group-member listing
+and native mention delivery remain gated on a confirmed public `zca-js@2.1.2`
+capability.
+
+### PHASE-0.39H ActivityFeed contrast follow-up - 2026-09-04
+
+Darkened the remaining low-contrast ActivityFeed metadata and inactive status
+color used by the Inbox Information surface. The change is presentation-only;
+activity creation, REST behavior and status semantics are unchanged.
+
+### PHASE-0.39H Information tab naming - 2026-09-04
+
+Renamed the visible CRM right-rail `Contact` tab and heading to `Information`
+to match the requested `Members / Information / Orders` workflow. Internal
+state names and API contracts remain unchanged.
+
+### PHASE-0.39H group tab order - 2026-09-05
+
+Ordered the group right-rail tabs as `Members / Information / Đặt đơn`, while
+keeping non-group conversations on the existing `Information / Đặt đơn` flow.
+
+### PHASE-0.39H CRM wrap scope - 2026-09-05
+
+Expanded the `.wrap` reset from the Inbox top-level body class to the
+registered CRM submenu body classes only. Generic WordPress admin screens are
+not affected; the screenshot's unrelated page remains unresolved without its
+exact URL/menu identity.
+
+### PHASE-0.39H provider roster and native mentions - 2026-09-05
+
+Implemented the public `zca-js@2.1.2` group roster path
+(`getGroupInfo` -> `memVerList` -> `getGroupMembersInfo`) and native group
+mentions through `MessageContent.mentions[]`. CRM validates mention UIDs against
+the server-side roster before dispatch. Local bridge build and focused adapter,
+route and session tests pass `29/29`; VPS/provider delivery evidence remains
+deferred.
+
+Bridge runtime version bumped to `0.39.7` so the VPS source-to-image check can
+distinguish the roster/mention implementation from the previous `0.39.6`
+runtime.
+
+### PHASE-0.39H Inbox readability pass - 2026-09-04
+
+Applied a scoped contrast pass to the CRM Inbox `ContactDrawer`,
+`ConversationDetail` and `ConversationList` surfaces. Small labels, metadata,
+filters and empty states now use readable slate tones; status, warning and
+outbound message colors remain semantic. The frontend production build passed
+with 2872 modules transformed. No schema, REST or provider behavior changed.
+
+### CRM-PATH-4 synthetic matcher isolation - 2026-09-04
+
+The canonical automation matcher now preserves `_test` and `_dry_run` flags
+when normalizing inbound payloads. CRM-PATH diagnostics can therefore verify
+ZALO_OA and ZALO_PERSONAL `run_source=crm_care` routing without emitting a
+user-facing matcher ACK or provider/channel send. The focused
+`core.automation.crm_path` probe passed on local blog `1526`; live inbound,
+member ownership and production activation remain separate gates.
+
+### Legacy disposal decision status - 2026-09-04
+
+Diagnostics now displays `DISPOSAL DECISION DONE — no legacy data retention`
+for the operator-approved dead projection set, separately from the physical
+row count and the policy-controlled `ready_to_drop`/`dropped` states. Existing
+rows remain protected until the applicable owner scope, zero-row and cleanup
+gates are completed; this status does not authorize a bulk delete or DROP.
+
+### Session-state scoreboard scope - 2026-09-04
+
+The contract scoreboard now treats `modules.webchat.session_state` as an
+encrypted session metadata filestore with `Context Bank` scope
+`not_applicable`. Memory filestore contracts still require registered Context
+Bank adapter and ledger evidence. This removes the false incomplete warning
+for `bizcity_webchat_sessions` without changing any cleanup or DROP gate.
+
+### VPS legacy batch follow-up - 2026-09-04
+
+The fresh target-VPS `legacy` batch after the WebChat owner/tool deployment fix
+was resumed to completion under run
+`diag_20260904132824_6e0be0af`. The aggregate result is `22 pass · 0 fail · 1
+precondition skip`, with `coverage.complete=true` and `deferred=0`; the
+overall `warn` is the expected Hub-only client billing boundary plus the
+contract scoreboard's stale historical evidence for
+`bizcity_zalo_bot_memory` and `bizcity_llm_usage`. Owner parity, WebChat
+tool-registry parity and CRUD-stop passed with zero mutation SQL in the
+request-local observation window. `bizcity_webchat_sessions` scores complete
+with Context Bank scope `not_applicable`. No production table was deleted or
+dropped; approved-drop evidence was limited to the disposable fixture.
+
+### Legacy owner evidence refresh pending - 2026-09-04
+
+The complete legacy batch is closed at the batch-coverage level, but its
+contract scoreboard still reports stale persisted evidence for
+`bizcity_zalo_bot_memory` and `bizcity_llm_usage`. The next controlled step is
+to run both owner probes freshly on target blog `1511`, then rerun the
+scoreboard in the same deployed context. This is an evidence refresh only and
+does not authorize approval, `ready_to_drop`, DELETE or DROP.
+
+### Legacy owner evidence refresh PASS - 2026-09-05
+
+Target blog `1511` executed both focused owner probes with PHP `7.4.33`:
+`modules.zalobot.memory_unify` and
+`core.bizcity_llm.usage_filestore_parity` returned `2 pass · 0 fail · 0 skip`.
+The JUnit artifact is `build/legacy-owner-refresh-20260905.xml`, with catalog
+hash `19ef8457fdaea0b803183f14d378020eee6c55b0055f94ea67870f04ce0f9646` and
+batch hash `23d42e332f374f0cdfc0e8844121eb74ca2de7209b0bbbf7608880aee4252dfe`.
+The contract scoreboard still needs a separate rerun after these persisted
+owner results. Canonical-log BPS fatals and unrelated multisite backup-scan
+errors remain operational findings, not owner-probe failures.
+
+### Legacy scoreboard refresh warning - 2026-09-05
+
+The target scoreboard rerun on blog `1511` executed successfully with no fail,
+skip or defer, but returned `4960/5000` (`48/50` rows complete). The fresh
+Zalo memory and client LLM usage rows are now complete. The two remaining stale
+owner rows are `bizcity_cg_flows` (`channel-gateway.flows`) and
+`bizcity_twin_context_logs` (`twinbrain.goal_contracts`). Their owner artifacts
+exist but need fresh runtime evidence before the scoreboard can reach
+`5000/5000`; this does not authorize cleanup or DROP.
+
+### Legacy flow and Goal Contract owner refresh PASS - 2026-09-05
+
+The target owner refresh on blog `1511` returned `2 pass · 0 fail · 0 skip`.
+`channel-gateway.flows` confirmed canonical `wp_1511_bizcity_crm_flows`, CRUD
+and codec round-trip, REST registration and removal of interim
+`wp_1511_bizcity_cg_flows`. `twinbrain.goal_contracts` confirmed the physical
+projection schema, registry/provisioner wiring and tenant-scoped read. Its
+production live-write fixture remained intentionally skipped for sandbox-only
+execution. JUnit: `build/legacy-owner-refresh-flows-goals-20260905.xml`.
+The scoreboard must be rerun after these owner results; no cleanup or DROP is
+authorized by this focused PASS.
+
+### Legacy contract scoreboard PASS - 2026-09-05
+
+After all four stale owner rows were refreshed, the target scoreboard on blog
+`1511` returned `5000/5000` points, `50/50` catalog rows complete,
+`incomplete_rows=[]`, `1 pass · 0 warn · 0 fail · 0 skip`, and `verdict=pass`.
+JUnit: `build/legacy-scoreboard-refresh-final-20260905.xml`. This closes the
+contract-score readiness slice only; the complete legacy aggregate,
+multi-request zero-growth, G1-G5, owner approval, zero-row and production DROP
+gates remain separate and pending.
+
+### Final aggregate legacy batch pending - 2026-09-05
+
+The final focused contract scoreboard is PASS at `5000/5000` and `50/50`,
+but a fresh aggregate `legacy` batch is still required after the last flow and
+Goal Contract owner refreshes if a current release artifact is needed. The
+aggregate must be run with a new run ID and read from complete JSON coverage;
+the previous checkpoint must not be resumed. No cleanup or DROP is authorized
+by the focused scoreboard.
 
 ### Legacy memory and WebChat storage consolidation - 2026-09-03
 
@@ -25,7 +457,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 |---|---|---|
 | Memory family ownership | User, episodic, rolling, session and notes payloads now use their canonical encrypted business filestore/Context Bank owners; legacy SQL readers are fail-closed and legacy schema installers are no longer registered for WebChat, episodic or rolling projections. | Focused local diagnostics PASS: 5/5 probes, including Context Bank references/tombstones and all memory filestore owners; production zero-growth and cleanup evidence remain pending |
 | Notes ownership | WebChat workflow, AJAX and KG notebook pinned-note readers use `BizCity_TwinChat_Notes_Service`; `bizcity_twinchat_notes` is catalogued as a deprecated alias of `modules.twinchat.memory_notes`. | Focused `core.memory.notes_filestore_parity` PASS; source/loader/runtime validation complete for this slice |
-| WebChat conversation consolidation | `bizcity_webchat_conversations` is explicitly quarantined for future message-owned identity/list/count/status/title unification; `bizcity_webchat_messages` remains the active shared message projection. | Conversation parity probe and caller cutover remain open |
+| WebChat conversation consolidation | `bizcity_webchat_conversations` is quarantined and its active runtime callers now use message-owned identity/list/count/status/title compatibility views over `bizcity_webchat_messages`. | Local `core.webchat.conversation_message_unify` PASS; physical zero-growth, zero-row, owner approval and cleanup gates remain pending |
+| WebChat session-state consolidation | `bizcity_webchat_sessions` no longer receives active runtime SQL DDL/CRUD; session metadata/state is owned by encrypted `modules.webchat.session_state`, while `BizCity_Session_Memory_Spec` uses `modules.webchat.session_memory_spec`. | Local WebChat owner probes 4/4 PASS and three independent session-state requests PASS; VPS probes, full legacy batch and production cleanup evidence remain pending |
+| PHASE-1.30 validation update | Active caller sweep reports `ACTIVE_SQL_HITS=0`; focused WebChat owner, caller and lifecycle safety probes pass. | Full local legacy batch remains budget-deferred (`run_id=diag_20260903153504_2ca0e5e3`); G1 HTTP and G4 physical-shard checks remain skipped/deferred until target evidence exists |
 
 ### Context Bank REST and reconciliation hardening - 2026-09-02
 
@@ -36,7 +470,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Reconcile checkpoint safety | Refuse a regressed source cursor, confirm checkpoint persistence before reporting advancement, and emit bounded `reconcile_checkpoint_advanced` or `reconcile_checkpoint_persist_failed` events. Added the focused reconciler probe. | `core.context_bank.reconciler` PASS 6/6 on blog 1526 with PHP 7.4.4; injected file/SQL failure, retention and complete aggregate evidence remain pending |
 | Reconcile exception safety | Reader, ledger-admission and checkpoint-option exceptions now become bounded failed batches; the prior checkpoint is returned and no cursor advancement is reported. | Focused `core.context_bank.reconciler` PASS 6/6 on blog 1526 with PHP 7.4.4; real failure injection and production aggregate evidence remain pending |
 | REST exception safety | Context Bank REST search, ledger dependency and pointer-follow exceptions now return the canonical four-field error envelope instead of escaping as a fatal. Added focused REST boundary probe coverage. | Focused `core.context_bank.rest` PASS 7/7 on blog 1526 with PHP 7.4.4, including unauthenticated/admin/valid-owner/modified-owner branches and disposable-user cleanup; mapped-domain and browser/UI evidence remain pending |
+| KG citation and deferred retry | Added bounded KG passage -> xref -> Context Bank pointer -> canonical owner citation resolution, KG-Hub extraction ownership enforcement, and pending candidate retry scheduling with Diagnostics CLI isolation. | Focused `core.context_bank.kg_bridge` PASS 15/15 on blog 1526 with PHP 7.4.4; promoted KG notebook/vector, stale/rebuild and unavailable-KG runtime fixtures remain pending |
 | Mapped REST probe | Exact unauthenticated request to `https://libedemo.bizcity.vn/wp-json/bizcity-context/v1/records?limit=1` returned HTTP 401 with `code/message` only; deployed artifact parity is not yet proven for the new four-field handler response. | Observed HTTP response only; no VPS PHP/log conclusion. Redeploy current REST controller and rerun authenticated plus unauthenticated mapped matrix |
+| KG retry bound | KG-unavailable promotion now keeps the verified Context Bank pointer pending and caps tenant-bound rechecks at three attempts, emitting `kg_recheck_exhausted` instead of allowing an unbounded retry loop. | Focused `core.context_bank.kg_bridge` PASS 15/15 on blog 1526 with PHP 7.4.4; promoted KG runtime and unavailable-KG injection remain pending |
+| Full diagnostics blocker | `--skip-provision --isolated-mu` still reaches `diagnostics_bootstrap_fatal` in the active Object Cache Pro/DB routing path before G4 probe execution. | Infrastructure blocker outside Context Bank; no full aggregate or production PASS claimed |
+| Mapped VPS Context Bank core probes | The deployed mapped tenant executed the current KG bridge and REST owner-matrix probes through the canonical `core` batch with the resolved VPS PHP binary. | `PHP_BIN=/usr/local/bin/php`, PHP `7.4.33`, WordPress `6.9`, blog `1511`, `libedemo.bizcity.vn`; `2 pass · 0 fail · 0 skip`, `641ms`; KG `15/15` and REST `7/7` steps passed. Filtered `coverage.complete=false`; physical KG promotion/citation, external HTTP parity and Skills UI evidence remain pending |
+| Skills Context Bank read-through UI | Added a feature-flagged Context Bank panel to the existing Skills SPA. It reads only same-origin `bizcity-context/v1/records` with the WP nonce, renders bounded metadata and provides loading/empty/denied/degraded/error/cursor states without exposing payload or pointer fields. | `npm run build` passed in `core/skills/app` with Vite `5.4.21`; focused `core.context_bank.ui` passed `8/8`, `1 pass · 0 fail · 0 skip`, PHP `7.4.4`, blog `1526`; feature flag remains false. Enabled-browser, screenshot, mapped deployment and action-route evidence remain pending |
 
 ### Context Bank Commerce and diagnostics gate closure - 2026-09-02
 
@@ -1067,6 +1506,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Area | Canonical record | Change / evidence | Status | Next action |
 |---|---|---|---|---|
+| Active MU/plugin loader audit | `R-PERF-LOADER` + `PHASE-1.23-CANONICAL.md` W6.1 | Audited active MU entrypoints. Added narrow gates for the Network Admin/cron dashboard graph, frontend DB debug bar probes, domain-mapping schema repair, and the user-new handler. PHP 8.1.34 lint passed for all changed files; WordPress request-matrix and deployed parity are not yet evidence. | Implemented locally / runtime pending 2026-09-10 | Capture frontend, unrelated admin, Network Admin, user-new, cron and source/deployed loader traces before marking fixed. |
+| Market bootstrap graph | `R-PERF-LOADER` §7.2 | Split public shortcode/catalog, storage and Woo payment contracts from admin/backup/restore/marketplace/schema artifacts. Guarded every selected artifact and booted admin/cron classes only on their owning contexts. PHP 8.1.34 lint PASS; runtime route and schema evidence pending. | Implemented locally / runtime pending 2026-09-10 | Validate shortcode, Woo payment, Network Admin, marketplace AJAX, backup/restore cron and unrelated frontend file/class deltas. |
+| OpenRouter bootstrap graph | `R-PERF-LOADER` + `R-GW-8` | Kept OpenRouter/models/shortcodes/Woo account compatibility classes available while deferring provider, Hub REST, billing, key and settings classes to REST/admin/maintenance contexts. Callback registration now checks loaded artifacts. PHP 8.1.34 lint PASS; REST/admin/shortcode runtime evidence pending. | Implemented locally / runtime pending 2026-09-10 | Validate unrelated REST, Hub REST, Network Admin settings, Woo account endpoints, public shortcodes and gateway degraded behavior. |
+| R2 duplicate worker precondition | `R-PERF-LOADER` §7.2 + `R-GW-8` | `MUCD_Files::r2_config_ok()` now requests the canonical lazy AWS SDK loader owned by `bizcity-r2.php` instead of requiring `Aws\\S3\\S3Client` to already exist. Worker errors distinguish missing R2 constants from `aws_sdk_missing`; source/deployed AJAX action parity remains pending. PHP 8.1.34 lint PASS. | Implemented locally / runtime pending 2026-09-10 | Rerun the same duplicate flow, inspect job message and loader trace, then verify one R2 object reaches the target prefix without a second autoloader. |
+| Cumulative performance incident rule | `PHASE-0-RULE-PERFORMANCE-LOADER.md` §7.2 | Added a repeatable incident ledger contract: classify the first expensive owner and root-cause category, preserve before/after metrics, separate static/loader/runtime/production evidence, and record rollback boundaries. | Documentation updated 2026-09-10 | Append the next confirmed loader regression to the same rule, changelog and repository memory. |
 | Safe Loader diff gate | `R-SAFE-LOADER` | Increased the aggregate Git diff buffer and added per-bootstrap diff fallback so a large diff does not produce exit 1 while the report has `new_violations: []` and `status: PASS`. | Fixed locally 2026-08-26 | Rerun the GitHub Actions public-contract job on the new SHA. |
 | Bundled plugin activation boundary | `R-SAFE-LOADER` + `R-AUTO-MU` | Removed nested bundled-plugin injection into WordPress `get_plugins()`/`all_plugins`, added stale activation-entry cleanup, and made `bizcity-twin-compat.php` source/version drift auto-sync from `mu-plugin/`. | Fixed locally 2026-08-26 | Deploy both compat/main loader artifacts and verify a clean host lists only the top-level plugin; rerun Diagnostics on the deployed runtime. |
 | Diagnostics probe lazy queue | `R-PERF-LOADER` + `R-DDV` | Removed an early `bizcity_diagnostics_load_probes_once()` flush from `core/diagnostics/bootstrap.php`; it could mark the loader complete before the remaining probe queue declarations were registered, leaving the Diagnostics catalog empty or incomplete. | Fixed locally 2026-08-16 | Deploy to the affected site and verify `GET /wp-json/bizcity-diagnostics/v1/smoke/probes` returns a non-empty catalog as an admin. |

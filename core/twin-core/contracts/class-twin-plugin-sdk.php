@@ -41,6 +41,17 @@ if ( ! class_exists( 'BizCity_Twin_Plugin_SDK' ) ) {
 			if ( isset( $definition['navigation'] ) && is_array( $definition['navigation'] ) && class_exists( 'BizCity_Admin_Navigation_Registry' ) ) {
 				$registered = BizCity_Admin_Navigation_Registry::register_item( $definition['navigation'] ) || $registered;
 			}
+			if ( isset( $definition['setting_panel'] ) && is_array( $definition['setting_panel'] ) && class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+				// [2026-09-13 09:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G3 — route additive UI metadata through the single Setting Panel registry.
+				$setting_items = isset( $definition['setting_panel'][0] ) && is_array( $definition['setting_panel'][0] )
+					? $definition['setting_panel']
+					: array( $definition['setting_panel'] );
+				foreach ( $setting_items as $setting_item ) {
+					if ( is_array( $setting_item ) ) {
+						$registered = BizCity_Setting_Panel_Registry::register_item( $setting_item ) || $registered;
+					}
+				}
+			}
 			if ( isset( $definition['output_renderer'] ) ) {
 				$registered = self::append_filter( 'bizcity_twin_register_extension_capabilities', $definition['output_renderer'], 'output_renderers' ) || $registered;
 			}

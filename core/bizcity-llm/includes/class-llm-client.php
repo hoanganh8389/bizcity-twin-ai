@@ -24,6 +24,13 @@
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
+// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-MP — load the pure exact-key projection boundary without adding a second HTTP or entitlement owner.
+$bizcity_master_plan_projection_file = __DIR__ . '/class-master-plan-projection.php';
+if ( ! class_exists( 'BizCity_Master_Plan_Projection', false ) && is_file( $bizcity_master_plan_projection_file ) && is_readable( $bizcity_master_plan_projection_file ) ) {
+    require_once $bizcity_master_plan_projection_file;
+}
+unset( $bizcity_master_plan_projection_file );
+
 class BizCity_LLM_Client {
 
     /* ─── Singleton ─── */
@@ -717,6 +724,11 @@ class BizCity_LLM_Client {
 
         delete_transient( $auth_backoff_key );
 
+        // [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-MP — add the exact-key Setting Panel projection without changing legacy response fields.
+        if ( class_exists( 'BizCity_Master_Plan_Projection', false ) ) {
+            $decoded['setting_panel_projection'] = BizCity_Master_Plan_Projection::entitlement( $decoded, $this->get_gateway_url() );
+        }
+
         // [2026-06-10 Johnny Chu] HOTFIX — per-site transient (not network-wide)
         // Cache for 5 minutes.
         set_transient( $cache_key, $decoded, 5 * MINUTE_IN_SECONDS );
@@ -825,10 +837,16 @@ class BizCity_LLM_Client {
             return new WP_Error( 'master_plans_upstream_error', 'Master Plan catalog unavailable.', array( 'status' => $status ) );
         }
         if ( is_array( $decoded ) && isset( $decoded['plans'] ) && is_array( $decoded['plans'] ) ) {
-            return array_values( $decoded['plans'] );
+            $plans = array_values( $decoded['plans'] );
+            return class_exists( 'BizCity_Master_Plan_Projection', false )
+                ? BizCity_Master_Plan_Projection::catalog( $plans )['items']
+                : $plans;
         }
         if ( is_array( $decoded ) && isset( $decoded[0] ) ) {
-            return array_values( $decoded );
+            $plans = array_values( $decoded );
+            return class_exists( 'BizCity_Master_Plan_Projection', false )
+                ? BizCity_Master_Plan_Projection::catalog( $plans )['items']
+                : $plans;
         }
         return new WP_Error( 'master_plans_decode_failed', 'Invalid Master Plan catalog response.', array( 'status' => 502 ) );
     }

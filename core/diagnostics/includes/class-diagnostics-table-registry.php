@@ -212,6 +212,11 @@ final class BizCity_Diagnostics_Table_Registry {
 			// [2026-07-29 Johnny Chu] PHASE-1.21-B — bizgpt-tool-google is not shipped in this framework tree; no required rows.
 
 			// ── plugins/bizcity-tool-image ───────────────────────────────
+			[ 'name' => 'bztimg_jobs',                 'owner' => 'plugins/bizcity-tool-image', 'group' => 'tools', 'class' => 'bztimg_install_tables()' ],
+			[ 'name' => 'bztimg_template_categories', 'owner' => 'plugins/bizcity-tool-image', 'group' => 'tools', 'class' => 'bztimg_install_tables()' ],
+			[ 'name' => 'bztimg_templates',           'owner' => 'plugins/bizcity-tool-image', 'group' => 'tools', 'class' => 'bztimg_install_tables()' ],
+			[ 'name' => 'bztimg_projects',            'owner' => 'plugins/bizcity-tool-image', 'group' => 'tools', 'class' => 'bztimg_install_tables()' ],
+			[ 'name' => 'bztimg_compositions',        'owner' => 'plugins/bizcity-tool-image', 'group' => 'tools', 'class' => 'bztimg_install_tables()' ],
 			[ 'name' => 'bztimg_editor_shapes',       'owner' => 'plugins/bizcity-tool-image', 'group' => 'tools', 'class' => 'bztimg_install_editor_asset_tables()' ],
 			[ 'name' => 'bztimg_editor_frames',       'owner' => 'plugins/bizcity-tool-image', 'group' => 'tools', 'class' => 'bztimg_install_editor_asset_tables()' ],
 			[ 'name' => 'bztimg_editor_fonts',        'owner' => 'plugins/bizcity-tool-image', 'group' => 'tools', 'class' => 'bztimg_install_editor_asset_tables()', 'feature' => 'font catalog', 'purpose' => 'Font family catalog for the image editor font picker. Low write volume; shares an installer with 4 sibling asset tables — do not split into CPT/JSONL alone.' ],

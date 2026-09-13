@@ -23,6 +23,8 @@ class BizCity_TwinWeb_Installer {
 	const VERSION_OPTION = 'bizcity_twinweb_db_version';
 	const THREADS_BASE   = 'bizcity_twinweb_threads';
 	const JOBS_BASE      = 'bizcity_twinweb_artifact_jobs';
+	const PHYSICAL_CHECK_TTL = 600;
+	const PHYSICAL_CHECK_OPTION = 'bizcity_twinweb_last_physical_check';
 
 	/**
 	 * Run installer if schema version is stale.
@@ -31,17 +33,55 @@ class BizCity_TwinWeb_Installer {
 	public static function maybe_install() {
 		$installed = get_option( self::VERSION_OPTION, '' );
 		if ( version_compare( $installed, self::VERSION, '>=' ) ) {
-			global $wpdb;
-			// [2026-08-28 Johnny Chu] PHASE-1.31-N2 — do not trust version stamp alone; cloned shards can have a current option with missing physical TwinWeb tables.
-			$threads_table = $wpdb->prefix . self::THREADS_BASE;
-			$jobs_table    = $wpdb->prefix . self::JOBS_BASE;
-			if ( self::table_exists( $threads_table ) && self::table_exists( $jobs_table ) ) {
+			// [2026-09-07 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — bound clone-shard physical verification instead of querying every request.
+			if ( self::has_required_tables() ) {
 				return;
 			}
 		}
 		if ( self::install() ) {
 			update_option( self::VERSION_OPTION, self::VERSION );
 		}
+	}
+
+	private static function has_required_tables(): bool {
+		if ( self::physical_check_is_fresh() ) {
+			return true;
+		}
+		$required_tables = self::required_tables();
+		$ready = function_exists( 'bizcity_tables_exist' ) && bizcity_tables_exist( $required_tables );
+		if ( $ready ) {
+			self::mark_physical_check();
+		}
+		return $ready;
+	}
+
+	private static function required_tables(): array {
+		global $wpdb;
+		return array(
+			$wpdb->prefix . self::THREADS_BASE,
+			$wpdb->prefix . self::JOBS_BASE,
+		);
+	}
+
+	private static function physical_check_is_fresh(): bool {
+		$stamp = get_option( self::PHYSICAL_CHECK_OPTION, array() );
+		global $wpdb;
+		$database = is_object( $wpdb ) && isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		return is_array( $stamp )
+			&& (string) ( $stamp['version'] ?? '' ) === self::VERSION
+			&& (int) ( $stamp['blog_id'] ?? 0 ) === (int) get_current_blog_id()
+			&& (string) ( $stamp['database'] ?? '' ) === $database
+			&& (int) ( $stamp['checked_at'] ?? 0 ) >= time() - self::PHYSICAL_CHECK_TTL;
+	}
+
+	private static function mark_physical_check(): void {
+		global $wpdb;
+		update_option( self::PHYSICAL_CHECK_OPTION, array(
+			'version'    => self::VERSION,
+			'blog_id'    => (int) get_current_blog_id(),
+			'database'   => is_object( $wpdb ) && isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '',
+			'checked_at' => time(),
+		), false );
 	}
 
 	public static function install() {
@@ -86,11 +126,8 @@ class BizCity_TwinWeb_Installer {
 	}
 
 	private static function table_exists( $table ): bool {
-		global $wpdb;
-		return (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-			$table
-		) );
+		// [2026-09-07 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — route all TwinWeb table checks through the canonical cache.
+		return function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $table );
 	}
 
 	public static function ensure_threads_table() {
@@ -126,17 +163,18 @@ class BizCity_TwinWeb_Installer {
 			$wpdb->query( 'CREATE TABLE IF NOT EXISTS ' . $table . ' ' . substr( $sql, strpos( $sql, '(' ) ) );
 		}
 
-		wp_cache_delete( 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table ), 'bizcity_tbl' );
+		// [2026-09-07 04:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — invalidate the canonical metadata key after TwinWeb thread-table DDL.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $table );
+		}
 
 		// [2026-06-22 Johnny Chu] PHASE-TWINWEB — add project_id column for project grouping.
 		// Uses bizcity_webchat_projects (existing table) — no new table created.
 		// idempotent ALTER via information_schema check (R-SHOW-TABLES).
 		self::ensure_project_id_column();
 		self::ensure_notebook_id_column();
-		return (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-			$table
-		) );
+		// [2026-09-07 04:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — use the canonical cached table check after TwinWeb repair.
+		return self::table_exists( $table );
 	}
 
 	/**
@@ -172,7 +210,10 @@ class BizCity_TwinWeb_Installer {
 			$wpdb->query( "ALTER TABLE {$table} ADD INDEX idx_project (project_id)" );
 		}
 
-		wp_cache_delete( 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table ), 'bizcity_tbl' );
+		// [2026-09-07 04:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — invalidate the canonical metadata key after TwinWeb project-column repair.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $table );
+		}
 		return self::table_exists( $table );
 	}
 
@@ -203,7 +244,10 @@ class BizCity_TwinWeb_Installer {
 			$wpdb->query( "ALTER TABLE {$table} ADD INDEX idx_notebook (notebook_id)" );
 		}
 
-		wp_cache_delete( 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table ), 'bizcity_tbl' );
+		// [2026-09-07 04:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-DIAG-PERF — invalidate the canonical metadata key after TwinWeb notebook-column repair.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $table );
+		}
 	}
 
 	/**

@@ -156,6 +156,40 @@ final class BizCity_Probe_TwinWeb_App_Catalog implements BizCity_Diagnostics_Pro
 			if ( ! $deeplink_ok ) {
 				$pass = false;
 			}
+
+			// [2026-09-13 10:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.29 — prove /gpt/ keeps private utility icons visible with PRO metadata when dependencies are absent.
+			$pro_contract_ok = true;
+			$pro_missing = array();
+			foreach ( array( 'astro', 'doc', 'image' ) as $pro_id ) {
+				$pro_app = $this->find_app( $guest_apps, $pro_id );
+				if ( ! is_array( $pro_app ) ) {
+					$pro_contract_ok = false;
+					$pro_missing[] = $pro_id . '.missing';
+					continue;
+				}
+				if ( (string) ( $pro_app['required_plan'] ?? '' ) !== 'pro' ) {
+					$pro_contract_ok = false;
+					$pro_missing[] = $pro_id . '.required_plan';
+				}
+				if ( trim( (string) ( $pro_app['pro_package'] ?? '' ) ) === '' ) {
+					$pro_contract_ok = false;
+					$pro_missing[] = $pro_id . '.pro_package';
+				}
+				if ( (string) ( $pro_app['state'] ?? '' ) !== 'locked' && empty( $pro_app['dependency_ok'] ) ) {
+					$pro_contract_ok = false;
+					$pro_missing[] = $pro_id . '.state';
+				}
+			}
+			$step = array(
+				'label'  => 'Runtime - Pro app metadata and locked fallback',
+				'status' => $pro_contract_ok ? 'pass' : 'fail',
+				'detail' => $pro_contract_ok ? 'Astro/Doc/Image expose required_plan=pro, package metadata, and safe state.' : 'missing=' . implode( ', ', $pro_missing ),
+			);
+			$steps[] = $step;
+			$ctx->emit_step( $step );
+			if ( ! $pro_contract_ok ) {
+				$pass = false;
+			}
 		} finally {
 			wp_set_current_user( $original_uid );
 		}

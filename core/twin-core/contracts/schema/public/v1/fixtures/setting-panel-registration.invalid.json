@@ -1,0 +1,28 @@
+{
+  "contract": "setting-panel-registration",
+  "version": "1.0.0",
+  "items": [
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "plugins.unsafe.settings",
+      "owner": "plugins/unsafe",
+      "origin": "extension",
+      "destination": "unknown-destination",
+      "group": "unsafe",
+      "label_key": "unsafe.label",
+      "icon": "cil-puzzle",
+      "capability": "manage_options",
+      "scope": "site",
+      "surface": "external",
+      "renderer": {
+        "type": "external",
+        "id": "plugins.unsafe.settings",
+        "target_url": "http://evil.example/checkout",
+        "shell_mode": "external"
+      },
+      "availability": { "policy": "always" },
+      "position": 10
+    }
+  ]
+}

@@ -99,6 +99,7 @@ class BizCity_CRM_REST_Controller {
 				'status'      => array( 'type' => 'string', 'enum' => array( 'open', 'pending', 'resolved', 'snoozed' ) ),
 				'priority'    => array( 'type' => 'integer', 'minimum' => 0, 'maximum' => 3 ),
 				'assignee_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'scope_user_id' => array( 'type' => 'integer', 'minimum' => 1 ),
 				'unassigned'  => array( 'type' => 'boolean' ),
 				'label_id'    => array( 'type' => 'integer' ),
 				'thread_kind' => array( 'type' => 'string', 'enum' => array( 'group', 'personal' ) ),
@@ -2150,6 +2151,16 @@ class BizCity_CRM_REST_Controller {
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_crm_assignable_users' ),
 			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+		// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — resolve B2 selected-user scope and Contacts through the canonical CRM owner.
+		register_rest_route( $ns, '/crm-settings/user-inbox-scope', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_crm_user_inbox_scope' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+			'args'                => array(
+				'user_id' => array( 'type' => 'integer', 'required' => true, 'minimum' => 1 ),
+				'limit' => array( 'type' => 'integer', 'default' => 100, 'minimum' => 1, 'maximum' => 200 ),
+			),
 		) );
 
 		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — admin-only identity conflict queue review API.
@@ -5805,10 +5816,23 @@ class BizCity_CRM_REST_Controller {
 				'limit'       => (int) ( $req->get_param( 'limit' ) ?: 50 ),
 				'before_id'   => (int) $req->get_param( 'before_id' ),
 			);
+			$scope_user_id = (int) $req->get_param( 'scope_user_id' );
+			if ( $scope_user_id > 0 ) {
+				// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — enforce the selected B2 principal's server-resolved account scope before listing conversations.
+				if ( ! self::can_manage_rules() || ! self::is_crm_assignable_user( $scope_user_id ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+					return new WP_Error( 'permission_denied', 'Không thể dùng phạm vi nhân viên đã chọn.', array( 'status' => 403, 'hint' => 'Chọn lại nhân viên từ danh sách CRM.', 'help_code' => 'permission_denied' ) );
+				}
+				$selected_scope = BizCity_CRM_Inbox_Access::resolve_scope( $scope_user_id, 'b2', true );
+				if ( is_array( $selected_scope['inbox_ids'] ?? null ) ) {
+					$args['inbox_ids'] = $selected_scope['inbox_ids'];
+				}
+			}
 			if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
 				$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
 				if ( is_array( $allowed ) ) {
-					$args['inbox_ids'] = $allowed;
+					$args['inbox_ids'] = isset( $args['inbox_ids'] ) && is_array( $args['inbox_ids'] )
+						? array_values( array_intersect( $args['inbox_ids'], $allowed ) )
+						: $allowed;
 				}
 			}
 			$snoozed_raw = $req->get_param( 'snoozed' );
@@ -5834,15 +5858,28 @@ class BizCity_CRM_REST_Controller {
 			'status'      => (string) $req->get_param( 'status' ),
 			'priority'    => $req->get_param( 'priority' ),
 			'assignee_id' => (int) $req->get_param( 'assignee_id' ),
+			'scope_user_id' => (int) $req->get_param( 'scope_user_id' ),
 			'label_id'    => (int) $req->get_param( 'label_id' ),
 			'thread_kind' => in_array( (string) $req->get_param( 'thread_kind' ), array( 'group', 'personal' ), true ) ? (string) $req->get_param( 'thread_kind' ) : '', // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — keep CSV scope aligned with Inbox mode.
 			'q'           => (string) $req->get_param( 'q' ),
 			'unassigned'  => $req->get_param( 'unassigned' ),
 		);
+		$scope_user_id = (int) ( $args['scope_user_id'] ?? 0 );
+		unset( $args['scope_user_id'] );
+		if ( $scope_user_id > 0 ) {
+			// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — keep CSV export inside the same selected-user account scope as the B2 list.
+			if ( ! self::can_manage_rules() || ! self::is_crm_assignable_user( $scope_user_id ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+				return new WP_Error( 'permission_denied', 'Không thể xuất phạm vi nhân viên đã chọn.', array( 'status' => 403, 'hint' => 'Chọn lại nhân viên từ danh sách CRM.', 'help_code' => 'permission_denied' ) );
+			}
+			$selected_scope = BizCity_CRM_Inbox_Access::resolve_scope( $scope_user_id, 'b2', true );
+			if ( is_array( $selected_scope['inbox_ids'] ?? null ) ) { $args['inbox_ids'] = $selected_scope['inbox_ids']; }
+		}
 		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
 			$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
 			if ( is_array( $allowed ) ) {
-				$args['inbox_ids'] = $allowed;
+				$args['inbox_ids'] = isset( $args['inbox_ids'] ) && is_array( $args['inbox_ids'] )
+					? array_values( array_intersect( $args['inbox_ids'], $allowed ) )
+					: $allowed;
 			}
 		}
 		$snoozed = $req->get_param( 'snoozed' );
@@ -6434,7 +6471,7 @@ class BizCity_CRM_REST_Controller {
 				'ai_metadata'       => $message_meta,
 			) );
 
-			$result = array( 'sent' => false, 'error' => 'no-sender', 'platform' => $resolved['platform'] );
+			$result = array( 'sent' => false, 'outcome' => 'failed', 'error' => 'no-sender', 'platform' => $resolved['platform'] );
 
 			// Prefer the CRM channel adapter when one is registered for this inbox's channel
 			// (`facebook`, `zalo`, …). The CRM adapter knows per-page/per-OA tokens, branches
@@ -6476,7 +6513,7 @@ class BizCity_CRM_REST_Controller {
 					}
 				}
 				$result = array(
-					'sent'              => ! empty( $adapter_res['success'] ),
+					'sent'              => in_array( (string) ( $adapter_res['outcome'] ?? '' ), array( 'sent', 'delivered' ), true ),
 					'outcome'           => (string) ( $adapter_res['outcome'] ?? ( ! empty( $adapter_res['success'] ) ? 'accepted' : 'failed' ) ),
 					'code'              => (string) ( $adapter_res['code'] ?? '' ),
 					'retryable'         => ! empty( $adapter_res['retryable'] ),
@@ -6523,6 +6560,7 @@ class BizCity_CRM_REST_Controller {
 				'message'  => $row ? self::shape_message( $row ) : null,
 				'dispatch' => array(
 					'sent'     => (bool) $result['sent'],
+					'outcome'  => (string) ( $result['outcome'] ?? '' ),
 					'platform' => (string) $resolved['platform'],
 					'chat_id'  => (string) $resolved['chat_id'],
 					'error'    => (string) $result['error'],
@@ -6538,7 +6576,8 @@ class BizCity_CRM_REST_Controller {
 	public static function post_note( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			$conv_id = (int) $req['id'];
-			$body    = $req->get_json_params() ?: array();
+			// [2026-09-10 09:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CARE — use the canonical JSON/form extractor so nested C care forwarding keeps note content intact.
+			$body    = self::extract_json_body( $req );
 			$content = (string) ( $body['content'] ?? '' );
 			if ( $content === '' ) {
 				throw new \RuntimeException( 'content_required' );
@@ -8978,6 +9017,7 @@ class BizCity_CRM_REST_Controller {
 			$id = (int) $wpdb->insert_id;
 			if ( ! $id ) { return new WP_Error( 'insert_failed', 'Could not create contact', array( 'status' => 500 ) ); }
 			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( class_exists( 'BizCity_CRM_Repository' ) && method_exists( 'BizCity_CRM_Repository', 'invalidate_read_models' ) ) { BizCity_CRM_Repository::invalidate_read_models(); }
 			do_action( 'bizcity_crm_contact_saved', $id, $row );
 			return self::shape_crm_contact( $row );
 		} );
@@ -9010,6 +9050,7 @@ class BizCity_CRM_REST_Controller {
 			}
 			$wpdb->update( $tbl, $fields, array( 'id' => $id ) );
 			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( class_exists( 'BizCity_CRM_Repository' ) && method_exists( 'BizCity_CRM_Repository', 'invalidate_read_models' ) ) { BizCity_CRM_Repository::invalidate_read_models(); }
 			do_action( 'bizcity_crm_contact_saved', $id, $row );
 			return self::shape_crm_contact( $row );
 		} );
@@ -9023,6 +9064,7 @@ class BizCity_CRM_REST_Controller {
 			if ( ! $id ) { return array( 'deleted' => false, 'id' => (int) $req['id'] ); }
 			if ( ! self::contact_is_in_scope( $id, (int) get_current_user_id() ) ) { return new WP_Error( 'not_found', 'Contact not found', array( 'status' => 404 ) ); }
 			$ok  = $wpdb->update( $tbl, array( 'deleted_at' => current_time( 'mysql' ), 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $id ) );
+			if ( $ok && class_exists( 'BizCity_CRM_Repository' ) && method_exists( 'BizCity_CRM_Repository', 'invalidate_read_models' ) ) { BizCity_CRM_Repository::invalidate_read_models(); }
 			do_action( 'bizcity_crm_contact_deleted', $id );
 			return array( 'deleted' => (bool) $ok, 'id' => $id );
 		} );
@@ -12972,6 +13014,29 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 			}
 			return $out;
 		} );
+	}
+
+	public static function get_crm_user_inbox_scope( WP_REST_Request $req ) {
+		// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — accept only principals from the server-owned B2 staff catalog.
+		return self::wrap( static function () use ( $req ) {
+			$user_id = (int) $req->get_param( 'user_id' );
+			if ( ! self::is_crm_assignable_user( $user_id ) ) {
+				return new WP_Error( 'invalid_param', 'Nhân viên không thuộc phạm vi CRM hiện tại.', array( 'status' => 400, 'hint' => 'Chọn một nhân viên trong danh sách do máy chủ cung cấp.', 'help_code' => 'invalid_param_generic' ) );
+			}
+			if ( ! class_exists( 'BizCity_CRM_Inbox_Access' ) || ! method_exists( 'BizCity_CRM_Inbox_Access', 'resolve_user_contact_projection' ) ) {
+				return new WP_Error( 'module_not_loaded', 'Phạm vi Inbox chưa sẵn sàng.', array( 'status' => 503, 'hint' => 'Tải lại CRM sau khi module Inbox được nạp.', 'help_code' => 'module_not_loaded' ) );
+			}
+			$limit = max( 1, min( 200, (int) ( $req->get_param( 'limit' ) ?: 100 ) ) );
+			return BizCity_CRM_Inbox_Access::resolve_user_contact_projection( $user_id, 'b2', $limit );
+		} );
+	}
+
+	private static function is_crm_assignable_user( int $user_id ): bool {
+		// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — mirror assignable-users eligibility before resolving another principal.
+		if ( $user_id <= 0 || ! function_exists( 'get_userdata' ) ) { return false; }
+		$user = get_userdata( $user_id );
+		if ( ! $user || in_array( 'subscriber', (array) $user->roles, true ) ) { return false; }
+		return ! function_exists( 'is_user_member_of_blog' ) || is_user_member_of_blog( $user_id, get_current_blog_id() );
 	}
 
 	/**

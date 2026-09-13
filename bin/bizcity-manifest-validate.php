@@ -52,6 +52,63 @@ if ( isset( $manifest['version'] ) && ! preg_match( '/^[0-9]+\\.[0-9]+\\.[0-9]+$
 	$errors[] = 'version must be semver major.minor.patch';
 }
 
+// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-1.22A-WP1 — validate optional spine adoption metadata without making v1 declarations mandatory.
+$package_roles = array( 'core', 'module', 'channel_owner', 'framework_integrated', 'vertical_extension', 'optional_utility', 'private_pro_utility', 'legacy_adapter', 'reference_only' );
+if ( array_key_exists( 'package_role', $manifest ) && ! in_array( $manifest['package_role'], $package_roles, true ) ) {
+	$errors[] = 'package_role is not a supported framework role';
+}
+$spine = isset( $manifest['spine'] ) && is_array( $manifest['spine'] ) ? $manifest['spine'] : array();
+if ( array_key_exists( 'spine', $manifest ) && ! is_array( $manifest['spine'] ) ) {
+	$errors[] = 'spine must be an object';
+}
+if ( isset( $spine['channel'] ) && is_array( $spine['channel'] ) ) {
+	$channel = $spine['channel'];
+	if ( isset( $channel['mode'] ) && ! in_array( $channel['mode'], array( 'producer', 'consumer', 'none' ), true ) ) {
+		$errors[] = 'spine.channel.mode is invalid';
+	}
+	if ( isset( $channel['zone'] ) && ! in_array( $channel['zone'], array( 'customer', 'admin', 'system' ), true ) ) {
+		$errors[] = 'spine.channel.zone is invalid';
+	}
+	if ( isset( $channel['account_scope'] ) && ! in_array( $channel['account_scope'], array( 'exact', 'single', 'multiple', 'none' ), true ) ) {
+		$errors[] = 'spine.channel.account_scope is invalid';
+	}
+}
+if ( isset( $spine['crm'] ) && is_array( $spine['crm'] ) ) {
+	$crm = $spine['crm'];
+	if ( isset( $crm['mode'] ) && ! in_array( $crm['mode'], array( 'repository_event', 'projection', 'consumer', 'none', 'not_applicable' ), true ) ) {
+		$errors[] = 'spine.crm.mode is invalid';
+	}
+	if ( isset( $spine['channel']['zone'], $crm['mode'] ) && 'customer' === $spine['channel']['zone'] && 'not_applicable' === $crm['mode'] ) {
+		$errors[] = 'customer channel cannot declare spine.crm.mode=not_applicable';
+	}
+}
+if ( isset( $spine['action'] ) && is_array( $spine['action'] ) ) {
+	$action = $spine['action'];
+	$side_effects = isset( $action['side_effects'] ) && is_array( $action['side_effects'] ) ? $action['side_effects'] : array();
+	if ( ! empty( $side_effects ) ) {
+		if ( empty( $action['mutation_contract'] ) ) {
+			$errors[] = 'spine.action with side_effects requires mutation_contract';
+		}
+		if ( empty( $action['runtime_policy'] ) ) {
+			$errors[] = 'spine.action with side_effects requires runtime_policy';
+		}
+	}
+}
+$evidence = isset( $manifest['evidence'] ) && is_array( $manifest['evidence'] ) ? $manifest['evidence'] : array();
+foreach ( array( 'probe_ids', 'negative_cases' ) as $evidence_key ) {
+	if ( isset( $evidence[ $evidence_key ] ) ) {
+		if ( ! is_array( $evidence[ $evidence_key ] ) ) {
+			$errors[] = "evidence.{$evidence_key} must be an array";
+			continue;
+		}
+		foreach ( $evidence[ $evidence_key ] as $index => $value ) {
+			if ( ! is_string( $value ) || ! preg_match( '/^[a-z][a-z0-9._-]{2,160}$/', $value ) ) {
+				$errors[] = "evidence.{$evidence_key}[{$index}] must use stable id syntax";
+			}
+		}
+	}
+}
+
 // [2026-08-29 Johnny Chu] PHASE-VIBE-MANIFEST — validate optional taxonomy and observability metadata without breaking legacy manifests.
 $taxonomy = isset( $manifest['taxonomy'] ) && is_array( $manifest['taxonomy'] ) ? array_values( array_unique( $manifest['taxonomy'] ) ) : array();
 if ( array_key_exists( 'taxonomy', $manifest ) ) {

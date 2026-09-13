@@ -868,6 +868,8 @@ class BizCity_Scheduler_Google {
 	 * When a local event is created → push to Google.
 	 */
 	public function on_event_created( $event, array $data ): void {
+		// [2026-09-10 06:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-C10 — Google sync is optional and must never turn a committed local Scheduler event into a failed request.
+		try {
 		if ( ! is_object( $event ) ) {
 			return;
 		}
@@ -898,9 +900,14 @@ class BizCity_Scheduler_Google {
 			}
 			BizCity_Scheduler_Manager::instance()->update_event( (int) $event->id, $update );
 		}
+		} catch ( \Throwable $e ) {
+			$this->emit_sync_error( 'push_exception', (int) ( $event->id ?? 0 ), 'Google sync unavailable; local event retained.' );
+		}
 	}
 
 	public function on_event_updated( $event, $old, array $changed ): void {
+		// [2026-09-10 06:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-C10 — isolate Google update exceptions from local Scheduler mutations.
+		try {
 		if ( ! is_object( $event ) || empty( $event->google_event_id ) ) {
 			return;
 		}
@@ -919,18 +926,35 @@ class BizCity_Scheduler_Google {
 		}
 
 		$this->touch_google_synced_at( (int) $event->id );
+		} catch ( \Throwable $e ) {
+			$this->emit_sync_error( 'patch_exception', (int) ( $event->id ?? 0 ), 'Google sync unavailable; local event retained.' );
+		}
 	}
 
 	public function on_event_deleted( $event ): void {
+		// [2026-09-10 06:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-C10 — isolate Google delete exceptions from local Scheduler deletion.
+		try {
 		if ( ! is_object( $event ) || empty( $event->google_event_id ) ) {
 			return;
 		}
 		$this->delete_google_event( (string) $event->google_event_id, $event );
+		} catch ( \Throwable $e ) {
+			$this->emit_sync_error( 'delete_exception', (int) ( $event->id ?? 0 ), 'Google sync unavailable; local event deletion retained.' );
+		}
 	}
 
 	/* ================================================================
 	 *  Helpers
 	 * ================================================================ */
+
+	private function emit_sync_error( string $stage, int $event_id, string $message ): void {
+		// [2026-09-10 07:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-C10 — error observers must not break the local Scheduler fail-open boundary.
+		try {
+			do_action( 'bizcity_scheduler_google_error', $stage, $message, $event_id, null );
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
 
 	/**
 	 * Format local event → Google Calendar API format.

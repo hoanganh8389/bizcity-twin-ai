@@ -208,6 +208,8 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'product_entities'          => $product_entities,
 			'product_entity_count'      => count( $product_entities ),
 			'product_name_entity_count' => $product_name_entity_count,
+			// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — expose bounded nested Context Bank metadata for MPR timeline consumers while retaining flat compatibility keys.
+			'context_bank'              => $this->build_context_bank_timeline_payload( $context_bank ),
 				'context_bank_source_refs'  => (array) ( $context_bank['refs'] ?? array() ),
 			'context_bank_source_count' => (int) ( $context_bank['count'] ?? 0 ),
 			'context_bank_owner_records' => (array) ( $context_bank['owner_records'] ?? array() ),
@@ -457,6 +459,8 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'channel' => (string) ( $opts['channel'] ?? $opts['platform'] ?? 'TWIN_GPT' ),
 			'mode' => (string) ( $opts['context_bank_mode'] ?? 'hybrid' ),
 			'chat_kind' => (string) ( $opts['chat_kind'] ?? '' ),
+			// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-1.33B-B2 — pass only server-resolved HMAC account scope to the grant owner; raw provider IDs are never accepted here.
+			'account_key' => (string) ( $opts['grant_account_key'] ?? $opts['account_key'] ?? '' ),
 			// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7 — pass server-selected vertical and notebook hints through canonical owner validation before Context Bank search.
 			'vertical_id' => (string) ( $opts['vertical_id'] ?? $opts['vertical_slug'] ?? '' ),
 			'notebook_id' => (int) ( $opts['notebook_id'] ?? 0 ),
@@ -498,6 +502,32 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			$owner_records[] = $owner_record;
 		}
 		return array( 'refs' => $refs, 'count' => count( $refs ), 'owner_records' => $owner_records, 'meta' => array( 'enabled' => true, 'contract_version' => 'context-retrieval-pack@1.0.0', 'tenant_scope' => array( 'blog_id' => (int) ( $scope['blog_id'] ?? 0 ) ), 'account_scope' => array( 'owner_user_id' => (int) ( $scope['owner_user_id'] ?? 0 ) ), 'retrieval_policy' => array( 'mode' => (string) ( $scope['effective_mode'] ?? 'skip' ), 'source' => 'context_bank_ledger', 'payload_access' => 'canonical_owner_after_pointer_authorization', 'max_rows' => (int) ( $scope['budgets']['max_rows'] ?? 0 ), 'max_pointer_follows' => (int) ( $scope['budgets']['max_pointer_follows'] ?? 0 ), 'max_time_ms' => (int) ( $scope['budgets']['max_time_ms'] ?? 0 ) ), 'scope' => (string) ( $result['scope'] ?? '' ), 'incomplete' => ! empty( $result['incomplete'] ), 'degraded' => ! empty( $result['degraded'] ), 'pointer_follows' => (int) ( $result['pointer_follows'] ?? 0 ), 'budget_ms' => (int) ( $result['budget_ms'] ?? 0 ) ) );
+	}
+
+	/**
+	 * Build bounded Context Bank metadata for MPR timeline surfaces.
+	 *
+	 * @param array<string,mixed> $context_bank
+	 * @return array<string,mixed>
+	 */
+	private function build_context_bank_timeline_payload( array $context_bank ): array {
+		// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — expose counts/status only; ledger rows and owner bodies never enter the timeline payload.
+		$meta = isset( $context_bank['meta'] ) && is_array( $context_bank['meta'] ) ? $context_bank['meta'] : array();
+		$policy = isset( $meta['retrieval_policy'] ) && is_array( $meta['retrieval_policy'] ) ? $meta['retrieval_policy'] : array();
+		$reason = (string) ( $meta['reason'] ?? '' );
+		if ( $reason === '' && ! empty( $meta['degraded'] ) ) {
+			$reason = 'context_bank_degraded';
+		}
+		return array(
+			'enabled'              => ! empty( $meta['enabled'] ),
+			'mode'                 => (string) ( $policy['mode'] ?? 'context_bank' ),
+			'source_ref_count'    => count( (array) ( $context_bank['refs'] ?? array() ) ),
+			'pointer_follows'     => (int) ( $meta['pointer_follows'] ?? 0 ),
+			'owner_excerpt_count' => count( (array) ( $context_bank['owner_records'] ?? array() ) ),
+			'degraded'            => ! empty( $meta['degraded'] ),
+			'incomplete'          => ! empty( $meta['incomplete'] ),
+			'reason'              => $reason,
+		);
 	}
 
 	/**
@@ -717,6 +747,16 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 				continue;
 			}
 			$normalized = $this->normalize_search_context_hit( $hit, $tokens, $rank );
+			$overlap_tokens = $this->w020_terms_present_in_text(
+				(string) ( $normalized['source_title'] ?? '' ) . ' ' . (string) ( $normalized['context_excerpt'] ?? '' ),
+				$tokens
+			);
+			$match_count = max( (int) ( $normalized['match_count'] ?? 0 ), count( $overlap_tokens ) );
+			// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — selector hardening must not promote zero-overlap documents into the MPR top30/final pack.
+			if ( ! empty( $tokens ) && $match_count <= 0 ) {
+				$rank++;
+				continue;
+			}
 			$this->w020_add_candidate( $candidates, $seen, array(
 				'source'         => 'selector_hardening_twinsearch',
 				'rank'           => $rank,
@@ -727,8 +767,8 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 				'passage_id'     => (int) ( $normalized['first_passage_id'] ?? 0 ),
 				'citation'       => (string) ( $normalized['citation'] ?? '' ),
 				'excerpt'        => (string) ( $normalized['context_excerpt'] ?? $normalized['snippet'] ?? '' ),
-				'matched_tokens' => (array) ( $normalized['matched_tokens'] ?? array() ),
-				'match_count'    => (int) ( $normalized['match_count'] ?? 0 ),
+				'matched_tokens' => $overlap_tokens,
+				'match_count'    => $match_count,
 			) );
 			$rank++;
 		}

@@ -76,6 +76,13 @@ class BizCity_Usage_Proxy_REST {
             'callback'            => array( __CLASS__, 'handle_get_keys' ),
             'permission_callback' => $auth,
         ) );
+
+        // [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-MP — expose one same-origin read-only projection for the Setting Panel; browser never supplies a key or plan identity.
+        register_rest_route( $ns, '/account/master-plan', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'handle_master_plan' ),
+            'permission_callback' => $auth,
+        ) );
     }
 
     public static function check_logged_in() {
@@ -128,6 +135,46 @@ class BizCity_Usage_Proxy_REST {
         return self::proxy_get( '/account/api-keys', $args );
     }
 
+    /**
+     * Read-only Setting Panel projection for the current B2 site's configured
+     * exact Bearer key. B1 remains the entitlement and commerce authority.
+     *
+     * @return WP_REST_Response
+     */
+    public static function handle_master_plan() {
+        // [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-MP — keep catalog display-only and never synthesize Free on a B1 transport/auth failure.
+        $client = self::get_client();
+        if ( ! $client ) {
+            return self::degraded_response( 'module_not_loaded', 'Master Plan chưa sẵn sàng.', 'Kiểm tra BizCity LLM Client rồi thử lại.', 'module_not_loaded' );
+        }
+
+        $config = $client->get_plan_config();
+        if ( is_wp_error( $config ) || ! is_array( $config ) || empty( $config['ok'] ) ) {
+            return self::degraded_response( 'gateway_degraded', 'Không đọc được trạng thái Master Plan từ BizCity.', 'Kiểm tra API key hoặc thử làm mới lại.', 'gateway_degraded' );
+        }
+
+        $catalog = $client->get_master_plans();
+        if ( is_wp_error( $catalog ) ) {
+            $catalog = array();
+        }
+
+        $projection = isset( $config['setting_panel_projection'] ) && is_array( $config['setting_panel_projection'] )
+            ? $config['setting_panel_projection']
+            : ( class_exists( 'BizCity_Master_Plan_Projection', false )
+                ? BizCity_Master_Plan_Projection::entitlement( $config, $client->get_gateway_url() )
+                : array() );
+
+        return new WP_REST_Response(
+            array(
+                'ok'          => true,
+                'entitlement' => $projection,
+                'catalog'     => is_array( $catalog ) ? array_values( $catalog ) : array(),
+                'source'      => 'b1_exact_key',
+            ),
+            200
+        );
+    }
+
     // ── Helpers ───────────────────────────────────────────────────
 
     /**
@@ -150,6 +197,22 @@ class BizCity_Usage_Proxy_REST {
         }
         $result = $client->gateway_get( $path, $query );
         return new WP_REST_Response( $result, 200 );
+    }
+
+    private static function degraded_response( $code, $message, $hint, $help_code ) {
+        return new WP_REST_Response(
+            array(
+                'ok'         => false,
+                '_degraded'  => true,
+                'code'       => sanitize_key( (string) $code ),
+                'message'    => (string) $message,
+                'hint'       => (string) $hint,
+                'help_code'  => sanitize_key( (string) $help_code ),
+                'entitlement'=> array(),
+                'catalog'    => array(),
+            ),
+            200
+        );
     }
 
     private static function period_args( WP_REST_Request $request ) {

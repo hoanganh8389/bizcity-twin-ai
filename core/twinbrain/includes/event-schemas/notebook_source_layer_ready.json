@@ -63,6 +63,20 @@
       }
     },
     "notebook_source_block_md": { "type": "string" },
+    "context_bank": {
+      "type": "object",
+      "description": "Bounded Context Bank Brain metadata for MPR timeline surfaces; excludes ledger rows and owner bodies.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "type": "string" },
+        "source_ref_count": { "type": "integer", "minimum": 0 },
+        "pointer_follows": { "type": "integer", "minimum": 0 },
+        "owner_excerpt_count": { "type": "integer", "minimum": 0 },
+        "degraded": { "type": "boolean" },
+        "incomplete": { "type": "boolean" },
+        "reason": { "type": "string" }
+      }
+    },
     "source_file_briefs": {
       "type": "array",
       "items": {

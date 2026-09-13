@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/user-inbox-scope.schema.json",
+  "title": "BizCity User-Centric Inbox Scope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "surface", "principal", "phone_spine", "branches"],
+  "properties": {
+    "contract": { "const": "user-inbox-scope" },
+    "version": { "const": "1.0.0" },
+    "surface": { "enum": ["B2_ADMIN_CRM", "C_PUBLIC_TWINGPT"] },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blog_id", "user_id"],
+      "properties": {
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "user_id": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "phone_spine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["verified", "unverified", "conflict", "absent", "revoked"] },
+        "phone_key": { "type": "string", "pattern": "^[a-f0-9]{32,64}$" },
+        "phone_masked": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "verification_source": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$" },
+        "verified_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "verified" } } },
+          "then": { "required": ["phone_key", "phone_masked", "verification_source", "verified_at"] }
+        }
+      ]
+    },
+    "branches": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customer", "admin"],
+      "properties": {
+        "customer": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/scope_item" }
+        },
+        "admin": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/scope_item" }
+        }
+      }
+    },
+    "denied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope_id", "reason"],
+        "properties": {
+          "scope_id": { "type": "string", "minLength": 3, "maxLength": 191 },
+          "reason": { "enum": ["personal_owner_mismatch", "membership_missing", "phone_conflict", "channel_disabled", "zone_mismatch"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "scope_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_id", "branch", "zone", "channel", "access_mode", "account_key", "crm_mode", "capabilities", "context_policy"],
+      "properties": {
+        "scope_id": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "branch": { "enum": ["customer", "admin"] },
+        "zone": { "enum": ["customer", "admin"] },
+        "channel": { "enum": ["facebook", "messenger", "zalo_oa", "zalo_personal", "webchat", "email", "cf7", "mabel_wheel", "instagram", "whatsapp", "zalo_bot", "telegram", "twinchat_be"] },
+        "access_mode": { "enum": ["owner_only", "owner_or_membership", "membership", "linked_user"] },
+        "account_key": { "type": "string", "pattern": "^[a-f0-9]{16,64}$" },
+        "account_label": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "crm_mode": { "enum": ["customer_inbox", "disabled"] },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["conversation.read", "conversation.reply", "conversation.assign", "contact.read", "contact.write", "group.roster.read", "group.mention", "attachment.send", "broadcast.send", "context.read", "brain.command"] }
+        },
+        "context_policy": { "enum": ["conversation_summary", "admin_command", "none"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "channel": { "const": "zalo_personal" } } },
+          "then": {
+            "properties": {
+              "branch": { "const": "customer" },
+              "zone": { "const": "customer" },
+              "access_mode": { "const": "owner_only" },
+              "crm_mode": { "const": "customer_inbox" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "channel": { "const": "zalo_bot" } } },
+          "then": {
+            "properties": {
+              "branch": { "const": "admin" },
+              "zone": { "const": "admin" },
+              "access_mode": { "const": "linked_user" },
+              "crm_mode": { "const": "disabled" },
+              "context_policy": { "const": "admin_command" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

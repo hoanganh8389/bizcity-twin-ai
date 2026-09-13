@@ -5,31 +5,47 @@ vendor/
 # Ignore specific plugin
 /docs/ip-registration/
 /docs/roadmaps/*
-!/docs/roadmaps/PHASE-1.24-FRAMEWORK-ADOPTION-RELEASE-READINESS.md
-!/docs/roadmaps/PHASE-1.24-FRAMEWORK-AUDIT.md
-!/docs/roadmaps/PHASE-1.29-PLUGIN-TIER-EXTENSIONS-LOG-CANON.md
+# Roadmaps, audit material, and implementation planning remain private. The
+# local canonical files are retained for approved deployment/review work.
+/docs/audits/
+/docs/analysis/
+/docs/decisions/
+/docs/cutover/
+/docs/vibe/
+/docs/contracts/FRAMEWORK-CONTRACT-INVENTORY-v1.md
 /docs/rules/
-/docs/extension/
 /docs/diagnostics/
+
+# Keep roadmap/audit/research documents private in module-owned documentation.
+**/docs/*ROADMAP*.md
+**/docs/*-ROADMAP*.md
+**/docs/*AUDIT*.md
+**/docs/*-AUDIT*.md
+**/docs/*RESEARCH*.md
+**/docs/*-RESEARCH*.md
+**/docs/*TRACE*.md
+**/docs/*-TRACE*.md
+**/docs/PHASE-*.md
+**/docs/*-CHECKLIST*.md
 /plugins/_achived/
-/plugins/bizcity-chatgpt-knowledge/
-/plugins/bizcity-gemini-knowledge/
-/plugins/bizcity-tool-heygen/
-/plugins/bizcity-tool-woo/
-/plugins/bizcity-companion-notebook/
-/plugins/bizcity-automation/
-/plugins/bizcity-tarot/
-/plugins/bizcity-admin-hook-zalo/
+/plugins/_achived/
+
+
 /plugins/bizcity-tool-content/*
 !/plugins/bizcity-tool-content/uninstall.php
 /plugins/bizgpt-tool-google/*
 !/plugins/bizgpt-tool-google/uninstall.php
+/plugins/bizcity-video-kling/
 /plugins/bizcity-tool-image/*
 !/plugins/bizcity-tool-image/uninstall.php
 /plugins/bizcity-doc/*
 !/plugins/bizcity-doc/uninstall.php
 /plugins/bizcity-content-creator/*
 !/plugins/bizcity-content-creator/uninstall.php
+/plugins/bizcoach-pro/
+/plugins/ibs-hi/
+/plugins/bizcity-personal/
+/plugins/_archived/
 /plugins/bizcity-tool-mindmap/
 /plugins/bizcity-tool-pdf/
 /plugins/bizcity-agent-calo/
@@ -38,7 +54,8 @@ vendor/
 # Keep its source and runtime contract available in clean Git checkouts.
 /plugins/bizcity-video-kling/*
 !/plugins/bizcity-video-kling/uninstall.php
-# bizcoach-pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — in-house, do NOT publish
+# Proprietary utility/pro packages — deploy separately for approved customers; do NOT publish.
+# These are not framework core, channel owners, or must-load dependencies.
 
 
 # bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).

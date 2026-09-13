@@ -48,6 +48,7 @@ entitlement, domain, tenant, mapping, side effect, or presentation/cache.
 | kg-adapter-payload | Knowledge source adapter boundary | KG adapters, ingestion |
 | channel-payload | Inbound/outbound channel identity | Channel Gateway, adapters |
 | runtime-execution-policy | Reliability and SRE policy | Tools, scheduler, channels |
+| extension-storage-context | Extension storage, encrypted filestore receipt, Context Bank pointer/rollup and MPR adoption | All new/migrated extensions |
 
 ## Test Layers
 
@@ -115,6 +116,21 @@ Required cases:
 - Private IP literals and DNS-resolved private ranges are rejected by the shared URL policy.
 - A registered manifest allow-host list is enforced before the HTTP client runs.
 - Uploads exceeding size/MIME policy or missing required malware scan approval are rejected.
+
+For `extension-storage-context`, security and storage tests must additionally
+cover:
+
+- a log/trace decision that rejects a new SQL payload table;
+- a reusable context record that cannot admit to the pointer ledger without a
+  lock-captured file receipt;
+- a ledger query that never returns full payload/decrypted body;
+- a rollup definition with dimensions/window/version/correction/rebuild policy;
+- a small option/usermeta/CPT decision with matching scope and owner;
+- an atomic/relational/hot-state SQL decision with R-DCL/R-CR evidence;
+- a wrong-tenant/wrong-user pointer follow denial;
+- a bounded `context-retrieval-pack@1.x` with `degraded`/`incomplete` reason
+  buckets;
+- MPR consumption through the canonical retrieval bridge, not raw file/SQL scan.
 
 ### Layer 5: Reliability
 

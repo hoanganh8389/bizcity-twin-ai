@@ -213,10 +213,12 @@ if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
 $_bizcity_framework_contract_files = array(
     __DIR__ . '/core/twin-core/contracts/class-framework-manifest-registry.php',
     __DIR__ . '/core/twin-core/contracts/class-framework-sdk.php',
+    __DIR__ . '/core/twin-core/contracts/class-setting-panel-registry.php',
 );
 foreach ( $_bizcity_framework_contract_files as $_bizcity_framework_contract_file ) {
     if ( is_file( $_bizcity_framework_contract_file ) && is_readable( $_bizcity_framework_contract_file ) ) {
         if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+            // [2026-09-13 09:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G3 — load metadata registry through the existing Safe Loader boundary.
             BizCity_Safe_Loader::require_file( $_bizcity_framework_contract_file, 'twin_core.framework_contract' );
         }
     }
@@ -821,9 +823,10 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
     require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
 }
 
-// ── Required bundled runtimes ────────────────────────────────────────────────
-// Only framework-owned runtimes are loaded here. Feature extensions must be
-// activated manually as normal WordPress plugins.
+// ── Framework/channel bundled runtimes ───────────────────────────────────────
+// [2026-09-13 08:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.29 — remove proprietary utility packages from the framework must-load contract.
+// Only framework and channel owners are loaded here. Feature/proprietary
+// utilities must be installed separately and degrade through their Pro gate.
 // Guard bằng constant riêng của mỗi plugin để tránh load trùng khi đã activate bình thường.
 $_bizcity_bundled_must_load = [
     'bizcity-admin-hook-zalo'     => 'BIZCITY_ADMIN_ZALO_DIR',     // [2026-07-21 Johnny Chu] R-GW-8 — optional legacy Zalo Hotline adapter if deployed; not required for standalone Zalo Bot/Twin GPT.
@@ -835,13 +838,11 @@ $_bizcity_bundled_must_load = [
     'bizcity-zalo-personal'       => 'BIZCITY_ZALO_PERSONAL_VERSION', // Zalo Personal + OA channel via zca-bridge sidecar (PHASE-0.39)
     // 'bizcity-companion-notebook'  => 'BCN_VERSION',                // DISABLED — Companion Notebook (gitignored, không load mặc định)
     // 'bizcity-automation'          => 'BIZCITY_AUTOMATION_VERSION', // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-automation/. Replaced by core/automation/ (native xyflow runtime, BE-1..BE-5 shipped).
-    'bizcity-doc'                 => 'BZDOC_VERSION',              // Doc Studio — AI tạo Word, PowerPoint, Excel
     // 'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page (ARCHIVED)
     // 'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-tool-mindmap/. Mindmap functionality moved to bizcity-doc (Phase 6.3 PHASE-0.7-DOCGEN).
     // [2026-06-14 Johnny Chu] HOTFIX — uncommented; foreach guard (is_dir + file_exists) ensures
     // this only loads when the folder is deployed. Gitignored on public repo — safe to list here.
     'bizcity-twin-crm'            => 'BIZCITY_CRM_VERSION',        // PROPRIETARY (PHASE-0.98) — gitignored, commercial-only. Loads when deployed under plugins/bizcity-twin-crm/.
-    'bizcoach-pro'                => 'BCPRO_VERSION',              // BizCoach Pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — gitignored, in-house only
     // [2026-08-19 Johnny Chu] HOTFIX — không bundle Video Kling; chỉ menu /gpt/video/ khi plugin được cài và active riêng.
     // 'bizcity-video-kling'         => 'BIZCITY_VIDEO_KLING_VERSION', // B-roll Video — Kling/Sora/Veo3/SeeDance image-to-video via PiAPI
     'bizcity-pagebuilder'         => 'BZPB_VERSION',               // Page Builder — AI tạo website drag-and-drop, 19 block types, export HTML
@@ -850,8 +851,9 @@ $_bizcity_bundled_must_load = [
 ];
 // [2026-06-09 Johnny Chu] PERF-2 — Admin-only bundled plugins (no public shortcodes, no
 // public URL patterns outside /tool-* or /kling-video/ covered by $_bizcity_admin_ctx).
-// Public shortcode/legacy-route plugins remain always-load: bizcoach-pro,
-// bizcity-content-creator. Doc/Image/Page Builder are loaded on their own public
+// [2026-09-07 05:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41B — keep standalone creative tools out of the bundled must-load contract.
+// No proprietary utility is always-loaded here. bizcity-content-creator is
+// standalone and is not bundled here. Doc/Image/Page Builder are loaded on their own public
 // route, backend requests, or TwinShell only; they do not need full runtime on
 // ordinary frontend HTML.
 $_bizcity_admin_only_slugs = [
@@ -861,9 +863,20 @@ $_bizcity_admin_only_slugs = [
     // [2026-06-10 Johnny Chu] PHASE-0.39 — no public shortcodes; REST at /wp-json/bizcity-channel/v1/zalo-bridge/* covered by admin_ctx gate.
     'bizcity-zalo-personal',    // Zalo Personal + OA gateway — admin + /wp-json/ only
     'bizgpt-tool-google',       // Google Tools — /tool-google/ + admin REST
-    'bizcity-doc',              // /tool-doc/ and /doc/ are covered by admin_ctx
     'bizcity-pagebuilder',      // /tool-pagebuilder/ is covered by admin_ctx
 ];
+// [2026-09-07 06:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.23-W6 — keep the legacy Zalo Admin Hook graph off unrelated admin/REST requests while preserving its webhook and owned admin surfaces.
+$_bizcity_zalo_admin_hook_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+$_bizcity_zalo_admin_hook_page = is_admin()
+    && isset( $_GET['page'] )
+    && in_array( sanitize_key( (string) $_GET['page'] ), array( 'bizchat-gateway', 'zalo-users-admin', 'zalo-guider', 'zalo-video-guider' ), true );
+$_bizcity_zalo_admin_hook_surface =
+    $_bizcity_zalo_admin_hook_page
+    || ( defined( 'DOING_CRON' ) && DOING_CRON )
+    || ( defined( 'WP_CLI' ) && WP_CLI )
+    || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
+    || false !== strpos( $_bizcity_zalo_admin_hook_uri, '/bizhook/' )
+    || false !== strpos( $_bizcity_zalo_admin_hook_uri, '/wp-json/bizcity-channel/' );
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
         continue; // Already loaded (activated as regular plugin or by mu-plugin)
@@ -874,6 +887,9 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     // [2026-06-09 Johnny Chu] PERF-2 — Skip admin-only plugins on plain frontend HTML renders.
     if ( ( ( ! $_bizcity_admin_ctx && ! $_bizcity_agent_public_request && !( 'bizcity-zalo-personal' === $_slug && $_bizcity_zalo_personal_public_request ) ) || $_bizcity_twinchat_admin_page )
         && in_array( $_slug, $_bizcity_admin_only_slugs, true ) ) {
+        continue;
+    }
+    if ( 'bizcity-admin-hook-zalo' === $_slug && ! $_bizcity_zalo_admin_hook_surface ) {
         continue;
     }
     // Guard: only load if plugin folder exists — skip gracefully if not deployed
@@ -949,7 +965,7 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
     add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );
 }
 
-unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_zalo_personal_public_request, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_skills_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request, $_bizcity_twinsearch_public_request );
+unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_zalo_personal_public_request, $_bizcity_zalo_admin_hook_uri, $_bizcity_zalo_admin_hook_page, $_bizcity_zalo_admin_hook_surface, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_skills_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request, $_bizcity_twinsearch_public_request );
 
 // Activation hook — install DB tables, set defaults
 register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );

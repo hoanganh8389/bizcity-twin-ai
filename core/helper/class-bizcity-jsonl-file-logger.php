@@ -81,8 +81,15 @@ class BizCity_JSONL_File_Logger {
 			}
 		}
 		$reconcile = array( 'rebuilt' => 0, 'removed' => 0 );
-		if ( class_exists( 'BizCity_Log_Index' ) && BizCity_Log_Index::is_available() ) {
-			$reconcile = BizCity_Log_Index::reconcile();
+		if ( class_exists( 'BizCity_Log_Index' ) ) {
+			$reset = BizCity_Log_Index::empty_index_once();
+			// The first migration tick deliberately leaves the rebuildable index empty;
+			// later ticks may reconcile new JSONL pointers normally.
+			if ( empty( $reset['ok'] ) || ! empty( $reset['skipped'] ) ) {
+				$reconcile = BizCity_Log_Index::reconcile();
+			} else {
+				$reconcile = array( 'rebuilt' => 0, 'removed' => 0, 'complete' => true, 'reset' => $reset );
+			}
 		}
 		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
 			$cron = BizCity_Cron_Manager::instance();

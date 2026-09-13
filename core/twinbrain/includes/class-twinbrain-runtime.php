@@ -1025,6 +1025,10 @@ class BizCity_TwinBrain_Runtime {
 				$notebook_source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $candidates, $answers, $opts );
 				$opts['notebook_source_map']      = (array) ( $notebook_source_payload['notebook_source_map'] ?? array() );
 				$opts['context_bank_source_refs'] = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_source_refs'] ?? array() );
+				// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — keep streamed and non-stream source-layer payloads shape-compatible.
+				$opts['context_bank']             = (array) ( $notebook_source_payload['context_bank'] ?? array() );
+				// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — forward bounded nested Context Bank metadata to non-stream MPR consumers.
+				$opts['context_bank']             = (array) ( $notebook_source_payload['context_bank'] ?? array() );
 				// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — keep authorized Skill owner records on the internal Synthesizer path.
 				$opts['context_bank_owner_records'] = (array) ( $notebook_source_payload['context_bank_owner_records'] ?? array() );
 				$opts['context_bank_retrieval']   = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_retrieval'] ?? array() );
@@ -1610,7 +1614,11 @@ class BizCity_TwinBrain_Runtime {
 					'search_context_results'   => (array) ( $search_context['results'] ?? $opts['search_context_results'] ?? array() ),
 					'product_entity_count'     => (int) $opts['product_entity_count'],
 					'product_name_entity_count' => (int) $opts['product_name_entity_count'],
+					// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — expose nested Context Bank metadata to TwinChat/Twin GPT consumers.
+					'context_bank'             => (array) ( $opts['context_bank'] ?? array() ),
 					'product_entities'         => (array) $opts['product_entities'],
+					// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — emit nested Context Bank mode/status metadata without ledger payloads.
+					'context_bank'             => (array) ( $opts['context_bank'] ?? array() ),
 					'notebook_source_map'      => (array) $opts['notebook_source_map'],
 					'source_file_briefs'       => (array) $opts['source_file_briefs'],
 					'notebook_source_block_md' => (string) $opts['notebook_source_block_md'],

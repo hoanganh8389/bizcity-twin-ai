@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/extension-storage-context.schema.json",
+  "title": "BizCity Twin Extension Storage and Context Adoption",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "extension_id",
+    "package_role",
+    "storage_decisions",
+    "context_bank",
+    "mpr_bridge",
+    "evidence"
+  ],
+  "properties": {
+    "contract": { "const": "extension-storage-context" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "extension_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$" },
+    "package_role": { "enum": ["core", "module", "framework_integrated", "channel_owner", "vertical_extension", "optional_utility", "private_pro_utility", "legacy_adapter", "reference_only"] },
+    "storage_decisions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision_id", "data_role", "criticality", "storage_target", "crud_shape", "canonical_owner", "contract_id_or_equivalent", "context_bank_role", "runtime_probe_id", "rollback_owner"],
+        "properties": {
+          "decision_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" },
+          "data_role": { "enum": ["core_state", "operational_trace", "audit_evidence", "usage_telemetry", "derived_projection", "business_record", "context_corpus", "knowledge_candidate", "event_timeline", "configuration", "user_profile", "editorial_catalog", "relationship_edge", "mutex_queue_counter"] },
+          "criticality": { "enum": ["A_critical", "B_important", "C_supporting", "D_rebuildable"] },
+          "storage_target": { "enum": ["encrypted_business_filestore", "contracted_jsonl_log", "tenant_sql", "event_stream", "existing_repository", "option", "site_option", "usermeta", "existing_cpt", "new_cpt", "kg_owner", "cache", "not_applicable"] },
+          "crud_shape": { "enum": ["append_only", "upsert_tombstone", "typed_crud", "atomic_counter", "unique_claim", "ordered_event", "read_projection", "configuration", "reference_only"] },
+          "canonical_owner": { "type": "string", "minLength": 3, "maxLength": 191 },
+          "contract_id_or_equivalent": { "type": "string", "minLength": 3, "maxLength": 191 },
+          "context_bank_role": { "enum": ["none", "operational_reference", "context_corpus", "rollup_source", "memory_reference", "rule_reference", "retrieval_source", "kg_candidate"] },
+          "payload_owner": { "type": "string", "minLength": 3, "maxLength": 191 },
+          "retention_days": { "type": "integer", "minimum": 1 },
+          "rollup_id": { "type": "string", "minLength": 3, "maxLength": 100 },
+          "rollup_decision": { "enum": ["required", "optional", "not_applicable", "deferred"] },
+          "runtime_probe_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" },
+          "rollback_owner": { "type": "string", "minLength": 3, "maxLength": 191 }
+        }
+      }
+    },
+    "context_bank": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "record_contracts", "encrypted_payload_owner", "receipt_required", "ledger_projection", "rollup_policy", "retrieval_contract"],
+      "properties": {
+        "mode": { "enum": ["none", "producer", "consumer", "producer_consumer"] },
+        "record_contracts": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 191 } },
+        "encrypted_payload_owner": { "type": "string", "minLength": 3, "maxLength": 191 },
+        "receipt_required": { "type": "boolean" },
+        "ledger_projection": { "enum": ["pointer_only", "reference_only", "not_applicable"] },
+        "rollup_policy": { "enum": ["required", "optional", "not_applicable", "deferred"] },
+        "rollup_contracts": { "type": "array", "items": { "type": "string", "minLength": 3, "maxLength": 191 } },
+        "retrieval_contract": { "const": "context-retrieval-pack@1.x" },
+        "kg_promotion": { "enum": ["none", "candidate_policy", "approved_summary_only", "canonical_kg_owner"] }
+      }
+    },
+    "mpr_bridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "retrieval_contract", "owner", "citation_policy", "phase_events"],
+      "properties": {
+        "mode": { "enum": ["none", "retrieval_consumer", "vertical_bridge", "producer_consumer"] },
+        "retrieval_contract": { "const": "context-retrieval-pack@1.x" },
+        "owner": { "enum": ["core/twinbrain", "core/context-bank", "extension"] },
+        "citation_policy": { "enum": ["required", "metadata_only", "not_applicable"] },
+        "phase_events": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" } },
+        "vertical_id": { "type": "string", "minLength": 2, "maxLength": 120 }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_record", "probe_ids", "disk", "loader", "runtime", "rollback_owner"],
+      "properties": {
+        "decision_record": { "type": "string", "minLength": 3, "maxLength": 255 },
+        "probe_ids": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" } },
+        "disk": { "type": "boolean" },
+        "loader": { "type": "boolean" },
+        "runtime": { "type": "boolean" },
+        "rollback_owner": { "type": "string", "minLength": 3, "maxLength": 191 }
+      }
+    }
+  }
+}

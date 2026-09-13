@@ -425,6 +425,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'telegram'        => array(),
 		'webchat'         => array(),
 		'cf7'             => array(),
+		'mabel_wheel'     => array( 'wof_optins' ),
 		'channel_gateway' => array(),
 		'astro'           => array(),
 	);

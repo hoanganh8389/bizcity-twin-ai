@@ -23,6 +23,7 @@
  *   is_core        bool     Computed (true when no `requires`).
  *   available      bool     Computed (true when core OR requires met).
  *   locked         bool     Computed (true when non-core AND requires unmet).
+	 *   pro_package    string   Optional package label shown with the PRO badge/notice.
  *
  * @package Bizcity_Twin_AI
  * @subpackage Modules\TwinShell
@@ -100,6 +101,7 @@ class BizCity_Twin_Shell_Registry {
 				// FE badges/visibility mapping without recomputing plan gate state.
 				'plan_badge'  => '',
 				'has_plan_gate' => false,
+				'pro_package' => isset( $entry['pro_package'] ) ? sanitize_text_field( (string) $entry['pro_package'] ) : '',
 			];
 		}
 

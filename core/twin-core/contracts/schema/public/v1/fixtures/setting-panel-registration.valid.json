@@ -1,0 +1,147 @@
+{
+  "contract": "setting-panel-registration",
+  "version": "1.0.0",
+  "items": [
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "core.bizcity-llm.api-gateway",
+      "owner": "core/bizcity-llm",
+      "origin": "core",
+      "destination": "settings",
+      "group": "api-gateway",
+      "label_key": "settings.api_gateway.label",
+      "description_key": "settings.api_gateway.description",
+      "icon": "cil-cloud",
+      "capability": "manage_options",
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": {
+        "type": "route",
+        "id": "core.bizcity-llm.api-gateway",
+        "route": "/settings/api-gateway",
+        "shell_mode": "detail"
+      },
+      "availability": {
+        "policy": "registered-owner",
+        "dependency_ids": ["core.bizcity-llm"]
+      },
+      "position": 100,
+      "keywords": ["api", "gateway", "llm"],
+      "order_lock": "system_first"
+    },
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "core.channel-gateway.channels",
+      "owner": "core/channel-gateway",
+      "origin": "module",
+      "destination": "channel-settings",
+      "group": "customer-channels",
+      "label_key": "settings.channels.label",
+      "icon": "cil-transfer",
+      "capability": "manage_options",
+      "scope": "site_user",
+      "surface": "admin_shell",
+      "zone": "customer",
+      "renderer": {
+        "type": "coreui",
+        "id": "core.channel-gateway.channels",
+        "route": "/channels/customer",
+        "shell_mode": "detail"
+      },
+      "availability": {
+        "policy": "all",
+        "dependency_ids": ["core.channel-gateway"]
+      },
+      "position": 200,
+      "keywords": ["facebook", "zalo", "webchat"]
+    },
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "plugins.bizcity-doc.settings",
+      "owner": "plugins/bizcity-doc",
+      "origin": "bundle",
+      "destination": "control-panel",
+      "group": "documents",
+      "label_key": "bizcity_doc.settings.label",
+      "description_key": "bizcity_doc.settings.description",
+      "icon": "cil-description",
+      "capability": "manage_options",
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": {
+        "type": "deep_link",
+        "id": "plugins.bizcity-doc.settings",
+        "canonical_slug": "bizcity-doc-settings",
+        "shell_mode": "detail"
+      },
+      "availability": {
+        "policy": "registered-owner",
+        "dependency_ids": ["plugins.bizcity-doc"]
+      },
+      "position": 300,
+      "keywords": ["document", "pdf", "export"],
+      "diagnostics": {
+        "probe_id": "plugins.bizcity_doc",
+        "help_code": "module_not_loaded"
+      }
+    },
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "core.crm.inbox",
+      "owner": "plugins/bizcity-twin-crm",
+      "origin": "module",
+      "destination": "crm-inbox",
+      "group": "inbox",
+      "label_key": "crm.inbox.label",
+      "icon": "cil-inbox",
+      "capability": "read",
+      "scope": "site_user",
+      "surface": "admin_shell",
+      "zone": "customer",
+      "renderer": {
+        "type": "deep_link",
+        "id": "core.crm.inbox",
+        "canonical_slug": "crm-inbox",
+        "shell_mode": "full"
+      },
+      "availability": {
+        "policy": "registered-owner",
+        "dependency_ids": ["plugins.bizcity-twin-crm"]
+      },
+      "position": 400,
+      "required": true
+    },
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "legacy.bizcity-llm.settings",
+      "owner": "core/bizcity-llm",
+      "origin": "legacy_adapter",
+      "destination": "settings",
+      "group": "api-gateway",
+      "label_key": "settings.api_gateway.legacy_label",
+      "icon": "cil-settings",
+      "capability": "manage_options",
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": {
+        "type": "deep_link",
+        "id": "core.bizcity-llm.api-gateway",
+        "canonical_slug": "bizcity-llm"
+      },
+      "availability": {
+        "policy": "registered-owner",
+        "dependency_ids": ["core.bizcity-llm"]
+      },
+      "position": 900,
+      "aliases": ["bizcity-llm"],
+      "native_contract": false,
+      "migration_owner": "core/bizcity-llm",
+      "sunset_after": "PHASE-SETTING-PANEL-G4"
+    }
+  ]
+}

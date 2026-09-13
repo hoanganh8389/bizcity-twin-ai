@@ -16,7 +16,7 @@ if ( PHP_SAPI !== 'cli' ) {
 	exit( 2 );
 }
 
-$options = array( 'wp-root' => '', 'host' => '', 'blog-a' => 0, 'blog-b' => 0, 'user' => 0, 'confirm' => '', 'provision' => false );
+$options = array( 'wp-root' => '', 'host' => '', 'host-a' => '', 'host-b' => '', 'blog-a' => 0, 'blog-b' => 0, 'user' => 0, 'confirm' => '', 'provision' => false );
 foreach ( array_slice( $argv, 1 ) as $argument ) {
 	if ( strpos( $argument, '--' ) !== 0 || strpos( $argument, '=' ) === false ) {
 		continue;
@@ -35,8 +35,14 @@ if ( (int) $options['blog-a'] <= 0 || (int) $options['blog-b'] <= 0 || (int) $op
 	fwrite( STDERR, "Refusing fixture: pass two distinct --blog-a and --blog-b IDs.\n" );
 	exit( 2 );
 }
-if ( (int) $options['user'] <= 0 || (string) $options['host'] === '' || preg_match( '/[^A-Za-z0-9.:-]/', (string) $options['host'] ) ) {
-	fwrite( STDERR, "Refusing fixture: pass --host=example.com and an explicit --user=<admin-id>.\n" );
+if ( (int) $options['user'] <= 0 ) {
+	fwrite( STDERR, "Refusing fixture: pass an explicit --user=<admin-id>.\n" );
+	exit( 2 );
+}
+$host_a = (string) $options['host-a'] !== '' ? (string) $options['host-a'] : (string) $options['host'];
+$host_b = (string) $options['host-b'] !== '' ? (string) $options['host-b'] : (string) $options['host'];
+if ( $host_a === '' || $host_b === '' || preg_match( '/[^A-Za-z0-9.:-]/', $host_a ) || preg_match( '/[^A-Za-z0-9.:-]/', $host_b ) ) {
+	fwrite( STDERR, "Refusing fixture: pass --host-a and --host-b, or one shared --host.\n" );
 	exit( 2 );
 }
 
@@ -53,8 +59,8 @@ if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
 	exit( 2 );
 }
 
-$_SERVER['HTTP_HOST'] = (string) $options['host'];
-$_SERVER['SERVER_NAME'] = (string) $options['host'];
+$_SERVER['HTTP_HOST'] = $host_a;
+$_SERVER['SERVER_NAME'] = $host_a;
 define( 'WP_USE_THEMES', false );
 require rtrim( $wp_root, '/\\' ) . '/wp-load.php';
 
@@ -81,7 +87,7 @@ if ( ! is_file( $context_bootstrap ) || ! is_readable( $context_bootstrap ) || !
 	exit( 3 );
 }
 
-$result = array( 'contract' => 'context-bank-two-shard-fixture', 'version' => '1', 'host' => (string) $options['host'], 'blogs' => array(), 'steps' => array(), 'status' => 'fail', 'reason' => '' );
+$result = array( 'contract' => 'context-bank-two-shard-fixture', 'version' => '1', 'host' => (string) $options['host'], 'hosts' => array( 'a' => $host_a, 'b' => $host_b ), 'blogs' => array(), 'steps' => array(), 'status' => 'fail', 'reason' => '' );
 $failures = array();
 $step = static function ( $label, $status, $detail ) use ( &$result, &$failures ) {
 	$result['steps'][] = array( 'label' => (string) $label, 'status' => (string) $status, 'detail' => (string) $detail );
@@ -90,6 +96,8 @@ $step = static function ( $label, $status, $detail ) use ( &$result, &$failures 
 	}
 };
 $original_blog = (int) get_current_blog_id();
+$original_http_host = (string) ( $_SERVER['HTTP_HOST'] ?? '' );
+$original_server_name = (string) ( $_SERVER['SERVER_NAME'] ?? '' );
 $contexts = array();
 $source_contract = 'core.context_bank.commerce_order';
 $cleanup_rows = array();
@@ -145,6 +153,9 @@ $provision = static function () use ( $load_provisioner ) {
 
 try {
 	foreach ( array( 'a' => (int) $options['blog-a'], 'b' => (int) $options['blog-b'] ) as $label => $blog_id ) {
+		$mapped_host = 'a' === $label ? $host_a : $host_b;
+		$_SERVER['HTTP_HOST'] = $mapped_host;
+		$_SERVER['SERVER_NAME'] = $mapped_host;
 		$switched = $blog_id !== (int) get_current_blog_id() ? switch_to_blog( $blog_id ) : false;
 		if ( ! $switched && $blog_id !== (int) get_current_blog_id() ) {
 			$step( 'Runtime - switch to blog ' . $label, 'fail', 'Explicit blog switch failed closed.' );
@@ -163,7 +174,7 @@ try {
 		if ( $physical_identity === '' ) {
 			$physical_identity = 'missing';
 		}
-		$contexts[ $label ] = array( 'blog_id' => $blog_id, 'domain' => (string) ( get_blog_details( $blog_id )->domain ?? '' ), 'route_ok' => ! empty( $route['ok'] ), 'route_reason' => (string) ( $route['reason'] ?? '' ), 'physical_fingerprint' => hash( 'sha256', $physical_identity ) );
+		$contexts[ $label ] = array( 'blog_id' => $blog_id, 'domain' => (string) ( get_blog_details( $blog_id )->domain ?? '' ), 'mapped_host' => $mapped_host, 'route_ok' => ! empty( $route['ok'] ), 'route_reason' => (string) ( $route['reason'] ?? '' ), 'physical_fingerprint' => hash( 'sha256', $physical_identity ) );
 		$result['blogs'][ $label ] = array( 'blog_id' => $blog_id, 'domain' => $contexts[ $label ]['domain'], 'route_ok' => $contexts[ $label ]['route_ok'], 'route_reason' => $contexts[ $label ]['route_reason'], 'physical_fingerprint' => $contexts[ $label ]['physical_fingerprint'] );
 		if ( $switched ) {
 			restore_current_blog();
@@ -179,6 +190,9 @@ try {
 	}
 	if ( ! empty( $options['provision'] ) ) {
 		foreach ( array( 'a' => (int) $options['blog-a'], 'b' => (int) $options['blog-b'] ) as $label => $blog_id ) {
+			$mapped_host = 'a' === $label ? $host_a : $host_b;
+			$_SERVER['HTTP_HOST'] = $mapped_host;
+			$_SERVER['SERVER_NAME'] = $mapped_host;
 			$switched = $blog_id !== (int) get_current_blog_id() ? switch_to_blog( $blog_id ) : false;
 			if ( ! $switched && $blog_id !== (int) get_current_blog_id() ) {
 				throw new RuntimeException( 'target_blog_switch_failed_' . $label );
@@ -192,6 +206,9 @@ try {
 		}
 	}
 	foreach ( array( 'a' => (int) $options['blog-a'], 'b' => (int) $options['blog-b'] ) as $label => $blog_id ) {
+		$mapped_host = 'a' === $label ? $host_a : $host_b;
+		$_SERVER['HTTP_HOST'] = $mapped_host;
+		$_SERVER['SERVER_NAME'] = $mapped_host;
 		$switched = $blog_id !== (int) get_current_blog_id() ? switch_to_blog( $blog_id ) : false;
 		if ( ! $switched && $blog_id !== (int) get_current_blog_id() ) {
 			throw new RuntimeException( 'target_blog_switch_failed_' . $label );
@@ -238,6 +255,8 @@ try {
 	}
 	$result['status'] = 'fail';
 } finally {
+	$_SERVER['HTTP_HOST'] = $original_http_host;
+	$_SERVER['SERVER_NAME'] = $original_server_name;
 	$cleanup();
 	// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-CB-G1 - restore only an actual WordPress switch stack entry; avoid an infinite cleanup loop when restore_current_blog() is already a no-op.
 	$restore_guard = 0;

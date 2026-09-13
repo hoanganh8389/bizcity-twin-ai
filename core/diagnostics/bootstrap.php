@@ -138,6 +138,12 @@ bizcity_diagnostics_require_probe( 'class-probe-log-reconcile-retention.php' );
 bizcity_diagnostics_require_probe( 'class-probe-log-multisite-rollback.php' );
 // [2026-08-29 Johnny Chu] R-METADATA-CACHE — verify one canonical table/schema metadata helper and DDL invalidation contract.
 bizcity_diagnostics_require_probe( 'class-probe-table-metadata.php' );
+// [2026-09-07 05:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41B — verify Tool Image R-DCL catalog and runtime Schema Registry without provisioning.
+bizcity_diagnostics_require_probe( 'class-probe-tool-image-schema-changelog.php' );
+// [2026-09-07 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41B — verify the Print-Ads inactive Tool Image dependency path without provider work.
+bizcity_diagnostics_require_probe( 'class-probe-print-ads-tool-image-degrade.php' );
+// [2026-09-08 02:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX2 — verify CRM-owned B2/C user-inbox scope before Context Bank handoff.
+bizcity_diagnostics_require_probe( 'class-probe-user-inbox-scope.php' );
 // [2026-08-29 Johnny Chu] PHASE-1.30-DDV — queue the pre-SQL-retirement basic JSONL query/read/search and pointer-follow evidence.
 bizcity_diagnostics_require_probe( 'class-probe-jsonl-search-query-index-parity.php' );
 // [2026-08-29 Johnny Chu] PHASE-1.30-DDV — queue the mode-aware framework contract scoreboard for legacy replacement readiness.
@@ -764,6 +770,8 @@ bizcity_diagnostics_require_probe( 'class-probe-framework-credential-degradation
 bizcity_diagnostics_require_probe( 'class-probe-channel-manifest-registration.php' );
 // [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — register legacy adapter versus manifest envelope parity probe.
 bizcity_diagnostics_require_probe( 'class-probe-channel-manifest-compat.php' );
+// [2026-09-10 Johnny Chu - Chu Hoàng Anh] PHASE-0.55-MABEL-WHEEL - register read-only Mabel bridge contract probe.
+bizcity_diagnostics_require_probe( 'class-probe-mabel-wheel-channel.php' );
 // [2026-08-29 Johnny Chu] PHASE-VIBE-WAVE5 — register reference JSONL/index and KG Hub ingestion evidence.
 bizcity_diagnostics_require_probe( 'class-probe-reference-plugin-wave5.php' );
 // [2026-08-11 Johnny Chu] PHASE-1.26-CONTRACT — register the unified admin navigation contract probe.
@@ -879,6 +887,22 @@ bizcity_diagnostics_require_probe( 'class-probe-crm-group-inbox.php' );
 bizcity_diagnostics_require_probe( 'class-probe-crm-inbox-by-ref.php' );
 // [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — register the read-only Twin GPT exact-account CRM console scope probe.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-inbox-console.php' );
+// [2026-09-10 06:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-C10 — register the Google-independent local Scheduler hook probe.
+bizcity_diagnostics_require_probe( 'class-probe-crm-google-independent-cron.php' );
+// [2026-09-10 07:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7-C — register the read-only C contact-care scope probe.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-care-scope.php' );
+// [2026-09-12 12:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-RC6-RC9 — register contact-facts and add-customer replay/scope evidence.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-contact-mutation-replay.php' );
+// [2026-09-11 10:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7-C — register CRM Scheduler correlation, metadata and reminder idempotency evidence.
+bizcity_diagnostics_require_probe( 'class-probe-crm-scheduler-correlation.php' );
+// [2026-09-13 09:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.1 — register read-only exact-scope order-draft/product-search evidence.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-order-draft.php' );
+// [2026-09-13 10:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.4 — register prepare-only confirmation token binding evidence.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-order-confirmation.php' );
+// [2026-09-13 12:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.3 — register provider-neutral fulfillment contract and no-provider fail-closed evidence.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-fulfillment-contract.php' );
+// [2026-09-13 01:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.6 — register metadata-only before/after action evidence before mutation wiring.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-action-evidence.php' );
 
 // [2026-07-10 Johnny Chu] PHASE-0.47 — Broadcast import smoke matrix probe
 // for csv/xls/xlsx/google_sheet_url REST path.

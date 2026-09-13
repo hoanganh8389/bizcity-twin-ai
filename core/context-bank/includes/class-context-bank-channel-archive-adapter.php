@@ -52,6 +52,9 @@ final class BizCity_Context_Bank_Channel_Archive_Adapter {
 		if ( ! preg_match( '/^a_[a-f0-9]{64}$/i', $account_key ) || ! preg_match( '/^p_[a-f0-9]{64}$/i', $peer_key ) || $record_id === '' || $event_uuid === '' || (int) ( $entry['conversation_id'] ?? 0 ) <= 0 ) {
 			return array( 'ok' => false, 'projected' => false, 'reason' => 'channel_archive_identity_missing' );
 		}
+		if ( $grant_account_key === '' ) {
+			return array( 'ok' => false, 'projected' => false, 'reason' => 'channel_archive_grant_key_missing' );
+		}
 		if ( $grant_account_key !== '' && ! preg_match( '/^a_[a-f0-9]{64}$/i', $grant_account_key ) ) {
 			return array( 'ok' => false, 'projected' => false, 'reason' => 'channel_archive_grant_key_mismatch' );
 		}

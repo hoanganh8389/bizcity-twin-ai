@@ -254,6 +254,40 @@ final class BizCity_Probe_TwinShell_Boundary implements BizCity_Diagnostics_Prob
 				: 'missing=' . implode( ', ', array_slice( $schema_missing, 0, 8 ) ),
 		) );
 
+		// [2026-09-13 10:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.29 — prove visible Pro activity entries carry an explicit package owner for their badge/notice contract.
+		$pro_ids = array( 'astro', 'doc', 'image', 'video' );
+		$pro_rows = array();
+		foreach ( $plugins as $plugin_row ) {
+			if ( is_array( $plugin_row ) && in_array( (string) ( $plugin_row['id'] ?? '' ), $pro_ids, true ) ) {
+				$pro_rows[ (string) $plugin_row['id'] ] = $plugin_row;
+			}
+		}
+		$pro_contract_ok = true;
+		$pro_missing = array();
+		foreach ( $pro_ids as $pro_id ) {
+			if ( ! isset( $pro_rows[ $pro_id ] ) ) {
+				$pro_contract_ok = false;
+				$pro_missing[] = $pro_id . '.missing';
+				continue;
+			}
+			if ( (string) ( $pro_rows[ $pro_id ]['plan_badge'] ?? '' ) !== 'PRO' ) {
+				$pro_contract_ok = false;
+				$pro_missing[] = $pro_id . '.plan_badge';
+			}
+			if ( trim( (string) ( $pro_rows[ $pro_id ]['pro_package'] ?? '' ) ) === '' ) {
+				$pro_contract_ok = false;
+				$pro_missing[] = $pro_id . '.pro_package';
+			}
+		}
+		if ( ! $pro_contract_ok ) {
+			$failed = true;
+		}
+		$ctx->emit_step( array(
+			'label'  => 'Layer 3 · Registry Pro badge/package contract',
+			'status' => $pro_contract_ok ? 'pass' : 'fail',
+			'detail' => $pro_contract_ok ? 'Astro/Doc/Image/Video entries expose PRO badge and package owner.' : 'missing=' . implode( ', ', $pro_missing ),
+		) );
+
 		$default_id = (string) $registry->default_id();
 		$iframe_url = $default_id !== '' ? (string) $registry->build_iframe_url( $default_id, array() ) : '';
 		$iframe_ok  = $iframe_url !== '' && strpos( $iframe_url, 'bizcity_iframe=1' ) !== false;

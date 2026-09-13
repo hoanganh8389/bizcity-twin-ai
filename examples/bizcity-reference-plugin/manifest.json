@@ -1,8 +1,28 @@
 {
   "schema_version": "1.0",
   "id": "bizcity.reference",
+  "package_role": "reference_only",
   "name": "BizCity Reference Extension",
   "version": "1.0.0",
+  "spine": {
+    "channel": { "mode": "none" },
+    "crm": { "mode": "not_applicable" },
+    "context_bank": { "mode": "not_applicable" },
+    "knowledge": { "mode": "kg_adapter", "contracts": ["kg-adapter-payload@1.x", "citation-pack@1.x"] },
+    "brain": { "mode": "not_applicable" },
+    "mcp": { "mode": "none" },
+    "action": { "side_effects": [] }
+  },
+  "evidence": {
+    "probe_ids": ["examples.reference.runtime_smoke"],
+    "negative_cases": ["wrong_tenant", "missing_consent"]
+  },
+  "taxonomy": ["act", "channel", "view"],
+  "primary_taxonomy": "act",
+  "diagnostics": true,
+  "logging": {
+    "contracts": ["plugins.bizcity_reference.wave5"]
+  },
   "requires": {
     "framework": ">=1.1.0",
     "php": ">=7.4",
@@ -56,6 +76,26 @@
       "scan_required": true
     }
   },
+  "navigation": [
+    {
+      "id": "reference.workspace",
+      "slug": "bizcity-reference",
+      "label": "Reference Workspace",
+      "group": "workspace",
+      "slot": "workspace.extensions",
+      "parent": "bizcity-twin-workspace",
+      "capability": "manage_options",
+      "position": 900,
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": "reference.workspace",
+      "visible": true,
+      "origin": "extension",
+      "zone": "system",
+      "aliases": ["bizcity-reference-legacy"],
+      "legacy_parents": ["bizcity-twinchat"]
+    }
+  ],
   "capabilities": {
     "tools": [
       {

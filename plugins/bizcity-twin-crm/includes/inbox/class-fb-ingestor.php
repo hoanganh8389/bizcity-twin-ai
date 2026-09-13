@@ -249,6 +249,10 @@ class BizCity_CRM_Facebook_Ingestor {
 		if ( ! empty( $norm['contact_phone'] ) ) {
 			$contact_data['phone'] = sanitize_text_field( (string) $norm['contact_phone'] );
 		}
+		if ( ! empty( $norm['group_name'] ) ) {
+			// [2026-09-08 04:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48-CX2 — retain the bounded group label in canonical contact metadata for later safe C projections.
+			$contact_data['additional_attributes'] = array( 'group_name' => sanitize_text_field( (string) $norm['group_name'] ) );
+		}
 		$ids = BizCity_CRM_Repository::upsert_contact( $inbox_id, (string) $norm['source_id'], $contact_data );
 		if ( empty( $ids['contact_inbox_id'] ) ) { return 0; }
 

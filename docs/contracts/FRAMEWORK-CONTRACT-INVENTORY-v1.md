@@ -97,7 +97,8 @@ The public machine-readable catalog is:
 - [core/twin-core/contracts/schema/public/v1/contract-catalog.json](../../core/twin-core/contracts/schema/public/v1/contract-catalog.json)
 - [core/twin-core/contracts/schema/manifest.schema.json](../../core/twin-core/contracts/schema/manifest.schema.json)
 
-The current public catalog contains 15 entries:
+The current public catalog contains 26 entries (`catalog_version=1.9.0`).
+Directive owner for the storage/context adoption boundary: Johnny Chu - Chu Hoàng Anh · 2026-09-13.
 
 | Contract ID | Schema | Primary concern |
 |---|---|---|
@@ -113,9 +114,31 @@ The current public catalog contains 15 entries:
 | `channel-payload` | `channel-payload.schema.json` | Normalized channel identity/event payload |
 | `runtime-execution-policy` | `runtime-execution-policy.schema.json` | Retry, idempotency, DLQ, lock policy |
 | `admin-navigation` | `admin-navigation.schema.json` | Central navigation metadata |
+| `setting-panel-registration` | `setting-panel-registration.schema.json` | TwinShell Control Panel registration metadata |
+| `extension-manifest` | `extension-manifest.schema.json` | Extension capability/channel/diagnostics manifest |
+| `context-admission` | `context-admission.schema.json` | Context Bank admission authorization |
+| `business-action` | `business-action.schema.json` | Governed business action request |
+| `fulfillment-result` | `fulfillment-result.schema.json` | Action fulfillment outcome |
+| `user-inbox-scope` | `user-inbox-scope.schema.json` | User-centric CRM/inbox scope |
 | `diagnostics-verdict` | `diagnostics-verdict.schema.json` | `pass/warn/fail/skip`, evidence, exit code |
 | `zalo-personal-bridge` | `zalo-personal-bridge.schema.json` | Zalo Personal bridge mapping and admission |
 | `channel-diagnostics-record` | `channel-diagnostics-record.schema.json` | Account-scoped channel operational evidence and Context Bank pipeline status |
+| `extension-storage-context` | `extension-storage-context.schema.json` | Extension storage decision, encrypted filestore receipt, Context Bank pointer/rollup and MPR retrieval adoption |
+
+### 2.2.1 Setting Panel design contract
+
+`setting-panel-registration@1.0.0` is now a schema-backed contract for
+core/module/plugin settings contributions to the TwinShell Control Panel:
+
+- design artifact: [SETTING-PANEL-REGISTRATION-CONTRACT-v1.md](SETTING-PANEL-REGISTRATION-CONTRACT-v1.md);
+- canonical rule: [R-SETTING-PANEL](../rules/PHASE-0-RULE-SETTING-PANEL.md);
+- owner: Twin AI Core / TwinShell;
+- intended class: `public_schema` + `framework_internal` + `domain_runtime`;
+- current status: schema/catalog/fixtures/registry `pass`, runtime `pending`.
+
+The framework manifest schema is versioned to `schema_version=1.1` and the
+public extension manifest accepts optional additive `setting_panel` metadata.
+Documentation/schema/registry PASS remains distinct from Runtime PASS.
 
 Each catalog row is a separate CLI check target. A schema file without a catalog
 row is `unregistered`, not a public contract.
@@ -168,6 +191,40 @@ The future collector must also report the boundary between:
 - Twin Event Stream canonical runtime history;
 - KG-Hub entities/relations/citations;
 - `core/skills` and TwinChat as read-through UI consumers.
+
+### 2.5 Extension storage/context adoption contract
+
+`extension-storage-context@1.0.0` is the public adoption contract for every
+extension that creates, migrates or consumes data that may be reused by Context
+Bank, KG-Hub or MPR/TwinBrain. Directive owner: **Johnny Chu - Chu Hoàng Anh ·
+2026-09-13**.
+
+The contract makes the storage decision explicit before implementation:
+
+| Data shape | Default target | Required extension evidence |
+|---|---|---|
+| Log/trace/audit | Canonical JSONL logger / encrypted log filestore | Log contract, retention, redaction, pointer-index policy, probe |
+| Important reusable context/business record | Encrypted Business JSONL File Store | Registered file contract, lock-captured receipt, pointer-only ledger, retention, rebuild/erase policy |
+| Small low-volume config/profile/editorial data | Existing CPT, option/site option, user meta or repository | Existing owner/scope proof; no new table unless gate rejects it |
+| Large/atomic/relational/hot-path state | Typed tenant SQL/canonical repository | R-DATA-STORAGE record, R-DCL/R-CR/Provisioner, cache, Context Bank adapter or explicit no-context rationale, rollup and MPR bridge |
+
+The machine-readable contract is:
+
+```text
+core/twin-core/contracts/schema/public/v1/extension-storage-context.schema.json
+```
+
+It requires `storage_decisions[]`, `context_bank`, `mpr_bridge` and `evidence`.
+`context_bank` requires encrypted payload ownership, a write receipt, pointer-only
+ledger semantics, rollup policy and `context-retrieval-pack@1.x`. `mpr_bridge`
+requires the owner, citation policy and registered MPR phase events when the
+extension contributes reusable evidence.
+
+Manifest v1.x carries the field additively as `storage_context`. PHASE-1.22A and
+the next manifest major may make it required for `vertical_extension`,
+`framework_integrated` and `channel_owner` packages. Registry presence or a
+valid fixture is not runtime compliance; the package still needs Disk/Loader/
+Runtime evidence and the Context Bank/Brain owner probes.
 
 ---
 

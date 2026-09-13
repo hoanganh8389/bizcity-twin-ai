@@ -303,10 +303,11 @@ HTML;
 			self::DIST_DIR . 'manifest.json',
 		);
 		foreach ( $paths as $path ) {
-			if ( ! file_exists( $path ) ) {
+			if ( ! is_file( $path ) || ! is_readable( $path ) ) {
 				continue;
 			}
-			$data = json_decode( (string) file_get_contents( $path ), true );
+			$raw = file_get_contents( $path );
+			$data = false !== $raw ? json_decode( (string) $raw, true ) : null;
 			if ( ! is_array( $data ) ) {
 				continue;
 			}
@@ -326,6 +327,28 @@ HTML;
 				}
 			}
 			return array( 'js' => $js, 'css' => $css );
+		}
+
+		// [2026-09-07 04:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — recover a deploy that copied hashed assets but omitted .vite/manifest.json.
+		$js_files = glob( self::DIST_DIR . 'assets/index-*.js' );
+		if ( is_array( $js_files ) && ! empty( $js_files ) ) {
+			usort( $js_files, static function ( $left, $right ) {
+				return (int) @filemtime( $right ) <=> (int) @filemtime( $left );
+			} );
+			$js_path       = $js_files[0];
+			$asset_version = (int) @filemtime( $js_path );
+			$asset_query   = $asset_version > 0 ? array( 'ver' => $asset_version ) : array();
+			$css           = array();
+			$css_files     = glob( self::DIST_DIR . 'assets/index-*.css' );
+			if ( is_array( $css_files ) ) {
+				foreach ( $css_files as $css_path ) {
+					$css[] = add_query_arg( $asset_query, self::DIST_URL . 'assets/' . basename( $css_path ) );
+				}
+			}
+			return array(
+				'js'  => add_query_arg( $asset_query, self::DIST_URL . 'assets/' . basename( $js_path ) ),
+				'css' => $css,
+			);
 		}
 		return array( 'js' => '', 'css' => array() );
 	}

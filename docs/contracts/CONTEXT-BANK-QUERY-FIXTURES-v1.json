@@ -1,7 +1,7 @@
 {
   "contract": "context-bank-query-fixtures",
-  "version": "1.0.0",
-  "status": "CB0.3 baseline",
+  "version": "1.1.0",
+  "status": "CB0.3 baseline + Context Bank Brain Mode extension",
   "date": "2026-09-01",
   "owner": "Twin AI Core",
   "purpose": "Bounded query shapes for Context Bank ledger and retrieval design before CB3 indexes are approved.",
@@ -148,6 +148,36 @@
       "maximum_decrypted_bytes": 32768,
       "maximum_response_time_ms": 400,
       "expected_degraded_behavior": "preserve_notebook_evidence_when_context_bank_is_degraded"
+    },
+    {
+      "fixture_id": "context_bank_identity_order",
+      "description": "Context Bank Brain Mode retrieves bounded channel, commerce and rollup context for one authorized identity and order without requiring a Notebook row.",
+      "tenant": { "blog_id": 101, "database": "shard_alpha" },
+      "actor": { "wp_user_id": 701, "role": "staff" },
+      "scope": { "mode": "context_bank", "identity_uuid": "id_synthetic_alpha_701", "entity_type": "order", "entity_key": "order_synthetic_5001", "case_id": "case_synthetic_1001" },
+      "filters": { "record_kinds": ["event", "rollup", "relation"], "allowed_contracts": ["core.channel_gateway.context_corpus", "core.context_bank.commerce_order", "core.context_bank.rollup"], "status": "active" },
+      "expected_authorization": "allow_current_tenant_identity_entity_scope_without_notebook",
+      "expected_ordering": "source_priority_occurred_at_desc_id_desc",
+      "maximum_rows": 50,
+      "maximum_pointer_follows": 10,
+      "maximum_decrypted_bytes": 262144,
+      "maximum_response_time_ms": 250,
+      "expected_degraded_behavior": "return_bounded_pack_with_degraded_or_incomplete_true_when_pointer_or_owner_evidence_is_unavailable"
+    },
+    {
+      "fixture_id": "context_bank_channel_grant_denial",
+      "description": "Context Bank Brain Mode denies a channel account when the authenticated user has no exact view_context grant.",
+      "tenant": { "blog_id": 101, "database": "shard_alpha" },
+      "actor": { "wp_user_id": 701, "role": "staff" },
+      "scope": { "mode": "context_bank", "channel": "zalo_personal", "entity_type": "channel_account", "entity_key": "zalo_personal:a_synthetic_unlisted_account", "identity_uuid": "id_synthetic_alpha_701" },
+      "filters": { "record_kinds": ["event", "rollup"], "allowed_contracts": ["core.channel_gateway.context_corpus", "core.context_bank.rollup"] },
+      "expected_authorization": "deny_exact_channel_grant_missing_before_pointer_follow",
+      "expected_ordering": "none",
+      "maximum_rows": 0,
+      "maximum_pointer_follows": 0,
+      "maximum_decrypted_bytes": 0,
+      "maximum_response_time_ms": 150,
+      "expected_degraded_behavior": "return_context_bank_channel_scope_denied_without_file_or_ledger_payload_follow"
     },
     {
       "fixture_id": "pending_kg_candidates",

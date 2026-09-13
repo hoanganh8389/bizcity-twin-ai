@@ -47,7 +47,7 @@ final class BizCity_Probe_Channel_Manifest_Compat implements BizCity_Diagnostics
 		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( dirname( dirname( dirname( dirname( __FILE__ ) ) ) ) ) . '/';
 		$manifest_file = $root . 'plugins/bizcity-twin-crm/manifests/builtin-channel-manifests.json';
 		$manifests = $this->read_json( $manifest_file );
-		$expected = array( 'zalo_bot', 'zalo_oa', 'zalo_personal', 'facebook' );
+		$expected = array( 'zalo_bot', 'zalo_oa', 'zalo_personal', 'facebook', 'mabel_wheel' );
 		$manifest_channels = array();
 		foreach ( (array) $manifests as $manifest ) {
 			foreach ( (array) ( $manifest['channels'] ?? array() ) as $channel ) {
@@ -60,7 +60,7 @@ final class BizCity_Probe_Channel_Manifest_Compat implements BizCity_Diagnostics
 		$steps[] = array(
 			'label'  => 'Disk - current manifest set is complete',
 			'status' => $disk_ok ? 'pass' : 'fail',
-			'detail' => $disk_ok ? 'zalo_bot, zalo_oa, zalo_personal and facebook are present.' : 'Manifest package is missing an expected current channel.',
+			'detail' => $disk_ok ? 'Current customer/admin channel manifests, including mabel_wheel, are present.' : 'Manifest package is missing an expected current channel.',
 		);
 		if ( ! $disk_ok ) {
 			return array( 'status' => 'fail', 'summary' => 'Current channel manifest package is incomplete.', 'fix_hint' => 'Restore the four current channel manifests and rerun this probe.', 'steps' => $steps );
