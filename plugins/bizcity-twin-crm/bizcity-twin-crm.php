@@ -116,11 +116,19 @@ add_action( 'template_redirect', static function () {
 <meta name="robots" content="noindex,nofollow">
 <title><?php esc_html_e( 'CRM Inbox', 'bizcity-twin-crm' ); ?></title>
 <?php
-// Reuse the canonical CRM asset/bootstrap contract without rendering wp-admin.
+// [2026-09-22 02:00 AM OpenAI GPT-5.6 Luna] R-PERF-LOADER — print only the
+// canonical CRM handles. Do not run wp_head()/wp_footer(): they load the active
+// public theme, public widgets and diagnostic panels such as Query Monitor.
+$crm_public_assets = array();
 if ( class_exists( 'BizCity_CRM_Admin_Menu' ) ) {
-	BizCity_CRM_Admin_Menu::instance()->enqueue( 'toplevel_page-bizcity-crm' );
+	$crm_public_assets = BizCity_CRM_Admin_Menu::instance()->enqueue_public_assets();
 }
-wp_head();
+if ( ! empty( $crm_public_assets['style'] ) ) {
+	wp_print_styles( array( $crm_public_assets['style'] ) );
+}
+if ( ! empty( $crm_public_assets['script'] ) ) {
+	wp_print_scripts( array( $crm_public_assets['script'] ) );
+}
 ?>
 <style>
 html,body{margin:0;padding:0;height:100%;background:#FAFBFC;}
@@ -133,7 +141,6 @@ body { padding-top: 0 !important; }
 </head>
 <body>
 <div id="bizcity-crm-inbox-root"></div>
-<?php wp_footer(); ?>
 </body>
 </html><?php
 	exit;

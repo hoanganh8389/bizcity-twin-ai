@@ -84,9 +84,34 @@ class BizCity_CRM_Admin_Menu {
 		if ( strpos( (string) $hook, self::SLUG ) === false ) {
 			return;
 		}
+		$this->enqueue_assets( false );
+	}
+
+	/**
+	 * Enqueue only the CRM assets for the standalone public `/crm/` shell.
+	 *
+	 * The public shell must not call wp_head()/wp_footer(): those lifecycle hooks
+	 * pull in the active theme, public widgets and diagnostic panels such as Query
+	 * Monitor. The route prints the returned handles explicitly.
+	 *
+	 * @return array{style:string,script:string}
+	 */
+	public function enqueue_public_assets(): array {
+		return $this->enqueue_assets( true );
+	}
+
+	/**
+	 * Register CRM assets for either wp-admin or the isolated public shell.
+	 *
+	 * @param bool $public Whether the assets are for the isolated public shell.
+	 * @return array{style:string,script:string}
+	 */
+	private function enqueue_assets( bool $public = false ): array {
 
 		$dir = BIZCITY_CRM_DIR . '/assets/dist/';
 		$url = BIZCITY_CRM_URL . '/assets/dist/';
+		$style_handle = 'bizcity-crm-inbox-app';
+		$script_handle = 'bizcity-crm-inbox-app';
 
 		// [2026-08-04 Johnny Chu] PHASE-0.48-HOTFIX — built mode requires both assets; never silently load JS without CSS.
 		$has_built = is_dir( $dir )
@@ -97,14 +122,14 @@ class BizCity_CRM_Admin_Menu {
 			$css_path = $dir . 'inbox-app.css';
 			if ( file_exists( $css_path ) ) {
 				wp_enqueue_style(
-					'bizcity-crm-inbox-app',
+					$style_handle,
 					$url . 'inbox-app.css',
 					 array(),
 					self::asset_version( $css_path )
 				);
 			}
 			wp_enqueue_script(
-				'bizcity-crm-inbox-app',
+				$script_handle,
 				$url . 'inbox-app.js',
 				array( 'wp-element' ),
 				self::asset_version( $dir . 'inbox-app.js' ),
@@ -115,13 +140,13 @@ class BizCity_CRM_Admin_Menu {
 			$fb_css = BIZCITY_CRM_DIR . '/frontend/fallback/inbox.css';
 			$fb_js  = BIZCITY_CRM_DIR . '/frontend/fallback/inbox.js';
 			wp_enqueue_style(
-				'bizcity-crm-inbox-fallback',
+				$style_handle = 'bizcity-crm-inbox-fallback',
 				BIZCITY_CRM_URL . '/frontend/fallback/inbox.css',
 				array(),
 				self::asset_version( $fb_css )
 			);
 			wp_enqueue_script(
-				'bizcity-crm-inbox-fallback',
+				$script_handle = 'bizcity-crm-inbox-fallback',
 				BIZCITY_CRM_URL . '/frontend/fallback/inbox.js',
 				array( 'wp-element', 'wp-api-fetch', 'wp-i18n' ),
 				self::asset_version( $fb_js ),
@@ -201,7 +226,7 @@ class BizCity_CRM_Admin_Menu {
 		);
 		$inline = 'window.BIZCITY_CRM_BOOT = ' . wp_json_encode( $config ) . ';';
 		wp_add_inline_script(
-			$has_built ? 'bizcity-crm-inbox-app' : 'bizcity-crm-inbox-fallback',
+			$script_handle,
 			$inline,
 			'before'
 		);
@@ -209,7 +234,6 @@ class BizCity_CRM_Admin_Menu {
 		// [2026-08-04 Johnny Chu] PHASE-0.48-HOTFIX — keep CRM shell height chain stable in wp-admin iframe/top-level context.
 		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — scope the wrap reset to every registered CRM admin body class, not only the top-level Inbox page.
 		// Remove default wrap margin only on CRM pages and force full-height inheritance to avoid Inbox pane compression.
-		$style_handle = $has_built ? 'bizcity-crm-inbox-app' : 'bizcity-crm-inbox-fallback';
 		$crm_body = implode( ', ', array(
 			'body.toplevel_page-bizcity-crm',
 			'body.toplevel_page_bizcity-crm',
@@ -225,9 +249,17 @@ class BizCity_CRM_Admin_Menu {
 			. $crm_body . ' #bizcity-crm-inbox-root{height:100%;min-height:0;}'
 		);
 
-		// [2026-06-19 Johnny Chu] PHASE-CG-CF7 — enqueue WP Media Library so window.wp.media
-		// is available in the CRM SPA (needed for PDF/ebook attachment picker in Email rules).
-		wp_enqueue_media();
+		// [2026-09-22 02:00 AM OpenAI GPT-5.6 Luna] R-PERF-LOADER — the isolated
+		// public shell prints only the CRM handles below; keep the heavier WP Media
+		// Library enqueue on wp-admin where its editor integrations are available.
+		if ( ! $public ) {
+			wp_enqueue_media();
+		}
+
+		return array(
+			'style'  => $style_handle,
+			'script' => $script_handle,
+		);
 	}
 
 	/**

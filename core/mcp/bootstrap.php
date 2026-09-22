@@ -95,6 +95,8 @@ require_once BIZCITY_MCP_DIR . 'includes/brain/class-content-brain-mcp-service.p
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-content-action-mcp-service.php';
 // [2026-07-28 Johnny Chu] PHASE-0.54-MCP — load read-only report dataset bridge.
 require_once BIZCITY_MCP_DIR . 'includes/brain/class-report-brain-mcp-service.php';
+// [2026-09-22 PHASE-0.63A WP-8.4] load read-only CRM pipeline reporting bridge.
+require_once BIZCITY_MCP_DIR . 'includes/brain/class-pipeline-mcp-service.php';
 // [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave R — load read-only WooCommerce catalog/order/customer bridge.
 require_once BIZCITY_MCP_DIR . 'includes/brain/class-commerce-brain-mcp-service.php';
 require_once BIZCITY_MCP_DIR . 'rest/class-mcp-http-controller.php';

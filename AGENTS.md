@@ -94,6 +94,33 @@ Rules for every agent:
    re-run the sync script if you added, renamed or removed docs, `bin/` tools,
    tests, composer scripts or CI steps.
 
+### Browser-console evidence is mandatory for live web surfaces
+
+When a task touches a browser-visible REST/React/cache/runtime surface, the
+agent MUST provide one browser-console evidence command or a repo-owned
+read-only self-check artifact that the operator can paste into DevTools. The
+command must print a structured table with `PASS`, `FAIL` or `SKIP`, include the
+URL/surface and the exact endpoint or runtime object checked, and never print
+credentials, nonce values, tokens, SQL, PII or full response bodies.
+
+Use a committed `docs/tools/*selfcheck.js` artifact when the check is reusable;
+do not invent a one-off console snippet in chat. The artifact must:
+
+- be read-only unless the task explicitly requires a write test;
+- use same-origin `fetch()` with `credentials: 'same-origin'` and the
+  localized REST nonce where needed;
+- inspect browser runtime payload, REST status/envelope, built assets and
+  IndexedDB/cache scope when relevant;
+- label unavailable prerequisites as `SKIP`, never as `PASS`;
+- redact identifiers and cap diagnostic detail before `console.table()`;
+- state the exact page/surface and optional URL parameter needed before paste;
+- be rerunnable and append no persistent data.
+
+This browser evidence is part of R-DDV's Runtime layer. A source build or
+editor diagnostic alone is not runtime evidence. For CRM `/crm/` work, prefer
+the reusable `plugins/bizcity-twin-crm/docs/tools/*selfcheck.js` pattern; for
+other surfaces, add the equivalent self-check beside that surface's docs.
+
 Some internal rule documents, roadmaps and audits are not published in this
 repository. If this file summarises a rule and you cannot find its full spec,
 the summary here is authoritative for your change.
@@ -796,7 +823,7 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/api/README.md` | BizCity 1-API — Client Integration Guide (bizcity-twin-ai) |  |
 | `docs/mcp/MCP-AUDIT-BEFORE-IMPLEMENT.md` | MCP Audit Before Implementation / Reflect |  |
 
-## 4. Module / plugin / package READMEs (21)
+## 4. Module / plugin / package READMEs (22)
 
 | File | Summary | Status |
 |---|---|---|
@@ -815,6 +842,7 @@ _Rule documents are not published in this repository — see the local environme
 | `plugins/bizcity-pagebuilder/README.md` | BizCity Page Builder |  |
 | `plugins/bizcity-profile/README.md` | BizCity Personal |  |
 | `plugins/bizcity-twin-crm/README.md` | BizCity Twin CRM (Inbox Hub) |  |
+| `plugins/bizcity-twin-crm/apps/README.md` | apps/ — nơi ở của Context App, tách khỏi includes/ |  |
 | `plugins/bizcity-twin-crm/frontend/README.md` | BizCity CRM Inbox — Frontend |  |
 | `plugins/bizcity-zalo-bizcity/README.md` | BizCity Zalo Admin Hook | legacy_adapter per |
 | `plugins/bizcity-zalo-bot/README.md` | BizCity Zalo Bot Integration |  |
@@ -956,13 +984,13 @@ _Rule documents are not published in this repository — see the local environme
   - `php bin/diagnostics-run.php --host=cli.local --skip-network --filter='core.module-registry' > build/canonical-diagnostics.txt`
   - `php bin/diagnostics-run.php \`
 
-## 7. Area docs folders (60) — open the module's folder before changing the module
+## 7. Area docs folders (55) — open the module's folder before changing the module
 
 | Folder | published .md | internal .md |
 |---|---|---|
 | `core/automation/docs` | 16 | 12 |
 | `core/bizcity-llm/docs` | 2 | 1 |
-| `core/channel-gateway/docs` | 4 | 50 |
+| `core/channel-gateway/docs` | 4 | 54 |
 | `core/cron/docs` | 0 | 5 |
 | `core/diagnostics/docs` | 3 | 7 |
 | `core/docs` | 4 | 0 |
@@ -1008,17 +1036,12 @@ _Rule documents are not published in this repository — see the local environme
 | `modules/twinshell/docs` | 1 | 12 |
 | `modules/twinweb/docs` | 1 | 34 |
 | `modules/webchat/docs` | 1 | 0 |
-| `plugins/bizcity-content-creator/docs` | 0 | 2 |
-| `plugins/bizcity-doc/docs` | 0 | 14 |
 | `plugins/bizcity-pagebuilder/docs` | 8 | 3 |
 | `plugins/bizcity-profile/docs` | 1 | 4 |
-| `plugins/bizcity-tool-image/docs` | 0 | 9 |
 | `plugins/bizcity-twin-crm/docs` | 13 | 41 |
 | `plugins/bizcity-video-kling/docs` | 0 | 8 |
 | `plugins/bizcity-zalo-bot/docs` | 1 | 0 |
 | `plugins/bizcity-zalo-personal/docs` | 4 | 1 |
-| `plugins/bizcoach-pro/docs` | 0 | 1 |
-| `plugins/bizcoach-pro/includes/docs` | 0 | 22 |
 | `plugins/ibs-hi/docs` | 0 | 19 |
 
 ## Scoped: `.github/instructions/diagnostics-vps-ssh-runbook.instructions.md`

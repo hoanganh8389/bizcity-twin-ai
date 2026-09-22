@@ -33,7 +33,21 @@
         "frt_median_s": { "type": ["integer", "null"], "minimum": 0 },
         "conv_to_order": { "$ref": "#/$defs/ratio" },
         "revenue_paid": { "type": "number", "minimum": 0 },
-        "no_channel": { "type": "integer", "minimum": 0 }
+        "no_channel": { "type": "integer", "minimum": 0 },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "label", "value", "count"],
+            "properties": {
+              "key": { "type": "string", "pattern": "^pipeline_[a-z0-9_]{2,63}$" },
+              "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "value": { "type": "number", "minimum": 0 },
+              "count": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
       }
     },
     "attention": {

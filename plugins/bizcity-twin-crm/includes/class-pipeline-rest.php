@@ -49,6 +49,10 @@ final class BizCity_CRM_Pipeline_REST {
 			// [2026-09-22 09:30 AM OpenAI GPT-5.6 Luna] PHASE-0.63A WP-5.6 — expose code-owned built-in templates for the manager sheet.
 			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'list_templates' ), 'permission_callback' => $manage,
 		) );
+		register_rest_route( self::PIPELINE_NS, '/pipelines/runtime-status', array(
+			// [2026-09-22 PHASE-0.63A WP-5.6] Expose the actual runner registration and last run; never promise a minute SLA from source config alone.
+			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'runtime_status' ), 'permission_callback' => $manage,
+		) );
 		register_rest_route( self::PIPELINE_NS, '/pipelines/(?P<kind>[a-z][a-z0-9_-]{0,31})', array(
 			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_definition' ), 'permission_callback' => $read,
 		) );
@@ -62,6 +66,7 @@ final class BizCity_CRM_Pipeline_REST {
 		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/transition', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'transition_run' ), 'permission_callback' => $write ) );
 		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/exceptions', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'transition_exception' ), 'permission_callback' => $write ) );
 		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/sla', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_run_sla' ), 'permission_callback' => $read ) );
+		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/sla-recipients', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_run_sla_recipients' ), 'permission_callback' => $read ) );
 		register_rest_route( $ns, '/crm-pipeline/board', array(
 			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_board' ), 'permission_callback' => $use,
 			'args' => array(
@@ -160,6 +165,36 @@ final class BizCity_CRM_Pipeline_REST {
 		return self::ok( array( 'items' => $items ) );
 	}
 
+	public static function runtime_status( WP_REST_Request $request ) {
+		// [2026-09-22 PHASE-0.63A WP-5.6] Read the Cron Manager registry instead of hardcoding a claimed 60-second cadence.
+		$job = null;
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			foreach ( (array) BizCity_Cron_Manager::instance()->all() as $registered ) {
+				if ( is_array( $registered ) && 'crm_pipeline_sla_runner' === (string) ( $registered['job_id'] ?? '' ) ) {
+					$job = $registered;
+					break;
+				}
+			}
+		}
+		$registered = is_array( $job );
+		$external_cron = defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON;
+		return self::ok( array(
+			'runner' => array(
+				'job_id' => 'crm_pipeline_sla_runner',
+				'registered' => $registered,
+				'interval' => $registered ? (string) ( $job['interval_key'] ?? '' ) : '',
+				'next_run_at' => $registered ? (int) ( $job['next_run_at'] ?? 0 ) : 0,
+				'last_run_at' => $registered ? (int) ( $job['last_run_at'] ?? 0 ) : 0,
+				'last_status' => $registered ? (string) ( $job['last_status'] ?? '' ) : '',
+				'last_duration_ms' => $registered && isset( $job['last_duration'] ) ? (int) $job['last_duration'] : null,
+			),
+			'cron' => array(
+				'external_detected' => $external_cron,
+				'mode' => $external_cron ? 'system_cron_expected' : 'wp_cron',
+			),
+		) );
+	}
+
 	public static function export_definition( WP_REST_Request $request ) {
 		// [2026-09-21 08:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.63A WP-4 — export the server-owned definition.
 		$definition = class_exists( 'BizCity_CRM_Pipeline_Registry' ) ? BizCity_CRM_Pipeline_Registry::get( sanitize_key( (string) $request['kind'] ) ) : null;
@@ -240,6 +275,22 @@ final class BizCity_CRM_Pipeline_REST {
 		}
 		$result = BizCity_CRM_Pipeline_SLA_Service::state_for_run( (int) $run['id'] );
 		return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( $result );
+	}
+
+	public static function get_run_sla_recipients( WP_REST_Request $request ) {
+		// [2026-09-22 PHASE-0.63A WP-7.5] Expose only recipient ids/counts and binding status; never chat ids or PII.
+		$run = self::scoped_run( (int) $request['id'] );
+		if ( is_wp_error( $run ) ) { return self::error_from( $run ); }
+		$definition = is_array( $run['definition'] ?? null ) ? $run['definition'] : array();
+		$stage = (string) ( $run['stage'] ?? '' );
+		$role = '';
+		foreach ( (array) ( $definition['stages'] ?? array() ) as $item ) {
+			if ( is_array( $item ) && $stage === (string) ( $item['key'] ?? '' ) ) { $role = (string) ( $item['role'] ?? '' ); break; }
+		}
+		$recipients = $role && class_exists( 'BizCity_CRM_Pipeline_Roles' ) ? BizCity_CRM_Pipeline_Roles::resolve_role( $definition, $role, array( 'owner_id' => (int) ( $run['owner_id'] ?? 0 ) ) ) : array();
+		if ( is_wp_error( $recipients ) ) { $recipients = array(); }
+		$status = class_exists( 'BizCity_CRM_Pipeline_Notify' ) ? BizCity_CRM_Pipeline_Notify::binding_status( (array) $recipients ) : array( 'bound' => array(), 'unbound' => array(), 'bound_count' => 0, 'unbound_count' => count( (array) $recipients ) );
+		return self::ok( array( 'run_id' => (int) $run['id'], 'role' => $role, 'recipient_user_ids' => array_values( array_map( 'intval', (array) $recipients ) ), 'binding' => $status ) );
 	}
 
 	private static function scoped_run( int $run_id ) {
@@ -339,18 +390,99 @@ final class BizCity_CRM_Pipeline_REST {
 		}
 		$detail = BizCity_CRM_Customer_Pipeline::detail( $contact_id, true );
 		if ( ! $detail ) { return self::error( 'contact_not_in_scope', 'Không tìm thấy khách.', 404 ); }
+		$requested_kind = sanitize_key( (string) $req->get_param( 'pipeline_kind' ) );
+		if ( '' !== $requested_kind && class_exists( 'BizCity_CRM_Pipeline_Run_Service' ) ) {
+			// [2026-09-22 PHASE-0.63A WP-5.3/5.4] The selected run owns the stage vocabulary; do not let the legacy sales read model overwrite it.
+			$runs = BizCity_CRM_Pipeline_Run_Service::runs_for_contact( $contact_id );
+			$selected_run = null;
+			foreach ( is_array( $runs ) ? $runs : array() as $run ) {
+				if ( is_array( $run ) && $requested_kind === sanitize_key( (string) ( $run['pipeline_kind'] ?? '' ) ) ) {
+					$selected_run = $run;
+					break;
+				}
+			}
+			if ( is_array( $selected_run ) ) {
+				$definition_stages = is_array( $selected_run['definition']['stages'] ?? null ) ? $selected_run['definition']['stages'] : array();
+				$stage_items = array();
+				foreach ( $definition_stages as $stage ) {
+					if ( ! is_array( $stage ) || '' === (string) ( $stage['key'] ?? '' ) ) { continue; }
+					$stage_items[] = array( 'stage' => (string) $stage['key'], 'label' => (string) ( $stage['label'] ?? $stage['key'] ) );
+				}
+				$current_stage = (string) ( $selected_run['stage'] ?? '' );
+				$current_definition_stage = array();
+				foreach ( $definition_stages as $stage ) {
+					if ( is_array( $stage ) && $current_stage === (string) ( $stage['key'] ?? '' ) ) {
+						$current_definition_stage = $stage;
+						break;
+					}
+				}
+				$run_steps = array();
+				foreach ( (array) ( $current_definition_stage['sub_steps'] ?? array() ) as $sub_step ) {
+					if ( ! is_array( $sub_step ) || '' === (string) ( $sub_step['key'] ?? '' ) ) { continue; }
+					$state = (string) ( $selected_run['stages'][ (string) $sub_step['key'] ]['state'] ?? 'ready' );
+					$run_steps[] = array( 'key' => (string) $sub_step['key'], 'label' => (string) ( $sub_step['label'] ?? $sub_step['key'] ), 'done' => 'done' === $state );
+				}
+				$detail['pipeline_kind'] = $requested_kind;
+				$detail['pipeline_run_id'] = (int) ( $selected_run['id'] ?? 0 );
+				$detail['pipeline_run'] = $selected_run;
+				$detail['stage'] = $current_stage;
+				$detail['base_stage'] = $current_stage;
+				$detail['label'] = (string) ( $current_definition_stage['label'] ?? $current_stage );
+				$detail['stages'] = $stage_items;
+				$detail['steps'] = $run_steps;
+			}
+		}
 		// [2026-09-21 08:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.63A WP-5.2 — server resolves Context Apps; the FE only renders the ordered catalog.
 		if ( class_exists( 'BizCity_CRM_Context_Resolver' ) ) {
+			$surface = 'c' === sanitize_key( (string) $req->get_param( 'surface' ) ) ? 'c' : 'b2';
+			$roles = self::context_subject_roles( $contact_id );
 			$context_apps = BizCity_CRM_Context_Resolver::for_conversation( array(
-				'surface' => 'b2',
-				'subject_roles' => array( 'customer' ),
-				'pipeline_kind' => (string) ( $detail['pipeline_kind'] ?? '' ),
+				'surface' => $surface,
+				'subject_roles' => $roles,
+				'pipeline_kind' => $requested_kind ?: (string) ( $detail['pipeline_kind'] ?? '' ),
 				'channel' => sanitize_key( (string) ( $detail['channel_type'] ?? '' ) ),
+				'capabilities' => self::context_capabilities(),
 				'limit' => 6,
 			) );
 			$detail['context_apps'] = isset( $context_apps['visible'] ) && is_array( $context_apps['visible'] ) ? $context_apps['visible'] : array();
+			$detail['context_apps_more'] = isset( $context_apps['more'] ) && is_array( $context_apps['more'] ) ? $context_apps['more'] : array();
+			$detail['context_apps_rejected'] = isset( $context_apps['rejected'] ) && is_array( $context_apps['rejected'] ) ? $context_apps['rejected'] : array();
+			$detail['context_app_limit'] = (int) ( $context_apps['limit'] ?? 6 );
 		}
 		return new WP_REST_Response( array_merge( array( 'ok' => true, 'surface' => 'B2_ADMIN_CRM', 'as_of' => current_time( 'c' ) ), $detail ), 200 );
+	}
+
+	/**
+	 * Resolve subject roles from the canonical contact tags without treating segment as a role.
+	 *
+	 * @param int $contact_id Contact identifier.
+	 * @return string[]
+	 */
+	private static function context_subject_roles( int $contact_id ): array {
+		$roles = array( 'customer' );
+		if ( $contact_id <= 0 || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			return $roles;
+		}
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$tags_json = $wpdb->get_var( $wpdb->prepare( "SELECT tags_json FROM `{$table}` WHERE id = %d LIMIT 1", $contact_id ) );
+		$tags = json_decode( (string) $tags_json, true );
+		foreach ( is_array( $tags ) ? $tags : array() as $tag ) {
+			$tag = strtolower( trim( (string) $tag ) );
+			if ( 0 === strpos( $tag, 'role:' ) && '' !== substr( $tag, 5 ) ) {
+				$roles[] = sanitize_key( substr( $tag, 5 ) );
+			}
+		}
+		return array_values( array_unique( array_filter( $roles ) ) );
+	}
+
+	/** Return the viewer's resolved CRM capabilities to the server-side resolver. */
+	private static function context_capabilities(): array {
+		$capabilities = array( 'crm.inbox.read' );
+		if ( current_user_can( 'bizcity_crm_manage_rules' ) ) {
+			$capabilities[] = 'crm.rules.manage';
+		}
+		return $capabilities;
 	}
 
 	public static function post_stage( WP_REST_Request $req ) {

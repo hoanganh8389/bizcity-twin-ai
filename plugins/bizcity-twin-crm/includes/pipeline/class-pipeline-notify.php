@@ -24,6 +24,7 @@ if ( class_exists( 'BizCity_CRM_Pipeline_Notify', false ) ) {
 final class BizCity_CRM_Pipeline_Notify {
 
 	const OPTION_GATE = 'bizcity_crm_pipeline_sla_zalo_bot';
+	const OPTION_WORKFLOW = 'bizcity_crm_pipeline_sla_zalo_bot_workflow';
 	const THROTTLE_SECONDS = 600;
 
 	/** @param int[] $user_ids @return array|WP_Error */
@@ -38,7 +39,22 @@ final class BizCity_CRM_Pipeline_Notify {
 
 	/** Is the push channel enabled on this site at all? */
 	public static function is_enabled(): bool {
-		return function_exists( 'get_option' ) ? (bool) get_option( self::OPTION_GATE, false ) : false;
+		$enabled = function_exists( 'get_option' ) ? (bool) get_option( self::OPTION_GATE, false ) : false;
+		return (bool) apply_filters( self::OPTION_GATE, $enabled );
+	}
+
+	/** Return binding facts for a bounded recipient list; no chat ids leave this method. */
+	public static function binding_status( array $user_ids ): array {
+		// [2026-09-22 PHASE-0.63A WP-7.5] Report only binding counts/ids; never expose Bot chat identifiers.
+		$bound = array();
+		$unbound = array();
+		foreach ( array_values( array_unique( array_map( 'intval', $user_ids ) ) ) as $user_id ) {
+			if ( $user_id <= 0 ) { continue; }
+			$target = self::target_for_user( $user_id );
+			if ( '' !== (string) ( $target['chat_id'] ?? '' ) ) { $bound[] = $user_id; }
+			else { $unbound[] = $user_id; }
+		}
+		return array( 'bound' => $bound, 'unbound' => $unbound, 'bound_count' => count( $bound ), 'unbound_count' => count( $unbound ) );
 	}
 
 	/** @param int[] $user_ids @return array|WP_Error */
@@ -72,7 +88,10 @@ final class BizCity_CRM_Pipeline_Notify {
 				continue;
 			}
 			$message = self::message( $payload, $escalation );
-			$result = self::deliver( $chat_id, $message, $user_id, $kind, $payload );
+			$workflow = self::custom_workflow();
+			$result = $workflow
+				? self::dispatch_custom_workflow( $workflow, $chat_id, $message, $user_id, $kind, $payload )
+				: self::deliver( $chat_id, $message, $user_id, $kind, $payload );
 			if ( is_wp_error( $result ) ) {
 				$errors[] = array( 'user_id' => $user_id, 'code' => $result->get_error_code() );
 				continue;
@@ -88,6 +107,39 @@ final class BizCity_CRM_Pipeline_Notify {
 			return is_array( $target ) ? $target : array();
 		}
 		return array();
+	}
+
+	private static function custom_workflow(): ?array {
+		// [2026-09-22 PHASE-0.63A WP-7.3] Optional workflow escape hatch remains site-owned and disabled unless configured.
+		if ( ! function_exists( 'get_option' ) ) { return null; }
+		$config = get_option( self::OPTION_WORKFLOW, array() );
+		$slug = is_array( $config ) ? trim( (string) ( $config['slug'] ?? '' ) ) : '';
+		$secret = is_array( $config ) ? (string) ( $config['secret'] ?? '' ) : '';
+		return ( '' !== $slug && '' !== $secret ) ? array( 'slug' => $slug, 'secret' => $secret ) : null;
+	}
+
+	private static function dispatch_custom_workflow( array $workflow, string $chat_id, string $message, int $user_id, string $kind, array $payload ) {
+		// [2026-09-22 PHASE-0.63A WP-7.3] Delegate through the automation owner without logging secrets or customer data.
+		if ( ! class_exists( 'BizCity_Automation_Trigger_Matcher' ) ) {
+			return new WP_Error( 'workflow_unavailable', 'Workflow thông báo SLA chưa sẵn sàng.' );
+		}
+		$result = BizCity_Automation_Trigger_Matcher::instance()->dispatch_webhook(
+			$workflow['slug'],
+			array(
+				'chat_id' => $chat_id,
+				'recipient_user_id' => $user_id,
+				'kind' => 'pipeline_sla_' . $kind,
+				'message' => $message,
+				'run_id' => self::safe_token( $payload['run_id'] ?? '' ),
+				'rule_id' => self::safe_text( $payload['rule_id'] ?? '', 64 ),
+				'stage_key' => self::safe_text( $payload['stage_key'] ?? '', 64 ),
+				'due_at' => self::safe_text( $payload['due_at'] ?? '', 32 ),
+			),
+			$workflow['secret']
+		);
+		$ok = ! is_wp_error( $result ) && ! empty( $result['ok'] );
+		self::log( $user_id, $kind, $ok, $payload, $ok ? '' : ( is_wp_error( $result ) ? $result->get_error_code() : 'workflow_dispatch_failed' ) );
+		return $ok ? array( 'sent' => true ) : new WP_Error( 'workflow_dispatch_failed', 'Workflow không gửi được thông báo SLA.' );
 	}
 
 	private static function claim_throttle( string $kind, int $user_id ): bool {

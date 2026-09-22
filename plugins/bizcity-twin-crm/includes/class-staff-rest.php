@@ -2152,6 +2152,16 @@ final class BizCity_CRM_Staff_REST {
 		$insights = class_exists( 'BizCity_CRM_Team_Insights' )
 			? BizCity_CRM_Team_Insights::from_dashboard( array( 'employees' => $employees ) )
 			: array();
+		$pipeline_kpis = array();
+		if ( class_exists( 'BizCity_CRM_Reporting_Rollup' ) ) {
+			$pipeline_rollups = BizCity_CRM_Reporting_Rollup::get_rollups( array( 'from' => $range['from'], 'to' => $range['to'], 'dimension_type' => 'tenant', 'limit' => 100 ) );
+			foreach ( (array) $pipeline_rollups as $rollup ) {
+				$metric = sanitize_key( (string) ( $rollup['metric'] ?? '' ) );
+				if ( 0 === strpos( $metric, 'pipeline_' ) ) {
+					$pipeline_kpis[] = array( 'key' => $metric, 'label' => self::pipeline_metric_label( $metric ), 'value' => (float) ( $rollup['sum_value'] ?? $rollup['count'] ?? 0 ), 'count' => (int) ( $rollup['count'] ?? 0 ) );
+				}
+			}
+		}
 		$sort = sanitize_key( (string) ( $req->get_param( 'sort' ) ?? 'attention' ) );
 		if ( 'revenue' === $sort ) {
 			usort( $employees, static function ( $a, $b ) { return $b['revenue'] <=> $a['revenue']; } );
@@ -2184,8 +2194,21 @@ final class BizCity_CRM_Staff_REST {
 			'team_id'   => $team_filter,
 			'actions'   => $actions,
 			'insights'  => $insights,
+			'kpi' => array( 'metrics' => $pipeline_kpis ),
 			'employees' => array_values( $employees ),
 		), 200 );
+	}
+
+	private static function pipeline_metric_label( string $metric ): string {
+		return array(
+			'pipeline_stage_changed' => 'Đổi bước pipeline',
+			'pipeline_step_done' => 'Hoàn tất bước pipeline',
+			'pipeline_sla_breached' => 'SLA pipeline trễ',
+			'pipeline_sla_met' => 'SLA pipeline đạt',
+			'pipeline_exception_opened' => 'Ngoại lệ mở',
+			'pipeline_exception_acknowledged' => 'Ngoại lệ đã nhận',
+			'pipeline_exception_resolved' => 'Ngoại lệ xử lý xong',
+		)[ $metric ] ?? $metric;
 	}
 
 	/**

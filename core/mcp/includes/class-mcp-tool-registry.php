@@ -35,6 +35,7 @@ final class BizCity_MCP_Tool_Registry {
 		self::register_content_brain_tools();
 		self::register_content_action_tools();
 		self::register_report_brain_tools();
+		self::register_pipeline_brain_tools();
 		self::register_commerce_tools();
 	}
 
@@ -350,6 +351,65 @@ final class BizCity_MCP_Tool_Registry {
 			'required_scope' => 'brain.read',
 			'handler'        => array( $svc, 'get_citation_pack' ),
 		) );
+
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D4 — these tools are
+		// deliberately read-only and share one Brain retrieval facade with Twin GPT.
+		self::register( 'brain.context.search', array(
+			'title'          => 'Context Bank bounded search',
+			'description'    => 'Trả Context Retrieval Pack bounded, server-authorized từ Context Bank; MCP không đọc ledger/archive trực tiếp.',
+			'input_schema'   => array(
+				'type' => 'object',
+				'properties' => array(
+					'mode' => array( 'type' => 'string', 'enum' => array( 'context_bank', 'hybrid', 'recent_identity' ), 'default' => 'context_bank' ),
+					'query' => array( 'type' => 'string' ),
+					'filters' => array( 'type' => 'object' ),
+					'budget' => array( 'type' => 'object' ),
+					'cursor' => array( 'type' => 'string' ),
+				),
+			),
+			'read_only'      => true,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'brain.read',
+			'handler'        => array( $svc, 'context_search' ),
+		) );
+
+		self::register( 'brain.context.evidence', array(
+			'title'          => 'Context Bank bounded evidence',
+			'description'    => 'Trả một bounded metadata evidence excerpt theo source_ref; không trả filesystem path, ciphertext hoặc raw archive body.',
+			'input_schema'   => array(
+				'type' => 'object',
+				'required' => array( 'source_ref' ),
+				'properties' => array(
+					'source_ref' => array( 'type' => 'string', 'minLength' => 3, 'maxLength' => 191 ),
+					'mode' => array( 'type' => 'string', 'default' => 'context_bank' ),
+					'filters' => array( 'type' => 'object' ),
+				),
+			),
+			'read_only'      => true,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'brain.read',
+			'handler'        => array( $svc, 'context_evidence' ),
+		) );
+
+		self::register( 'brain.order.summary', array(
+			'title'          => 'Bounded order lifecycle summary',
+			'description'    => 'Trả bounded order lifecycle summary từ server-authorized Context Retrieval Pack; không gọi Woo/CRM trực tiếp.',
+			'input_schema'   => array(
+				'type' => 'object',
+				'required' => array( 'order_ref' ),
+				'properties' => array(
+					'order_ref' => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 191 ),
+					'budget' => array( 'type' => 'object' ),
+				),
+			),
+			'read_only'      => true,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'order.read',
+			'handler'        => array( $svc, 'order_summary' ),
+		) );
 	}
 
 	/**
@@ -622,6 +682,25 @@ final class BizCity_MCP_Tool_Registry {
 			) ),
 			'required_scope' => 'report.read',
 			'handler'        => array( $svc, 'build_dataset' ),
+		) );
+	}
+
+	/** PHASE-0.63A WP-8.4 — read-only pipeline lifecycle metrics bridge. */
+	private static function register_pipeline_brain_tools() {
+		if ( ! class_exists( 'BizCity_CRM_Pipeline_MCP_Bridge' ) ) { return; }
+		$svc = BizCity_CRM_Pipeline_MCP_Bridge::instance();
+		self::register( 'pipeline.get_metrics', array(
+			'title' => 'Get pipeline metrics',
+			'description' => 'Đọc metric lifecycle pipeline/SLA qua CRM reporting rollup canonical; không sửa run và không trả PII.',
+			'input_schema' => array( 'type' => 'object', 'properties' => array(
+				'from' => array( 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2}$' ),
+				'to' => array( 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2}$' ),
+				'metric' => array( 'type' => 'string' ),
+				'dimension_type' => array( 'type' => 'string', 'enum' => array( 'tenant', 'channel', 'inbox', 'team', 'user' ) ),
+				'limit' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 500 ),
+			) ),
+			'required_scope' => 'report.read',
+			'handler' => array( $svc, 'get_metrics' ),
 		) );
 	}
 

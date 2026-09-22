@@ -148,6 +148,10 @@ final class BizCity_CRM_Pipeline_SLA_Runner {
 		$level = (int) ( $deadline['level'] ?? 0 );
 		$rung = $ladder[ $level ] ?? array( 'at' => '0', 'do' => 'flag(breached)' );
 		$ctx = array( 'run_id' => $run_id, 'stage_key' => (string) ( $deadline['stage_key'] ?? '' ) );
+		$ctx['assignee_id'] = self::run_assignee_id( $run_id );
+		$ctx['owner_id'] = $ctx['assignee_id'];
+		$deadline['assignee_id'] = $ctx['assignee_id'];
+		$deadline['owner_id'] = $ctx['owner_id'];
 		foreach ( preg_split( '/\s*\+\s*/', (string) ( $rung['do'] ?? '' ) ) as $action ) {
 			$result = self::dispatch_action( trim( $action ), $definition, $ctx, $deadline );
 			if ( is_wp_error( $result ) ) { return $result; }
@@ -155,6 +159,9 @@ final class BizCity_CRM_Pipeline_SLA_Runner {
 		$next = $ladder[ $level + 1 ] ?? null;
 		$at = (string) ( $rung['at'] ?? '0' );
 		$breach = '0' === $at || 0 === strpos( $at, '+' );
+		if ( '0' === $at ) {
+			self::report_sla_metric( $run_id, 'pipeline_sla_breached', (string) ( $deadline['rule_id'] ?? '' ) );
+		}
 		$now = self::db_now();
 		$state = $next ? 'at_risk' : ( $breach ? 'breached' : 'at_risk' );
 		$next_fire = null;
@@ -169,6 +176,18 @@ final class BizCity_CRM_Pipeline_SLA_Runner {
 		if ( false === $updated ) { return self::error( 'sla_deadline_update_failed', 'Không thể cập nhật trạng thái SLA.', 500 ); }
 		if ( 0 === (int) $updated ) { return self::error( 'sla_claim_lost', 'Lease SLA đã hết hạn hoặc đã được worker khác nhận.', 409 ); }
 		return array( 'deadline_id' => (int) $deadline['id'], 'level' => $level + 1, 'state' => $state, 'next_fire_at' => $next_fire );
+	}
+
+	private static function run_assignee_id( int $run_id ): int {
+		global $wpdb;
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) ) { return 0; }
+		$table = class_exists( 'BizCity_CRM_DB_Installer_V2' ) ? BizCity_CRM_DB_Installer_V2::tbl_crm_opportunities() : $wpdb->prefix . 'bizcity_crm_opportunities';
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT owner_id FROM `{$table}` WHERE id = %d LIMIT 1", $run_id ) );
+	}
+
+	private static function report_sla_metric( int $run_id, string $metric, string $rule_id ): void {
+		if ( ! class_exists( 'BizCity_CRM_Reporting_Rollup' ) ) { return; }
+		BizCity_CRM_Reporting_Rollup::record_fact( $metric, 0, gmdate( 'Y-m-d H:i:s' ), 1, 'pipeline-sla:' . $run_id . ':' . $rule_id . ':' . $metric . ':' . gmdate( 'YmdHi' ) );
 	}
 
 	private static function dispatch_action( string $action, array $definition, array $ctx, array $deadline ) {

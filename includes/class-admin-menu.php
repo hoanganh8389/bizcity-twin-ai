@@ -352,10 +352,17 @@ class BizCity_Admin_Menu {
 		if ( class_exists( 'BizCity_CRM_Admin_Menu', false ) ) {
 			$crm = BizCity_CRM_Admin_Menu::instance();
 			// [2026-09-19 Johnny Chu] PHASE-0.60 C5 — the central menu consumes CRM-owned descriptors; it never invents CRM slugs/capabilities.
-			foreach ( $crm->surfaces_for( 'twin_plugins' ) as $surface ) {
+			// [2026-09-22 09:00 AM GitHub Copilot] HOTFIX — a client may update the
+			// framework before the bundled CRM module. Do not call a newer optional
+			// method on an older CRM class; use its public descriptor function when
+			// available and let the existing CRM menu remain the fallback owner.
+			$crm_surfaces = method_exists( $crm, 'surfaces_for' )
+				? $crm->surfaces_for( 'twin_plugins' )
+				: ( function_exists( 'bizcity_crm_surface_descriptors' ) ? bizcity_crm_surface_descriptors() : array() );
+			foreach ( $crm_surfaces as $surface ) {
 				$action = (string) ( $surface['action'] ?? '' );
 				$cap = class_exists( 'BizCity_CRM_Authority' ) ? BizCity_CRM_Authority::menu_cap( $action ) : 'manage_options';
-				$callback = $surface['callback'] ?? null;
+				$callback = $surface['callback'] ?? ( $surface['render'] ?? null );
 				if ( ! is_callable( $callback ) ) { continue; }
 				add_submenu_page( self::SLUG_PLUGINS, (string) $surface['title'], (string) $surface['label'], $cap, (string) $surface['slug'], $callback );
 			}

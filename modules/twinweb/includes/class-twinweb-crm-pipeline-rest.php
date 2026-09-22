@@ -44,6 +44,7 @@ class BizCity_TwinWeb_CRM_Pipeline_REST {
 		register_rest_route( self::NS, '/crm/pipeline/today', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'get_today' ), 'permission_callback' => $open ) );
 		register_rest_route( self::NS, '/crm/pipeline/contacts/(?P<id>\d+)', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'get_contact' ), 'permission_callback' => $open ) );
 		register_rest_route( self::NS, '/crm/pipeline/conversation/(?P<id>\d+)', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'get_by_conversation' ), 'permission_callback' => $open ) );
+		register_rest_route( self::NS, '/crm/pipeline/runs', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'get_runs' ), 'permission_callback' => $open ) );
 		register_rest_route( self::NS, '/crm/pipeline/contacts/(?P<id>\d+)/stage', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( $this, 'post_stage' ), 'permission_callback' => $open ) );
 		register_rest_route( self::NS, '/crm/me/space', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'get_space' ), 'permission_callback' => $open ) );
 		// [2026-09-19] PHASE-0.55 A5 — numbers-only digest for automation to poll on its own schedule (D55-4, no fixed time in code).
@@ -107,7 +108,18 @@ class BizCity_TwinWeb_CRM_Pipeline_REST {
 	public function get_contact( WP_REST_Request $request ) {
 		$uid = $this->member_id( $request, 'crm/pipeline/contacts' );
 		if ( $uid instanceof WP_REST_Response ) { return $uid; }
-		return $this->detail_response( $uid, absint( $request->get_param( 'id' ) ) );
+		return $this->detail_response( $uid, absint( $request->get_param( 'id' ) ), sanitize_key( (string) $request->get_param( 'pipeline_kind' ) ) );
+	}
+
+	public function get_runs( WP_REST_Request $request ) {
+		$uid = $this->member_id( $request, 'crm/pipeline/runs' );
+		if ( $uid instanceof WP_REST_Response ) { return $uid; }
+		$contact_id = absint( $request->get_param( 'contact_id' ) );
+		if ( ! BizCity_CRM_Customer_Pipeline::contact_in_scope( $contact_id, BizCity_CRM_Customer_Pipeline::c_inbox_ids( $uid ) ) ) {
+			return $this->error( 'contact_not_in_scope', 'Không tìm thấy khách trong kênh của bạn.', '', 404 );
+		}
+		$runs = class_exists( 'BizCity_CRM_Pipeline_Run_Service' ) ? BizCity_CRM_Pipeline_Run_Service::runs_for_contact( $contact_id ) : array();
+		return rest_ensure_response( array( 'success' => true, 'items' => is_array( $runs ) ? $runs : array(), 'surface' => 'C_PUBLIC_TWINGPT' ) );
 	}
 
 	public function get_by_conversation( WP_REST_Request $request ) {
@@ -121,7 +133,7 @@ class BizCity_TwinWeb_CRM_Pipeline_REST {
 		if ( ! $row || ! in_array( (int) $row['inbox_id'], $inboxes, true ) ) {
 			return $this->error( 'contact_not_in_scope', 'Không tìm thấy khách trong kênh của bạn.', '', 404 );
 		}
-		return $this->detail_response( $uid, (int) $row['contact_id'] );
+		return $this->detail_response( $uid, (int) $row['contact_id'], sanitize_key( (string) $request->get_param( 'pipeline_kind' ) ) );
 	}
 
 	public function post_stage( WP_REST_Request $request ) {
@@ -201,12 +213,25 @@ class BizCity_TwinWeb_CRM_Pipeline_REST {
 
 	// ── helpers ──────────────────────────────────────────────────────────
 
-	private function detail_response( int $uid, int $contact_id ) {
+	private function detail_response( int $uid, int $contact_id, string $pipeline_kind = '' ) {
 		if ( ! BizCity_CRM_Customer_Pipeline::contact_in_scope( $contact_id, BizCity_CRM_Customer_Pipeline::c_inbox_ids( $uid ) ) ) {
 			return $this->error( 'contact_not_in_scope', 'Không tìm thấy khách trong kênh của bạn.', '', 404 );
 		}
 		$detail = BizCity_CRM_Customer_Pipeline::detail( $contact_id, false );
 		if ( ! $detail ) { return $this->error( 'contact_not_in_scope', 'Không tìm thấy khách.', '', 404 ); }
+		if ( '' !== $pipeline_kind && class_exists( 'BizCity_CRM_Pipeline_Run_Service' ) ) {
+			foreach ( (array) BizCity_CRM_Pipeline_Run_Service::runs_for_contact( $contact_id ) as $run ) {
+				if ( ! is_array( $run ) || $pipeline_kind !== sanitize_key( (string) ( $run['pipeline_kind'] ?? '' ) ) ) { continue; }
+				$detail['pipeline_kind'] = $pipeline_kind;
+				$detail['pipeline_run_id'] = (int) ( $run['id'] ?? 0 );
+				$detail['pipeline_run'] = $run;
+				if ( class_exists( 'BizCity_CRM_Pipeline_SLA_Service' ) ) {
+					$sla = BizCity_CRM_Pipeline_SLA_Service::state_for_run( (int) ( $run['id'] ?? 0 ) );
+					if ( is_array( $sla ) ) { $detail['sla'] = $sla; }
+				}
+				break;
+			}
+		}
 		return rest_ensure_response( array_merge( array( 'success' => true, 'surface' => 'C_PUBLIC_TWINGPT', 'as_of' => current_time( 'c' ), 'outcomes' => $this->outcomes() ), $detail ) );
 	}
 

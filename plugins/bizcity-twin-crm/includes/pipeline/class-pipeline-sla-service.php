@@ -60,6 +60,9 @@ final class BizCity_CRM_Pipeline_SLA_Service {
 			"UPDATE `{$table}` SET state = 'met', met_at = %s, next_fire_at = NULL, claimed_by = NULL, claimed_at = NULL, updated_at = %s WHERE run_id = %d AND rule_id IN ({$placeholders}) AND state IN ('pending','at_risk','breached')",
 			array_merge( array( $now, $now, $run_id ), $rule_ids )
 		) );
+		if ( $updated > 0 && class_exists( 'BizCity_CRM_Reporting_Rollup' ) ) {
+			BizCity_CRM_Reporting_Rollup::record_fact( 'pipeline_sla_met', 0, gmdate( 'Y-m-d H:i:s' ), 1, 'pipeline-sla-met:' . $run_id . ':' . implode( ',', $rule_ids ) . ':' . self::db_now() );
+		}
 		return array( 'run_id' => $run_id, 'target' => $target, 'met' => (int) $updated, 'definition' => $definition['kind'] ?? '' );
 	}
 

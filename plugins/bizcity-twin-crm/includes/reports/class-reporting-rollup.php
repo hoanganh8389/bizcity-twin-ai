@@ -182,6 +182,13 @@ final class BizCity_CRM_Reporting_Rollup {
 			'crm_message_delivery_updated' => 'delivery_updated',
 			'crm_sla_breached'          => 'sla_breached',
 			'crm_sla_met'               => 'sla_met',
+			'pipeline_stage_changed'    => 'pipeline_stage_changed',
+			'pipeline_step_done'        => 'pipeline_step_done',
+			'pipeline_sla_breached'     => 'pipeline_sla_breached',
+			'pipeline_sla_met'          => 'pipeline_sla_met',
+			'pipeline_exception_opened' => 'pipeline_exception_opened',
+			'pipeline_exception_acknowledged' => 'pipeline_exception_acknowledged',
+			'pipeline_exception_resolved' => 'pipeline_exception_resolved',
 		);
 		return $map[ $event_type ] ?? '';
 	}

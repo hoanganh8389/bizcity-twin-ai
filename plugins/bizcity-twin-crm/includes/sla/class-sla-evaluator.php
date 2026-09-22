@@ -59,10 +59,12 @@ class BizCity_CRM_SLA_Evaluator {
 	 * @param bool $force Bypass lock (used by "Force tick" diag button).
 	 */
 	public static function tick( bool $force = false ): array {
-		if ( ! $force ) {
-			if ( get_transient( self::LOCK_KEY ) ) {
-				return array( 'skipped' => true, 'reason' => 'locked' );
-			}
+		$cron = class_exists( 'BizCity_Cron_Manager' ) ? BizCity_Cron_Manager::instance() : null;
+		if ( $cron && method_exists( $cron, 'try_lock' ) && ! $cron->try_lock( 'crm_legacy_sla_tick', self::LOCK_TTL ) ) {
+			return array( 'skipped' => true, 'reason' => 'locked' );
+		}
+		if ( ! $cron && ! $force ) {
+			if ( get_transient( self::LOCK_KEY ) ) { return array( 'skipped' => true, 'reason' => 'locked' ); }
 			set_transient( self::LOCK_KEY, (string) wp_generate_uuid4(), self::LOCK_TTL );
 		}
 		$evaluated = 0;
@@ -78,7 +80,8 @@ class BizCity_CRM_SLA_Evaluator {
 				if ( ! empty( $res['met'] ) )      { $met++; }
 			}
 		} finally {
-			if ( ! $force ) { delete_transient( self::LOCK_KEY ); }
+			if ( $cron && method_exists( $cron, 'unlock' ) ) { $cron->unlock( 'crm_legacy_sla_tick' ); }
+			if ( ! $cron ) { delete_transient( self::LOCK_KEY ); }
 		}
 		return array( 'skipped' => false, 'evaluated' => $evaluated, 'breached' => $breached, 'met' => $met );
 	}
@@ -104,7 +107,9 @@ class BizCity_CRM_SLA_Evaluator {
 			$resolved_at = self::resolved_at( $conv, $now );
 			$rt_due = isset( $row['rt_due_at'] ) ? (int) $row['rt_due_at'] : 0;
 			if ( $rt_due > 0 && $resolved_at > $rt_due ) {
-				BizCity_CRM_Repository::update_applied_sla_fields( (int) $row['id'], array( 'state' => 'breached', 'last_evaluated_at' => $now ) );
+				$breach_updates = array( 'state' => 'breached', 'rt_breached_at' => $row['rt_breached_at'] ?: $resolved_at, 'last_evaluated_at' => $now );
+				BizCity_CRM_Repository::update_applied_sla_fields( (int) $row['id'], $breach_updates );
+				BizCity_CRM_Event_Emitter::emit( 'crm_sla_breached', array( 'conversation_id' => $conv_id, 'sla_policy_id' => (int) $row['sla_policy_id'], 'applied_sla_id' => (int) $row['id'], 'kind' => 'rt', 'due_at' => $rt_due, 'breached_at' => $resolved_at, 'overdue_seconds' => max( 0, $resolved_at - $rt_due ) ) );
 				return array( 'breached' => 0, 'met' => false );
 			}
 			BizCity_CRM_Repository::update_applied_sla_fields( (int) $row['id'], array(

@@ -129,14 +129,15 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/messages', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
-			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope_response' ),
+				// [2026-09-22 12:00 PM OpenAI GPT-5.6 Luna] HOTFIX — restore the missing GET callback; without it WordPress reports rest_invalid_handler before dispatch.
+				'callback'            => array( __CLASS__, 'get_messages' ),
 				'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 				'args'                => array(
 					'after_id' => array( 'type' => 'integer', 'default' => 0 ),
 					'limit'    => array( 'type' => 'integer', 'default' => 100 ),
 					// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.51 A3 — older-message paging + delivery-state recheck, same shape as modules/twinweb's `/crm/inbox`.
-			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope_response' ),
 					'recheck_ids' => array( 'type' => 'string', 'default' => '' ),
+					'before_id'   => array( 'type' => 'integer', 'default' => 0 ),
 				),
 			),
 			array(
@@ -6207,6 +6208,12 @@ class BizCity_CRM_REST_Controller {
 	public static function get_messages( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			$id        = (int) $req['id'];
+			// [2026-09-22 02:35 AM OpenAI GPT-5.6 Luna] HOTFIX — message polling
+			// must degrade to an empty bounded result while a tenant is missing the
+			// CRM message table; do not turn a partial schema into repeated HTTP 500s.
+			if ( ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_messages() ) ) {
+				return array();
+			}
 			$after_id  = (int) $req->get_param( 'after_id' );
 			$limit     = (int) ( $req->get_param( 'limit' ) ?: 100 );
 			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.51 A3 — older-message paging (scroll-up) and a
@@ -8876,7 +8883,8 @@ class BizCity_CRM_REST_Controller {
 
 	public static function post_sla_tick( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
-			$force  = (bool) ( $req->get_param( 'force' ) ?? true );
+			// [2026-09-22 PHASE-0.63A WP-9.5] REST force is no longer a lock bypass; the evaluator always claims the shared job lock.
+			$force  = false;
 			return BizCity_CRM_SLA_Evaluator::tick( $force );
 		} );
 	}

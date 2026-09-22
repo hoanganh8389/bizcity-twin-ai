@@ -50,7 +50,7 @@ The following contracts are stable public API for plugin ecosystem integrations.
 22. context-admission
 23. business-action
 24. fulfillment-result
-25. user-inbox-scope
+25. user-inbox-scope — [USER-INBOX-SCOPE-CONTRACT-v1.md](USER-INBOX-SCOPE-CONTRACT-v1.md)
 26. extension-storage-context
 
 Each contract has:
@@ -92,6 +92,10 @@ Each contract has:
 | context-relation | 1.0.0 | 1.x | 1.x | 3 minors |
 | context-retrieval-pack | 1.1.0 | 1.x | 1.x | 3 minors |
 | extension-storage-context | 1.0.0 | 1.x | 1.x | 3 minors |
+| leader-task-handoff | 1.0.0 | 1.x | 1.x | 3 minors |
+| customer-360-team-view | 1.1.0 | 1.x | 1.x | 3 minors |
+| member-customer-360 | 1.0.0 | 1.x | 1.x | 3 minors |
+| staff-customer-portfolio | 1.0.0 | 1.x | 1.x | 3 minors |
 
 ### Channel diagnostics contract
 

@@ -1896,9 +1896,14 @@ class BizCity_CRM_Repository {
 		// Hydrate attachments in 1 query.
 		$ids = array_map( 'intval', array_column( $rows, 'id' ) );
 		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
-		$atts = $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM {$att_tbl} WHERE message_id IN ({$placeholders})", $ids
-		), ARRAY_A );
+		// [2026-09-22 02:35 AM OpenAI GPT-5.6 Luna] HOTFIX — attachments are
+		// optional for the message read projection; a tenant without that table
+		// must still receive text messages instead of a database exception.
+		$atts = BizCity_CRM_DB_Installer_V2::table_exists( $att_tbl )
+			? $wpdb->get_results( $wpdb->prepare(
+				"SELECT * FROM {$att_tbl} WHERE message_id IN ({$placeholders})", $ids
+			), ARRAY_A )
+			: array();
 		$by_msg = array();
 		foreach ( $atts as $a ) {
 			$by_msg[ (int) $a['message_id'] ][] = $a;
@@ -2798,7 +2803,7 @@ class BizCity_CRM_Repository {
 			return array();
 		}
 		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM {$tbl} WHERE state = 'active' ORDER BY frt_due_at ASC LIMIT %d",
+			"SELECT * FROM {$tbl} WHERE state IN ('active','breached') AND (met_at IS NULL OR state = 'breached') ORDER BY frt_due_at ASC LIMIT %d",
 			$limit
 		), ARRAY_A );
 		return is_array( $rows ) ? $rows : array();
