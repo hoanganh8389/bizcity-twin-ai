@@ -15,6 +15,7 @@ vendor/
 /docs/contracts/FRAMEWORK-CONTRACT-INVENTORY-v1.md
 /docs/rules/
 /docs/diagnostics/
+/build/*
 
 # Keep roadmap/audit/research documents private in module-owned documentation.
 **/docs/*ROADMAP*.md
