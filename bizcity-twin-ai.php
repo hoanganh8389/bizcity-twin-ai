@@ -891,10 +891,23 @@ $_bizcity_zalo_admin_hook_surface =
     || false !== strpos( $_bizcity_zalo_admin_hook_uri, '/bizhook/' )
     || false !== strpos( $_bizcity_zalo_admin_hook_uri, '/wp-json/bizcity-channel/' );
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
-    if ( defined( $_guard_const ) ) {
+    $_bizcity_is_crm_bundle = 'bizcity-twin-crm' === $_slug;
+    $_bizcity_crm_api_ready = ! $_bizcity_is_crm_bundle
+        || ( defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' )
+            && 'surfaces_for@1' === BIZCITY_CRM_MUSTLOAD_CONTRACT
+            && class_exists( 'BizCity_CRM_Admin_Menu', false )
+            && method_exists( 'BizCity_CRM_Admin_Menu', 'surfaces_for' ) );
+    // [2026-09-22 09:30 AM GitHub Copilot] PHASE-CRM-MUSTLOAD — a version
+    // constant alone is not proof that the bundled CRM runtime is loaded. A
+    // stale MU/regular-plugin loader may define BIZCITY_CRM_VERSION first and
+    // leave the current Twin AI bundle unbooted.
+    if ( defined( $_guard_const ) && $_bizcity_crm_api_ready ) {
         continue; // Already loaded (activated as regular plugin or by mu-plugin)
     }
-    if ( $_bizcity_twinchat_admin_shell_request ) {
+    // CRM is a mandatory bundled runtime. It must also be present while the
+    // TwinChat admin shell is being assembled because the central menu consumes
+    // CRM-owned surface descriptors during that request.
+    if ( $_bizcity_twinchat_admin_shell_request && ! $_bizcity_is_crm_bundle ) {
         continue;
     }
     // [2026-06-09 Johnny Chu] PERF-2 — Skip admin-only plugins on plain frontend HTML renders.
@@ -919,26 +932,6 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         $_bundled_dir  = __DIR__ . '/plugins/bizcity-zalo-bizcity';
         $_bundled_file = $_bundled_dir . '/bizcity-admin-hook-zalo.php';
     }
-    // [2026-08-25 Johnny Chu] PHASE-1.24 — skip an incomplete proprietary CRM checkout before its legacy bootstrap can fatal Diagnostics.
-    if ( 'bizcity-twin-crm' === $_slug ) {
-        $_crm_inbox_access = array(
-            $_bundled_dir . '/includes/class-inbox-access.php',
-            $_bundled_dir . '/includes/inbox/class-inbox-access.php',
-        );
-        $_crm_has_inbox_access = false;
-        foreach ( $_crm_inbox_access as $_crm_inbox_access_file ) {
-            if ( is_readable( $_crm_inbox_access_file ) ) {
-                $_crm_has_inbox_access = true;
-                break;
-            }
-        }
-        unset( $_crm_inbox_access, $_crm_inbox_access_file );
-        if ( ! $_crm_has_inbox_access ) {
-            unset( $_crm_has_inbox_access );
-            continue;
-        }
-        unset( $_crm_has_inbox_access );
-    }
     // [2026-08-26 Johnny Chu] R-SAFE-LOADER — bundled feature artifacts are
     // optional/deployable and must not turn a partial checkout into a fatal.
     if ( is_dir( $_bundled_dir )
@@ -947,6 +940,10 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         && class_exists( 'BizCity_Safe_Loader', false ) ) {
         BizCity_Safe_Loader::require_file( $_bundled_file, 'bundled.' . $_slug );
     }
+    if ( $_bizcity_is_crm_bundle && ( ! defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' ) || ! class_exists( 'BizCity_CRM_Plugin', false ) || ! method_exists( 'BizCity_CRM_Admin_Menu', 'surfaces_for' ) ) ) {
+        error_log( '[BizCity_Twin_AI] CRM mandatory bundle contract is not ready; check for a stale or partial CRM artifact set.' );
+    }
+    unset( $_bizcity_is_crm_bundle, $_bizcity_crm_api_ready );
 }
 // [2026-08-22 Johnny Chu] PHASE-PROFILE-ROLE-SPLIT — force-load all Profile role routes even when a stale loader already defined its version constant.
 $_bizcity_profile_request_path = (string) parse_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '', PHP_URL_PATH );

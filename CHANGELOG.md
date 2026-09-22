@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### HOTFIX — CRM is a mandatory Twin AI bundled runtime - 2026-09-22
+
+- Removed the CRM entrypoint's silent early return for a missing/relocated
+  `class-inbox-access.php`; CRM now follows the Twin AI bundled must-load path.
+- The Twin AI loader no longer treats `BIZCITY_CRM_VERSION` alone as proof that
+  the CRM runtime is current. It verifies the CRM must-load contract and loads
+  CRM during the TwinChat admin-shell request because the central admin menu
+  consumes CRM-owned surface descriptors there.
+- Added a contract stamp (`BIZCITY_CRM_MUSTLOAD_CONTRACT=surfaces_for@1`) so a
+  stale CRM artifact cannot masquerade as a loaded current runtime. The central
+  menu still degrades safely instead of fatalling when an older deployment is
+  encountered.
+
 ### HOTFIX — non-stream TwinBrain leaked SSE `event: debug` into later output - 2026-09-18
 
 - **Symptom:** with the Twin debug gate on, the diagnostics CLI's `--format=json`

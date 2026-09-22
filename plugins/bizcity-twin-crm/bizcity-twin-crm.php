@@ -13,23 +13,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
-// [2026-08-25 Johnny Chu] PHASE-1.24 — proprietary CRM must not make the public/framework checkout fatal when its optional artifact set is partial.
-$bizcity_crm_inbox_access_files = array(
-	__DIR__ . '/includes/class-inbox-access.php',
-	__DIR__ . '/includes/inbox/class-inbox-access.php',
-);
-$bizcity_crm_inbox_access_available = false;
-foreach ( $bizcity_crm_inbox_access_files as $bizcity_crm_inbox_access_file ) {
-	if ( is_readable( $bizcity_crm_inbox_access_file ) ) {
-		$bizcity_crm_inbox_access_available = true;
-		break;
-	}
+// [2026-09-22 09:30 AM GitHub Copilot] PHASE-CRM-MUSTLOAD — CRM is a
+// mandatory bundled runtime of Twin AI. Do not silently return because one
+// optional/relocated artifact is absent; the bootstrap owns guarded loading
+// and the Twin AI loader records a clear mandatory-bundle failure.
+if ( ! defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' ) ) {
+	define( 'BIZCITY_CRM_MUSTLOAD_CONTRACT', 'surfaces_for@1' );
 }
-unset( $bizcity_crm_inbox_access_files, $bizcity_crm_inbox_access_file );
-if ( ! $bizcity_crm_inbox_access_available ) {
-	return;
-}
-unset( $bizcity_crm_inbox_access_available );
 
 // [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE - the default TwinChat admin
 // shell renders its own iframe and does not need the CRM runtime graph. Keep
