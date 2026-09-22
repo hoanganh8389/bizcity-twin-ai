@@ -21,7 +21,8 @@ if ( ! defined( 'BIZCITY_TWIN_SHELL_URL' ) ) {
 	define( 'BIZCITY_TWIN_SHELL_URL', plugin_dir_url( __FILE__ ) );
 }
 if ( ! defined( 'BIZCITY_TWIN_SHELL_VERSION' ) ) {
-	define( 'BIZCITY_TWIN_SHELL_VERSION', '0.13.38' );
+	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G5 — bump to flush the new /twin/panel/ rewrite rule via the central registry.
+	define( 'BIZCITY_TWIN_SHELL_VERSION', '0.13.39' );
 }
 
 // [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — bootstrap idempotency guard
@@ -33,7 +34,14 @@ define( 'BIZCITY_TWIN_SHELL_BOOTSTRAPPED', 1 );
 
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-registry.php';
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-page.php';
+// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — canonical link builder
+// (Twin Route Contract v1). Depends on `BizCity_Twin_Shell_Page::is_safe_route()`/`shell_url()`,
+// loaded just above.
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-route.php';
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-rest.php';
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-03 — value owner + REST for Appearance (site) and User Preferences (user).
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-appearance.php';
+BizCity_Twin_Shell_Appearance::boot();
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-bridge.php';
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-primitives.php';
 
@@ -58,6 +66,69 @@ if ( $bz_twinshell_load_learning ) {
 
 // Register default plugins shipped with the bundle.
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/default-plugins.php';
+
+// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — register TwinShell general/appearance settings with explicit site/user scope.
+if ( ! defined( 'BIZCITY_TWIN_SHELL_SETTING_PANEL_REGISTERED' )
+	&& class_exists( 'BizCity_Twin_Plugin_SDK' )
+	&& class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+	BizCity_Twin_Plugin_SDK::register_ui( array(
+		'setting_panel' => array(
+			array(
+				'contract'        => 'setting-panel-registration',
+				'version'         => '1.0.0',
+				'id'              => 'core.twinshell.appearance',
+				'owner'           => 'modules/twinshell',
+				'origin'          => 'module',
+				'destination'     => 'settings',
+				'group'           => 'appearance',
+				'label_key'       => 'settings.appearance.label',
+				'description_key' => 'settings.appearance.description',
+				'icon'            => 'cil-settings',
+				'capability'      => 'manage_options',
+				'scope'           => 'site',
+				'surface'         => 'admin_shell',
+				'renderer'        => array(
+					'type'  => 'route',
+					'id'    => 'core.twinshell.appearance',
+					// [2026-09-16] Distinct in-panel route so the item is deep-linkable (was the shared /setting-panel/settings).
+					'route' => '/settings/appearance',
+				),
+				'availability'    => array(
+					'policy'         => 'registered-owner',
+					'dependency_ids' => array( 'modules.twinshell' ),
+				),
+				'position'        => 320,
+				'aliases'         => array( 'bizcity-webchat-appearance' ),
+			),
+			array(
+				'contract'        => 'setting-panel-registration',
+				'version'         => '1.0.0',
+				'id'              => 'core.twinshell.user_preferences',
+				'owner'           => 'modules/twinshell',
+				'origin'          => 'module',
+				'destination'     => 'settings',
+				'group'           => 'appearance',
+				'label_key'       => 'settings.user_preferences.label',
+				'description_key' => 'settings.user_preferences.description',
+				'icon'            => 'cil-settings',
+				'capability'      => 'read',
+				'scope'           => 'user',
+				'surface'         => 'admin_shell',
+				'renderer'        => array(
+					'type'  => 'route',
+					'id'    => 'core.twinshell.user_preferences',
+					'route' => '/settings/user-preferences',
+				),
+				'availability'    => array(
+					'policy'         => 'registered-owner',
+					'dependency_ids' => array( 'modules.twinshell' ),
+				),
+				'position'        => 330,
+			),
+		),
+	) );
+	define( 'BIZCITY_TWIN_SHELL_SETTING_PANEL_REGISTERED', true );
+}
 
 // Public page /twin/ — registers rewrite + render handler.
 BizCity_Twin_Shell_Page::instance()->register();

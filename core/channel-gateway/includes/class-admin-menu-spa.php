@@ -94,10 +94,14 @@ final class BizCity_Gateway_Admin_SPA {
 	public function register_menu(): void {
 		global $submenu;
 		$parent = 'bizcity-twin-workspace';
+		// [2026-09-19 Johnny Chu] HOTFIX — Network Super Admins can lack a local blog role; gate the deployed Gateway SPA with the network capability on multisite.
+		$capability = function_exists( 'is_super_admin' ) && is_super_admin() ? 'manage_network' : 'manage_options';
 		// [2026-08-11 Johnny Chu] PHASE-1.26 — central registration owns the visible parent and slug.
 		if ( isset( $submenu[ $parent ] ) && is_array( $submenu[ $parent ] ) ) {
-			foreach ( $submenu[ $parent ] as $item ) {
+			foreach ( $submenu[ $parent ] as $index => $item ) {
 				if ( isset( $item[2] ) && $item[2] === self::MENU_SLUG ) {
+					// [2026-09-21 09:35 AM Johnny Chu] HOTFIX-CHANNEL-SUPER-ADMIN — priority-10 central registration may already have inserted this slug with manage_options. Reconcile the stored submenu capability before WordPress performs admin_page_access_denied.
+					$submenu[ $parent ][ $index ][1] = $capability;
 					return;
 				}
 			}
@@ -106,7 +110,7 @@ final class BizCity_Gateway_Admin_SPA {
 			$parent,
 			__( 'Channels', 'bizcity-twin-ai' ),
 			__( 'Channels', 'bizcity-twin-ai' ),
-			'manage_options',
+			$capability,
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
 		);

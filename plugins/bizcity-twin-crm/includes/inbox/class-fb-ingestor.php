@@ -107,7 +107,10 @@ class BizCity_CRM_Facebook_Ingestor {
 		if ( ! is_string( $trigger_key ) ) { return; }
 		$code = self::resolve_trigger_code( $trigger_key, $trigger_data );
 		// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P2 trace
-		error_log( '[bizcity-crm-trace] P2 on_workflow_trigger key=' . $trigger_key . ' code=' . ( $code ?? 'NULL' ) );
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-LOG-NOISE — dropped: fired on every single workflow
+		// trigger (75/75 in a 1.5h sample) with `code` always resolved, nothing to diagnose. The failure
+		// case (code not resolved) keeps its own WARN line right below; an ingest exception further down
+		// keeps its own error_log() under WP_DEBUG. Neither depended on this line.
 		if ( ! $code ) {
 			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - record a reason bucket when a shared trigger lacks a trusted channel discriminator.
 			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {

@@ -600,8 +600,16 @@ class BizCity_Twin_Event_Bus {
 		// 4) Persist (single INSERT into event_stream)
 		$id = BizCity_Twin_Event_Store::persist( $event );
 		if ( $id === 0 ) {
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — a fixed sentence
+			// left the deployed FAIL undiagnosable and made every rerun reproduce it
+			// verbatim. Append the bounded reason bucket from the Store (value only —
+			// never SQL, never credentials) so one run names the failing boundary.
+			$reason = class_exists( 'BizCity_Twin_Event_Store' )
+				? BizCity_Twin_Event_Store::last_failure_reason()
+				: '';
 			throw new BizCity_Event_Validation_Exception(
 				"Failed to persist event {$event['event_uuid']} (type={$event_type})"
+				. ( $reason !== '' ? " · reason={$reason}" : '' )
 			);
 		}
 		$event['id'] = $id;

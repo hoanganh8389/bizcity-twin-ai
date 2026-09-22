@@ -1,3 +1,4 @@
+// Validate the legacy Context Bank manifest against the lifecycle roadmap, policy class and diagnostics catalog.
 import fs from 'node:fs';
 import path from 'node:path';
 

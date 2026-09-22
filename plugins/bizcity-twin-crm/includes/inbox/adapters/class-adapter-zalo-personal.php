@@ -145,7 +145,10 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		}
 		$first        = $attachments[0] ?? array();
 		$attachment_url = is_array( $first ) ? (string) ( $first['data_url'] ?? '' ) : '';
-		$type         = ( $content_type === 'image' && $attachment_url !== '' ) ? 'image' : 'text';
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-ORDER-SEND — the bridge downloads and sends any attachment URL; gating on content_type=image silently dropped PDFs/files and sent text only.
+		$type         = $attachment_url === '' ? 'text' : ( $content_type === 'image' ? 'image' : 'file' );
+		$attachment_meta = is_array( $first['meta'] ?? null ) ? $first['meta'] : ( is_string( $first['meta_json'] ?? null ) ? (array) json_decode( (string) $first['meta_json'], true ) : array() );
+		$attachment_name = sanitize_file_name( (string) ( $attachment_meta['name'] ?? $attachment_meta['file_name'] ?? ( is_array( $first ) ? ( $first['name'] ?? '' ) : '' ) ) );
 		$bridge       = class_exists( 'BizCity_Zalo_Bridge_Client' ) ? BizCity_Zalo_Bridge_Client::instance() : null;
 		if ( ! $bridge ) {
 			self::log_send_result( 'zalo_personal_bridge_missing', false, $conversation );
@@ -158,7 +161,7 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			// [2026-08-21 Johnny Chu] PHASE-0.39B — bridge receives caption text separately from attachment URL.
 			$text,
 			$type,
-			$type === 'image' ? array( array( 'url' => $attachment_url, 'name' => '' ) ) : array(),
+			$type !== 'text' ? array( array( 'url' => $attachment_url, 'name' => $attachment_name ) ) : array(),
 			$thread_kind,
 			$mentions,
 			$idempotency_key,

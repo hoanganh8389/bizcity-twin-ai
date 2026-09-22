@@ -246,6 +246,14 @@ class BizCity_TwinWeb_REST {
 				// [2026-09-08 10:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — expose only the registered server-owned Inbox filter set.
 				'filter'  => array( 'type' => 'string', 'default' => 'all', 'sanitize_callback' => 'sanitize_key' ),
 				'conversation_id' => array( 'type' => 'integer', 'default' => 0, 'sanitize_callback' => 'absint' ),
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — optional delta/older/recheck windows for the browser IndexedDB cache.
+				'after_id'    => array( 'type' => 'integer', 'default' => 0, 'sanitize_callback' => 'absint' ),
+				'before_id'   => array( 'type' => 'integer', 'default' => 0, 'sanitize_callback' => 'absint' ),
+				'recheck_ids' => array( 'type' => 'string', 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ),
+				'lite'        => array( 'type' => 'integer', 'default' => 0, 'sanitize_callback' => 'absint' ),
+				'sync_token'  => array( 'type' => 'string', 'default' => '', 'sanitize_callback' => 'sanitize_key' ),
+				// [PHASE-0.54 R-INBOX-PIPE-8] filter by resolved pipeline stage; 'stuck' is a pseudo-stage.
+				'stage'       => array( 'type' => 'string', 'default' => '', 'sanitize_callback' => 'sanitize_key' ),
 			),
 		) );
 		// [2026-09-12 10:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CX2 — expose a C-safe group roster through exact conversation scope; provider IDs remain opaque.
@@ -274,6 +282,30 @@ class BizCity_TwinWeb_REST {
 		register_rest_route( $ns, '/crm/inbox/conversations/(?P<id>\d+)/order-draft/confirmation', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( $this, 'post_crm_member_order_confirmation' ),
+			'permission_callback' => '__return_true',
+		) );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.7 — governed C order creation through the canonical CRM/Woo adapter.
+		register_rest_route( $ns, '/crm/inbox/conversations/(?P<id>\d+)/order', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( $this, 'post_crm_member_order_create' ),
+			'permission_callback' => '__return_true',
+		) );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-ORDER-SEND — send order recap / VietQR image to the customer through the canonical CRM send-order owner.
+		register_rest_route( $ns, '/crm/inbox/conversations/(?P<id>\d+)/orders/(?P<order_id>\d+)/send', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( $this, 'post_crm_member_order_send' ),
+			'permission_callback' => '__return_true',
+		) );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CUSTOMER-360 — exact C customer/commerce projection through existing owners.
+		register_rest_route( $ns, '/crm/inbox/conversations/(?P<id>\d+)/customer-360', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( $this, 'get_crm_member_customer360' ),
+			'permission_callback' => '__return_true',
+		) );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-DOCUMENTS — exact C projection over canonical CRM documents.
+		register_rest_route( $ns, '/crm/inbox/conversations/(?P<id>\d+)/documents', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( $this, 'get_crm_member_documents' ),
 			'permission_callback' => '__return_true',
 		) );
 		// [2026-09-12 11:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CX5 — add a member-safe customer wrapper over the canonical CRM contact owner.
@@ -411,6 +443,23 @@ class BizCity_TwinWeb_REST {
 				'args'                => array(
 					'idempotency_key' => array( 'type' => 'string', 'required' => true, 'minLength' => 16, 'maxLength' => 190, 'sanitize_callback' => 'sanitize_text_field' ),
 				),
+			),
+		) );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-COMPOSER-PARITY — private note + AI reply/suggest, forwarded to the same canonical CRM controller the manual send path already uses.
+		register_rest_route( $ns, '/mychannels/zalo-personal/conversations/(?P<id>\d+)/notes', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'post_mychannels_zalo_personal_note' ),
+			'permission_callback' => '__return_true',
+			'args'                => array(
+				'idempotency_key' => array( 'type' => 'string', 'required' => true, 'minLength' => 16, 'maxLength' => 190, 'sanitize_callback' => 'sanitize_text_field' ),
+			),
+		) );
+		register_rest_route( $ns, '/mychannels/zalo-personal/conversations/(?P<id>\d+)/ai-reply', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'post_mychannels_zalo_personal_ai_reply' ),
+			'permission_callback' => '__return_true',
+			'args'                => array(
+				'idempotency_key' => array( 'type' => 'string', 'required' => true, 'minLength' => 16, 'maxLength' => 190, 'sanitize_callback' => 'sanitize_text_field' ),
 			),
 		) );
 		register_rest_route( $ns, '/mychannels/zalo/bots', array(
@@ -663,9 +712,17 @@ class BizCity_TwinWeb_REST {
 
 		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — owner-scoped attachment upload for future tool inputs.
 		register_rest_route( $ns, '/attachments', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'upload_attachment' ),
-			'permission_callback' => '__return_true',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'upload_attachment' ),
+				'permission_callback' => '__return_true',
+			),
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY W4 — owner-scoped "Tệp của tôi" list for the Inbox media picker.
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'list_attachments' ),
+				'permission_callback' => '__return_true',
+			),
 		) );
 
 		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — owner-scoped attachment cleanup from composer strip.
@@ -1500,6 +1557,8 @@ class BizCity_TwinWeb_REST {
 					: ( empty( $conversation_route['needs_confirm'] ) ? (array) ( $conversation_route['force_notebooks'] ?? array() ) : array() ) ),
 				'focus_notebook_id'  => $focus_notebook_id,
 				'notebook_upload_url' => esc_url_raw( $notebook_upload_url ),
+				// [2026-09-19 Johnny Chu] PHASE-0.55-A2 — scope the pocket-team persona to authenticated Twin GPT member turns only.
+				'work_assistant_mode' => ! $is_profile_public && empty( $identity['is_guest'] ) && $user_id > 0,
 			) );
 			$trace_id = (string) ( $start['trace_id'] ?? '' );
 			if ( $focus_notebook_id > 0 ) {
@@ -1623,6 +1682,8 @@ class BizCity_TwinWeb_REST {
 					'attachment_ids' => $attachment_ids,
 					'attachments'    => $attachment_payload,
 					'notebook_upload_url' => esc_url_raw( $notebook_upload_url ),
+					// [2026-09-19 Johnny Chu] PHASE-0.55-A2 — do not affect public/profile or guest chat personas.
+					'work_assistant_mode' => ! $is_profile_public && empty( $identity['is_guest'] ) && $user_id > 0,
 				)
 			);
 			if ( $is_profile_public && class_exists( 'BizCity_Personal_Profile_Chat_Handler' ) ) {
@@ -3016,6 +3077,23 @@ class BizCity_TwinWeb_REST {
 	}
 
 	public function get_crm_exact_inbox( WP_REST_Request $request ) {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — opt-in timing split: `_timing.bootstrap_before_handler_ms`
+		// (WP/plugin/REST-dispatch cost incurred before this method body starts, from PHP's own request-start clock)
+		// vs `_timing.handler_ms` (everything this method itself does: ACL, SQL, shaping). A production self-check
+		// measured a "no-op" not_modified reply at ~3.8s; this tells us in one real request whether that time is
+		// spent before we are even called (then it is a bootstrap/hosting question, out of this phase's reach) or
+		// inside this handler (then it is ours to fix). Numbers only — never conversation content — always safe to return.
+		$timing_t0 = isset( $_SERVER['REQUEST_TIME_FLOAT'] ) ? (float) $_SERVER['REQUEST_TIME_FLOAT'] : null;
+		$timing_enter = microtime( true );
+		$with_timing = static function ( array $payload ) use ( $timing_t0, $timing_enter ) {
+			$now = microtime( true );
+			$payload['_timing'] = array(
+				'bootstrap_before_handler_ms' => null !== $timing_t0 ? (int) round( ( $timing_enter - $timing_t0 ) * 1000 ) : null,
+				'handler_ms'                  => (int) round( ( $now - $timing_enter ) * 1000 ),
+				'total_ms'                    => null !== $timing_t0 ? (int) round( ( $now - $timing_t0 ) * 1000 ) : null,
+			);
+			return $payload;
+		};
 		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — resolve identity, exact account and C-surface membership before reading conversations.
 		$identity = $this->mychannels_identity();
 		if ( is_wp_error( $identity ) ) {
@@ -3042,16 +3120,61 @@ class BizCity_TwinWeb_REST {
 		}
 		$conversation_id = (int) $request->get_param( 'conversation_id' );
 		// [2026-09-08 01:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — expose the same user-centric Inbox scope envelope to the C adapter.
-		$user_scope = method_exists( 'BizCity_CRM_Inbox_Access', 'resolve_user_inbox_scope' )
-			? BizCity_CRM_Inbox_Access::resolve_user_inbox_scope( (int) $identity['user_id'], 'c' )
-			: null;
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — resolved lazily right before each place it is actually used: resolve_user_inbox_scope() re-runs resolve_scope() internally (a handful of queries), and every `lite=1`/`not_modified` poll tick used to pay for it and then discard it.
+		$resolve_user_scope = static function () use ( $identity ) {
+			return method_exists( 'BizCity_CRM_Inbox_Access', 'resolve_user_inbox_scope' )
+				? BizCity_CRM_Inbox_Access::resolve_user_inbox_scope( (int) $identity['user_id'], 'c' )
+				: null;
+		};
 		if ( $conversation_id > 0 ) {
 			$rows = BizCity_CRM_Repository::list_conversations( array( 'id' => $conversation_id, 'inbox_id' => (int) $inbox['id'], 'limit' => 1 ) );
 			if ( empty( $rows ) ) {
 				return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại trong Inbox này.', 'Chọn một hội thoại thuộc đúng tài khoản CRM rồi thử lại.', 'not_found' );
 			}
-			$messages = array_map( array( $this, 'shape_mychannels_zalo_personal_message' ), BizCity_CRM_Repository::list_messages( $conversation_id, $limit, 0 ) );
-			return rest_ensure_response( array(
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — delta/older/recheck windows behind the same exact-inbox ACL above; no schema change.
+			$can_delta   = method_exists( 'BizCity_CRM_Repository', 'list_messages_before' );
+			$after_id    = absint( $request->get_param( 'after_id' ) );
+			$before_id   = absint( $request->get_param( 'before_id' ) );
+			$recheck_ids = array_slice( array_values( array_unique( array_filter( array_map( 'absint', explode( ',', (string) $request->get_param( 'recheck_ids' ) ) ) ) ) ), 0, 50 );
+			$mode        = 'full';
+			if ( $can_delta && $before_id > 0 ) {
+				$message_rows = BizCity_CRM_Repository::list_messages_before( $conversation_id, $before_id, $limit );
+				$mode = 'older';
+			} elseif ( $can_delta && $after_id > 0 ) {
+				$message_rows = BizCity_CRM_Repository::list_messages( $conversation_id, $limit, $after_id );
+				$mode = 'delta';
+			} else {
+				$message_rows = BizCity_CRM_Repository::list_messages( $conversation_id, $limit, 0 );
+			}
+			$messages = array_map( array( $this, 'shape_mychannels_zalo_personal_message' ), $message_rows );
+			$sync = array(
+				'mode'           => $mode,
+				'newest_id'      => $can_delta ? BizCity_CRM_Repository::get_conversation_newest_message_id( $conversation_id ) : 0,
+				'oldest_id'      => $messages ? (int) $messages[0]['id'] : 0,
+				'has_more_older' => 'delta' !== $mode && count( $messages ) >= $limit,
+				'has_more_newer' => 'delta' === $mode && count( $messages ) >= $limit,
+				'changed'        => array(),
+				'missing_ids'    => array(),
+				'server_time'    => current_time( 'mysql' ),
+			);
+			if ( $can_delta && $recheck_ids ) {
+				$changed = array_map( array( $this, 'shape_mychannels_zalo_personal_message' ), BizCity_CRM_Repository::get_messages_by_ids( $conversation_id, $recheck_ids ) );
+				$sync['changed']     = $changed;
+				$sync['missing_ids'] = array_values( array_diff( $recheck_ids, array_map( 'intval', array_column( $changed, 'id' ) ) ) );
+			}
+			if ( 'full' !== $mode && absint( $request->get_param( 'lite' ) ) ) {
+				// Poll path: skip the provider-resolving conversation shape and the action catalog.
+				return rest_ensure_response( $with_timing( array(
+					'success'  => true,
+					'messages' => $messages,
+					'sync'     => $sync,
+					'items'    => array(),
+					'_degraded' => false,
+				) ) );
+			}
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D6 — an empty thread is an explicit history state, never a silent blank.
+			return rest_ensure_response( $with_timing( array(
+				'sync' => $sync,
 				'success' => true,
 				'inbox' => array(
 					'id' => (int) $inbox['id'],
@@ -3059,22 +3182,44 @@ class BizCity_TwinWeb_REST {
 					'ref' => $ref,
 					'name' => sanitize_text_field( (string) ( $inbox['name'] ?? '' ) ),
 				),
-				'conversation' => $this->shape_mychannels_zalo_personal_conversation( $rows[0] ),
+				'conversation' => $this->shape_mychannels_zalo_personal_conversation( $rows[0], true ),
 				'messages' => $messages,
+				'history_unavailable' => 'full' === $mode && empty( $messages ),
+				'history_reason' => 'full' === $mode && empty( $messages ) ? 'no_local_messages' : '',
+				'freshness' => $this->crm_inbox_freshness( $inbox ),
 				'items' => array(),
 				'actions' => $this->crm_inbox_action_catalog( (int) $inbox['id'], (int) $identity['user_id'] ),
-				'user_scope' => $user_scope,
+				'user_scope' => $resolve_user_scope(),
 				'_degraded' => false,
-			) );
+			) ) );
 		}
+		// [PHASE-0.54 R-INBOX-PIPE-8] ?stage= — same over-fetch-then-filter-then-trim approach as the B2
+		// `/conversations` list (`class-rest-controller.php::merge_pipeline_into_conversations()`); stage is
+		// computed on read (R-PIPE-2), not a stored column.
+		$stage_filter = sanitize_key( (string) $request->get_param( 'stage' ) );
+		if ( '' !== $stage_filter && 'stuck' !== $stage_filter && class_exists( 'BizCity_CRM_Customer_Pipeline' ) && ! in_array( $stage_filter, BizCity_CRM_Customer_Pipeline::ALL_STAGES, true ) ) {
+			$stage_filter = '';
+		}
+		$requested_limit = $limit;
 		// [2026-09-08 10:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — map the requested filter to identity-derived repository predicates before list/count reads.
-		$list_args = array( 'inbox_id' => (int) $inbox['id'], 'limit' => $limit );
+		$list_args = array( 'inbox_id' => (int) $inbox['id'], 'limit' => '' !== $stage_filter ? min( 200, max( $limit * 6, 100 ) ) : $limit );
 		if ( 'mine' === $filter ) { $list_args['assignee_id'] = (int) $identity['user_id']; }
 		if ( 'unassigned' === $filter ) { $list_args['unassigned'] = true; }
 		if ( 'participating' === $filter ) { $list_args['participating_user_id'] = (int) $identity['user_id']; }
 		if ( 'unattended' === $filter ) { $list_args['unattended'] = true; }
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-LABEL-FILTER — optional tag filter: a CRM label id, or "none" for untagged conversations.
+		$label_param = sanitize_key( (string) $request->get_param( 'label' ) );
+		if ( 'none' === $label_param ) { $list_args['unlabeled'] = true; }
+		elseif ( ctype_digit( $label_param ) && (int) $label_param > 0 ) { $list_args['label_id'] = (int) $label_param; }
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — an unchanged list fingerprint answers not_modified before the list + 5 count queries.
+		$sync_token   = method_exists( 'BizCity_CRM_Repository', 'get_inbox_sync_token' ) ? BizCity_CRM_Repository::get_inbox_sync_token( $list_args ) : '';
+		$client_token = sanitize_key( (string) $request->get_param( 'sync_token' ) );
+		if ( '' !== $sync_token && '' !== $client_token && hash_equals( $sync_token, $client_token ) ) {
+			return rest_ensure_response( $with_timing( array( 'success' => true, 'not_modified' => true, 'sync_token' => $sync_token, 'items' => array(), '_degraded' => false ) ) );
+		}
 		$rows = BizCity_CRM_Repository::list_conversations( $list_args );
 		$items = array_map( array( $this, 'shape_mychannels_zalo_personal_conversation' ), $rows );
+		$items = $this->merge_pipeline_into_c_conversations( $items, $stage_filter, $requested_limit );
 		$counts = array(
 			'all' => BizCity_CRM_Repository::count_conversations( array( 'inbox_id' => (int) $inbox['id'] ) ),
 			'mine' => BizCity_CRM_Repository::count_conversations( array( 'inbox_id' => (int) $inbox['id'], 'assignee_id' => (int) $identity['user_id'] ) ),
@@ -3082,7 +3227,7 @@ class BizCity_TwinWeb_REST {
 			'participating' => BizCity_CRM_Repository::count_conversations( array( 'inbox_id' => (int) $inbox['id'], 'participating_user_id' => (int) $identity['user_id'] ) ),
 			'unattended' => BizCity_CRM_Repository::count_conversations( array( 'inbox_id' => (int) $inbox['id'], 'unattended' => true ) ),
 		);
-		return rest_ensure_response( array(
+		return rest_ensure_response( $with_timing( array(
 			'success' => true,
 			'inbox' => array(
 				'id' => (int) $inbox['id'],
@@ -3091,12 +3236,69 @@ class BizCity_TwinWeb_REST {
 				'name' => sanitize_text_field( (string) ( $inbox['name'] ?? '' ) ),
 			),
 			'items' => $items,
+			'sync_token' => $sync_token,
 			'filter' => $filter,
 			'counts' => $counts,
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D6 — expose CRM snapshot age separately from provider/bridge state.
+			'freshness' => $this->crm_inbox_freshness( $inbox ),
+			'history_unavailable' => empty( $items ),
+			'history_reason' => empty( $items ) ? 'no_local_conversations' : '',
 			'actions' => $this->crm_inbox_action_catalog( (int) $inbox['id'], (int) $identity['user_id'] ),
-			'user_scope' => $user_scope,
+			'user_scope' => $resolve_user_scope(),
 			'_degraded' => false,
-		) );
+		) ) );
+	}
+
+	/**
+	 * Build the C-surface freshness block for one exact CRM inbox.
+	 *
+	 * PHASE-0.41D §6.2 (D6) and PHASE-0.41 §5.5B point 4/5: `account_mapping`,
+	 * `bridge_health`, `session_status`, `queue_status` and `last_callback_at`
+	 * are separate facts. A CRM SQL read can only prove the CRM snapshot, so
+	 * every provider-owned field is reported as `not_evaluated` here instead of
+	 * being fabricated from local rows. The dedicated readiness/health routes
+	 * remain the only owners allowed to return a real provider state.
+	 *
+	 * @param array $inbox CRM inbox row.
+	 * @return array Bounded freshness descriptor.
+	 */
+	private function crm_inbox_freshness( array $inbox ) {
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D6 — never fabricate provider health from a second SQL read.
+		$inbox_id = (int) ( $inbox['id'] ?? 0 );
+		$snapshot = array(
+			'last_inbound_at'  => '',
+			'last_outbound_at' => '',
+			'queued_outbound'  => 0,
+			'message_count'    => 0,
+		);
+		if ( method_exists( 'BizCity_CRM_Repository', 'get_inbox_message_freshness' ) ) {
+			$snapshot = BizCity_CRM_Repository::get_inbox_message_freshness( $inbox_id );
+		}
+		$now = current_time( 'timestamp' );
+		$last_activity = '';
+		foreach ( array( $snapshot['last_inbound_at'], $snapshot['last_outbound_at'] ) as $candidate ) {
+			if ( '' !== (string) $candidate && ( '' === $last_activity || strtotime( (string) $candidate ) > strtotime( $last_activity ) ) ) {
+				$last_activity = (string) $candidate;
+			}
+		}
+		$age = '' !== $last_activity ? max( 0, (int) ( $now - strtotime( $last_activity ) ) ) : null;
+		$mapping_status = '' !== (string) ( $inbox['status'] ?? '' ) ? sanitize_key( (string) $inbox['status'] ) : 'unknown';
+		return array(
+			'contract'             => 'crm_snapshot',
+			'source'               => 'crm_sql_only',
+			'snapshot_at'          => current_time( 'mysql' ),
+			'snapshot_age_seconds' => $age,
+			'last_inbound_at'      => (string) $snapshot['last_inbound_at'],
+			'last_outbound_at'     => (string) $snapshot['last_outbound_at'],
+			'queued_outbound'      => (int) $snapshot['queued_outbound'],
+			'account_mapping'      => $mapping_status,
+			// Provider-owned facts are never inferred from CRM SQL.
+			'bridge_health'        => 'not_evaluated',
+			'session_status'       => 'not_evaluated',
+			'queue_status'         => 'not_evaluated',
+			'last_callback_at'     => null,
+			'reason'               => 'provider_state_not_fetched_in_list_read',
+		);
 	}
 
 	/** Return only bounded group roster fields after exact C conversation scope validation. */
@@ -3217,9 +3419,10 @@ class BizCity_TwinWeb_REST {
 		}
 		$body = $request->get_json_params();
 		$body = is_array( $body ) ? $body : array();
-		$action = sanitize_key( (string) ( $body['action'] ?? '' ) );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY — sanitize_key() strips the dot, turning "order.create" into "ordercreate" so every confirmation was rejected.
+		$action = strtolower( preg_replace( '/[^a-z0-9._-]/i', '', (string) ( $body['action'] ?? '' ) ) );
 		$request_hash = strtolower( preg_replace( '/[^a-f0-9]/i', '', (string) ( $body['request_hash'] ?? '' ) ) );
-		$idempotency_key = sanitize_text_field( (string) ( $body['idempotency_key'] ?? '' ) );
+		$idempotency_key = sanitize_text_field( (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: ( $body['idempotency_key'] ?? '' ) ) );
 		if ( ! in_array( $action, array( 'order.create', 'payment.link.issue', 'payment.qr.issue' ), true ) || strlen( $request_hash ) < 16 || strlen( $idempotency_key ) < 16 ) {
 			return $this->mychannels_error( 'invalid_param', 'Thiếu dữ liệu xác nhận thao tác.', 'Xem lại bản nháp và tạo mã idempotency hợp lệ.', 'invalid_param_generic' );
 		}
@@ -3233,6 +3436,219 @@ class BizCity_TwinWeb_REST {
 			'policy' => array( 'action' => $action, 'idempotency_required' => true, 'mutation_enabled' => false, 'mode' => 'prepare_only' ),
 			'_degraded' => false,
 		) );
+	}
+
+	/** Create one Woo order after exact C scope, confirmation and idempotency checks. */
+	public function post_crm_member_order_create( WP_REST_Request $request ) {
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.7 — consume the prepare token before the only C order mutation owner is called.
+		$context = $this->resolve_crm_member_care_context( $request );
+		if ( is_wp_error( $context ) || $context instanceof WP_REST_Response ) { return $context; }
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$confirmation = sanitize_text_field( (string) ( $body['confirmation_token'] ?? '' ) );
+		$request_hash = strtolower( preg_replace( '/[^a-f0-9]/i', '', (string) ( $body['request_hash'] ?? '' ) ) );
+		$idempotency_key = sanitize_text_field( (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: ( $body['idempotency_key'] ?? '' ) ) );
+		if ( strlen( $confirmation ) < 24 || strlen( $request_hash ) < 16 || strlen( $idempotency_key ) < 16 ) {
+			return $this->mychannels_error( 'invalid_param', 'Thiếu xác nhận hoặc mã thao tác tạo đơn.', 'Tạo lại bản nháp và xác nhận trước khi tạo đơn.', 'invalid_param_generic' );
+		}
+		if ( ! class_exists( 'BizCity_Twin_Action_Confirmation' ) || ! class_exists( 'BizCity_Twin_Mutation_Store' ) || ! class_exists( 'BizCity_CRM_Order_Adapter_Registry' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Bộ tạo đơn có kiểm soát chưa sẵn sàng.', 'Bật Twin Core, CRM Mutation Store và Order Adapter rồi thử lại.', 'module_not_loaded' );
+		}
+		$resource = 'conversation:' . (int) $context['conversation_id'] . ':contact:' . (int) $context['contact_id'];
+		$consumed = BizCity_Twin_Action_Confirmation::consume( $confirmation, 'order.create', $resource, $request_hash, array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $context['identity']['user_id'] ) );
+		if ( is_wp_error( $consumed ) ) { return $this->mychannels_error( 'confirmation_invalid', $consumed->get_error_message(), 'Tạo lại bản nháp và xác nhận lại.', 'confirmation_invalid' ); }
+		$items = array();
+		foreach ( array_slice( (array) ( $body['items'] ?? array() ), 0, 50 ) as $item ) {
+			if ( ! is_array( $item ) ) { continue; }
+			$product_id = absint( $item['product_id'] ?? 0 );
+			$qty = max( 1, min( 999, absint( $item['qty'] ?? 1 ) ) );
+			if ( $product_id <= 0 || ! function_exists( 'wc_get_product' ) || ! wc_get_product( $product_id ) ) { continue; }
+			$items[] = array( 'product_id' => $product_id, 'qty' => $qty );
+		}
+		if ( empty( $items ) ) { return $this->mychannels_error( 'invalid_param', 'Chưa chọn sản phẩm để tạo đơn.', 'Chọn ít nhất một sản phẩm rồi thử lại.', 'invalid_param_generic' ); }
+		$mutation = BizCity_Twin_Mutation_Store::begin( array( 'action' => 'order.create', 'idempotency_key' => $idempotency_key, 'resource' => array( 'scope' => $resource ) ), array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $context['identity']['user_id'] ), $request_hash );
+		if ( 'conflict' === (string) ( $mutation['status'] ?? '' ) ) { return $this->mychannels_error( 'invalid_param', 'Mã thao tác đã dùng cho dữ liệu khác.', 'Tạo lại bản nháp rồi thử lại.', 'invalid_param_generic' ); }
+		if ( 'pending' === (string) ( $mutation['status'] ?? '' ) ) { return $this->mychannels_error( 'invalid_param', 'Đơn đang được xử lý.', 'Đợi thao tác hiện tại hoàn tất rồi thử lại.', 'invalid_param_generic' ); }
+		if ( 'replay' === (string) ( $mutation['status'] ?? '' ) ) { $replayed = (array) ( $mutation['response'] ?? array() ); $replayed['idempotency_replayed'] = true; return rest_ensure_response( $replayed ); }
+		$adapter = BizCity_CRM_Order_Adapter_Registry::default_adapter();
+		$contact = BizCity_CRM_Repository::get_contact( (int) $context['contact_id'] );
+		if ( ! $adapter || ! $adapter->is_available() || ! is_array( $contact ) ) { BizCity_Twin_Mutation_Store::release( (string) ( $mutation['key'] ?? '' ) ); return $this->mychannels_error( 'gateway_degraded', 'Order Adapter hoặc hồ sơ khách hàng chưa sẵn sàng.', 'Kiểm tra Woo/CRM rồi thử lại.', 'gateway_degraded', array( '_degraded' => true ) ); }
+		try {
+			$result = $adapter->create_order( array( 'conversation_id' => (int) $context['conversation_id'], 'contact' => $contact, 'items' => $items, 'payment_option' => sanitize_text_field( (string) ( $body['payment_option'] ?? '' ) ), 'note' => sanitize_textarea_field( (string) ( $body['note'] ?? '' ) ) ) );
+		} catch ( \Throwable $e ) {
+			BizCity_Twin_Mutation_Store::release( (string) ( $mutation['key'] ?? '' ) );
+			return $this->mychannels_error( 'crm_order_failed', 'Không tạo được đơn hàng.', 'Kiểm tra sản phẩm, WooCommerce và phương thức thanh toán rồi thử lại.', 'crm_order_failed', array( '_degraded' => true ) );
+		}
+		$result['success'] = true;
+		$result['conversation_id'] = (int) $context['conversation_id'];
+		$result['contact_id'] = (int) $context['contact_id'];
+		$result['idempotency_replayed'] = false;
+		BizCity_Twin_Mutation_Store::complete( (string) $mutation['key'], $request_hash, $result );
+		return rest_ensure_response( $result );
+	}
+
+	/**
+	 * POST /crm/inbox/conversations/{id}/orders/{order_id}/send — mode "recap" (order summary) or "qr" (VietQR image + bank details).
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-ORDER-SEND — the order must belong to this exact contact before the CRM owner dispatches.
+	 */
+	public function post_crm_member_order_send( WP_REST_Request $request ) {
+		$context = $this->resolve_crm_member_care_context( $request );
+		if ( is_wp_error( $context ) || $context instanceof WP_REST_Response ) { return $context; }
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$order_id = absint( $request->get_param( 'order_id' ) );
+		$mode = sanitize_key( (string) ( $body['mode'] ?? 'recap' ) );
+		if ( $order_id <= 0 || ! in_array( $mode, array( 'recap', 'qr' ), true ) ) {
+			return $this->mychannels_error( 'invalid_param', 'Thao tác gửi đơn không hợp lệ.', 'Chọn lại đơn hàng rồi thử lại.', 'invalid_param_generic' );
+		}
+		if ( ! class_exists( 'BizCity_CRM_REST_Controller' ) || ! method_exists( 'BizCity_CRM_REST_Controller', 'post_send_order_to_customer' ) || ! function_exists( 'wc_get_order' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Bộ gửi đơn hàng chưa sẵn sàng.', 'Bật WooCommerce và CRM rồi thử lại.', 'module_not_loaded' );
+		}
+		$order = wc_get_order( $order_id );
+		$owner_contact_id = $order ? (int) $order->get_meta( '_bizcity_crm_contact_id' ) : 0;
+		$owns = $owner_contact_id > 0 && $owner_contact_id === (int) $context['contact_id'];
+		if ( ! $owns && $order && class_exists( 'BizCity_CRM_Order_Adapter_Registry' ) ) {
+			// Orders created before contact meta existed are matched through the adapter's own contact projection.
+			$adapter = BizCity_CRM_Order_Adapter_Registry::default_adapter();
+			$contact = BizCity_CRM_Repository::get_contact( (int) $context['contact_id'] );
+			if ( $adapter && $adapter->is_available() && is_array( $contact ) ) {
+				foreach ( (array) $adapter->list_orders_for_contact( array_merge( $contact, array( 'id' => (int) $context['contact_id'], 'conversation_id' => (int) $context['conversation_id'] ) ), 50 ) as $row ) {
+					if ( (int) ( $row['id'] ?? ( $row['order_id'] ?? 0 ) ) === $order_id ) { $owns = true; break; }
+				}
+			}
+		}
+		if ( ! $owns ) {
+			return $this->mychannels_error( 'not_found', 'Đơn hàng không thuộc khách hàng này.', 'Chọn đơn trong mục Đơn hàng của hội thoại rồi thử lại.', 'not_found' );
+		}
+		$idempotency_key = sanitize_text_field( (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: ( $body['idempotency_key'] ?? '' ) ) );
+		if ( strlen( $idempotency_key ) < 16 || strlen( $idempotency_key ) > 190 || ! class_exists( 'BizCity_Twin_Mutation_Store' ) ) {
+			return $this->mychannels_error( 'invalid_param', 'Thiếu mã idempotency cho thao tác gửi đơn.', 'Tạo mã thao tác mới rồi thử lại.', 'invalid_param_generic' );
+		}
+		$request_hash = md5( wp_json_encode( array( (int) $context['conversation_id'], $order_id, $mode ) ) );
+		$mutation_state = BizCity_Twin_Mutation_Store::begin( array( 'action' => 'crm_order.send_' . $mode, 'idempotency_key' => $idempotency_key, 'resource' => array( 'scope' => 'conversation:' . (int) $context['conversation_id'] ) ), array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $context['identity']['user_id'] ), $request_hash );
+		$state = (string) ( $mutation_state['status'] ?? '' );
+		if ( 'conflict' === $state ) { return $this->mychannels_error( 'invalid_param', 'Mã idempotency đã dùng cho dữ liệu khác.', 'Tạo mã thao tác mới rồi thử lại.', 'invalid_param_generic' ); }
+		if ( 'pending' === $state ) { return $this->mychannels_error( 'invalid_param', 'Đơn đang được gửi.', 'Đợi thao tác hiện tại hoàn tất.', 'invalid_param_generic' ); }
+		if ( 'replay' === $state ) { $replayed = (array) ( $mutation_state['response'] ?? array() ); $replayed['idempotency_replayed'] = true; return rest_ensure_response( $replayed ); }
+		$sub = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/send-order' );
+		$sub->set_url_params( array( 'id' => (int) $context['conversation_id'] ) );
+		$sub->set_header( 'Content-Type', 'application/json' );
+		$sub->set_body( wp_json_encode( array( 'order_id' => $order_id, 'mode' => $mode ) ) );
+		$response = BizCity_CRM_REST_Controller::post_send_order_to_customer( $sub );
+		$wrapped = $response instanceof WP_REST_Response ? $response->get_data() : array();
+		if ( ! is_array( $wrapped ) || false === ( $wrapped['ok'] ?? false ) ) {
+			BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
+			$reason = is_array( $wrapped ) ? sanitize_key( (string) ( $wrapped['error']['message'] ?? '' ) ) : '';
+			if ( 'order_payment_option_missing' === $reason ) {
+				return $this->mychannels_error( 'invalid_param', 'Đơn chưa có tài khoản ngân hàng để tạo QR.', 'Cấu hình ngân hàng nhận tiền trong CRM rồi thử lại.', 'invalid_param_generic' );
+			}
+			return $this->mychannels_error( 'crm_projection_failed', 'Chưa gửi được thông tin đơn hàng.', 'Kiểm tra kết nối Zalo rồi thử lại.', 'gateway_degraded', array( 'reason' => $reason ) );
+		}
+		$data = is_array( $wrapped['data'] ?? null ) ? $wrapped['data'] : array();
+		$dispatch = is_array( $data['dispatch'] ?? null ) ? $data['dispatch'] : array();
+		$result = array(
+			'success'      => true,
+			'mode'         => $mode,
+			'order_id'     => $order_id,
+			'sent'         => ! empty( $data['sent'] ),
+			'has_qr_image' => ! empty( $data['has_qr_image'] ),
+			'dispatch'     => array( 'sent' => ! empty( $dispatch['sent'] ), 'outcome' => sanitize_key( (string) ( $dispatch['outcome'] ?? '' ) ), 'error' => sanitize_text_field( (string) ( $dispatch['error'] ?? '' ) ) ),
+			'idempotency_replayed' => false,
+		);
+		BizCity_Twin_Mutation_Store::complete( (string) $mutation_state['key'], $request_hash, $result );
+		return rest_ensure_response( $result );
+	}
+
+	/** Return the bounded profile/order/care projection for one exact C conversation. */
+	public function get_crm_member_customer360( WP_REST_Request $request ) {
+		$context = $this->resolve_crm_member_care_context( $request );
+		if ( is_wp_error( $context ) || $context instanceof WP_REST_Response ) { return $context; }
+		$contact = BizCity_CRM_Repository::get_contact( (int) $context['contact_id'] );
+		if ( ! is_array( $contact ) ) { return $this->mychannels_error( 'not_found', 'Chưa có hồ sơ khách hàng.', 'Đợi CRM liên kết hồ sơ rồi thử lại.', 'not_found' ); }
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 M4-02 — one serializer owner for the C Customer 360;
+		// `?format=contract` returns the `member-customer-360@1.0.0` envelope, default keeps the flat DTO the UI reads.
+		if ( ! class_exists( 'BizCity_TwinWeb_Member_Customer_360', false ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Hồ sơ khách hàng chưa sẵn sàng.', 'Tải lại trang rồi thử lại.', 'module_not_loaded' );
+		}
+		$bundle = BizCity_TwinWeb_Member_Customer_360::collect( $context, $contact );
+		if ( 'contract' === sanitize_key( (string) $request->get_param( 'format' ) ) ) {
+			return rest_ensure_response( BizCity_TwinWeb_Member_Customer_360::envelope( $bundle ) );
+		}
+		return rest_ensure_response( BizCity_TwinWeb_Member_Customer_360::legacy( $bundle ) );
+	}
+
+	/**
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 W6 — member-safe short journey (`member-customer-360@1.0.0`).
+	 * Sources are limited to what the member can already open: conversations in the member's own inboxes and the
+	 * orders already returned to C. No colleague identity, no assignment history, no leader notes, no KPI —
+	 * `previously_cared` is a boolean only (R-LM-6). Stage is derived from order evidence only, never inferred.
+	 */
+	private function crm_member_journey( array $context, array $contact, array $orders ): array {
+		// PHASE-0.50 M4-02 — moved to BizCity_TwinWeb_Member_Customer_360::journey().
+		return BizCity_TwinWeb_Member_Customer_360::journey( $context, $contact, $orders );
+	}
+
+	/**
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 R-LM-6 — member-safe task slice: only the current member's own
+	 * tasks for this contact; a colleague's tasks on the same customer never reach the C rail.
+	 */
+	private function crm_member_own_tasks( array $tasks, int $member_id ): array {
+		// PHASE-0.50 M4-02 — moved to BizCity_TwinWeb_Member_Customer_360::own_tasks().
+		return BizCity_TwinWeb_Member_Customer_360::own_tasks( $tasks, $member_id );
+	}
+
+	/** Read documents linked to the exact C contact/conversation through the CRM document owner. */
+	public function get_crm_member_documents( WP_REST_Request $request ) {
+		$context = $this->resolve_crm_member_care_context( $request );
+		if ( is_wp_error( $context ) || $context instanceof WP_REST_Response ) { return $context; }
+		if ( ! class_exists( 'BizCity_CRM_REST_Controller' ) || ! method_exists( 'BizCity_CRM_REST_Controller', 'get_crm_documents' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Kho tài liệu CRM chưa sẵn sàng.', 'Bật CRM Documents rồi thử lại.', 'module_not_loaded' ); }
+		$sub = new WP_REST_Request( 'GET', '/bizcity-crm/v1/crm-documents' );
+		$sub->set_param( 'related_entity_type', 'contact' );
+		$sub->set_param( 'related_entity_id', (int) $context['contact_id'] );
+		$sub->set_param( 'limit', 100 );
+		$response = BizCity_CRM_REST_Controller::get_crm_documents( $sub );
+		$data = $response instanceof WP_REST_Response ? $response->get_data() : array();
+		$documents = array();
+		foreach ( (array) ( $data['documents'] ?? array() ) as $document ) {
+			if ( ! is_array( $document ) ) { continue; }
+			$path = (string) ( $document['path'] ?? '' );
+			$documents[] = array(
+				'id'          => (int) ( $document['id'] ?? 0 ),
+				'name'        => (string) ( $document['name'] ?? '' ),
+				'type'        => (string) ( $document['type'] ?? 'file' ),
+				'size_bytes'  => (int) ( $document['size_bytes'] ?? 0 ),
+				'path'        => $path,
+				'url'         => 0 === strpos( $path, 'http' ) ? esc_url_raw( $path ) : '',
+				'uploaded_at' => $document['uploaded_at'] ?? null,
+				'source'      => 'crm',
+			);
+		}
+		// [2026-09-17 10:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-DOCUMENTS — mirror the /crm/ Zalo file list so C sees the same media inventory as the admin drawer.
+		if ( class_exists( 'BizCity_CRM_Repository' ) && method_exists( 'BizCity_CRM_Repository', 'list_messages' ) ) {
+			$rows = BizCity_CRM_Repository::list_messages( (int) $context['conversation_id'], 100, 0 );
+			foreach ( (array) $rows as $row ) {
+				if ( ! is_array( $row ) ) { continue; }
+				$message_id = (int) ( $row['id'] ?? 0 );
+				foreach ( array_values( (array) ( $row['attachments'] ?? array() ) ) as $attachment_index => $attachment ) {
+					if ( ! is_array( $attachment ) ) { continue; }
+					$url = esc_url_raw( (string) ( $attachment['data_url'] ?? '' ) );
+					if ( $url === '' ) { continue; }
+					$attachment_meta = json_decode( (string) ( $attachment['meta_json'] ?? '' ), true );
+					$file_name = is_array( $attachment_meta ) ? sanitize_text_field( (string) ( $attachment_meta['file_name'] ?? $attachment_meta['name'] ?? '' ) ) : '';
+					$documents[] = array(
+						'id'          => 'message-' . $message_id . '-' . (int) $attachment_index,
+						'name'        => $file_name !== '' ? $file_name : 'Tệp từ Zalo · tin #' . $message_id,
+						'type'        => sanitize_key( (string) ( $attachment['file_type'] ?? 'file' ) ),
+						'size_bytes'  => 0,
+						'path'        => '',
+						'url'         => $url,
+						'uploaded_at' => $row['created_at'] ?? null,
+						'source'      => 'zalo',
+					);
+				}
+			}
+		}
+		return rest_ensure_response( array( 'success' => true, 'conversation_id' => (int) $context['conversation_id'], 'contact_id' => (int) $context['contact_id'], 'documents' => $documents, '_degraded' => ! empty( $data['_degraded'] ) ) );
 	}
 
 	/** Create one contact through the canonical CRM Repository for an authorized Inbox. */
@@ -3308,6 +3724,10 @@ class BizCity_TwinWeb_REST {
 			return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại trong phạm vi của bạn.', 'Chọn một hội thoại thuộc đúng tài khoản CRM.', 'not_found' );
 		}
 		$contact_id = (int) ( $conversation['contact_id'] ?? 0 );
+		if ( $contact_id <= 0 && method_exists( 'BizCity_CRM_Repository', 'get_conversation_contact_id' ) ) {
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CRM-CONTEXT — resolve the canonical contact through the repository join before failing closed.
+			$contact_id = (int) BizCity_CRM_Repository::get_conversation_contact_id( $conversation_id );
+		}
 		if ( $contact_id <= 0 ) {
 			return $this->mychannels_error( 'not_found', 'Hội thoại chưa có hồ sơ khách hàng.', 'Đợi CRM hoàn tất liên kết hồ sơ rồi thử lại.', 'not_found' );
 		}
@@ -3332,8 +3752,19 @@ class BizCity_TwinWeb_REST {
 			}
 			$fields['email'] = $email;
 		}
+		if ( array_key_exists( 'name', $body ) ) {
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-RENAME — let an agent fix a stale/unresolved Zalo group label straight on the canonical CRM contact row.
+			$name = trim( sanitize_text_field( (string) $body['name'] ) );
+			if ( $name === '' ) {
+				return $this->mychannels_error( 'invalid_param', 'Tên không được để trống.', 'Nhập tên hiển thị rồi thử lại.', 'invalid_param_generic' );
+			}
+			if ( mb_strlen( $name ) > 190 ) {
+				return $this->mychannels_error( 'invalid_param', 'Tên quá dài.', 'Rút ngắn tên còn dưới 190 ký tự rồi thử lại.', 'invalid_param_generic' );
+			}
+			$fields['name'] = $name;
+		}
 		if ( empty( $fields ) ) {
-			return $this->mychannels_error( 'invalid_param', 'Chưa có thông tin cần cập nhật.', 'Nhập số điện thoại hoặc email rồi thử lại.', 'invalid_param_generic' );
+			return $this->mychannels_error( 'invalid_param', 'Chưa có thông tin cần cập nhật.', 'Nhập số điện thoại, email hoặc tên rồi thử lại.', 'invalid_param_generic' );
 		}
 		// [2026-09-12 09:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CONTACT-FACTS — require the canonical mutation store before an exact-contact facts write.
 		$idempotency_key = sanitize_text_field( (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: ( $body['idempotency_key'] ?? '' ) ) );
@@ -3378,18 +3809,47 @@ class BizCity_TwinWeb_REST {
 				return $this->mychannels_error( 'invalid_param', 'Email hoặc số điện thoại đã thuộc hồ sơ khác.', 'Kiểm tra lại thông tin hoặc mở hồ sơ đang sở hữu dữ liệu này.', 'contact_identity_conflict' );
 			}
 		}
-		$crm_request = new WP_REST_Request( 'PUT', '/bizcity-crm/v1/crm-contacts/' . $contact_id );
-		$crm_request->set_body_params( $fields );
-		$response = rest_do_request( $crm_request );
-		if ( is_wp_error( $response ) ) {
-			BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
-			return $this->mychannels_error( 'crm_projection_failed', 'Chưa cập nhật được thông tin khách hàng.', 'Kiểm tra CRM rồi thử lại.', 'crm_projection_failed' );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY — write the canonical bizcity_crm_contacts row directly and verify it.
+		// The previous internal rest_do_request( PUT /crm-contacts ) reported success while the posted facts never reached the row (only updated_at changed).
+		$update = $fields;
+		foreach ( array( 'phone', 'email' ) as $nullable ) {
+			if ( array_key_exists( $nullable, $update ) && '' === $update[ $nullable ] ) { $update[ $nullable ] = null; }
 		}
-		if ( $response instanceof WP_REST_Response && $response->get_status() >= 400 ) {
-			BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
-			return $this->mychannels_error( 'crm_projection_failed', 'Chưa cập nhật được thông tin khách hàng.', 'Kiểm tra CRM rồi thử lại.', 'crm_projection_failed' );
+		$update['updated_at'] = current_time( 'mysql' );
+		$written = $wpdb->update( $contacts_table, $update, array( 'id' => $contact_id ) );
+		$saved_row = false === $written ? null : BizCity_CRM_Repository::get_contact( $contact_id );
+		$persisted = is_array( $saved_row );
+		if ( $persisted ) {
+			foreach ( $fields as $key => $value ) {
+				if ( (string) ( $saved_row[ $key ] ?? '' ) !== (string) $value ) { $persisted = false; break; }
+			}
 		}
-		$data = $response instanceof WP_REST_Response ? $response->get_data() : array();
+		if ( ! $persisted ) {
+			BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
+			return $this->mychannels_error( 'crm_projection_failed', 'Chưa lưu được thông tin khách hàng.', 'Dữ liệu chưa ghi vào hồ sơ CRM. Thử lại hoặc báo quản trị viên.', 'crm_projection_failed', array( 'reason' => false === $written ? 'db_write_failed' : 'verify_mismatch' ) );
+		}
+		if ( method_exists( 'BizCity_CRM_Repository', 'invalidate_read_models' ) ) { BizCity_CRM_Repository::invalidate_read_models(); }
+		do_action( 'bizcity_crm_contact_saved', $contact_id, $saved_row );
+		$data = array(
+			'id'    => $contact_id,
+			'name'  => sanitize_text_field( (string) ( $saved_row['name'] ?? '' ) ),
+			'phone' => sanitize_text_field( (string) ( $saved_row['phone'] ?? '' ) ),
+			'email' => sanitize_email( (string) ( $saved_row['email'] ?? '' ) ),
+		);
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY — group titles read additional_attributes.group_name first, so a manual rename must update it too or the old stub keeps showing.
+		if ( isset( $fields['name'] ) ) {
+			$conversation_rows = BizCity_CRM_Repository::list_conversations( array( 'id' => $conversation_id, 'limit' => 1 ) );
+			$source_id = ! empty( $conversation_rows ) ? (string) ( $conversation_rows[0]['source_id'] ?? '' ) : '';
+			if ( 0 === strpos( $source_id, 'group:' ) ) {
+				$contact_row = BizCity_CRM_Repository::get_contact( $contact_id );
+				$attributes = is_array( $contact_row ) ? json_decode( (string) ( $contact_row['additional_attributes'] ?? '' ), true ) : array();
+				$attributes = is_array( $attributes ) ? $attributes : array();
+				$attributes['group_name'] = $fields['name'];
+				$attributes['group_name_source'] = 'manual';
+				$wpdb->update( $contacts_table, array( 'additional_attributes' => wp_json_encode( $attributes ) ), array( 'id' => $contact_id ), array( '%s' ), array( '%d' ) );
+				if ( method_exists( 'BizCity_CRM_Repository', 'invalidate_read_models' ) ) { BizCity_CRM_Repository::invalidate_read_models(); }
+			}
+		}
 		$facts_response = array( 'success' => true, 'contact' => is_array( $data ) ? $data : array(), 'conversation_id' => $conversation_id, 'idempotency_replayed' => false );
 		BizCity_Twin_Mutation_Store::complete( (string) $mutation_state['key'], $request_hash, $facts_response );
 		return rest_ensure_response( $facts_response );
@@ -3407,6 +3867,10 @@ class BizCity_TwinWeb_REST {
 		$inbox_id = is_array( $conversation ) ? (int) ( $conversation['inbox_id'] ?? 0 ) : 0;
 		if ( ! is_array( $conversation ) || $inbox_id <= 0 || ! in_array( $inbox_id, $allowed, true ) ) { return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại trong phạm vi của bạn.', 'Chọn một hội thoại thuộc đúng tài khoản CRM.', 'not_found' ); }
 		$contact_id = (int) ( $conversation['contact_id'] ?? 0 );
+		if ( $contact_id <= 0 && method_exists( 'BizCity_CRM_Repository', 'get_conversation_contact_id' ) ) {
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CRM-CONTEXT — conversations store contact_inbox_id, so resolve the canonical contact through the repository join before failing closed.
+			$contact_id = (int) BizCity_CRM_Repository::get_conversation_contact_id( $conversation_id );
+		}
 		if ( $contact_id <= 0 ) { return $this->mychannels_error( 'not_found', 'Hội thoại chưa có hồ sơ khách hàng.', 'Đợi CRM liên kết hồ sơ rồi thử lại.', 'not_found' ); }
 		return array( 'identity' => $identity, 'conversation_id' => $conversation_id, 'contact_id' => $contact_id, 'inbox_id' => $inbox_id, 'allowed_inboxes' => $allowed );
 	}
@@ -3429,7 +3893,7 @@ class BizCity_TwinWeb_REST {
 				$events[] = array( 'id' => (int) ( $raw['id'] ?? 0 ), 'title' => (string) ( $raw['title'] ?? '' ), 'event_type' => (string) ( $raw['event_type'] ?? 'meeting' ), 'start_at' => $raw['start_at'] ?? null, 'end_at' => $raw['end_at'] ?? null, 'status' => (string) ( $raw['status'] ?? '' ), 'created_at' => $raw['created_at'] ?? null );
 			}
 		}
-		return rest_ensure_response( array( 'success' => true, 'contact_id' => (int) $context['contact_id'], 'conversation_id' => (int) $context['conversation_id'], 'notes' => $care['notes'] ?? array(), 'tasks' => $care['tasks'] ?? array(), 'events' => $events, 'labels' => $care['labels'] ?? array() ) );
+		return rest_ensure_response( array( 'success' => true, 'contact_id' => (int) $context['contact_id'], 'conversation_id' => (int) $context['conversation_id'], 'notes' => $care['notes'] ?? array(), 'tasks' => $this->crm_member_own_tasks( (array) ( $care['tasks'] ?? array() ), (int) $context['identity']['user_id'] ), 'handoff_tasks' => class_exists( 'BizCity_CRM_Task_Handoff' ) ? BizCity_CRM_Task_Handoff::list_for_member( (int) $context['identity']['user_id'], 'all', 20, (int) $context['contact_id'] ) : array(), 'events' => $events, 'labels' => $care['labels'] ?? array() ) );
 	}
 
 	/** Delegate contact care mutations to existing CRM note/task/event/label owners. */
@@ -3439,8 +3903,15 @@ class BizCity_TwinWeb_REST {
 		$body = $request->get_json_params();
 		$body = is_array( $body ) ? $body : array();
 		$action = sanitize_key( (string) ( $body['action'] ?? 'note' ) );
-		if ( ! in_array( $action, array( 'note', 'task', 'event', 'labels' ), true ) ) {
-			return $this->mychannels_error( 'invalid_param', 'Thao tác chăm sóc không hợp lệ.', 'Chọn ghi chú, đặt lịch hoặc gán nhãn.', 'invalid_param_generic' );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SLICE-Q — `assignee`/`team`/`priority` close
+		// the "mutation wrapper pending" gap on the execution board: the read-only capability catalog
+		// (crm_inbox_action_catalog()) already exposed these, but only `labels` had a write path.
+		// PHASE-0.48F U6-04 — `activity` writes through the same CRM contact-activity service B2 uses.
+		// [PHASE-0.54 R-INBOX-PIPE-12, D54-3] `snooze`/`unsnooze`/`resolve`/`reopen` — members may hoãn/đóng/mở
+		// lại their OWN conversations (same dispatch-to-canonical-owner pattern as `priority`/`assignee` above;
+		// `resolve_crm_member_care_context()` below still re-checks the conversation is inside this member's scope).
+		if ( ! in_array( $action, array( 'note', 'task', 'event', 'activity', 'labels', 'assignee', 'team', 'priority', 'snooze', 'unsnooze', 'resolve', 'reopen' ), true ) ) {
+			return $this->mychannels_error( 'invalid_param', 'Thao tác chăm sóc không hợp lệ.', 'Chọn ghi chú, đặt lịch, activity, gán nhãn, giao người, nhóm, ưu tiên, hoãn hoặc đóng hội thoại.', 'invalid_param_generic' );
 		}
 		// [2026-09-10 08:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CARE — require the canonical bounded mutation store before any note/task/event/label side effect.
 		$idempotency_key = sanitize_text_field( (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: ( $body['idempotency_key'] ?? '' ) ) );
@@ -3518,12 +3989,65 @@ class BizCity_TwinWeb_REST {
 			$response = array( 'success' => true, 'action' => $action, 'contact_id' => (int) $context['contact_id'], 'conversation_id' => (int) $context['conversation_id'], 'data' => array( 'event_id' => (int) $event_id ), 'idempotency_replayed' => false );
 			BizCity_Twin_Mutation_Store::complete( (string) $mutation_state['key'], $request_hash, $response );
 			return rest_ensure_response( $response );
+		} elseif ( 'activity' === $action ) {
+			if ( ! class_exists( 'BizCity_CRM_REST_Controller' ) || ! method_exists( 'BizCity_CRM_REST_Controller', 'create_contact_activity' ) ) {
+				BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
+				return $this->mychannels_error( 'module_not_loaded', 'Activity CRM chưa sẵn sàng.', 'Cập nhật plugin CRM rồi thử lại.', 'module_not_loaded' );
+			}
+			$created = BizCity_CRM_REST_Controller::create_contact_activity( (int) $context['contact_id'], array(
+				'type'  => sanitize_key( (string) ( $body['type'] ?? 'note' ) ),
+				'title' => (string) ( $body['title'] ?? '' ),
+				'body'  => (string) ( $body['body'] ?? '' ),
+			), (int) $context['identity']['user_id'] );
+			if ( is_wp_error( $created ) ) {
+				BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
+				$error_data = (array) $created->get_error_data();
+				return $this->mychannels_error( 'invalid_param', $created->get_error_message(), (string) ( $error_data['hint'] ?? 'Kiểm tra thông tin rồi thử lại.' ), 'invalid_param_generic', array( 'reason' => sanitize_key( $created->get_error_code() ) ) );
+			}
+			if ( method_exists( 'BizCity_CRM_Repository', 'forget_contact_care_projection' ) ) { BizCity_CRM_Repository::forget_contact_care_projection( (int) $context['contact_id'], $context['allowed_inboxes'], 50 ); }
+			$response = array( 'success' => true, 'action' => $action, 'contact_id' => (int) $context['contact_id'], 'conversation_id' => (int) $context['conversation_id'], 'data' => array( 'activity' => $created ), 'idempotency_replayed' => false );
+			BizCity_Twin_Mutation_Store::complete( (string) $mutation_state['key'], $request_hash, $response );
+			return rest_ensure_response( $response );
 		} elseif ( 'labels' === $action ) {
 			$labels = isset( $body['labels'] ) && is_array( $body['labels'] ) ? array_values( array_map( 'absint', $body['labels'] ) ) : array();
 			$sub = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/labels' );
 			// [2026-09-10 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CARE — preserve the canonical conversation route parameter when forwarding the C label mutation.
 			$sub->set_param( 'id', (int) $context['conversation_id'] );
 			$sub->set_body_params( array( 'labels' => $labels ) );
+		} elseif ( 'assignee' === $action ) {
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SLICE-Q — 0/absent unassigns; the
+			// canonical owner still re-checks `bizcity_crm_assign_conversations`/Team Manager membership
+			// for the *current* WP user, so a member whose capability catalog under-reported `assignee`
+			// fails closed here rather than trusting the browser's cached capability flag.
+			$assignee_id = max( 0, absint( $body['assignee_id'] ?? 0 ) );
+			$sub = new WP_REST_Request( 'PATCH', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/assignee' );
+			$sub->set_param( 'id', (int) $context['conversation_id'] );
+			$sub->set_body_params( array( 'assignee_id' => $assignee_id ) );
+		} elseif ( 'team' === $action ) {
+			$team_id = max( 0, absint( $body['team_id'] ?? 0 ) );
+			$sub = new WP_REST_Request( 'PUT', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/team' );
+			$sub->set_param( 'id', (int) $context['conversation_id'] );
+			$sub->set_body_params( array( 'team_id' => $team_id ) );
+		} elseif ( 'priority' === $action ) {
+			$priority = absint( $body['priority'] ?? 0 );
+			if ( $priority > 3 ) { return $this->mychannels_error( 'invalid_param', 'Mức ưu tiên không hợp lệ.', 'Chọn Thấp, Vừa, Cao hoặc Khẩn.', 'invalid_param_generic' ); }
+			$sub = new WP_REST_Request( 'PUT', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/priority' );
+			$sub->set_param( 'id', (int) $context['conversation_id'] );
+			$sub->set_body_params( array( 'priority' => $priority ) );
+		} elseif ( 'resolve' === $action ) {
+			$sub = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/resolve' );
+			$sub->set_param( 'id', (int) $context['conversation_id'] );
+		} elseif ( 'reopen' === $action ) {
+			$sub = new WP_REST_Request( 'PUT', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/reopen' );
+			$sub->set_param( 'id', (int) $context['conversation_id'] );
+		} elseif ( 'snooze' === $action ) {
+			$duration = max( 60, absint( $body['duration_seconds'] ?? 0 ) );
+			$sub = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/snooze' );
+			$sub->set_param( 'id', (int) $context['conversation_id'] );
+			$sub->set_body_params( array_filter( array( 'duration_seconds' => $duration, 'until' => sanitize_text_field( (string) ( $body['until'] ?? '' ) ) ) ) );
+		} elseif ( 'unsnooze' === $action ) {
+			$sub = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . (int) $context['conversation_id'] . '/unsnooze' );
+			$sub->set_param( 'id', (int) $context['conversation_id'] );
 		}
 		$response = rest_do_request( $sub );
 		if ( is_wp_error( $response ) || ( $response instanceof WP_REST_Response && $response->get_status() >= 400 ) ) {
@@ -3544,10 +4068,46 @@ class BizCity_TwinWeb_REST {
 		}
 		// [2026-09-10 05:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CARE — invalidate contact-care projections after every successful CRM/Scheduler mutation.
 		if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( 'crm_repository' ); }
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY — flush_group is a no-op on object caches without group support; drop the exact projection key the C rail reads.
+		if ( method_exists( 'BizCity_CRM_Repository', 'forget_contact_care_projection' ) ) { BizCity_CRM_Repository::forget_contact_care_projection( (int) $context['contact_id'], $context['allowed_inboxes'], 50 ); }
 		$data = $response instanceof WP_REST_Response ? $response->get_data() : array();
 		$care_response = array( 'success' => true, 'action' => $action, 'contact_id' => (int) $context['contact_id'], 'conversation_id' => (int) $context['conversation_id'], 'data' => is_array( $data ) ? $data : array(), 'idempotency_replayed' => false );
 		BizCity_Twin_Mutation_Store::complete( (string) $mutation_state['key'], $request_hash, $care_response );
 		return rest_ensure_response( $care_response );
+	}
+
+	/**
+	 * [PHASE-0.54 R-INBOX-PIPE-8] Batch-resolve pipeline stage for a page of C conversation rows (one
+	 * `Customer_Pipeline::rows()` call), stamp `pipeline_stage/pipeline_days/pipeline_stuck/
+	 * pipeline_payment_pending`, apply `$stage_filter` ('' | a stage | 'stuck'), trim to `$limit`.
+	 * Member-safe: stage is the member's OWN customer, same scope as the rest of this response.
+	 */
+	private function merge_pipeline_into_c_conversations( array $items, string $stage_filter, int $limit ): array {
+		if ( empty( $items ) || ! class_exists( 'BizCity_CRM_Customer_Pipeline' ) ) { return $items; }
+		$contact_ids = array_values( array_unique( array_filter( array_map( static function ( $item ) {
+			return (int) ( $item['contact_id'] ?? 0 );
+		}, $items ) ) ) );
+		if ( empty( $contact_ids ) ) { return $items; }
+		$rows = BizCity_CRM_Customer_Pipeline::rows( $contact_ids );
+		$out = array();
+		foreach ( $items as $item ) {
+			$cid = (int) ( $item['contact_id'] ?? 0 );
+			$row = $rows[ $cid ] ?? null;
+			$item['pipeline_stage'] = $row ? (string) $row['stage'] : null;
+			$item['pipeline_days'] = $row ? (int) $row['days'] : null;
+			$item['pipeline_stuck'] = $row ? (bool) $row['stuck'] : false;
+			$item['pipeline_payment_pending'] = $row ? (bool) $row['payment_pending'] : false;
+			if ( '' !== $stage_filter ) {
+				if ( 'stuck' === $stage_filter ) {
+					if ( empty( $item['pipeline_stuck'] ) ) { continue; }
+				} elseif ( $item['pipeline_stage'] !== $stage_filter ) {
+					continue;
+				}
+			}
+			$out[] = $item;
+			if ( $limit > 0 && count( $out ) >= $limit ) { break; }
+		}
+		return $out;
 	}
 
 	private function crm_inbox_action_catalog( int $inbox_id, int $user_id ): array {
@@ -3572,7 +4132,16 @@ class BizCity_TwinWeb_REST {
 		foreach ( $members as $member ) {
 			if ( (int) $member['id'] === $user_id ) { $current_member = $member; break; }
 		}
-		$can_write = current_user_can( 'manage_options' ) || current_user_can( 'edit_posts' ) || current_user_can( 'bizcity_crm_handle_inbox' );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SLICE-Q — this used to allow plain
+		// `edit_posts`, which the canonical `can_write_inbox_scope()` no longer accepts after
+		// PHASE-0.49-E2 (write now strictly requires the Inbox handle capability). Left as-is, a
+		// member with only `edit_posts` would see priority/labels/notes render as usable here and
+		// then get a 403 from every one of those forwarded mutations. Delegate to the same capability
+		// check `can_write_inbox_scope()` uses so this catalog can never promise more than the
+		// canonical CRM owner will actually allow.
+		$can_write = class_exists( 'BizCity_CRM_Capabilities' ) && method_exists( 'BizCity_CRM_Capabilities', 'user_can_handle_inbox' )
+			? BizCity_CRM_Capabilities::user_can_handle_inbox( $user_id )
+			: ( current_user_can( 'manage_options' ) || current_user_can( 'bizcity_crm_handle_inbox' ) );
 		$can_assign = current_user_can( 'manage_options' ) || ( ! empty( $current_member ) && ( ! empty( $current_member['can_assign'] ) || in_array( $current_member['role'], array( 'lead', 'supervisor' ), true ) ) );
 		// [2026-09-08 04:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48-CX2 — expose capability truth for the C tool stack; unavailable mutations stay disabled instead of being invented in React.
 		$inbox = class_exists( 'BizCity_CRM_Repository' ) ? BizCity_CRM_Repository::get_inbox( $inbox_id ) : array();
@@ -3617,10 +4186,23 @@ class BizCity_TwinWeb_REST {
 				'friend' => false,
 				'create_group' => false,
 				'group_roster' => (bool) $is_group_capable,
-				'activity' => false,
+				'activity' => (bool) $can_write,
 				'contact_facts' => (bool) $can_write,
 				'order_draft' => (bool) $order_draft_capable,
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.7 — real order creation is enabled only behind the confirmation/mutation owner.
+				'order_create' => (bool) ( $order_draft_capable && class_exists( 'BizCity_Twin_Action_Confirmation' ) && class_exists( 'BizCity_Twin_Mutation_Store' ) ),
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY W0-4 — composer buttons render only when this build of the REST layer owns the route.
+				'private_note' => (bool) ( $can_write && 'zalo_personal' === $channel && method_exists( $this, 'post_mychannels_zalo_personal_note' ) && class_exists( 'BizCity_CRM_REST_Controller' ) ),
+				'ai_reply' => (bool) ( $can_write && 'zalo_personal' === $channel && method_exists( $this, 'post_mychannels_zalo_personal_ai_reply' ) && class_exists( 'BizCity_CRM_AI_Replier' ) ),
+				'order_send' => (bool) ( $order_draft_capable && 'zalo_personal' === $channel && class_exists( 'BizCity_Twin_Mutation_Store' ) && method_exists( 'BizCity_CRM_REST_Controller', 'post_send_order_to_customer' ) ),
+				// [PHASE-0.54 D54-3] a member may hoãn/đóng/mở lại their OWN conversations — same gate as priority/labels.
+				'snooze' => (bool) $can_write,
+				'resolve' => (bool) $can_write,
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — the browser sends after_id/before_id/recheck_ids/sync_token only when this build can answer them.
+				'message_delta' => (bool) ( method_exists( 'BizCity_CRM_Repository', 'list_messages_before' ) && method_exists( 'BizCity_CRM_Repository', 'get_inbox_sync_token' ) ),
 			),
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — static change marker the browser polls instead of this REST route; '' disables it.
+			'change_signal_url' => method_exists( 'BizCity_CRM_Repository', 'change_signal_url' ) ? esc_url_raw( BizCity_CRM_Repository::change_signal_url() ) : '',
 			'assignees' => array_slice( $members, 0, 50 ),
 			'teams' => $teams,
 			'labels' => $labels,
@@ -3885,7 +4467,7 @@ class BizCity_TwinWeb_REST {
 		return array_values( array_unique( $ids ) );
 	}
 
-	private function shape_mychannels_zalo_personal_conversation( array $row ): array {
+	private function shape_mychannels_zalo_personal_conversation( array $row, bool $resolve_group_name = false ): array {
 		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — return a C-safe conversation DTO, never the CRM admin serializer.
 		// [2026-09-08 09:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7/V1 — expose only bounded priority/assignment/label cues for Inbox row parity; do not expose staff PII or widen ACL.
 		$labels_raw = trim( (string) ( $row['cached_label_list'] ?? '' ) );
@@ -3899,10 +4481,24 @@ class BizCity_TwinWeb_REST {
 			$group_name = sanitize_text_field( (string) ( $contact_attributes['group_name'] ?? $contact_attributes['display_name'] ?? $group_name ) );
 		}
 		$group_key = $is_group ? substr( hash_hmac( 'sha256', 'group|' . $source_id, wp_salt( 'auth' ) ), 0, 32 ) : '';
+		// [2026-09-17 11:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CX2 — when the CRM contact has no stored group label, resolve it once from the provider and persist it so the C title matches /crm/.
+		if ( $is_group && $group_name === '' && $resolve_group_name && class_exists( 'BizCity_Zalo_Bridge_Client' ) ) {
+			$group_name = $this->resolve_mychannels_group_name( $row );
+		}
+		$avatar_url = ! empty( $row['contact_avatar'] ) ? esc_url_raw( (string) $row['contact_avatar'] ) : '';
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-AVATAR — lazily pull the Zalo avatar when a conversation is opened and persist it on the canonical contact.
+		if ( $avatar_url === '' && $resolve_group_name && 'zalo_personal' === sanitize_key( (string) ( $row['channel_type'] ?? 'zalo_personal' ) ) && class_exists( 'BizCity_Zalo_Bridge_Client' ) ) {
+			$avatar_url = $this->resolve_mychannels_contact_avatar( $row, $is_group );
+		}
 		return array(
 			'id'               => (int) ( $row['id'] ?? 0 ),
 			'inbox_id'         => (int) ( $row['inbox_id'] ?? 0 ),
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CRM-CONTEXT — expose the canonical contact reference needed by the scoped order-draft owner; this is not an ACL input.
+			'contact_id'       => (int) ( $row['contact_id'] ?? 0 ),
 			'status'           => sanitize_key( (string) ( $row['status'] ?? '' ) ),
+			// [PHASE-0.54 D54-3] the Hoãn control in the right column needs to know if it's already snoozed.
+			'is_snoozed'       => isset( $row['snoozed_until'] ) && null !== $row['snoozed_until'] && (int) $row['snoozed_until'] > time(),
+			'snoozed_until'    => isset( $row['snoozed_until'] ) && null !== $row['snoozed_until'] ? (int) $row['snoozed_until'] : null,
 			'priority'         => (int) ( $row['priority'] ?? 0 ),
 			'assignee_present' => ! empty( $row['assignee_id'] ),
 			'team_present'     => ! empty( $row['team_id'] ),
@@ -3921,16 +4517,120 @@ class BizCity_TwinWeb_REST {
 				'group_key'  => $group_key !== '' ? $group_key : null,
 				'is_group'   => $is_group,
 				'thread_kind'=> $is_group ? 'group' : 'personal',
-				'avatar_url' => ! empty( $row['contact_avatar'] ) ? esc_url_raw( (string) $row['contact_avatar'] ) : null,
+				'avatar_url' => $avatar_url !== '' ? $avatar_url : null,
 			),
 			'channel'          => sanitize_key( (string) ( $row['channel_type'] ?? 'zalo_personal' ) ),
 			'c_surface_safe'   => true,
 		);
 	}
 
+	/**
+	 * Resolve the provider group label for one CRM source_id and persist it on the canonical contact.
+	 *
+	 * [2026-09-17 11:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CX2 — the provider label is read
+	 * through the server-side bridge and stored via the canonical CRM contact writer; failures stay
+	 * degraded and never widen the C scope.
+	 */
+	/**
+	 * Fetch a Zalo avatar (user profile or group) through the bridge and store it on bizcity_crm_contacts.avatar_url.
+	 * Throttled per contact so bridges without the profile route (or live session) are not hammered on every open.
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-AVATAR.
+	 */
+	private function resolve_mychannels_contact_avatar( array $row, bool $is_group ): string {
+		$contact_id = (int) ( $row['contact_id'] ?? 0 );
+		$inbox_id   = (int) ( $row['inbox_id'] ?? 0 );
+		$source_id  = (string) ( $row['source_id'] ?? '' );
+		if ( $contact_id <= 0 || $inbox_id <= 0 || $source_id === '' || ! class_exists( 'BizCity_CRM_Repository' ) ) { return ''; }
+		$throttle_key = 'bizcity_twinweb_avatar_probe_' . get_current_blog_id() . '_' . $contact_id;
+		if ( get_transient( $throttle_key ) ) { return ''; }
+		set_transient( $throttle_key, 1, 6 * HOUR_IN_SECONDS );
+		$inbox = BizCity_CRM_Repository::get_inbox( $inbox_id );
+		$account_id = is_array( $inbox ) ? (string) ( $inbox['channel_ref_id'] ?? '' ) : '';
+		if ( $account_id === '' ) { return ''; }
+		$client = BizCity_Zalo_Bridge_Client::instance();
+		if ( $is_group ) {
+			$result = $client->get_group_name( $account_id, substr( $source_id, 6 ) );
+		} else {
+			$user_id = preg_replace( '/^(user|zalo|zp):/', '', $source_id );
+			if ( ! is_string( $user_id ) || ! preg_match( '/^\d{5,32}$/', $user_id ) || ! method_exists( $client, 'get_user_profile' ) ) { return ''; }
+			$result = $client->get_user_profile( $account_id, $user_id );
+		}
+		if ( ! is_array( $result ) || empty( $result['success'] ) || ! empty( $result['_degraded'] ) ) { return ''; }
+		$avatar = esc_url_raw( (string) ( $result['avatar_url'] ?? '' ) );
+		if ( $avatar === '' || ! wp_http_validate_url( $avatar ) ) { return ''; }
+		global $wpdb;
+		$wpdb->update( BizCity_CRM_DB_Installer_V2::tbl_contacts(), array( 'avatar_url' => $avatar, 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $contact_id ), array( '%s', '%s' ), array( '%d' ) );
+		if ( method_exists( 'BizCity_CRM_Repository', 'invalidate_read_models' ) ) { BizCity_CRM_Repository::invalidate_read_models(); }
+		return $avatar;
+	}
+
+	private function resolve_mychannels_group_name( array $row ): string {
+		$source_id = (string) ( $row['source_id'] ?? '' );
+		$group_id  = 0 === strpos( $source_id, 'group:' ) ? substr( $source_id, 6 ) : '';
+		$inbox_id  = (int) ( $row['inbox_id'] ?? 0 );
+		if ( $group_id === '' || $inbox_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) ) { return ''; }
+		$inbox = BizCity_CRM_Repository::get_inbox( $inbox_id );
+		$account_id = is_array( $inbox ) ? (string) ( $inbox['channel_ref_id'] ?? '' ) : '';
+		if ( $account_id === '' ) { return ''; }
+		$result = BizCity_Zalo_Bridge_Client::instance()->get_group_name( $account_id, $group_id );
+		if ( ! is_array( $result ) || ! empty( $result['_degraded'] ) || empty( $result['success'] ) ) { return ''; }
+		$group_name = sanitize_text_field( (string) ( $result['group_name'] ?? '' ) );
+		if ( $group_name === '' ) { return ''; }
+		$contact_id = (int) ( $row['contact_id'] ?? 0 );
+		if ( $contact_id <= 0 ) { return $group_name; }
+		$contact = BizCity_CRM_Repository::get_contact( $contact_id );
+		$attributes = is_array( $contact ) ? json_decode( (string) ( $contact['additional_attributes'] ?? '' ), true ) : array();
+		$attributes = is_array( $attributes ) ? $attributes : array();
+		if ( (string) ( $attributes['group_name'] ?? '' ) === $group_name ) { return $group_name; }
+		$attributes['group_name'] = $group_name;
+		global $wpdb;
+		$wpdb->update(
+			BizCity_CRM_DB_Installer_V2::tbl_contacts(),
+			array( 'additional_attributes' => wp_json_encode( $attributes ) ),
+			array( 'id' => $contact_id ),
+			array( '%s' ),
+			array( '%d' )
+		);
+		return $group_name;
+	}
+
 	private function shape_mychannels_zalo_personal_message( array $row ): array {
 		// [2026-08-29 Johnny Chu] PHASE-0-RULE-TWIN-GPT-FIRST-USER-ID-PII-SURFACE — omit provider IDs, responder metadata, delivery payload and admin URLs from C messages.
+		// [2026-09-17 10:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CRM-CONTEXT — C message parity with /crm/: surface the group sender name, real delivery state, reply preview and media attachments instead of a text-only DTO.
 		$delivery = is_array( $row['delivery'] ?? null ) ? $row['delivery'] : array();
+		if ( empty( $delivery ) && ! empty( $row['payload_json'] ) ) {
+			$payload = json_decode( (string) $row['payload_json'], true );
+			if ( is_array( $payload ) && is_array( $payload['delivery'] ?? null ) ) { $delivery = $payload['delivery']; }
+		}
+		$ai = array();
+		if ( ! empty( $row['ai_metadata_json'] ) ) {
+			$decoded = json_decode( (string) $row['ai_metadata_json'], true );
+			if ( is_array( $decoded ) ) { $ai = $decoded; }
+		}
+		$thread_kind = sanitize_key( (string) ( $ai['thread_kind'] ?? '' ) );
+		$sender_name = 'group' === $thread_kind ? sanitize_text_field( (string) ( $ai['sender_name'] ?? '' ) ) : '';
+		$attachments = array();
+		foreach ( (array) ( $row['attachments'] ?? array() ) as $attachment ) {
+			if ( ! is_array( $attachment ) ) { continue; }
+			$url = esc_url_raw( (string) ( $attachment['data_url'] ?? '' ) );
+			if ( $url === '' ) { continue; }
+			$meta = json_decode( (string) ( $attachment['meta_json'] ?? '' ), true );
+			$attachments[] = array(
+				'id'        => (int) ( $attachment['id'] ?? 0 ),
+				'file_type' => sanitize_key( (string) ( $attachment['file_type'] ?? 'file' ) ),
+				'url'       => $url,
+				'thumb_url' => ! empty( $attachment['thumb_url'] ) ? esc_url_raw( (string) $attachment['thumb_url'] ) : null,
+				'name'      => is_array( $meta ) ? sanitize_text_field( (string) ( $meta['file_name'] ?? $meta['name'] ?? '' ) ) : '',
+			);
+		}
+		$reply_to = array();
+		if ( is_array( $ai['reply_to'] ?? null ) ) {
+			$reply_name    = sanitize_text_field( (string) ( $ai['reply_to']['sender_name'] ?? '' ) );
+			$reply_content = sanitize_text_field( (string) ( $ai['reply_to']['content'] ?? '' ) );
+			if ( $reply_name !== '' || $reply_content !== '' ) {
+				$reply_to = array( 'sender_name' => $reply_name, 'content' => $reply_content );
+			}
+		}
 		return array(
 			'id'              => (int) ( $row['id'] ?? 0 ),
 			'conversation_id' => (int) ( $row['conversation_id'] ?? 0 ),
@@ -3940,6 +4640,10 @@ class BizCity_TwinWeb_REST {
 			'sender_type'     => sanitize_key( (string) ( $row['sender_type'] ?? '' ) ),
 			'status'          => sanitize_key( (string) ( $row['status'] ?? '' ) ),
 			'created_at'      => $row['created_at'] ?? null,
+			'thread_kind'     => $thread_kind,
+			'sender_name'     => $sender_name,
+			'attachments'     => $attachments,
+			'reply_to'        => $reply_to ? $reply_to : null,
 			'delivery'        => array(
 				'sent'        => ! empty( $delivery['sent'] ),
 				'outcome'     => sanitize_key( (string) ( $delivery['outcome'] ?? ( ! empty( $row['status'] ) ? $row['status'] : 'unknown' ) ) ),
@@ -3990,7 +4694,7 @@ class BizCity_TwinWeb_REST {
 		$inbox_ids = $this->mychannels_zalo_personal_inbox_ids( (int) $identity['user_id'] );
 		$rows = class_exists( 'BizCity_CRM_Repository' ) && $id > 0 && ! empty( $inbox_ids ) ? BizCity_CRM_Repository::list_conversations( array( 'id' => $id, 'inbox_ids' => $inbox_ids, 'limit' => 1 ) ) : array();
 		if ( empty( $rows ) ) { return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại Zalo Personal.', 'Chọn hội thoại trong Inbox của bạn rồi thử lại.', 'not_found' ); }
-		$item = $this->shape_mychannels_zalo_personal_conversation( $rows[0] );
+		$item = $this->shape_mychannels_zalo_personal_conversation( $rows[0], true );
 		return rest_ensure_response( array( 'success' => true, 'conversation' => $item ) );
 	}
 
@@ -4070,6 +4774,9 @@ class BizCity_TwinWeb_REST {
 				'data_url'  => esc_url_raw( (string) ( $attachment['url'] ?? '' ) ),
 				'thumb_url' => esc_url_raw( (string) ( $attachment['url'] ?? '' ) ),
 				'size'      => (int) ( $attachment['size'] ?? 0 ),
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY W4 — CRM post_message reads name/mime at top level; nested-only meta made every file fail as attachment_mime_not_allowed.
+				'name'      => sanitize_file_name( (string) ( $attachment['filename'] ?? '' ) ),
+				'mime'      => sanitize_mime_type( $mime ),
 				'meta'      => array(
 					'name' => sanitize_file_name( (string) ( $attachment['filename'] ?? '' ) ),
 					'mime' => sanitize_mime_type( $mime ),
@@ -4083,6 +4790,174 @@ class BizCity_TwinWeb_REST {
 			if ( $crm_response->get_status() >= 400 || ! is_array( $wrapped ) || false === ( $wrapped['ok'] ?? false ) ) {
 				BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
 				return $this->mychannels_error( 'crm_projection_failed', 'Chưa gửi được tin nhắn.', 'Kiểm tra kết nối kênh rồi thử lại.', 'gateway_degraded' );
+			}
+			$payload = is_array( $wrapped['data'] ?? null ) ? $wrapped['data'] : $wrapped;
+			if ( isset( $payload['message'] ) && is_array( $payload['message'] ) ) {
+				$payload['message'] = $this->shape_mychannels_zalo_personal_message( $payload['message'] );
+			}
+			$payload['success'] = true;
+			$payload['idempotency_replayed'] = false;
+			BizCity_Twin_Mutation_Store::complete( (string) $mutation_state['key'], $request_hash, $payload );
+			return rest_ensure_response( $payload );
+		}
+		BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
+		return $crm_response;
+	}
+
+	/** Resolve+own-check one Zalo Personal conversation for the current mychannels identity, or return an error response. */
+	private function mychannels_zalo_personal_owned_conversation( WP_REST_Request $request, bool $connected_only = true ) {
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để thao tác trên hội thoại.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$id = (int) $request->get_param( 'id' );
+		// [2026-09-19 02:05 PM Johnny Chu] PHASE-0.59-CRM-AI-ASSISTANT-RELEVANCE-RELIABILITY — AI draft generation reads the CRM conversation even when the Zalo session is expired; only an outbound dispatch requires a live connected inbox.
+		$inbox_ids = $this->mychannels_zalo_personal_inbox_ids( (int) $identity['user_id'], $connected_only );
+		$conversation = class_exists( 'BizCity_CRM_Repository' ) && $id > 0 ? BizCity_CRM_Repository::list_conversations( array( 'id' => $id, 'inbox_ids' => $inbox_ids, 'limit' => 1 ) ) : array();
+		if ( empty( $conversation ) && $connected_only ) {
+			// Keep ownership errors distinct from a dead Zalo session: the C Inbox already proved that the conversation is visible in the user's scope.
+			$visible_ids = $this->mychannels_zalo_personal_inbox_ids( (int) $identity['user_id'], false );
+			$visible = class_exists( 'BizCity_CRM_Repository' ) && $id > 0 ? BizCity_CRM_Repository::list_conversations( array( 'id' => $id, 'inbox_ids' => $visible_ids, 'limit' => 1 ) ) : array();
+			if ( ! empty( $visible ) ) {
+				$visible_inbox_id = (int) ( $visible[0]['inbox_id'] ?? 0 );
+				$accounts = class_exists( 'BizCity_Zalo_Mapping_Repo' ) ? BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner( (int) $identity['user_id'] ) : array();
+				foreach ( $accounts as $account ) {
+					if ( (int) ( $account['crm_inbox_id'] ?? 0 ) !== $visible_inbox_id ) { continue; }
+					$status = sanitize_key( (string) ( $account['status'] ?? '' ) );
+					if ( in_array( $status, array( 'expired', 'logged_out', 'revoked' ), true ) ) {
+						return $this->mychannels_error( 'zalo_session_expired', 'Phiên Zalo Personal đã hết.', 'Đăng nhập lại bằng QR rồi thử AI reply gửi cho khách.', 'zalo_session_expired' );
+					}
+					return $this->mychannels_error( 'zalo_bridge_offline', 'Kết nối Zalo Personal chưa sẵn sàng.', 'Kiểm tra bridge rồi thử lại sau.', 'zalo_bridge_offline' );
+				}
+			}
+		}
+		if ( empty( $conversation ) ) { return $this->mychannels_error( 'not_found', 'Không tìm thấy hội thoại Zalo Personal.', 'Chọn hội thoại trong Inbox của bạn rồi thử lại.', 'not_found' ); }
+		if ( ! class_exists( 'BizCity_CRM_REST_Controller' ) ) { return $this->mychannels_error( 'module_not_loaded', 'CRM Inbox chưa sẵn sàng.', 'Bật module BizCity Twin CRM rồi thử lại.', 'module_not_loaded' ); }
+		return array( 'identity' => $identity, 'conversation_id' => $id );
+	}
+
+	/**
+	 * POST /mychannels/zalo-personal/conversations/{id}/notes — internal private note.
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-COMPOSER-PARITY — mirror send_mychannels_zalo_personal_message's forward-to-canonical-CRM pattern for the Composer "Private note" tab.
+	 */
+	public function post_mychannels_zalo_personal_note( WP_REST_Request $request ) {
+		$context = $this->mychannels_zalo_personal_owned_conversation( $request );
+		if ( is_wp_error( $context ) || ! is_array( $context ) ) { return $context; }
+		$id = (int) $context['conversation_id'];
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$content = trim( (string) ( $body['content'] ?? '' ) );
+		if ( $content === '' ) { return $this->mychannels_error( 'invalid_param', 'Nội dung ghi chú không được để trống.', 'Nhập ghi chú rồi thử lại.', 'invalid_param_generic' ); }
+		if ( strlen( $content ) > 10000 ) { return $this->mychannels_error( 'invalid_param', 'Ghi chú vượt quá độ dài cho phép.', 'Rút ngắn nội dung rồi lưu lại.', 'invalid_param_generic' ); }
+		$idempotency_key = sanitize_text_field( (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: ( $body['idempotency_key'] ?? '' ) ) );
+		if ( strlen( $idempotency_key ) < 16 || strlen( $idempotency_key ) > 190 ) {
+			return $this->mychannels_error( 'invalid_param', 'Thiếu mã idempotency cho ghi chú.', 'Tạo mã thao tác mới rồi thử lại.', 'invalid_param_generic' );
+		}
+		if ( ! class_exists( 'BizCity_Twin_Mutation_Store' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Bộ chống ghi trùng chưa sẵn sàng.', 'Bật lớp an toàn thao tác rồi thử lại.', 'module_not_loaded' );
+		}
+		$mutation = array(
+			'action'          => 'crm_note.private',
+			'idempotency_key' => $idempotency_key,
+			'resource'        => array( 'scope' => 'conversation:' . $id ),
+			'trace_id'        => (string) ( $request->get_header( 'x-bizcity-trace-id' ) ?: '' ),
+		);
+		$request_hash = md5( wp_json_encode( array( $id, $content ) ) );
+		$mutation_state = BizCity_Twin_Mutation_Store::begin( $mutation, array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $context['identity']['user_id'] ), $request_hash );
+		if ( 'conflict' === (string) ( $mutation_state['status'] ?? '' ) ) {
+			return $this->mychannels_error( 'invalid_param', 'Mã idempotency đã dùng cho dữ liệu khác.', 'Tạo mã thao tác mới rồi thử lại.', 'invalid_param_generic' );
+		}
+		if ( 'pending' === (string) ( $mutation_state['status'] ?? '' ) ) {
+			return $this->mychannels_error( 'invalid_param', 'Ghi chú đang được xử lý.', 'Đợi thao tác hiện tại hoàn tất rồi thử lại.', 'invalid_param_generic' );
+		}
+		if ( 'replay' === (string) ( $mutation_state['status'] ?? '' ) ) {
+			$replayed = (array) ( $mutation_state['response'] ?? array() );
+			$replayed['idempotency_replayed'] = true;
+			return rest_ensure_response( $replayed );
+		}
+		$crm_request = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . $id . '/notes' );
+		$crm_request->set_url_params( array( 'id' => $id ) );
+		$crm_request->set_header( 'Content-Type', 'application/json' );
+		$crm_request->set_body( wp_json_encode( array( 'content' => $content ) ) );
+		$crm_response = BizCity_CRM_REST_Controller::post_note( $crm_request );
+		if ( $crm_response instanceof WP_REST_Response ) {
+			$wrapped = $crm_response->get_data();
+			if ( $crm_response->get_status() >= 400 || ! is_array( $wrapped ) || false === ( $wrapped['ok'] ?? false ) ) {
+				BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
+				return $this->mychannels_error( 'crm_projection_failed', 'Chưa lưu được ghi chú.', 'Kiểm tra kết nối CRM rồi thử lại.', 'gateway_degraded' );
+			}
+			$payload = is_array( $wrapped['data'] ?? null ) ? $wrapped['data'] : $wrapped;
+			if ( isset( $payload['message'] ) && is_array( $payload['message'] ) ) {
+				$payload['message'] = $this->shape_mychannels_zalo_personal_message( $payload['message'] );
+			} elseif ( is_array( $payload ) && isset( $payload['id'] ) ) {
+				$payload = array( 'message' => $this->shape_mychannels_zalo_personal_message( $payload ) );
+			}
+			$payload['success'] = true;
+			$payload['idempotency_replayed'] = false;
+			BizCity_Twin_Mutation_Store::complete( (string) $mutation_state['key'], $request_hash, $payload );
+			return rest_ensure_response( $payload );
+		}
+		BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
+		return $crm_response;
+	}
+
+	/**
+	 * POST /mychannels/zalo-personal/conversations/{id}/ai-reply — "Gợi ý" (dispatch=false, suggestion only)
+	 * and "AI reply" (dispatch=true, sends via the Zalo Personal adapter) both land here.
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-COMPOSER-PARITY.
+	 */
+	public function post_mychannels_zalo_personal_ai_reply( WP_REST_Request $request ) {
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$prompt = trim( (string) ( $body['prompt'] ?? '' ) );
+		if ( strlen( $prompt ) > 4000 ) { return $this->mychannels_error( 'invalid_param', 'Prompt vượt quá độ dài cho phép.', 'Rút ngắn prompt rồi thử lại.', 'invalid_param_generic' ); }
+		$dispatch = ! isset( $body['dispatch'] ) || (bool) $body['dispatch'];
+		// [2026-09-19 02:05 PM Johnny Chu] PHASE-0.59-CRM-AI-ASSISTANT-RELEVANCE-RELIABILITY — suggestion is a draft-only read and remains usable while the account is expired; a real AI send still requires a connected Zalo inbox.
+		$context = $this->mychannels_zalo_personal_owned_conversation( $request, $dispatch );
+		if ( is_wp_error( $context ) || ! is_array( $context ) ) { return $context; }
+		if ( ! class_exists( 'BizCity_CRM_AI_Replier' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'AI reply chưa sẵn sàng.', 'Bật module AI Replier rồi thử lại.', 'module_not_loaded' );
+		}
+		$id = (int) $context['conversation_id'];
+		$idempotency_key = sanitize_text_field( (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: ( $body['idempotency_key'] ?? '' ) ) );
+		if ( strlen( $idempotency_key ) < 16 || strlen( $idempotency_key ) > 190 ) {
+			return $this->mychannels_error( 'invalid_param', 'Thiếu mã idempotency cho AI reply.', 'Tạo mã thao tác mới rồi thử lại.', 'invalid_param_generic' );
+		}
+		if ( ! class_exists( 'BizCity_Twin_Mutation_Store' ) ) {
+			return $this->mychannels_error( 'module_not_loaded', 'Bộ chống ghi trùng chưa sẵn sàng.', 'Bật lớp an toàn thao tác rồi thử lại.', 'module_not_loaded' );
+		}
+		$mutation = array(
+			'action'          => 'crm_ai_reply.' . ( $dispatch ? 'send' : 'suggest' ),
+			'idempotency_key' => $idempotency_key,
+			'resource'        => array( 'scope' => 'conversation:' . $id ),
+			'trace_id'        => (string) ( $request->get_header( 'x-bizcity-trace-id' ) ?: '' ),
+		);
+		$request_hash = md5( wp_json_encode( array( $id, $prompt, $dispatch ) ) );
+		$mutation_state = BizCity_Twin_Mutation_Store::begin( $mutation, array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $context['identity']['user_id'] ), $request_hash );
+		if ( 'conflict' === (string) ( $mutation_state['status'] ?? '' ) ) {
+			return $this->mychannels_error( 'invalid_param', 'Mã idempotency đã dùng cho dữ liệu khác.', 'Tạo mã thao tác mới rồi thử lại.', 'invalid_param_generic' );
+		}
+		if ( 'pending' === (string) ( $mutation_state['status'] ?? '' ) ) {
+			return $this->mychannels_error( 'invalid_param', 'AI reply đang được xử lý.', 'Đợi thao tác hiện tại hoàn tất rồi thử lại.', 'invalid_param_generic' );
+		}
+		if ( 'replay' === (string) ( $mutation_state['status'] ?? '' ) ) {
+			$replayed = (array) ( $mutation_state['response'] ?? array() );
+			$replayed['idempotency_replayed'] = true;
+			return rest_ensure_response( $replayed );
+		}
+		$crm_request = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . $id . '/ai-reply' );
+		$crm_request->set_url_params( array( 'id' => $id ) );
+		$crm_request->set_header( 'Content-Type', 'application/json' );
+		// Suggest ("Gợi ý") is draft-only: CRM returns text without inserting a message row (D3).
+		$crm_body = $dispatch ? array( 'dispatch' => true ) : array( 'dispatch' => false, 'draft_only' => true );
+		if ( $prompt !== '' ) { $crm_body['prompt'] = $prompt; }
+		$crm_request->set_body( wp_json_encode( $crm_body ) );
+		$crm_response = BizCity_CRM_REST_Controller::post_ai_reply( $crm_request );
+		if ( $crm_response instanceof WP_REST_Response ) {
+			$wrapped = $crm_response->get_data();
+			if ( $crm_response->get_status() >= 400 || ! is_array( $wrapped ) || false === ( $wrapped['ok'] ?? false ) ) {
+				BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
+				return $this->mychannels_error( 'crm_projection_failed', 'Chưa tạo được AI reply.', 'Kiểm tra notebook/character của tài khoản rồi thử lại.', 'gateway_degraded' );
 			}
 			$payload = is_array( $wrapped['data'] ?? null ) ? $wrapped['data'] : $wrapped;
 			if ( isset( $payload['message'] ) && is_array( $payload['message'] ) ) {
@@ -11486,6 +12361,64 @@ class BizCity_TwinWeb_REST {
 		return $payload;
 	}
 
+	/**
+	 * MIME types the CRM outbound owner (`BizCity_CRM_REST_Controller::post_message`) accepts;
+	 * the "Tệp của tôi" picker only lists these so a picked file cannot fail at send time.
+	 *
+	 * @return string[]
+	 */
+	private function crm_outbound_attachment_mimes() {
+		return array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain', 'application/zip', 'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.openxmlformats-officedocument.presentationml.presentation' );
+	}
+
+	/**
+	 * GET /attachments — current user's own media (post_author), newest first.
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY W4 — backs the Inbox MediaPickerSheet; wp.media cannot load on the /gpt/ shell.
+	 */
+	public function list_attachments( WP_REST_Request $request ) {
+		$identity = BizCity_TwinWeb_Identity::current();
+		$user_id = empty( $identity['is_guest'] ) && ! empty( $identity['user_id'] ) ? (int) $identity['user_id'] : 0;
+		if ( $user_id <= 0 ) {
+			return rest_ensure_response( array( 'success' => false, 'code' => 'auth_required', 'message' => 'Vui lòng đăng nhập để xem tệp của bạn.', 'hint' => 'Đăng nhập rồi thử lại.', 'help_code' => 'auth_required' ) );
+		}
+		$page = max( 1, absint( $request->get_param( 'page' ) ) );
+		$per_page = min( 40, max( 1, absint( $request->get_param( 'per_page' ) ?: 24 ) ) );
+		$kind = sanitize_key( (string) $request->get_param( 'kind' ) );
+		$mimes = $this->crm_outbound_attachment_mimes();
+		if ( 'image' === $kind ) {
+			$mimes = array_values( array_filter( $mimes, static function ( $mime ) { return 0 === strpos( $mime, 'image/' ); } ) );
+		} elseif ( 'file' === $kind ) {
+			$mimes = array_values( array_filter( $mimes, static function ( $mime ) { return 0 !== strpos( $mime, 'image/' ); } ) );
+		}
+		$query = new WP_Query( array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'author'         => $user_id,
+			'post_mime_type' => $mimes,
+			'posts_per_page' => $per_page,
+			'paged'          => $page,
+			'orderby'        => 'date',
+			'order'          => 'DESC',
+			'fields'         => 'ids',
+			'no_found_rows'  => false,
+		) );
+		$items = array();
+		foreach ( $query->posts as $attachment_id ) {
+			$payload = $this->format_attachment_payload( (int) $attachment_id );
+			$payload['thumb_url'] = 0 === strpos( (string) $payload['mime_type'], 'image/' ) ? esc_url_raw( (string) ( wp_get_attachment_image_url( (int) $attachment_id, 'thumbnail' ) ?: $payload['url'] ) ) : '';
+			$items[] = $payload;
+		}
+		return rest_ensure_response( array(
+			'success'  => true,
+			'items'    => $items,
+			'page'     => $page,
+			'per_page' => $per_page,
+			'total'    => (int) $query->found_posts,
+			'has_more' => $page < (int) $query->max_num_pages,
+			'mimes'    => $mimes,
+		) );
+	}
+
 	private function with_attachment_prompt_context( $message, array $attachments ) {
 		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — put media/file URLs in-band for LLM providers and downstream tools.
 		if ( empty( $attachments ) ) {
@@ -12923,6 +13856,17 @@ class BizCity_TwinWeb_REST {
 			return $resp;
 		}
 
+		// [2026-09-20 Johnny Chu] HOTFIX — another module that embeds this SPA (e.g.
+		// CRM Inbox's "AI Chat" panel) may need to vouch for a user whose access
+		// doesn't hinge on a specific WordPress role string — e.g. a CRM team member
+		// could be a WooCommerce `customer`, `bizcity_crm_staff`, or something else
+		// entirely; what actually grants them the embedded chat is a capability, not
+		// a role. Runs before the role allow-list below so a vouched-for member is
+		// never blocked by a list that was never meant to model their access.
+		if ( ! $is_guest && $user_id > 0 && apply_filters( 'bizcity_twinweb_access_bypass', false, $user_id, $identity ) ) {
+			return $resp;
+		}
+
 		if ( $is_guest ) {
 			if ( empty( $policy['guest']['enabled'] ) ) {
 				$resp['allowed']     = false;
@@ -12976,7 +13920,8 @@ class BizCity_TwinWeb_REST {
 		$user_obj      = get_userdata( $user_id );
 		$user_roles    = $user_obj ? array_map( 'sanitize_key', (array) $user_obj->roles ) : array();
 		$allowed_roles = (array) ( $policy['member']['allowed_roles'] ?? array() );
-		if ( empty( array_intersect( $user_roles, $allowed_roles ) ) ) {
+		$matched_roles = array_intersect( $user_roles, $allowed_roles );
+		if ( empty( $matched_roles ) ) {
 			$resp['allowed']     = false;
 			$resp['reason_code'] = 'permission_denied';
 			$resp['message']     = 'Vai trò WordPress hiện tại chưa được bật cho Twin GPT.';
@@ -12995,13 +13940,20 @@ class BizCity_TwinWeb_REST {
 		$min_role = sanitize_key( (string) ( $policy['member']['minimum_role'] ?? 'subscriber' ) );
 		$min_rank = isset( $role_rank[ $min_role ] ) ? $role_rank[ $min_role ] : 0;
 		$best_rank = -1;
-		foreach ( $user_roles as $role ) {
-			$rank = isset( $role_rank[ $role ] ) ? $role_rank[ $role ] : -1;
-			if ( $rank > $best_rank ) {
-				$best_rank = $rank;
+		// [2026-09-20 Johnny Chu] HOTFIX — a role outside this core WP ladder (e.g. a
+		// plugin-defined role like `bizcity_crm_staff`) already had to be explicitly
+		// present in $allowed_roles to reach this point; that admin approval stands
+		// on its own and isn't additionally subject to the core-role minimum-rank
+		// floor below, which has no rank to compare it against.
+		$has_unranked_allowed_role = false;
+		foreach ( $matched_roles as $role ) {
+			if ( isset( $role_rank[ $role ] ) ) {
+				$best_rank = max( $best_rank, $role_rank[ $role ] );
+			} else {
+				$has_unranked_allowed_role = true;
 			}
 		}
-		if ( $best_rank < $min_rank ) {
+		if ( ! $has_unranked_allowed_role && $best_rank < $min_rank ) {
 			$resp['allowed']     = false;
 			$resp['reason_code'] = 'permission_denied';
 			$resp['message']     = 'Bạn chưa đạt vai trò tối thiểu để dùng Twin GPT.';

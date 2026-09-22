@@ -120,6 +120,8 @@ class BizCity_CRM_DB_Installer_V2 {
 	public static function tbl_inbox_members(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_inbox_members'; }
 	public static function tbl_assignment_policies(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_assignment_policies'; }
 	public static function tbl_inbox_assignment_policies(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_inbox_assignment_policies'; }
+	// [2026-09-21 PHASE-0.63A WP-0.3] The single new table of the whole pipeline platform — the SLA deadline queue.
+	public static function tbl_pipeline_deadlines(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_pipeline_deadlines'; }
 
 	public static function all_tables(): array {
 		return array(
@@ -179,6 +181,8 @@ class BizCity_CRM_DB_Installer_V2 {
 			'crm_inbox_members'             => self::tbl_inbox_members(),
 			'crm_assignment_policies'       => self::tbl_assignment_policies(),
 			'crm_inbox_assignment_policies' => self::tbl_inbox_assignment_policies(),
+			// [2026-09-21 PHASE-0.63A WP-0.5] Without this entry self-heal cannot detect a missing deadline queue.
+			'crm_pipeline_deadlines'        => self::tbl_pipeline_deadlines(),
 		);
 	}
 
@@ -1238,6 +1242,14 @@ class BizCity_CRM_DB_Installer_V2 {
 		self::migrate_phase_052();
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F2-F5 — storage lifecycle, archive receipts, reporting rollups, teams and assignment schema.
 		self::migrate_phase_053();
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — id-ordered index for the Inbox browser cache's delta/older message reads.
+		self::migrate_phase_054();
+		// [2026-09-19 Johnny Chu] PHASE-0.56 D-6 — composite index backing the team dashboard's live counters.
+		self::migrate_phase_056();
+		// [2026-09-19 Johnny Chu] PHASE-0.56 H-03 — receipt pointers for bounded cold reads.
+		self::migrate_phase_057();
+		// [2026-09-21 PHASE-0.63A WP-0] Pipeline platform storage: run columns, the one deadline queue, two hot indexes.
+		self::migrate_phase_063();
 
 		update_option( self::DB_VERSION_OPTION, BIZCITY_CRM_DB_VERSION );
 	}
@@ -2055,6 +2067,8 @@ class BizCity_CRM_DB_Installer_V2 {
 			archive_schema_version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
 			archive_key_version VARCHAR(32) NOT NULL DEFAULT 'v1',
 			line_hash CHAR(64) NOT NULL,
+			byte_offset BIGINT NULL,
+			line_bytes INT NULL,
 			archive_status VARCHAR(16) NOT NULL DEFAULT 'written',
 			written_at DATETIME NULL,
 			verified_at DATETIME NULL,
@@ -2194,6 +2208,135 @@ class BizCity_CRM_DB_Installer_V2 {
 		}
 	}
 
+	/**
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — the browser Inbox cache (§11.6.2 of
+	 * PHASE-0.48C-CRM-INBOX-SHEET-DIALOG-UNIFY.md) reads messages by id window: `WHERE conversation_id = %d
+	 * AND id > / < %d ORDER BY id LIMIT %d` (list_messages, list_messages_before) and `SELECT MAX(id) WHERE
+	 * conversation_id = %d` (get_conversation_newest_message_id). The only existing composite index,
+	 * idx_conv_created (conversation_id, created_at), does not cover an id-ordered range, so a busy
+	 * conversation forces a filesort. idx_conv_id (conversation_id, id) makes every one of those an
+	 * index range scan; id is the primary key, so this is a small, append-mostly secondary index.
+	 */
+	public static function migrate_phase_054(): void {
+		global $wpdb;
+		$messages = self::tbl_messages();
+		if ( ! self::index_exists( $messages, 'idx_conv_id' ) ) {
+			$wpdb->query( "ALTER TABLE `{$messages}` ADD KEY idx_conv_id (conversation_id, id)" );
+		}
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) { bizcity_tbl_invalidate( $messages ); }
+	}
+
+	/**
+	 * PHASE-0.56 D-6 — composite index for `conversations(assignee_id, status, waiting_since)`, the
+	 * exact three columns `GET /reports/team-inbox` needs once it stops joining `messages` for "Mở"
+	 * and "Chờ > N′" (D-7) and reads the D-1 denormalized counters directly instead.
+	 */
+	public static function migrate_phase_056(): void {
+		global $wpdb;
+		$conversations = self::tbl_conversations();
+		if ( ! self::index_exists( $conversations, 'idx_assignee_status_wait' ) ) {
+			$wpdb->query( "ALTER TABLE `{$conversations}` ADD KEY idx_assignee_status_wait (assignee_id, status, waiting_since)" );
+		}
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) { bizcity_tbl_invalidate( $conversations ); }
+	}
+
+	/**
+	 * PHASE-0.56 H-03 — add-only receipt pointer columns for seekable JSONL reads.
+	 */
+	public static function migrate_phase_057(): void {
+		global $wpdb;
+		$receipts = self::tbl_archive_receipts();
+		if ( ! self::column_exists( $receipts, 'byte_offset' ) ) {
+			$wpdb->query( "ALTER TABLE `{$receipts}` ADD COLUMN byte_offset BIGINT NULL AFTER line_hash" );
+		}
+		if ( ! self::column_exists( $receipts, 'line_bytes' ) ) {
+			$wpdb->query( "ALTER TABLE `{$receipts}` ADD COLUMN line_bytes INT NULL AFTER byte_offset" );
+		}
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) { bizcity_tbl_invalidate( $receipts ); }
+	}
+
+	/**
+	 * PHASE-0.63A WP-0 — storage for the pipeline platform (v1.35.0).
+	 *
+	 * Three additive columns pin a run to the definition version it started on, one column gives a
+	 * task somewhere to keep the evidence a step demands, and one new table — the only new table of
+	 * the whole 0.6x programme — carries the SLA deadline queue the 60s runner claims from.
+	 *
+	 * ADD-only and idempotent: every statement is guarded by SHOW COLUMNS / SHOW INDEX, so running it
+	 * again on a migrated site is a no-op. R-DCL: declared in core/diagnostics/changelog/modules.twin-crm.json.
+	 *
+	 * [2026-09-21 PHASE-0.63A WP-0.1..0.5]
+	 */
+	public static function migrate_phase_063(): void {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		global $wpdb;
+		$charset = $wpdb->get_charset_collate();
+
+		$opps  = self::tbl_crm_opportunities();
+		$tasks = self::tbl_crm_tasks();
+
+		// 0.1/0.2 — a run knows which pipeline it belongs to and which definition version it was pinned to.
+		if ( ! self::column_exists( $opps, 'pipeline_kind' ) ) {
+			$wpdb->query( "ALTER TABLE `{$opps}` ADD COLUMN pipeline_kind VARCHAR(32) NOT NULL DEFAULT 'sales' AFTER stage" );
+		}
+		if ( ! self::column_exists( $opps, 'pipeline_def_id' ) ) {
+			$wpdb->query( "ALTER TABLE `{$opps}` ADD COLUMN pipeline_def_id BIGINT UNSIGNED NULL AFTER pipeline_kind" );
+		}
+		if ( ! self::column_exists( $opps, 'pipeline_def_version' ) ) {
+			$wpdb->query( "ALTER TABLE `{$opps}` ADD COLUMN pipeline_def_version INT UNSIGNED NOT NULL DEFAULT 0 AFTER pipeline_def_id" );
+		}
+		// 0.1 — structured evidence for a step lives on its work ticket, not in a second table.
+		if ( ! self::column_exists( $tasks, 'data_json' ) ) {
+			$wpdb->query( "ALTER TABLE `{$tasks}` ADD COLUMN data_json LONGTEXT NULL AFTER notes" );
+		}
+
+		// 0.3 — the deadline queue (PHASE-0.63 §4.1, verbatim columns).
+		$deadlines = self::tbl_pipeline_deadlines();
+		dbDelta( "CREATE TABLE `{$deadlines}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			run_id BIGINT UNSIGNED NOT NULL,
+			pipeline_kind VARCHAR(32) NOT NULL DEFAULT '',
+			stage_key VARCHAR(64) NULL,
+			rule_id VARCHAR(64) NOT NULL DEFAULT '',
+			layer VARCHAR(16) NOT NULL DEFAULT 'step',
+			anchor_at DATETIME NULL,
+			due_at DATETIME NOT NULL,
+			level TINYINT UNSIGNED NOT NULL DEFAULT 0,
+			next_fire_at DATETIME NULL,
+			state VARCHAR(16) NOT NULL DEFAULT 'pending',
+			met_at DATETIME NULL,
+			breached_at DATETIME NULL,
+			paused_ms INT UNSIGNED NOT NULL DEFAULT 0,
+			paused_at DATETIME NULL,
+			claimed_by VARCHAR(64) NULL,
+			claimed_at DATETIME NULL,
+			attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+			last_error VARCHAR(190) NULL,
+			dedupe_key VARCHAR(190) NOT NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uniq_dedupe (dedupe_key),
+			KEY idx_due (state, next_fire_at),
+			KEY idx_run (run_id, state),
+			KEY idx_kind_state (pipeline_kind, state)
+		) {$charset};" );
+
+		// 0.4 — the two reads the stage rail and the target selector do on every conversation open.
+		if ( ! self::index_exists( $opps, 'idx_kind_stage' ) ) {
+			$wpdb->query( "ALTER TABLE `{$opps}` ADD KEY idx_kind_stage (pipeline_kind, stage, owner_id)" );
+		}
+		if ( ! self::index_exists( $opps, 'idx_contact_kind' ) ) {
+			$wpdb->query( "ALTER TABLE `{$opps}` ADD KEY idx_contact_kind (contact_id, pipeline_kind)" );
+		}
+
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $opps );
+			bizcity_tbl_invalidate( $tasks );
+			bizcity_tbl_invalidate( $deadlines );
+		}
+	}
+
 }
 
 endif; // class_exists BizCity_CRM_DB_Installer_V2
@@ -2214,7 +2357,8 @@ if ( class_exists( 'BizCity_Schema_Registry' ) ) {
 		BizCity_CRM_DB_Installer_V2::DB_VERSION_OPTION,
 		array( 'BizCity_CRM_DB_Installer_V2', 'install' )
 		);
-	foreach ( array( 'bizcity_crm_archive_receipts', 'bizcity_crm_reporting_events', 'bizcity_crm_reporting_event_rollups', 'bizcity_crm_teams', 'bizcity_crm_team_members', 'bizcity_crm_inbox_members', 'bizcity_crm_assignment_policies', 'bizcity_crm_inbox_assignment_policies' ) as $table_name ) {
+	// [2026-09-21 PHASE-0.63A WP-0.7] Level-4 storage must be registered before any installer dbDelta call.
+	foreach ( array( 'bizcity_crm_archive_receipts', 'bizcity_crm_reporting_events', 'bizcity_crm_reporting_event_rollups', 'bizcity_crm_teams', 'bizcity_crm_team_members', 'bizcity_crm_inbox_members', 'bizcity_crm_assignment_policies', 'bizcity_crm_inbox_assignment_policies', 'bizcity_crm_pipeline_deadlines' ) as $table_name ) {
 		BizCity_Schema_Registry::register(
 			$table_name,
 			'modules.twin-crm',

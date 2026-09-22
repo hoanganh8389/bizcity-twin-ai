@@ -56,6 +56,9 @@ class BizCity_Zalo_Bot_Channel_Adapter implements BizCity_Channel_Adapter {
 			? $conversation
 			: 'zalobot_' . $bot_id . '_' . $user_id;
 		$envelope = array(
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.22A-WP4 — carry canonical contract identity so consumers can reject an incompatible producer.
+			'contract'           => 'channel-payload',
+			'version'            => '1.1.0',
 			'platform'           => 'ZALO_BOT',
 			'code'               => 'zalo_bot',
 			'account_id'         => (string) $bot_id,

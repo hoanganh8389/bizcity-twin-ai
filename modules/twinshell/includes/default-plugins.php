@@ -67,7 +67,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'emoji'       => '💬',
 			'mode'        => 'embed',
 			'public_slug' => '/twinchat/',
-			'capability'  => 'read',
+			// [2026-09-19 Johnny Chu] PHASE-0.60 C2 — hide CRM from users who are not CRM staff; REST/route still rechecks scope.
+			'capability'  => 'bizcity_crm_handle_inbox',
 			'section'     => 'top',
 			// [2026-06-04 Johnny Chu] BS-12 — thêm `session_id` vào allowlist để
 			// twin-shell forward param này khi rebuild iframe URL + sync address
@@ -99,10 +100,32 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'emoji'       => '📥',
 			'mode'        => 'embed',
 			'public_slug' => '/crm/',
-			'capability'  => 'read',
+			// [2026-09-20 Johnny Chu] PHASE-0.60 C60-M06 — the ActivityBar entry asks the CRM
+			// action resolver for the WP capability string instead of hardcoding 'read'; keeps
+			// this file a consumer of CRM's boundary, not a second source of truth for it.
+			'capability'  => class_exists( 'BizCity_CRM_Authority' ) ? BizCity_CRM_Authority::menu_cap( 'crm.inbox.open' ) : 'read',
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab', 'inbox', 'thread', 'contact_id' ],
 			'desc'        => __( 'Unified multi-channel inbox (Facebook / Zalo / WebChat) with Twin Brain trace.', $td ),
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — CRM is the
+			// first plugin migrated to the canonical `r` route contract (it is the plugin the
+			// original F5/deep-link bug was reported against). `/crm/` itself stays the entry —
+			// it is still the wrapper that avoids cross-host redirect loops on multisite +
+			// domain-mapped installs; the P0 hotfix already made it mirror its child's hash onto
+			// its own URL, so the shell can now treat that URL's hash as this plugin's route.
+			'route_mode'  => 'hash',
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — a link saved
+			// before this migration (e.g. `…&plugin=crm&thread=88&id=13`) still opens the right
+			// conversation/contact instead of CRM's default screen. `thread` (a conversation) is
+			// checked before `contact_id` so a link that somehow carries both still opens the
+			// conversation, matching what a human reading such a link would expect. `id` was
+			// Channel Gateway's own historical field for the inbox id; `inbox` is the other name
+			// the same value has carried elsewhere in this codebase — both are tried before the
+			// `0` (unassigned rail) fallback CRM's own router already treats as valid.
+			'legacy_params' => [
+				'thread'     => '/inbox/{id|inbox|0}/conv/{thread}',
+				'contact_id' => '/contacts/{contact_id}/360',
+			],
 		],
 		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — PageBuilder is
 		// fourth: turn the brain and CRM context into landing pages and campaigns.
@@ -118,8 +141,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'params'      => [ 'id', 'page' ],
 			'requires'    => [ 'class' => 'BZPB_Rest_API' ],
 		],
-		// ── Extensions ────────────────────────────────────────────────
-		// Extensions remain available after the four core operating layers.
+		// ── Extensions (Pro) — bottom group, after the QR boundary ─────
+		// [2026-09-16 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-NAV-GROUP — Pro entries are not in `$_bizcity_bundled_must_load`, so they leave the primary top group and sit below QR Studio with the other non-must-load entries.
 		[
 			'id'          => 'astro',
 			'label'       => __( 'Astrology',                     $td ),
@@ -128,7 +151,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'mode'        => 'embed',
 			'public_slug' => '/astro/',
 			'capability'  => 'read',
-			'section'     => 'top',
+			'section'     => 'bottom',
 			'params'      => [ 'id', 'tab', 'hash' ],
 			'desc'        => __( 'Western & Vedic natal charts, transit calendar.', $td ),
 			'requires'    => [ 'class' => 'BizCoach_Pro_Self_Service_Page' ],
@@ -143,7 +166,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'mode'        => 'embed',
 			'public_slug' => '/tool-doc/',
 			'capability'  => 'read',
-			'section'     => 'top',
+			'section'     => 'bottom',
 			'params'      => [ 'doc', 'id', 'tab' ],
 			'requires'    => [ 'const' => 'BZDOC_VERSION' ],
 			'plan'        => 'pro',
@@ -169,7 +192,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'mode'        => 'embed',
 			'public_slug' => '/tool-image/',
 			'capability'  => 'read',
-			'section'     => 'top',
+			'section'     => 'bottom',
 			'params'      => [ 'id', 'tab' ],
 			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
 			'plan'        => 'pro',
@@ -183,7 +206,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'mode'        => 'embed',
 			'public_slug' => '/kling-video/',
 			'capability'  => 'read',
-			'section'     => 'top',
+			'section'     => 'bottom',
 			'params'      => [ 'id', 'tab', 'mode' ],
 			'requires'    => [ 'const' => 'BIZCITY_VIDEO_KLING_VERSION' ],
 			'plan'        => 'pro',
@@ -197,24 +220,11 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'mode'        => 'embed',
 			'public_slug' => '/profile-studio/',
 			'capability'  => 'read',
-			'section'     => 'top',
+			'section'     => 'bottom',
 			'params'      => [ 'id', 'tab' ],
 			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
 			'plan'        => 'pro',
 			'pro_package' => 'BizCity Tool Image',
-		],
-		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — expose the existing
-		// QR Studio page in the shared TwinShell ActivityBar.
-		[
-			'id'          => 'qr',
-			'label'       => __( 'QR Studio',                    $td ),
-			'icon'        => 'qr',
-			'emoji'       => '🔳',
-			'mode'        => 'embed',
-			'public_slug' => '/qr-studio/',
-			'capability'  => 'read',
-			'section'     => 'top',
-			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
 		],
 		[
 			'id'          => 'personal',
@@ -243,7 +253,19 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'section'     => 'top',
 			'requires'    => [ 'const' => 'BIZCITY_PERSONAL_VERSION' ],
 		],
-		// ── Operations (bottom — utilities & system links) ────────────
+		// [2026-09-16 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-NAV-GROUP — QR Studio is the LAST entry of the top group and therefore the visual boundary: everything that is not in `$_bizcity_bundled_must_load` (Pro/non-must-load) sits below it.
+		[
+			'id'          => 'qr',
+			'label'       => __( 'QR Studio',                    $td ),
+			'icon'        => 'qr',
+			'emoji'       => '🔳',
+			'mode'        => 'embed',
+			'public_slug' => '/qr-studio/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
+		],
+		// ── Operations (bottom — utilities, system links, non-must-load) ──
 		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-MARKET — keep Marketplace
 		// inside the Twin workspace, immediately before Reminders.
 		[
@@ -296,11 +318,20 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'label'       => __( 'Settings',                      $td ),
 			'icon'        => 'settings',
 			'emoji'       => '⚙️',
-			'mode'        => 'link',
-			'target_url'  => admin_url( 'admin.php?page=bizcity-twinchat-settings' ),
-			'capability'  => 'manage_options',
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G5 — Settings is the Control Panel,
+			// embedded in TwinShell so the ActivityBar stays visible. The panel's own hash route (the open
+			// destination/item) is carried in `_iurl` by the shell's iframe deep-link sync, so F5 reopens it.
+			'mode'        => 'embed',
+			'public_slug' => '/twin/panel/',
+			// [2026-09-21 04:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.63B C-08 — use the
+			// canonical Settings owner gate. This keeps the button visible for the
+			// same administrator persona that can open the Setting Panel, while the
+			// registry still filters it before it reaches the browser.
+			'capability'  => class_exists( 'BizCity_CRM_Authority' )
+				? BizCity_CRM_Authority::menu_cap( 'crm.settings.manage' )
+				: 'manage_options',
 			'section'     => 'bottom',
-			'desc'        => __( 'TwinChat & BizCity API key — single source of truth for the whole ecosystem.', $td ),
+			'desc'        => __( 'Control Panel: API gateway, account, appearance, channels and modules.', $td ),
 		],
 		// 2026-05-13 — `channels` and `explore` removed from bottom ActivityBar
 		// (channels merged into `gateway`; marketplace reachable via direct URL).

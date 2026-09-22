@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/approval-decision.schema.json",
+  "title": "BizCity Twin Approval Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "run_id", "step_key", "decision", "decided_by", "decided_at", "reason", "level"],
+  "properties": {
+    "contract": { "const": "approval-decision" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "run_id": { "type": "integer", "minimum": 1 },
+    "step_key": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,63}$" },
+    "decision": { "enum": ["approved", "rejected", "returned"] },
+    "decided_by": { "type": "integer", "minimum": 1 },
+    "decided_at": { "type": "string", "format": "date-time" },
+    "reason": { "type": "string", "maxLength": 2000 },
+    "return_to_step": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,63}$" },
+    "level": { "type": "integer", "minimum": 0, "maximum": 99 }
+  }
+}

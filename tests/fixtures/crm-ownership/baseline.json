@@ -1,0 +1,247 @@
+{
+    "schema": "bizcity-crm-ownership-baseline-v2",
+    "generated_at": "2026-09-16T15:41:46Z",
+    "owner": "WP5 - CRM Repository and Event Ownership",
+    "contract": "R-CRM-FRAMEWORK + R-B2B2C",
+    "note": "Reviewed legacy debt captured in report mode before --strict was enabled. The baseline includes 15 direct CRM writes outside the CRM owner, 8 missing channel-contract references, 14 customer-facing mutations inside the CRM owner but outside the declared repository layer, and 1 non-literal adapter code finding. The exact legacy diagnostics sprint harness is allowlisted only when its file path matches and it contains a cleanup delete; disposable probe/factory fixtures are separately teardown-gated. New bypasses fail immediately.",
+    "source_counts": {
+        "files_scanned": 1890,
+        "crm_writing_files": 45,
+        "crm_owner_writers": 22,
+        "repository_layer_writers": 8,
+        "diagnostics_harness_writers": 1,
+        "probe_fixture_writers": 15,
+        "unproven_fixture_writers": 0,
+        "total_findings": 38
+    },
+    "known_findings": [
+        {
+            "fingerprint": "crm_direct_write|core/automation/includes/class-automation-calendar-rest.php|257",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/automation/includes/class-automation-calendar-rest.php",
+            "line": 257
+        },
+        {
+            "fingerprint": "crm_no_contract|core/automation/includes/class-automation-calendar-rest.php",
+            "rule": "R-CRM.write_without_channel_contract",
+            "file": "core/automation/includes/class-automation-calendar-rest.php",
+            "line": 257
+        },
+        {
+            "fingerprint": "crm_direct_write|core/channel-gateway/includes/adapters/class-zalo-oa-contact-sync.php|233",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/channel-gateway/includes/adapters/class-zalo-oa-contact-sync.php",
+            "line": 233
+        },
+        {
+            "fingerprint": "crm_direct_write|core/channel-gateway/includes/adapters/class-zalo-oa-contact-sync.php|249",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/channel-gateway/includes/adapters/class-zalo-oa-contact-sync.php",
+            "line": 249
+        },
+        {
+            "fingerprint": "crm_no_contract|core/channel-gateway/includes/adapters/class-zalo-oa-contact-sync.php",
+            "rule": "R-CRM.write_without_channel_contract",
+            "file": "core/channel-gateway/includes/adapters/class-zalo-oa-contact-sync.php",
+            "line": 233
+        },
+        {
+            "fingerprint": "crm_direct_write|core/channel-gateway/includes/cf7/class-cf7-crm-sync.php|116",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/channel-gateway/includes/cf7/class-cf7-crm-sync.php",
+            "line": 116
+        },
+        {
+            "fingerprint": "crm_direct_write|core/channel-gateway/includes/cf7/class-cf7-crm-sync.php|148",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/channel-gateway/includes/cf7/class-cf7-crm-sync.php",
+            "line": 148
+        },
+        {
+            "fingerprint": "crm_direct_write|core/channel-gateway/includes/cf7/class-cf7-crm-sync.php|170",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/channel-gateway/includes/cf7/class-cf7-crm-sync.php",
+            "line": 170
+        },
+        {
+            "fingerprint": "crm_direct_write|core/channel-gateway/includes/cf7/class-cf7-crm-sync.php|251",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/channel-gateway/includes/cf7/class-cf7-crm-sync.php",
+            "line": 251
+        },
+        {
+            "fingerprint": "crm_no_contract|core/channel-gateway/includes/cf7/class-cf7-crm-sync.php",
+            "rule": "R-CRM.write_without_channel_contract",
+            "file": "core/channel-gateway/includes/cf7/class-cf7-crm-sync.php",
+            "line": 116
+        },
+        {
+            "fingerprint": "crm_direct_write|core/channel-gateway/includes/class-cg-order-tracking-rest.php|158",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/channel-gateway/includes/class-cg-order-tracking-rest.php",
+            "line": 158
+        },
+        {
+            "fingerprint": "crm_no_contract|core/channel-gateway/includes/class-cg-order-tracking-rest.php",
+            "rule": "R-CRM.write_without_channel_contract",
+            "file": "core/channel-gateway/includes/class-cg-order-tracking-rest.php",
+            "line": 158
+        },
+        {
+            "fingerprint": "crm_direct_write|core/channel-gateway/includes/class-web-post-publisher.php|287",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/channel-gateway/includes/class-web-post-publisher.php",
+            "line": 287
+        },
+        {
+            "fingerprint": "crm_no_contract|core/channel-gateway/includes/class-web-post-publisher.php",
+            "rule": "R-CRM.write_without_channel_contract",
+            "file": "core/channel-gateway/includes/class-web-post-publisher.php",
+            "line": 287
+        },
+        {
+            "fingerprint": "crm_direct_write|core/scheduler/includes/class-crm-contact-identity.php|201",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/scheduler/includes/class-crm-contact-identity.php",
+            "line": 201
+        },
+        {
+            "fingerprint": "crm_no_contract|core/scheduler/includes/class-crm-contact-identity.php",
+            "rule": "R-CRM.write_without_channel_contract",
+            "file": "core/scheduler/includes/class-crm-contact-identity.php",
+            "line": 201
+        },
+        {
+            "fingerprint": "crm_direct_write|core/scheduler/includes/class-crm-inbox-bridge.php|170",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/scheduler/includes/class-crm-inbox-bridge.php",
+            "line": 170
+        },
+        {
+            "fingerprint": "crm_direct_write|core/scheduler/includes/class-crm-inbox-bridge.php|220",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "core/scheduler/includes/class-crm-inbox-bridge.php",
+            "line": 220
+        },
+        {
+            "fingerprint": "crm_no_contract|core/scheduler/includes/class-crm-inbox-bridge.php",
+            "rule": "R-CRM.write_without_channel_contract",
+            "file": "core/scheduler/includes/class-crm-inbox-bridge.php",
+            "line": 170
+        },
+        {
+            "fingerprint": "crm_direct_write|modules/twinweb/includes/class-twinweb-profile-grounding.php|690",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "modules/twinweb/includes/class-twinweb-profile-grounding.php",
+            "line": 690
+        },
+        {
+            "fingerprint": "crm_direct_write|modules/twinweb/includes/class-twinweb-profile-grounding.php|692",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "modules/twinweb/includes/class-twinweb-profile-grounding.php",
+            "line": 692
+        },
+        {
+            "fingerprint": "crm_direct_write|modules/twinweb/includes/class-twinweb-profile-grounding.php|713",
+            "rule": "R-CRM.direct-sql-outside-owner",
+            "file": "modules/twinweb/includes/class-twinweb-profile-grounding.php",
+            "line": 713
+        },
+        {
+            "fingerprint": "crm_no_contract|modules/twinweb/includes/class-twinweb-profile-grounding.php",
+            "rule": "R-CRM.write_without_channel_contract",
+            "file": "modules/twinweb/includes/class-twinweb-profile-grounding.php",
+            "line": 690
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/automation/class-action-registry.php|263",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/automation/class-action-registry.php",
+            "line": 263
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/automation/class-action-registry.php|288",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/automation/class-action-registry.php",
+            "line": 288
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/automation/class-action-registry.php|309",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/automation/class-action-registry.php",
+            "line": 309
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/automation/class-action-registry.php|479",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/automation/class-action-registry.php",
+            "line": 479
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/automation/class-action-registry.php|565",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/automation/class-action-registry.php",
+            "line": 565
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/automation/class-action-registry.php|586",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/automation/class-action-registry.php",
+            "line": 586
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/class-ai-autoreply-listener.php|209",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/class-ai-autoreply-listener.php",
+            "line": 209
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/class-ai-replier.php|719",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/class-ai-replier.php",
+            "line": 719
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/class-ai-replier.php|759",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/class-ai-replier.php",
+            "line": 759
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/class-rest-controller.php|5697",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/class-rest-controller.php",
+            "line": 5697
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/class-rest-controller.php|9008",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/class-rest-controller.php",
+            "line": 9008
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/class-rest-controller.php|9057",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/class-rest-controller.php",
+            "line": 9057
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/class-rest-controller.php|9072",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/class-rest-controller.php",
+            "line": 9072
+        },
+        {
+            "fingerprint": "crm_repo_bypass|plugins/bizcity-twin-crm/includes/class-rest-controller.php|9847",
+            "rule": "R-CRM.mutation_outside_repository",
+            "file": "plugins/bizcity-twin-crm/includes/class-rest-controller.php",
+            "line": 9847
+        },
+        {
+            "fingerprint": "crm_adapter_nocode|plugins/bizcity-twin-crm/includes/inbox/class-adapter-base.php",
+            "rule": "R-CRM.adapter_code_not_literal",
+            "file": "plugins/bizcity-twin-crm/includes/inbox/class-adapter-base.php",
+            "line": 1
+        }
+    ]
+}

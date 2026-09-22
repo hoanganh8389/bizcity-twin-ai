@@ -1,0 +1,19 @@
+{
+  "schema": "bizcity-twinbrain-vertical-bridge-ownership-baseline-v1",
+  "generated_at": "2026-09-17T01:11:45.278Z",
+  "owner": "WP7 — Brain and Vertical Extension Enforcement",
+  "contract": "PHASE-1.22A WP7 §vertical registration through the canonical bridge registry",
+  "note": "Production is CLEAN today: the one real vertical_modes declaration (plugins/bizcoach-pro, id=astro) matches BizCity_TwinBrain_Vertical_Bridge_Registry::all()'s hardcoded row field-for-field, and no registry row names an installed plugin owner that failed to declare it. This baseline is deliberately empty so any drift, any newly-declared-but-unreachable vertical, or any registry row granted to a plugin that never declared it fails on the introducing commit, rather than accumulating as silent debt.",
+  "source_counts": {
+    "registry_rows_parsed": 13,
+    "manifests_scanned": 1,
+    "vertical_modes_declared": 1,
+    "vertical_modes_reachable_via_row": 1,
+    "vertical_modes_reachable_via_filter": 0,
+    "vertical_modes_drifted": 0,
+    "vertical_modes_unregistered": 0,
+    "registry_rows_with_plugin_owner": 1,
+    "registry_rows_undeclared": 0
+  },
+  "known_findings": []
+}

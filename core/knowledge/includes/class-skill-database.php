@@ -164,6 +164,10 @@ class BizCity_Skill_Database {
 		}
 		$table = $wpdb->prefix . 'bizcity_skill_logs';
 
+		// [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — without the lifecycle policy the retired skill-log SQL is neither installed nor queried.
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			return false;
+		}
 		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
 			if ( ! BizCity_Legacy_Table_Policy::allow_sql( $table, $operation ) ) {
 				return false;
@@ -304,10 +308,18 @@ class BizCity_Skill_Database {
 		$save_data['updated_at'] = current_time( 'mysql' );
 		$result = $wpdb->insert( $table, $save_data );
 		if ( $result ) {
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — capture insert_id
+			// BEFORE the hook. `bizcity_skill_saved` fans out to the PHASE-CB4.5 Context
+			// Bank projection, which writes through the JSONL logger / log index; those
+			// issue their own statements and `wpdb::query()` re-assigns (or clears on
+			// failure) `$wpdb->insert_id` for any insert/replace. Reading it afterwards
+			// can return 0 for a row that was in fact written.
+			$skill_id = (int) $wpdb->insert_id;
 			// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — expose the canonical Skill insert event for reference-only Context Bank projection.
-			do_action( 'bizcity_skill_saved', (int) $wpdb->insert_id, 'insert' );
+			do_action( 'bizcity_skill_saved', $skill_id, 'insert' );
+			return $result ? $skill_id : false;
 		}
-		return $result ? $wpdb->insert_id : false;
+		return false;
 	}
 
 	/**

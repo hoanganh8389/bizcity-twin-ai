@@ -1,0 +1,262 @@
+{
+    "contract": "diagnostics-verdict",
+    "version": "1",
+    "command": "diagnostics",
+    "batch": "all",
+    "run_id": "",
+    "environment": {
+        "php": "7.4.33",
+        "wordpress": "6.9",
+        "blog_id": 1258
+    },
+    "catalog_hash": "1c9afde080def30fbc7107513126102f8f71a359823bdcab783af2b8d66f10c9",
+    "batch_hash": "7035f53617e212398753dddc607e85d5ef91c1d63619cb4ce28436733c373b44",
+    "evidence_audit": {
+        "total": 4,
+        "actionable_total": 0,
+        "with_fix_hint": 0,
+        "missing_fix_hint": 0,
+        "coverage_percent": 100,
+        "missing_probe_ids": []
+    },
+    "counts": {
+        "pass": 4,
+        "warn": 0,
+        "fail": 0,
+        "skip": 0
+    },
+    "verdict": "pass",
+    "duration_ms": 1497,
+    "coverage": {
+        "catalog_total": 265,
+        "selected_total": 4,
+        "executed": 4,
+        "allowed_skipped": 0,
+        "deferred": 0,
+        "complete": false
+    },
+    "results": {
+        "core.channel.zone_isolation": {
+            "status": "pass",
+            "summary": "Zone isolation OK: ZALO_BOT is CRM-enabled in Admin Operations, shared triggers are discriminator-routed, and Customer Care remains isolated.",
+            "fix_hint": "Ki\u1ec3m tra adapter zalo_bot, discriminator platform/code, CRM crm_enabled policy v\u00e0 guard Customer Care tr\u01b0\u1edbc khi ch\u1ea1y l\u1ea1i probe.",
+            "steps": [
+                {
+                    "label": "Disk: zone-routing and CRM Operations files exist",
+                    "status": "pass",
+                    "detail": "listener + guru-bridge + gateway-bridge + webhook-handler + CRM contract/adapter/listener"
+                },
+                {
+                    "label": "Loader: R-ZONE-2 guard and CRM customer-AI skip are present",
+                    "status": "pass",
+                    "detail": "all guards confirmed"
+                },
+                {
+                    "label": "Loader: ZaloBot group/private conversation contract present",
+                    "status": "pass",
+                    "detail": "UCL + gateway bridge + webhook handler preserve sender/target split."
+                },
+                {
+                    "label": "Runtime: shared Zalo action resolves by explicit platform/code",
+                    "status": "pass",
+                    "detail": "Generic Zalo action resolves Bot, Personal and OA independently; unknown payload is refused."
+                },
+                {
+                    "label": "Runtime: ZALO_BOT KH\u00d4NG dispatch Customer Care flow",
+                    "status": "pass",
+                    "detail": "Generic Bot map is explicit and bridge_zalo bails before Customer Care dispatch; no hook was fired."
+                },
+                {
+                    "label": "Runtime: ZALO_BOT is accepted by CRM Admin Operations contract",
+                    "status": "pass",
+                    "detail": "zalo_bot is CRM-enabled, admin-zoned and Automation-owned; no SQL fixture was created."
+                },
+                {
+                    "label": "Runtime: zalo_oa has a dedicated Zone 1 CRM route",
+                    "status": "pass",
+                    "detail": "zalo_oa has an explicit ZALO_OA listener route; no synthetic hook was fired."
+                },
+                {
+                    "label": "Runtime: ZaloBot explicit group chat_id parses to group target",
+                    "status": "pass",
+                    "detail": "Parsed explicit group chat target zgr-healthtest."
+                },
+                {
+                    "label": "Runtime: CRM Bot parser normalizes private/group source IDs",
+                    "status": "pass",
+                    "detail": "private UID and group:<id> are normalized before CRM storage."
+                }
+            ],
+            "id": "core.channel.zone_isolation",
+            "duration_ms": 1,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.channel.zone_isolation --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=channel --format=json",
+                "wp_cli": "wp bizcity probe --id=core.channel.zone_isolation --format=json"
+            }
+        },
+        "core.channel.identity_memory": {
+            "status": "pass",
+            "summary": "Channel identity and memory ownership contracts passed all W6 DDV layers.",
+            "steps": [
+                {
+                    "label": "Disk: identity hub, linker, listener, runtime, and writer exist",
+                    "status": "pass",
+                    "detail": "All four W6 ownership surfaces are present."
+                },
+                {
+                    "label": "Loader: canonical identity and memory ownership guards present",
+                    "status": "pass",
+                    "detail": "Canonical linker, no-owner event, and subject authorization contract confirmed."
+                },
+                {
+                    "label": "Runtime (a): FB unlinked \u2192 link \u2192 canonical linked owner",
+                    "status": "pass",
+                    "detail": "Unlinked identity resolved to 0, then to the authenticated probe user after token consumption."
+                },
+                {
+                    "label": "Runtime (b): subject ID differs only with explicit authorization",
+                    "status": "pass",
+                    "detail": "Unauthorized target fell back to actor; authorized target was selected and Memory_Recall returned only the target sentinel."
+                },
+                {
+                    "label": "Runtime (c): Zalo Bot memory without a durable UUID is refused",
+                    "status": "pass",
+                    "detail": "Writer returned no_owner with persisted=0 and emitted bizcity_twinbrain_memory_no_owner; stable UUID identities are tested separately below."
+                },
+                {
+                    "label": "Runtime (d): durable UUID continuity and fail-closed identity boundaries",
+                    "status": "pass",
+                    "detail": "FB and Telegram share one UUID; stable external identity owns recallable memory without WP user; group and conflicting ownership were rejected."
+                },
+                {
+                    "label": "Runtime (e): canonical identity merge and rebuild event",
+                    "status": "pass",
+                    "detail": "Identity Hub atomically merged the source into the target, moved the source binding, emitted one post-commit event and resolved both identities to the target."
+                },
+                {
+                    "label": "Runtime (f): identity merge event tenant and UUID guards",
+                    "status": "pass",
+                    "detail": "Cross-tenant and UUID-less merge events were refused before rollup dirty handling."
+                }
+            ],
+            "id": "core.channel.identity_memory",
+            "duration_ms": 594,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.channel.identity_memory --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=channel --format=json",
+                "wp_cli": "wp bizcity probe --id=core.channel.identity_memory --format=json"
+            }
+        },
+        "core.channel.zone_ui": {
+            "status": "pass",
+            "steps": [
+                {
+                    "id": "zone_ui.php.catalog_zone",
+                    "label": "Disk: PHP catalog has 'zone' field (customer + admin)",
+                    "pass": true,
+                    "detail": "OK \u2014 'zone' => 'customer' present in platform_catalog()"
+                },
+                {
+                    "id": "zone_ui.php.zalo_oa_entry",
+                    "label": "Disk: PHP catalog has zalo_oa (Zone 1 customer)",
+                    "pass": true,
+                    "detail": "OK \u2014 zalo_oa Zone 1 entry exists"
+                },
+                {
+                    "id": "zone_ui.php.admin_zones",
+                    "label": "Disk: PHP catalog zalo_bot/telegram/hotline zone='admin'",
+                    "pass": true,
+                    "detail": "OK \u2014 Zone 2 admin entries present"
+                },
+                {
+                    "id": "zone_ui.js.zone_consts",
+                    "label": "Disk: navConfig.js exports ZONE_1_CODES + ZONE_2_CODES",
+                    "pass": true,
+                    "detail": "React src kh\u00f4ng \u0111\u01b0\u1ee3c deploy l\u00ean server (ch\u1ec9 dist/). B\u1ecf qua."
+                },
+                {
+                    "id": "zone_ui.js.tabs_split",
+                    "label": "Disk: navConfig.js has ZALO_OA_TABS + ZALO_BOT_TABS",
+                    "pass": true,
+                    "detail": "React src kh\u00f4ng \u0111\u01b0\u1ee3c deploy l\u00ean server (ch\u1ec9 dist/). B\u1ecf qua."
+                },
+                {
+                    "id": "zone_ui.js.sidenav_sections",
+                    "label": "Disk: SideNav.jsx uses cg-nav-zone-label",
+                    "pass": true,
+                    "detail": "React src kh\u00f4ng \u0111\u01b0\u1ee3c deploy l\u00ean server (ch\u1ec9 dist/). B\u1ecf qua."
+                },
+                {
+                    "id": "zone_ui.js.workspace_badge",
+                    "label": "Disk: PlatformWorkspace.jsx renders ZoneBadge",
+                    "pass": true,
+                    "detail": "React src kh\u00f4ng \u0111\u01b0\u1ee3c deploy l\u00ean server (ch\u1ec9 dist/). B\u1ecf qua."
+                },
+                {
+                    "id": "zone_ui.js.add_channel",
+                    "label": "Disk: AddChannelRoute.jsx groups by ZONE_GROUPS",
+                    "pass": true,
+                    "detail": "React src kh\u00f4ng \u0111\u01b0\u1ee3c deploy l\u00ean server (ch\u1ec9 dist/). B\u1ecf qua."
+                },
+                {
+                    "id": "zone_ui.css.classes",
+                    "label": "Disk: index.css has .cg-nav-zone-label--customer/--admin",
+                    "pass": true,
+                    "detail": "React src kh\u00f4ng \u0111\u01b0\u1ee3c deploy l\u00ean server (ch\u1ec9 dist/). B\u1ecf qua."
+                }
+            ],
+            "id": "core.channel.zone_ui",
+            "duration_ms": 0,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.channel.zone_ui --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=channel --format=json",
+                "wp_cli": "wp bizcity probe --id=core.channel.zone_ui --format=json"
+            }
+        },
+        "core.channel.zalo_multi_account_isolation": {
+            "status": "pass",
+            "summary": "Zalo multi-account, zone, group and compatibility isolation passed.",
+            "fix_hint": "",
+            "steps": [
+                {
+                    "label": "Runtime - exact Bot/OA/Personal account writes",
+                    "status": "pass",
+                    "detail": "Six synthetic account rows were accepted with exact channel scope."
+                },
+                {
+                    "label": "Runtime - account A/B query isolation",
+                    "status": "pass",
+                    "detail": "Exact account queries never returned the paired account."
+                },
+                {
+                    "label": "Runtime - Zalo zone classification",
+                    "status": "pass",
+                    "detail": "zalo_bot=admin; zalo_oa/zalo_personal=customer."
+                },
+                {
+                    "label": "Runtime - unlisted account refusal",
+                    "status": "pass",
+                    "detail": "An account outside the server catalog returned the canonical permission payload."
+                },
+                {
+                    "label": "Runtime - /logs and /channel-logs parity",
+                    "status": "pass",
+                    "detail": "Both compatibility paths returned the same exact-account normalized rows."
+                },
+                {
+                    "label": "Runtime - group personal identity denial",
+                    "status": "pass",
+                    "detail": "Group chat received no personal Context Bank owner scope."
+                }
+            ],
+            "id": "core.channel.zalo_multi_account_isolation",
+            "duration_ms": 864,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.channel.zalo_multi_account_isolation --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=channel --format=json",
+                "wp_cli": "wp bizcity probe --id=core.channel.zalo_multi_account_isolation --format=json"
+            }
+        }
+    }
+}

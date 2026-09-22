@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/member-pipeline.schema.json",
+  "title": "BizCity Member Pipeline",
+  "description": "PHASE-0.52 M2 (C only, R-PIPE-7): the member own customers by stage. No owner, no colleague, no matrix, no ranking. channel/ref identify the member OWN inbox account to reopen the thread.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "surface",
+    "as_of",
+    "columns",
+    "kpis"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "contract": {
+      "const": "member-pipeline"
+    },
+    "version": {
+      "const": "1.0.0"
+    },
+    "surface": {
+      "const": "C_PUBLIC_TWINGPT"
+    },
+    "as_of": {
+      "type": "string",
+      "minLength": 10
+    },
+    "columns": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage",
+          "label",
+          "count",
+          "stuck",
+          "no_next",
+          "cards"
+        ],
+        "properties": {
+          "stage": {
+            "enum": [
+              "target",
+              "contacted",
+              "consult",
+              "quote",
+              "won",
+              "repeat",
+              "dormant",
+              "lost"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stuck": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "no_next": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stuck_days": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cards": {
+            "type": "array",
+            "maxItems": 60,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "contact_id",
+                "display_name",
+                "stage",
+                "days",
+                "stuck",
+                "has_next"
+              ],
+              "properties": {
+                "contact_id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "display_name": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "stage": {
+                  "enum": [
+                    "target",
+                    "contacted",
+                    "consult",
+                    "quote",
+                    "won",
+                    "repeat",
+                    "dormant",
+                    "lost"
+                  ]
+                },
+                "days": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "stuck": {
+                  "type": "boolean"
+                },
+                "has_next": {
+                  "type": "boolean"
+                },
+                "next_due": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "overdue_tasks": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "source": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "manual_won_pending": {
+                  "type": "boolean"
+                },
+                "paid_orders": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "conversation_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "inbox_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "steps_done": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "channel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[a-z0-9_]{0,40}$"
+                },
+                "ref": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 191
+                },
+                "task": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "kpis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "customers",
+        "no_next",
+        "stuck",
+        "overdue_tasks",
+        "touch7_rate",
+        "conversion"
+      ],
+      "properties": {
+        "customers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_next": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stuck": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "overdue_tasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "touch7_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "conversion": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "num",
+            "den",
+            "value"
+          ],
+          "properties": {
+            "num": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "den": {
+              "type": "integer",
+              "minimum": 10
+            },
+            "value": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": "object"
+    },
+    "capped": {
+      "type": "boolean"
+    }
+  }
+}

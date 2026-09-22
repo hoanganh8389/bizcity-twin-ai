@@ -3,7 +3,7 @@
   "module_id": "core.knowledge.kg-hub",
   "owner": "core/knowledge/kg-hub",
   "installer_id": "kg_hub",
-  "current_version": "0.30.3",
+  "current_version": "0.31.0",
   "version_option": "bizcity_kg_db_version",
   "tables": {
     "bizcity_kg_notebooks": {
@@ -184,9 +184,80 @@
         "idx_guru":    { "cols": ["guru_uuid"],                 "since": "0.21.0" },
         "idx_notebook":{ "cols": ["notebook_id"],              "since": "0.21.0" }
       }
+    },
+    "bizcity_kg_workspaces": {
+      "since": "0.31.0",
+      "purpose": "PHASE-0.57A shared workspace tree and visibility owner. Workspace ownership remains a real user; visibility is an additional read policy.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.31.0", "pk": true },
+        "uuid":         { "type": "CHAR(36) NOT NULL",                     "since": "0.31.0" },
+        "owner_id":     { "type": "BIGINT UNSIGNED NOT NULL",              "since": "0.31.0" },
+        "parent_id":    { "type": "BIGINT UNSIGNED DEFAULT NULL",          "since": "0.31.0" },
+        "title":        { "type": "VARCHAR(190) NOT NULL",                 "since": "0.31.0" },
+        "icon":         { "type": "VARCHAR(40) NOT NULL DEFAULT ''",       "since": "0.31.0" },
+        "sort_order":   { "type": "INT NOT NULL DEFAULT 0",                "since": "0.31.0" },
+        "visibility":   { "type": "VARCHAR(16) NOT NULL DEFAULT 'private'", "since": "0.31.0" },
+        "settings":     { "type": "LONGTEXT NULL",                         "since": "0.31.0" },
+        "created_at":   { "type": "DATETIME NOT NULL",                     "since": "0.31.0" },
+        "updated_at":   { "type": "DATETIME NOT NULL",                     "since": "0.31.0" },
+        "deleted_at":   { "type": "DATETIME NULL",                        "since": "0.31.0" }
+      },
+      "indexes": {
+        "uq_uuid":      { "cols": ["uuid"], "unique": true, "since": "0.31.0" },
+        "idx_owner":    { "cols": ["owner_id", "deleted_at"], "since": "0.31.0" },
+        "idx_parent":   { "cols": ["parent_id"], "since": "0.31.0" },
+        "idx_visibility": { "cols": ["visibility", "deleted_at"], "since": "0.31.0" }
+      }
+    },
+    "bizcity_kg_grants": {
+      "since": "0.31.0",
+      "purpose": "PHASE-0.57A view-only workspace/notebook grants. Permission is deliberately view-only in this wave.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.31.0", "pk": true },
+        "object_type":  { "type": "VARCHAR(16) NOT NULL",                  "since": "0.31.0" },
+        "object_id":    { "type": "BIGINT UNSIGNED NOT NULL",              "since": "0.31.0" },
+        "grantee_type": { "type": "VARCHAR(16) NOT NULL",                  "since": "0.31.0" },
+        "grantee_ref":  { "type": "VARCHAR(80) NOT NULL",                  "since": "0.31.0" },
+        "permission":   { "type": "VARCHAR(16) NOT NULL DEFAULT 'view'",   "since": "0.31.0" },
+        "created_by":   { "type": "BIGINT UNSIGNED NOT NULL",              "since": "0.31.0" },
+        "created_at":   { "type": "DATETIME NOT NULL",                     "since": "0.31.0" },
+        "revoked_at":   { "type": "DATETIME NULL",                         "since": "0.31.0" }
+      },
+      "indexes": {
+        "uq_active_grant": { "cols": ["object_type", "object_id", "grantee_type", "grantee_ref", "revoked_at"], "unique": true, "since": "0.31.0" },
+        "idx_object":      { "cols": ["object_type", "object_id", "revoked_at"], "since": "0.31.0" },
+        "idx_grantee":     { "cols": ["grantee_type", "grantee_ref", "revoked_at"], "since": "0.31.0" }
+      }
+    },
+    "bizcity_kg_acl_log": {
+      "since": "0.31.0",
+      "purpose": "PHASE-0.57A append-only ACL and public-link audit evidence.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.31.0", "pk": true },
+        "object_type":  { "type": "VARCHAR(16) NOT NULL",                  "since": "0.31.0" },
+        "object_id":    { "type": "BIGINT UNSIGNED NOT NULL",              "since": "0.31.0" },
+        "action":       { "type": "VARCHAR(40) NOT NULL",                  "since": "0.31.0" },
+        "actor_id":     { "type": "BIGINT UNSIGNED NOT NULL",              "since": "0.31.0" },
+        "payload":      { "type": "LONGTEXT NULL",                         "since": "0.31.0" },
+        "created_at":   { "type": "DATETIME NOT NULL",                     "since": "0.31.0" }
+      },
+      "indexes": {
+        "idx_object": { "cols": ["object_type", "object_id", "created_at"], "since": "0.31.0" },
+        "idx_actor":  { "cols": ["actor_id", "created_at"], "since": "0.31.0" }
+      }
     }
   },
   "history": [
+    { "version": "0.31.0", "date": "2026-09-19", "change": "PHASE-0.57A: add per-blog workspace, view-only grant and ACL audit tables for shared/public notebook access." },
     { "version": "0.30.3", "date": "2026-08-21", "change": "KG-GURU-SCHEMA-INVENTORY: declare the existing bizcity_notebook_character_attachments table in the canonical R-DCL catalog and include it in schema readiness checks." },
     { "version": "0.21.0", "date": "2026-05-06", "change": "PHASE-0.21: declare the existing bizcity_notebook_character_attachments table linking notebooks to Guru UUID namespaces." },
     { "version": "0.30.2", "date": "2026-07-30", "change": "PHASE-0.6-KG-CLEANUP: retire bizcity_kg_mentions after the active-code audit found no INSERT/SELECT consumer; remove it from active DDL and diagnostics inventory, and route existing non-empty tables through guarded orphan cleanup." },

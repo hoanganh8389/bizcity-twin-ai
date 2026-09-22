@@ -3,7 +3,7 @@
  * Twin Shell — REST endpoint exposing the plugin registry.
  *
  * GET /wp-json/bizcity-twinchat/v1/shell/plugins
- *   → { plugins: [ ... ], default: 'twinchat' }
+	 *   → { plugins: [ ... ], default: 'crm' }
  *
  * @package Bizcity_Twin_AI
  * @subpackage Modules\TwinShell
@@ -39,6 +39,12 @@ class BizCity_Twin_Shell_REST {
 		register_rest_route( self::NS, '/shell/plugins', [
 			'methods'             => 'GET',
 			'callback'            => [ $this, 'list_plugins' ],
+			'permission_callback' => [ $this, 'permission_logged_in' ],
+		] );
+
+		register_rest_route( self::NS, '/shell/setting-panel', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'list_setting_panel' ],
 			'permission_callback' => [ $this, 'permission_logged_in' ],
 		] );
 
@@ -83,6 +89,46 @@ class BizCity_Twin_Shell_REST {
 			'plugins' => $plugins,
 			'default' => $registry->default_id(),
 		), 200 );
+	}
+
+	/**
+	 * Return server-authorized Setting Panel metadata for the current operator.
+	 *
+	 * The registry is discovery-only: renderer loading, owner reads and
+	 * mutations remain outside this endpoint.
+	 *
+	 * @param WP_REST_Request $request
+	 * @return WP_REST_Response
+	 */
+	public function list_setting_panel( $request ) {
+		// [2026-09-13 10:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G5 — expose read-only authorized registry metadata through the existing TwinShell REST owner.
+		$items = array();
+		if ( class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G3-05 — resolve label/url/availability server-side so the FE never derives a label or builds a link.
+			$resolved = method_exists( 'BizCity_Setting_Panel_Registry', 'resolved_all' )
+				? BizCity_Setting_Panel_Registry::resolved_all()
+				: BizCity_Setting_Panel_Registry::all();
+			foreach ( $resolved as $item ) {
+				if ( ! empty( $item['capability'] ) && ! current_user_can( (string) $item['capability'] ) ) {
+					continue;
+				}
+				if ( 'network' === (string) ( $item['scope'] ?? '' ) && ! is_network_admin() ) {
+					continue;
+				}
+				$items[] = $item;
+			}
+		}
+
+		return new WP_REST_Response(
+			array(
+				'success'      => true,
+				'contract'     => 'setting-panel-registration',
+				'version'      => '1.0.0',
+				'items'        => $items,
+				'destinations' => array( 'workspace', 'settings', 'control-panel', 'channel-settings', 'crm-inbox', 'plugins-store' ),
+			),
+			200
+		);
 	}
 
 	/**

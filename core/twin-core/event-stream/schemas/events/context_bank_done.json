@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Twin Event Stream: context_bank_done",
+  "description": "Context Bank phase boundary (close). Contract CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1 §3. duration_ms must equal the notebook_source_layer_ready.context_bank.duration_ms for the same trace. Counts and buckets only; no ledger row, owner body, query, path, hash, credential or provider ID.",
+  "type": "object",
+  "required": ["trace_id", "event_uuid", "phase", "started_epoch_ms", "completed_epoch_ms", "duration_ms", "status", "reason_bucket", "mode", "contract_count", "source_ref_count", "pointer_follows"],
+  "properties": {
+    "trace_id": { "type": "string", "minLength": 1 },
+    "event_uuid": { "type": "string", "minLength": 1 },
+    "parent_event_uuid": { "type": "string" },
+    "phase": { "type": "string", "enum": ["context_bank"] },
+    "started_epoch_ms": { "type": "integer", "minimum": 0 },
+    "completed_epoch_ms": { "type": "integer", "minimum": 0 },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["ran", "skipped", "degraded", "deadline"] },
+    "reason_bucket": {
+      "type": "string",
+      "description": "Empty string when status=ran. Otherwise a stable token from the contract §4 registry. An unknown bucket reaching the UI must render verbatim, never be swallowed."
+    },
+    "mode": { "type": "string" },
+    "vertical_id": { "type": "string" },
+    "contract_count": { "type": "integer", "minimum": 0 },
+    "source_ref_count": { "type": "integer", "minimum": 0 },
+    "pointer_follows": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

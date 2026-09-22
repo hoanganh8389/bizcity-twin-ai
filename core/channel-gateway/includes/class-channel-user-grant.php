@@ -22,6 +22,9 @@ final class BizCity_Channel_User_Grant {
 	const VERSION  = '1.0';
 	const META_PREFIX = '_bizcity_chgrant_v1_';
 	const MAX_USERS_PER_ACCOUNT = 4;
+	/** PHASE-0.50 UID-02 — site-level cap on Zalo Personal numbers one user may own (0 = unlimited). */
+	const OPTION_PERSONAL_QUOTA = 'bizcity_channel_personal_accounts_per_user';
+	const MAX_PERSONAL_QUOTA    = 50;
 	const PERMISSIONS = array(
 		'view_connection',
 		'view_context',
@@ -86,6 +89,32 @@ final class BizCity_Channel_User_Grant {
 		if ( (int) ( $context['connection_owner_user_id'] ?? 0 ) !== $user_id ) {
 			return self::failure( 'connection_owner_mismatch' );
 		}
+		return self::bind_primary_internal( $channel, $account_id, $user_id, $user_id, $context );
+	}
+
+	/**
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N2 (E4-03/G3) — bind an EXPLICIT owner as
+	 * primary, for an admin creating a Zalo Personal number on behalf of an employee (D2 2026-09-18:
+	 * only an administrator may do this; the CRM route gates that with `Staff_Policy`). The caller
+	 * must have already authorized this — `$authorized_by_caller` is trusted and never re-derived
+	 * from ambient request state, mirroring the `_for_owner` contract already used by
+	 * `BizCity_Zalo_Bridge_REST::start_qr_for_owner()`.
+	 */
+	public static function bind_primary_for_owner( $channel, $account_id, $owner_user_id, $actor_user_id, bool $authorized_by_caller = false, array $context = array() ) {
+		if ( ! $authorized_by_caller ) {
+			return self::failure( 'bind_not_authorized' );
+		}
+		$owner_user_id = (int) $owner_user_id;
+		$actor_user_id = (int) $actor_user_id;
+		if ( $owner_user_id <= 0 || ! function_exists( 'get_userdata' ) || ! get_userdata( $owner_user_id ) || ! self::is_current_blog_member( $owner_user_id ) ) {
+			return self::failure( 'bind_target_not_member' );
+		}
+		return self::bind_primary_internal( $channel, $account_id, $owner_user_id, $actor_user_id > 0 ? $actor_user_id : $owner_user_id, $context );
+	}
+
+	/** Shared mechanics behind `bind_primary_from_current()`/`bind_primary_for_owner()`: refuse a second live primary, enforce the Personal quota, then write. */
+	private static function bind_primary_internal( $channel, $account_id, $owner_user_id, $granted_by, array $context ) {
+		$owner_user_id = (int) $owner_user_id;
 		$meta_key = self::meta_key( $channel, $account_id );
 		if ( $meta_key === '' ) {
 			return self::failure( 'invalid_channel_account' );
@@ -101,17 +130,94 @@ final class BizCity_Channel_User_Grant {
 		if ( count( $primary_ids ) > 1 ) {
 			return self::failure( 'channel_primary_conflict', array( 'primary_user_ids' => $primary_ids ) );
 		}
-		if ( ! empty( $primary_ids ) && (int) $primary_ids[0] !== $user_id ) {
+		if ( ! empty( $primary_ids ) && (int) $primary_ids[0] !== $owner_user_id ) {
 			return self::failure( 'channel_primary_exists', array( 'primary_user_id' => (int) $primary_ids[0] ) );
 		}
-		$personal_primary = $channel === 'zalo_personal' ? self::has_other_personal_primary( $user_id, $account_id ) : false;
-		if ( $personal_primary === null ) {
-			return self::failure( 'personal_primary_check_failed' );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 R-LM-2 — one user may own N Zalo Personal work numbers;
+		// only an optional plan quota limits the count. One primary per ACCOUNT is still enforced above.
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 UID-02 — re-binding a number the user already owns is never
+		// a new number: lowering the site quota must not lock people out of numbers they already had (§10 rollback note).
+		if ( $channel === 'zalo_personal' && ! in_array( $owner_user_id, $primary_ids, true ) ) {
+			$quota = self::personal_account_quota( $owner_user_id );
+			if ( $quota > 0 ) {
+				$owned = self::count_other_personal_primaries( $owner_user_id, $account_id );
+				if ( $owned === null ) {
+					return self::failure( 'personal_primary_check_failed' );
+				}
+				if ( $owned >= $quota ) {
+					return self::failure( 'personal_account_quota_reached', array( 'quota' => $quota ) );
+				}
+			}
 		}
-		if ( $personal_primary ) {
-			return self::failure( 'personal_primary_limit_reached' );
+		return self::write_grant( $owner_user_id, $channel, $account_id, 'primary', self::default_primary_permissions(), $granted_by, $context );
+	}
+
+	/**
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N2 (G4) — CRM-authorized owner reassignment
+	 * for an EXISTING Zalo Personal account: revoke every current grant on the account (Zalo Personal
+	 * is exact-owner, R-ZP-OWNER — no residual delegate survives a transfer) and bind
+	 * `$new_owner_user_id` as the sole primary, in one call. Fixes the gap where
+	 * `bizcity_zalo_accounts.owner_user_id` (CRM mapping) and this grant layer could disagree after
+	 * `POST /crm-phones/{id}/transfer-owner` moved only the mapping. The caller must have already
+	 * authorized the move on BOTH sides (CRM's `Staff_Policy::can('phone.assign', from)` and
+	 * `can('phone.assign', to)`) — `$authorized_by_caller` is trusted, never re-derived here.
+	 */
+	public static function reassign_owner( $channel, $account_id, $new_owner_user_id, $actor_user_id = 0, bool $authorized_by_caller = false, array $context = array() ) {
+		if ( ! $authorized_by_caller ) {
+			return self::failure( 'reassign_not_authorized' );
 		}
-		return self::write_grant( $user_id, $channel, $account_id, 'primary', self::default_primary_permissions(), $user_id, $context );
+		$new_owner_user_id = (int) $new_owner_user_id;
+		$actor_user_id = $actor_user_id > 0 ? (int) $actor_user_id : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 );
+		$meta_key = self::meta_key( $channel, $account_id );
+		if ( $meta_key === '' ) {
+			return self::failure( 'invalid_channel_account' );
+		}
+		if ( $new_owner_user_id <= 0 || ! function_exists( 'get_userdata' ) || ! get_userdata( $new_owner_user_id ) || ! self::is_current_blog_member( $new_owner_user_id ) ) {
+			return self::failure( 'reassign_target_not_member' );
+		}
+		$existing = self::users_for_account( $channel, $account_id );
+		$from_user_id = 0;
+		$already_primary = false;
+		foreach ( $existing as $grant ) {
+			$uid = (int) ( $grant['user_id'] ?? 0 );
+			if ( (string) ( $grant['relation'] ?? '' ) === 'primary' ) {
+				$from_user_id = $uid;
+				if ( $uid === $new_owner_user_id ) { $already_primary = true; }
+			}
+		}
+		if ( $already_primary ) {
+			// Idempotent: transfer-owner retried after a partial mapping-only move from before this fix.
+			return array( 'ok' => true, 'status' => 'unchanged', 'user_id' => $new_owner_user_id, 'account_key' => self::account_key( $channel, $account_id ), 'from_user_id' => $from_user_id );
+		}
+		if ( $channel === 'zalo_personal' ) {
+			$quota = self::personal_account_quota( $new_owner_user_id );
+			if ( $quota > 0 ) {
+				$owned = self::count_other_personal_primaries( $new_owner_user_id, $account_id );
+				if ( $owned === null ) {
+					return self::failure( 'personal_primary_check_failed' );
+				}
+				if ( $owned >= $quota ) {
+					return self::failure( 'personal_account_quota_reached', array( 'quota' => $quota ) );
+				}
+			}
+		}
+		foreach ( $existing as $grant ) {
+			$uid = (int) ( $grant['user_id'] ?? 0 );
+			if ( $uid <= 0 || $uid === $new_owner_user_id ) { continue; } // overwritten by write_grant() below regardless.
+			$grant['status'] = 'revoked';
+			$grant['updated_at'] = gmdate( 'c' );
+			$grant['revoked_by'] = $actor_user_id;
+			self::write_meta( $uid, $meta_key, $grant );
+		}
+		self::audit( $channel, 'owner_reassign_attempt', array( 'actor_user_id' => $actor_user_id, 'from_user_id' => $from_user_id, 'to_user_id' => $new_owner_user_id ) );
+		$result = self::write_grant( $new_owner_user_id, $channel, $account_id, 'primary', self::default_primary_permissions(), $actor_user_id, $context );
+		if ( empty( $result['ok'] ) ) {
+			self::audit( $channel, 'owner_reassign_incomplete', array( 'actor_user_id' => $actor_user_id, 'from_user_id' => $from_user_id, 'to_user_id' => $new_owner_user_id ) );
+			return $result;
+		}
+		self::invalidate_authorization_cache();
+		self::audit( $channel, 'owner_reassign_ok', array( 'actor_user_id' => $actor_user_id, 'from_user_id' => $from_user_id, 'to_user_id' => $new_owner_user_id ) );
+		return array_merge( $result, array( 'from_user_id' => $from_user_id ) );
 	}
 
 	/**
@@ -433,11 +539,45 @@ final class BizCity_Channel_User_Grant {
 		return false;
 	}
 
-	private static function has_other_personal_primary( $user_id, $account_id ) {
-		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — enforce one active Zalo Personal primary account per user and blog.
+	/**
+	 * Max Zalo Personal accounts one user may own as primary in this blog. 0 = no limit.
+	 * Source: the site option (CRM → Nhân sự, PHASE-0.50 UID-02); the filter of the same name may
+	 * still override per user. The grant layer never hard-codes one.
+	 */
+	public static function personal_account_quota( $user_id ) {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 R-LM-2 — plan-driven quota replaces the old one-primary-per-user rule.
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 UID-02 — Product chose a site-level cap (no Hub key exists).
+		$site = function_exists( 'get_option' ) ? (int) get_option( self::OPTION_PERSONAL_QUOTA, 0 ) : 0;
+		$site = max( 0, min( self::MAX_PERSONAL_QUOTA, $site ) );
+		$quota = function_exists( 'apply_filters' )
+			? apply_filters( 'bizcity_channel_personal_accounts_per_user', $site, (int) $user_id, (int) get_current_blog_id() )
+			: $site;
+		return max( 0, (int) $quota );
+	}
+
+	/**
+	 * Quota snapshot for a user, for a pre-check before a QR scan and for admin screens.
+	 *
+	 * @return array{quota:int,owned:int|null,remaining:int|null,reached:bool}  `remaining` null = unlimited; `owned` null = count failed.
+	 */
+	public static function personal_quota_status( $user_id ) {
+		$user_id = (int) $user_id;
+		$quota = self::personal_account_quota( $user_id );
+		$owned = $user_id > 0 ? self::count_other_personal_primaries( $user_id, '' ) : 0;
+		$remaining = ( $quota > 0 && null !== $owned ) ? max( 0, $quota - (int) $owned ) : null;
+		return array(
+			'quota'     => $quota,
+			'owned'     => null === $owned ? null : (int) $owned,
+			'remaining' => $remaining,
+			'reached'   => $quota > 0 && null !== $owned && (int) $owned >= $quota,
+		);
+	}
+
+	private static function count_other_personal_primaries( $user_id, $account_id ) {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 R-LM-2 — count (not forbid) the user's other active Personal primaries.
 		global $wpdb;
 		if ( ! isset( $wpdb->usermeta ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_results' ) ) {
-			return false;
+			return 0;
 		}
 		$prefix = self::META_PREFIX . (int) get_current_blog_id() . '_zalo_personal_';
 		$like = method_exists( $wpdb, 'esc_like' ) ? $wpdb->esc_like( $prefix ) . '%' : $prefix . '%';
@@ -446,16 +586,17 @@ final class BizCity_Channel_User_Grant {
 			return null;
 		}
 		$current_key = self::meta_key( 'zalo_personal', $account_id );
+		$count = 0;
 		foreach ( (array) $rows as $row ) {
 			if ( (string) ( $row['meta_key'] ?? '' ) === $current_key ) {
 				continue;
 			}
 			$grant = maybe_unserialize( $row['meta_value'] ?? '' );
 			if ( is_array( $grant ) && (string) ( $grant['relation'] ?? '' ) === 'primary' && (string) ( $grant['status'] ?? '' ) === 'active' ) {
-				return true;
+				$count++;
 			}
 		}
-		return false;
+		return $count;
 	}
 
 	private static function audit( $channel, $event, array $context ) {

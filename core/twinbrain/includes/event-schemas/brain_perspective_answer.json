@@ -22,6 +22,20 @@
       }
     },
     "tokens": { "type": "integer", "minimum": 0 },
-    "ms":     { "type": "integer", "minimum": 0 }
+    "ms":     { "type": "integer", "minimum": 0 },
+    "timing": {
+      "type": "object",
+      "description": "PHASE-1.33C — bounded per-phase notebook cost and embedding cache counters. Counts and durations only; no passage bodies, queries or owner payloads.",
+      "properties": {
+        "retrieve_ms":         { "type": "integer", "minimum": 0 },
+        "keyword_ms":          { "type": "integer", "minimum": 0 },
+        "neighbor_ms":         { "type": "integer", "minimum": 0 },
+        "expand_ms":           { "type": "integer", "minimum": 0 },
+        "passage_count":       { "type": "integer", "minimum": 0 },
+        "embed_hits_memory":   { "type": "integer", "minimum": 0 },
+        "embed_hits_transient": { "type": "integer", "minimum": 0 },
+        "embed_misses":        { "type": "integer", "minimum": 0 }
+      }
+    }
   }
 }

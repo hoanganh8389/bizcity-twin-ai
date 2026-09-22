@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "contract": "pipeline-stage-change",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "contact_id": 9001,
+  "from": "quote",
+  "to": "won",
+  "stage": "won",
+  "moved": true,
+  "opportunity_id": 311,
+  "note_message_id": 5521,
+  "reminder_task_id": 812,
+  "handoff_task_done": 77,
+  "steps_done": [
+    0,
+    1
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "id": "fixture.receipts.no_id",
+  "package_role": "reference_only",
+  "name": "Capability entry with no id",
+  "version": "1.0.0",
+  "capabilities": {
+    "tools": [
+      {
+        "label": "Entry with no id at all",
+        "class": "Fixture_Receipts_Echo_Tool"
+      }
+    ]
+  }
+}

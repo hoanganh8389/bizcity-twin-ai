@@ -1,0 +1,19 @@
+{
+  "contract": "team-ops-board",
+  "version": "1.0.0",
+  "range": "this_week",
+  "as_of": "2026-09-19T09:20:00+07:00",
+  "kpi": {
+    "online": 0,
+    "total": 8,
+    "dead_phones": 2,
+    "breach": 0,
+    "revenue_paid": 0,
+    "no_channel": 7
+  },
+  "attention": [
+    { "kind": "unknown_kind" }
+  ],
+  "staff": [],
+  "coverage": { "degraded_sources": [] }
+}

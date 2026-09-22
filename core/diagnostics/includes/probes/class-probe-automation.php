@@ -18,6 +18,14 @@
  *       registered.
  *     - Round-trip: create workflow → enqueue run → fetch logs → soft-delete.
  *
+ * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — this probe runs
+ * inside `BIZCITY_DIAGNOSTICS_CLI`, where R-CLI-ASYNC-ISOLATION requires
+ * `BizCity_Automation_Runner::execute()` to return `diagnostics_async_isolated`.
+ * The runner step therefore asserts THE GUARD, not a completed run; a completed
+ * run in this context is the regression (it would mean production work executed
+ * under diagnostics). Production execution is proven by `automation.matcher`,
+ * which runs the matcher/runner path in its own production-context fixture.
+ *
  * Schema source of truth: core/diagnostics/changelog/core.automation.json v1.0.0.
  *
  * @package    Bizcity_Twin_AI
@@ -399,26 +407,35 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 			return self::fail( $steps, 'enqueue run failed', 'enqueue_failed', 'Check runs table grants.' );
 		}
 
-		// BE-3 — runner end-to-end smoke (manual trigger only, no side effects).
+		// BE-3 — runner isolation under Diagnostics CLI (R-CLI-ASYNC-ISOLATION).
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — INVERTED ON
+		// PURPOSE. The previous assertion required `execute()` to complete and the
+		// run row to reach STATUS_OK, which contradicts R-CLI-ASYNC-ISOLATION: the
+		// runner is required to return `diagnostics_async_isolated` in this context.
+		// A deployed `batch=core` run therefore reported this probe as FAIL
+		// (`runner_failed`) while the guard was working exactly as designed. The
+		// passing condition is now "the worker was blocked", and a completed run is
+		// treated as the regression.
 		$exec = BizCity_Automation_Runner::instance()->execute( $run_id );
 		$run  = BizCity_Automation_Repo_Runs::find( $run_id );
-		$exec_ok = ! is_wp_error( $exec )
-			&& is_array( $run )
-			&& (int) $run['status'] === BizCity_Automation_Repo_Runs::STATUS_OK;
+		$exec_isolated = is_wp_error( $exec ) && $exec->get_error_code() === 'diagnostics_async_isolated';
+		$exec_ok = $exec_isolated;
 		$steps[] = $s = array(
 			'label'  => 'Runtime · runner execute',
 			'status' => $exec_ok ? 'pass' : 'fail',
 			'detail' => $exec_ok
-				? sprintf( 'run %s · status=OK · steps=%d', $run_id, (int) ( $exec['steps'] ?? 0 ) )
-				: ( is_wp_error( $exec ) ? $exec->get_error_message() : ( 'status=' . (int) ( $run['status'] ?? -1 ) ) ),
+				? sprintf( 'run %s · worker blocked by R-CLI-ASYNC-ISOLATION (expected in diagnostics CLI)', $run_id )
+				: ( is_wp_error( $exec )
+					? 'Unexpected runner error: ' . $exec->get_error_code() . ' · ' . $exec->get_error_message()
+					: sprintf( 'REGRESSION: runner executed production work under diagnostics CLI · status=%d', (int) ( $run['status'] ?? -1 ) ) ),
 		);
 		$ctx->emit_step( $s );
 		if ( ! $exec_ok ) {
 			BizCity_Automation_Repo_Workflows::hard_delete( $wf['id'] );
 			$wpdb->delete( BizCity_Automation_Repo_Runs::table_runs(), array( 'run_id' => $run_id ), array( '%s' ) );
 			$wpdb->delete( BizCity_Automation_Repo_Runs::table_logs(), array( 'run_id' => $run_id ), array( '%s' ) );
-			return self::fail( $steps, 'runner execute failed', 'runner_failed',
-				'Verify BizCity_Automation_Runner + trigger.manual block.' );
+			return self::fail( $steps, 'runner isolation guard failed', 'runner_isolation_regression',
+				'Restore the BIZCITY_DIAGNOSTICS_CLI guard in BizCity_Automation_Runner::execute() and instance()->run_now() (R-CLI-ASYNC-ISOLATION).' );
 		}
 
 		// BE-4 — trigger matcher hook wiring (scheduler + channel inbound + cron scan).
@@ -473,13 +490,25 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 			$rows = BizCity_Automation_Repo_Runs::query( array( 'workflow_id' => (int) $sched_wf['id'], 'limit' => 5 ) );
 			$sched_run = $rows['rows'][0] ?? null;
 		}
-		$sched_pass = $sched_run && (int) $sched_run['status'] === BizCity_Automation_Repo_Runs::STATUS_OK;
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — INVERTED ON PURPOSE,
+		// same contract violation as the runner step above. The scheduler bridge dispatches
+		// through `enqueue_and_optionally_run( $wf, $payload, true )`; in
+		// `BIZCITY_DIAGNOSTICS_CLI` that call must enqueue the run and LEAVE IT QUEUED
+		// (R-CLI-ASYNC-ISOLATION), never reach `execute()`. Requiring STATUS_OK here
+		// asserted production execution inside diagnostics, which the rule forbids, so
+		// the step could never pass in batch mode. The contract under test is now
+		// "bridged to a queued run, isolated from the worker".
+		$sched_pass = $sched_run
+			&& (int) ( $sched_run['workflow_id'] ?? 0 ) === (int) $sched_wf['id']
+			&& (int) ( $sched_run['status'] ?? -1 ) !== BizCity_Automation_Repo_Runs::STATUS_OK;
 		$steps[]    = $s = array(
 			'label'  => 'Runtime · scheduler bridge smoke',
 			'status' => $sched_pass ? 'pass' : 'fail',
 			'detail' => $sched_pass
-				? 'synth event dispatch → run ' . $sched_run['run_id'] . ' OK'
-				: ( $sched_run ? ( 'run status=' . (int) $sched_run['status'] ) : 'no run row created' ),
+				? 'synth event dispatch → run ' . $sched_run['run_id'] . ' queued · worker isolated by R-CLI-ASYNC-ISOLATION (expected in diagnostics CLI)'
+				: ( $sched_run
+					? sprintf( 'REGRESSION: bridged run reached STATUS_OK (%d) under diagnostics CLI · run_id=%s', (int) $sched_run['status'], (string) $sched_run['run_id'] )
+					: 'no run row created for the bridged workflow id' ),
 		);
 		$ctx->emit_step( $s );
 		if ( $sched_ok ) {

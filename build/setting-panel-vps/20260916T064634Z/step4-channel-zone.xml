@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="4" failures="0" skipped="0" time="1.497">
+  <testsuite name="diagnostics" tests="4" failures="0" skipped="0" time="1.497">
+    <testcase classname="bizcity.diagnostics" name="core.channel.zone_isolation" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.channel.identity_memory" time="0.594">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.channel.zone_ui" time="0.000">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.channel.zalo_multi_account_isolation" time="0.864">
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -48,11 +48,25 @@ class BizCity_Zalo_Bridge_REST {
 			'permission_callback' => '__return_true', // Bearer verified in handler.
 		) );
 
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — Hub relays a "session_superseded" webhook from this same per-account credential when a QR login elsewhere took over the account's callback.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/session-event', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'handle_session_event' ),
+			'permission_callback' => '__return_true', // Bearer verified in handler.
+		) );
+
 		// [2026-08-23 Johnny Chu] PHASE-0.39E — independent monitor alert ingress; no CRM/bridge write.
 		register_rest_route( self::NS, '/' . self::PREFIX . '/health-alert', array(
 			'methods'              => 'POST',
 			'callback'            => array( __CLASS__, 'handle_health_alert' ),
 			'permission_callback' => '__return_true',
+		) );
+
+		// [2026-09-18] R-ZP-ERR — read-only, credential-free contract catalog for any logged-in client.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/error-catalog', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'handle_error_catalog' ),
+			'permission_callback' => 'is_user_logged_in',
 		) );
 
 		// Bridge health (admin only).
@@ -190,6 +204,30 @@ class BizCity_Zalo_Bridge_REST {
 	 * @param WP_REST_Request $request
 	 * @return WP_REST_Response
 	 */
+	/**
+	 * Hub session-event webhook: a QR login on another website superseded this account's Zalo
+	 * login. Marks the local account `logged_out` immediately instead of waiting for the next
+	 * status poll to discover `managed_account_other_site`. Auth reuses the same per-account
+	 * callback token the Hub already uses for /inbound.
+	 */
+	public static function handle_session_event( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — same Bearer boundary as handle_inbound; a mismatched or missing token must not reveal whether the account exists.
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$bridge_id = sanitize_text_field( (string) ( $body['account_id'] ?? '' ) );
+		$stored_token = $bridge_id !== '' ? BizCity_Zalo_Bridge_Client::instance()->expected_inbound_token( $bridge_id ) : '';
+		$header = (string) $request->get_header( 'authorization' );
+		$bearer = stripos( $header, 'Bearer ' ) === 0 ? trim( substr( $header, 7 ) ) : '';
+		if ( $stored_token === '' || $bearer === '' || ! hash_equals( $stored_token, $bearer ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'unauthorized' ), 401 );
+		}
+		$event = sanitize_key( (string) ( $body['event'] ?? '' ) );
+		if ( 'session_superseded' === $event && class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+			self::mark_moved_away( $bridge_id );
+		}
+		return new WP_REST_Response( array( 'ok' => true ), 200 );
+	}
+
 	public static function handle_inbound( WP_REST_Request $request ) {
 		// [2026-06-07 Johnny Chu] PHASE-0.39 — verify Bearer + emit bizcity_zalo_message_received.
 		// [2026-08-22 Johnny Chu] R-CH-FILE-LOG — write a redacted attempt before option, mapping, or CRM reads.
@@ -487,8 +525,46 @@ class BizCity_Zalo_Bridge_REST {
 		return self::create_account_for_owner( $request, (int) get_current_user_id() );
 	}
 
-	/** Create and bind an account for an already-resolved tenant owner. */
-	public static function create_account_for_owner( WP_REST_Request $request, int $owner_user_id, bool $personal_only = false ): WP_REST_Response {
+	/**
+	 * Run the no-side-effect checks used by account creation.
+	 *
+	 * @return WP_REST_Response|null An error response when creation is blocked; null when ready.
+	 */
+	public static function preflight_create_account_for_owner( WP_REST_Request $request, int $owner_user_id, bool $personal_only = false ) {
+		// [2026-09-19 Johnny Chu] PHASE-0.54A K-04 — expose the duplicate/quota gate without creating a Hub account or local mapping.
+		$body = $request->get_json_params();
+		$label = sanitize_text_field( $body['label'] ?? '' );
+		$kind = in_array( $body['kind'] ?? 'personal', array( 'personal', 'oa' ), true ) ? $body['kind'] : 'personal';
+		if ( $personal_only ) {
+			$kind = 'personal';
+		}
+		if ( 'personal' === $kind && class_exists( 'BizCity_Zalo_Duplicate_Guard' ) && class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+			$duplicate = BizCity_Zalo_Duplicate_Guard::find_phone_duplicate( $label, BizCity_Zalo_Mapping_Repo::list_personal_accounts( array( 'limit' => 200 ) ) );
+			if ( $duplicate ) {
+				return new WP_REST_Response( self::with_error_contract( BizCity_Zalo_Duplicate_Guard::create_blocked_payload( $duplicate ) ), 200 );
+			}
+		}
+		if ( 'personal' === $kind && class_exists( 'BizCity_Channel_User_Grant' ) && method_exists( 'BizCity_Channel_User_Grant', 'personal_quota_status' ) ) {
+			$quota_status = BizCity_Channel_User_Grant::personal_quota_status( $owner_user_id );
+			if ( ! empty( $quota_status['reached'] ) ) {
+				return new WP_REST_Response( self::personal_quota_payload( (int) $quota_status['quota'] ), 200 );
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Create and bind an account for an already-resolved tenant owner.
+	 *
+	 * @param bool $authorized_for_other [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N2 (E4-03/G3) —
+	 *   when true and `$owner_user_id !== $actor_user_id`, the caller has ALREADY authorized adding a
+	 *   number for someone else (CRM's `Staff_Policy::can(actor,'phone.add_for_other',owner)`, admin-only
+	 *   per D2 2026-09-18) and the primary bind goes through `BizCity_Channel_User_Grant::bind_primary_for_owner()`
+	 *   instead of the self-only `bind_primary_from_current()`. Every existing call site omits this (default
+	 *   false) and keeps binding to the caller themselves, unchanged.
+	 * @param int  $actor_user_id Who is actually calling (for grant audit); defaults to `$owner_user_id` self-bind.
+	 */
+	public static function create_account_for_owner( WP_REST_Request $request, int $owner_user_id, bool $personal_only = false, bool $authorized_for_other = false, int $actor_user_id = 0 ): WP_REST_Response {
 		// [2026-08-22 Johnny Chu] R-TWEB-1/R-TWEB-14 — never resolve the /gpt/ owner from ambient request state inside the service.
 		$body   = $request->get_json_params();
 		$label  = sanitize_text_field( $body['label'] ?? '' );
@@ -507,6 +583,12 @@ class BizCity_Zalo_Bridge_REST {
 				'hint'      => 'Đăng nhập WordPress rồi thử lại.',
 				'help_code' => 'auth_required',
 			), 401 );
+		}
+		$preflight = self::preflight_create_account_for_owner( $request, $owner_user_id, $personal_only );
+		if ( $preflight instanceof WP_REST_Response ) {
+			$preflight_data = $preflight->get_data();
+			self::trace_create_step( 'create_preflight_blocked', array( 'code' => sanitize_key( (string) ( $preflight_data['code'] ?? '' ) ) ) );
+			return $preflight;
 		}
 		$client = BizCity_Zalo_Bridge_Client::instance();
 		self::trace_create_step( 'hub_request', array( 'kind' => $kind ) );
@@ -531,7 +613,7 @@ class BizCity_Zalo_Bridge_REST {
 					$response[ $field ] = $result[ $field ];
 				}
 			}
-			return new WP_REST_Response( $response );
+			return new WP_REST_Response( self::with_error_contract( $response ) );
 		}
 		$bridge_account = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : $result;
 		$bridge_id      = (string) ( $bridge_account['id'] ?? '' );
@@ -628,16 +710,22 @@ class BizCity_Zalo_Bridge_REST {
 				'help_code' => 'module_not_loaded',
 			), 200 );
 		}
-		$grant = BizCity_Channel_User_Grant::bind_primary_from_current( 'zalo_personal', $bridge_id, array(
-			'connection_verified'    => true,
-			'connection_owner_user_id' => $owner_user_id,
-			'source'                 => 'twinweb_self_connect',
-		) );
+		$grant = ( $authorized_for_other && $actor_user_id > 0 && $actor_user_id !== $owner_user_id )
+			? BizCity_Channel_User_Grant::bind_primary_for_owner( 'zalo_personal', $bridge_id, $owner_user_id, $actor_user_id, true, array( 'source' => 'crm_add_for_other' ) )
+			: BizCity_Channel_User_Grant::bind_primary_from_current( 'zalo_personal', $bridge_id, array(
+				'connection_verified'    => true,
+				'connection_owner_user_id' => $owner_user_id,
+				'source'                 => 'twinweb_self_connect',
+			) );
 		if ( empty( $grant['ok'] ) ) {
 			self::trace_create_step( 'channel_grant_failed', array( 'reason' => sanitize_key( (string) ( $grant['reason'] ?? 'grant_write_failed' ) ) ) );
 			BizCity_Zalo_Mapping_Repo::update_account_status( $local_id, 'orphaned' );
 			$client->delete_account( $bridge_id );
 			$reason = sanitize_key( (string) ( $grant['reason'] ?? 'grant_write_failed' ) );
+			if ( 'personal_account_quota_reached' === $reason ) {
+				// Race with another connect finishing first; same R-ERROR-UX copy as the pre-check.
+				return new WP_REST_Response( self::personal_quota_payload( (int) ( $grant['quota'] ?? 0 ) ), 200 );
+			}
 			return new WP_REST_Response( array(
 				'ok'        => false,
 				'code'      => $reason,
@@ -650,6 +738,20 @@ class BizCity_Zalo_Bridge_REST {
 		self::trace_create_step( 'create_complete', array( 'local_id' => (int) $local_id, 'inbox_id' => (int) $inbox_id ) );
 
 		return new WP_REST_Response( array( 'ok' => true, 'id' => $bridge_id, 'crm_inbox_id' => $inbox_id, 'owner_user_id' => $owner_user_id ), 200 );
+	}
+
+	/** PHASE-0.50 UID-02 — R-ERROR-UX envelope when a user already owns the site's allowed number of Zalo Personal accounts. */
+	private static function personal_quota_payload( int $quota ): array {
+		return array(
+			'ok'        => false,
+			'code'      => 'personal_account_quota_reached',
+			'message'   => $quota > 0
+				? sprintf( 'Bạn đã dùng hết %d SĐT Zalo Cá nhân được phép trên website này.', $quota )
+				: 'Bạn đã dùng hết số SĐT Zalo Cá nhân được phép trên website này.',
+			'hint'      => 'Gỡ một SĐT không còn dùng, hoặc nhờ quản trị viên tăng hạn mức ở CRM → Nhân sự.',
+			'help_code' => 'personal_account_quota_reached',
+			'quota'     => $quota,
+		);
 	}
 
 	/** Write redacted account-provisioning evidence before and after each persistence boundary. */
@@ -674,17 +776,31 @@ class BizCity_Zalo_Bridge_REST {
 				$local = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'oa', $id );
 			}
 			if ( $local ) {
-				// [2026-08-21 Johnny Chu] PHASE-0.39B — retain CRM history while marking the bridge account logged out.
-				BizCity_Zalo_Mapping_Repo::update_account_status( (int) $local['id'], 'logged_out' );
+				// [2026-08-21 Johnny Chu] PHASE-0.39B — retain CRM history; only the local session state changes.
+				// [2026-09-18] R-ZP-DUP DUP-11 — a deleted bridge account is 'revoked', not 'logged_out': it must stop
+				// offering QR re-login and stop being counted as a duplicate twin. CRM Inbox + history are kept.
+				BizCity_Zalo_Mapping_Repo::update_account_status( (int) $local['id'], BizCity_Zalo_Duplicate_Guard::STATUS_REVOKED );
 			}
 		}
 		return new WP_REST_Response( array( 'ok' => $ok, 'success' => $ok ) );
 	}
 
-	/** Delete a Personal account after Twin GPT has resolved its tenant owner. */
-	public static function delete_account_for_owner( array $account, int $owner_user_id ): WP_REST_Response {
+	/**
+	 * Delete a Personal account after Twin GPT has resolved its tenant owner.
+	 *
+	 * @param bool $authorized_by_caller [2026-09-18 Johnny Chu - Chu Hoàng Anh]
+	 *   PHASE-0.53 N5 (S5) — same bypass pattern as {@see start_qr_for_owner()}:
+	 *   when true, the caller (`bizcity-twin-crm`'s staff REST) has already run
+	 *   its own `Staff_Policy::can('phone.assign', ...)` check for a
+	 *   supervisor/admin removing SOMEONE ELSE's phone, so the strict
+	 *   "only the account's own owner" equality below is skipped. Default
+	 *   `false` preserves the existing self-service `/gpt/` call site exactly.
+	 */
+	public static function delete_account_for_owner( array $account, int $owner_user_id, bool $authorized_by_caller = false ): WP_REST_Response {
 		// [2026-08-22 Johnny Chu] R-TWEB-1/R-TWEB-14 — retain owner scope through bridge deletion and local status persistence.
-		if ( $owner_user_id <= 0 || (string) ( $account['kind'] ?? '' ) !== 'personal' || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) {
+		if ( 'personal' !== (string) ( $account['kind'] ?? '' )
+			|| ( ! $authorized_by_caller && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
+		) {
 			return new WP_REST_Response( array( 'ok' => false, 'success' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
 		}
 		$id = (string) ( $account['bridge_account_id'] ?? '' );
@@ -694,9 +810,104 @@ class BizCity_Zalo_Bridge_REST {
 		$result = BizCity_Zalo_Bridge_Client::instance()->delete_account( $id );
 		$ok = empty( $result['_degraded'] ) && ! empty( $result['success'] );
 		if ( $ok && class_exists( 'BizCity_Zalo_Mapping_Repo' ) && ! empty( $account['id'] ) ) {
-			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $account['id'], 'logged_out' );
+			// [2026-09-18] R-ZP-DUP DUP-11 — deleted ⇒ 'revoked' (history kept, no QR offer, not a twin).
+			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $account['id'], BizCity_Zalo_Duplicate_Guard::STATUS_REVOKED );
 		}
 		return new WP_REST_Response( array( 'ok' => $ok, 'success' => $ok, 'code' => $ok ? '' : (string) ( $result['code'] ?? 'zalo_bridge_unreachable' ), 'message' => $ok ? '' : (string) ( $result['message'] ?? 'Chưa ngắt được tài khoản Zalo.' ), 'hint' => $ok ? '' : (string) ( $result['hint'] ?? 'Kiểm tra trạng thái managed bridge rồi thử lại.' ), 'help_code' => $ok ? '' : (string) ( $result['help_code'] ?? 'zalo_bridge_unreachable' ) ), 200 );
+	}
+
+	/**
+	 * PHASE-0.53 N5 (S6/G6) — re-provision a Zalo Personal account whose Hub-side account is gone
+	 * (`account_not_owned`), adopting the SAME CRM inbox instead of letting a fresh
+	 * `create_account_for_owner()` spin up a second one (the "Trùng SĐT" split-history bug this
+	 * flow exists to avoid).
+	 *
+	 * Marks `$old_account` `orphaned` first — R-ZP-DUP's duplicate guard excludes `orphaned` rows
+	 * (`BizCity_Zalo_Duplicate_Guard::DEAD_STATUSES`), so the Hub create below is never blocked by
+	 * the very row this call just retired. Then it deliberately skips
+	 * `BizCity_CRM_Repository::upsert_inbox()` — that function looks up an existing inbox by the
+	 * TUPLE `(channel_type, channel_ref_id)`, so calling it with the new bridge id would silently
+	 * create a second inbox instead of adopting the old one. Both sides of the old inbox↔account
+	 * link are re-pointed instead: the new account row's `crm_inbox_id` (fixes inbound routing —
+	 * `BizCity_Zalo_Inbound_Emitter::emit()` reads this column) AND the inbox row's `channel_ref_id`
+	 * (fixes OUTBOUND send — `BizCity_CRM_Adapter_ZaloPersonal::send()` resolves the live bridge
+	 * account id from THIS column, not from the account row; leaving it on the dead bridge id would
+	 * silently break replies even though inbound + rail both looked fixed).
+	 *
+	 * Known gap: quota is enforced by `bind_primary_for_owner()`/`personal_quota_status()` counting
+	 * the owner's live grants, and there is no public API to clear a PRIMARY's own grant without
+	 * transferring it to someone else (`BizCity_Channel_User_Grant::revoke()` explicitly refuses
+	 * that — `primary_transfer_required`). An owner sitting exactly at quota can see
+	 * `personal_account_quota_reached` here even though the account being replaced is dead. Left
+	 * as-is: a "force-clear my own primary grant" capability is a bigger change than this recovery
+	 * flow needs; §10.5 in the phase doc has more detail.
+	 */
+	public static function recover_account_for_owner( array $old_account, int $adopt_inbox_id, int $actor_user_id ): WP_REST_Response {
+		if ( 'personal' !== (string) ( $old_account['kind'] ?? '' ) || $adopt_inbox_id <= 0 ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Không xác định được SĐT cần khôi phục.', 'hint' => '', 'help_code' => 'invalid_param_generic' ), 400 );
+		}
+		$owner_user_id = (int) ( $old_account['owner_user_id'] ?? 0 );
+		if ( $owner_user_id <= 0 || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy SĐT này.', 'hint' => '', 'help_code' => 'not_found' ), 404 );
+		}
+		$label = (string) ( $old_account['label'] ?? '' );
+		if ( ! empty( $old_account['id'] ) ) {
+			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $old_account['id'], 'orphaned' );
+		}
+
+		$client = BizCity_Zalo_Bridge_Client::instance();
+		$result = $client->create_account( array( 'label' => $label, 'type' => 'personal' ) );
+		if ( ! empty( $result['_degraded'] ) ) {
+			return new WP_REST_Response( self::with_error_contract( array(
+				'ok'        => false,
+				'_degraded' => true,
+				'code'      => (string) ( $result['code'] ?? $result['error'] ?? 'bridge_unavailable' ),
+				'message'   => (string) ( $result['message'] ?? 'Không tạo lại được tài khoản Zalo.' ),
+				'hint'      => (string) ( $result['hint'] ?? 'Kiểm tra trạng thái Managed 1API rồi thử lại.' ),
+				'help_code' => (string) ( $result['help_code'] ?? 'zalo_bridge_unreachable' ),
+			) ) );
+		}
+		$bridge_account = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : $result;
+		$bridge_id = (string) ( $bridge_account['id'] ?? '' );
+		if ( $bridge_id === '' ) {
+			return new WP_REST_Response( array( 'ok' => false, '_degraded' => true, 'code' => 'zalo_bridge_bad_response', 'message' => 'Không tạo lại được tài khoản Zalo.', 'hint' => '', 'help_code' => 'zalo_bridge_bad_response' ), 200 );
+		}
+		BizCity_Zalo_Mapping_Repo::maybe_install();
+		$local_id = BizCity_Zalo_Mapping_Repo::save_account( array(
+			'kind'              => 'personal',
+			'owner_user_id'     => $owner_user_id,
+			'label'             => $label,
+			'bridge_account_id' => $bridge_id,
+			'zalo_uid'          => (string) ( $bridge_account['zaloUid'] ?? $bridge_account['zalo_uid'] ?? '' ),
+			'zalo_oa_id'        => '',
+			'crm_inbox_id'      => $adopt_inbox_id,
+			'status'            => 'pending_qr',
+		) );
+		if ( $local_id <= 0 ) {
+			$client->delete_account( $bridge_id );
+			return new WP_REST_Response( array( 'ok' => false, '_degraded' => true, 'code' => 'mapping_insert_failed', 'message' => 'Không lưu được liên kết tài khoản Zalo.', 'hint' => '', 'help_code' => 'zalo_bridge_bad_response' ), 200 );
+		}
+		global $wpdb;
+		$wpdb->update( BizCity_CRM_DB_Installer_V2::tbl_inboxes(), array( 'channel_ref_id' => $bridge_id ), array( 'id' => $adopt_inbox_id ) );
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::flush_group( 'crm_repository' );
+		}
+		if ( ! class_exists( 'BizCity_Channel_User_Grant' ) ) {
+			$client->delete_account( $bridge_id );
+			BizCity_Zalo_Mapping_Repo::update_account_status( $local_id, 'orphaned' );
+			return new WP_REST_Response( array( 'ok' => false, '_degraded' => true, 'code' => 'channel_grant_unavailable', 'message' => 'Chưa khởi tạo được quyền sở hữu kênh Zalo.', 'hint' => '', 'help_code' => 'module_not_loaded' ), 200 );
+		}
+		$grant = BizCity_Channel_User_Grant::bind_primary_for_owner( 'zalo_personal', $bridge_id, $owner_user_id, $actor_user_id, true, array( 'source' => 'crm_recover' ) );
+		if ( empty( $grant['ok'] ) ) {
+			$client->delete_account( $bridge_id );
+			BizCity_Zalo_Mapping_Repo::update_account_status( $local_id, 'orphaned' );
+			$reason = sanitize_key( (string) ( $grant['reason'] ?? 'grant_write_failed' ) );
+			if ( 'personal_account_quota_reached' === $reason ) {
+				return new WP_REST_Response( self::personal_quota_payload( (int) ( $grant['quota'] ?? 0 ) ), 200 );
+			}
+			return new WP_REST_Response( array( 'ok' => false, 'code' => $reason, 'message' => 'Không thể cấp quyền sở hữu tài khoản Zalo này.', 'hint' => '', 'help_code' => 'permission_denied' ), 200 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'id' => $bridge_id, 'crm_inbox_id' => $adopt_inbox_id, 'owner_user_id' => $owner_user_id ), 200 );
 	}
 
 	// ── QR ───────────────────────────────────────────────────────────────
@@ -713,14 +924,47 @@ class BizCity_Zalo_Bridge_REST {
 		return self::reset_qr_response( $id );
 	}
 
-	/** Start QR for an account already resolved inside the current tenant owner scope. */
-	public static function start_qr_for_owner( array $account, int $owner_user_id ): WP_REST_Response {
+	/**
+	 * Start QR for an account already resolved inside the current tenant owner scope.
+	 *
+	 * @param bool $authorized_by_caller [2026-09-17 Johnny Chu - Chu Hoàng Anh]
+	 *   PHASE-0.48F R-CRMF-2 — when true, the caller has already run its OWN
+	 *   authorization (`BizCity_CRM_Staff_Policy::can('phone.qr', ...)`, a
+	 *   supervisor/admin acting on behalf of a lower-rank team member) and this
+	 *   method skips the strict "only the account's own owner" check below —
+	 *   it still requires `kind === 'personal'`. Never set from a value a
+	 *   browser request can influence; `bizcity-twin-crm`'s staff REST resolves
+	 *   the account from `crm_inbox_id` and the policy check server-side
+	 *   before calling this. Default `false` preserves every existing call
+	 *   site's exact behavior (self-service `/gpt/`, R-TWEB-1).
+	 */
+	public static function start_qr_for_owner( array $account, int $owner_user_id, bool $authorized_by_caller = false ): WP_REST_Response {
 		// [2026-08-22 Johnny Chu] R-TWEB-1 — QR control receives the resolved owner row, not an ambient admin permission check.
-		if ( $owner_user_id <= 0 || (string) ( $account['kind'] ?? '' ) !== 'personal' || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) {
+		if ( 'personal' !== (string) ( $account['kind'] ?? '' )
+			|| ( ! $authorized_by_caller && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
+		) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
 		}
 		$id = (string) ( $account['bridge_account_id'] ?? '' );
 		return self::start_qr_response( $id );
+	}
+
+	/**
+	 * Reset the sidecar session and start QR again for an account already
+	 * resolved inside the current tenant owner scope — the `_for_owner`
+	 * counterpart to `handle_reset_qr()`, mirroring `start_qr_for_owner()`.
+	 * Never deletes the account, mapping or CRM Inbox history.
+	 *
+	 * @param bool $authorized_by_caller See {@see start_qr_for_owner()}.
+	 */
+	public static function reset_qr_for_owner( array $account, int $owner_user_id, bool $authorized_by_caller = false ): WP_REST_Response {
+		if ( 'personal' !== (string) ( $account['kind'] ?? '' )
+			|| ( ! $authorized_by_caller && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
+		) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
+		}
+		$id = (string) ( $account['bridge_account_id'] ?? '' );
+		return self::reset_qr_response( $id );
 	}
 
 	/** Start QR through one normalized operation/result boundary. */
@@ -730,6 +974,10 @@ class BizCity_Zalo_Bridge_REST {
 		$request_id   = 'wp_' . str_replace( '-', '', wp_generate_uuid4() );
 		$account_hash = $account_id !== '' ? substr( hash( 'sha256', $account_id ), 0, 16 ) : '';
 		self::trace_qr_step( 'qr_operation_attempt', array( 'operation_id' => $operation_id, 'request_id' => $request_id, 'account_id_hash' => $account_hash, 'stage' => 'qr_generation' ) );
+		$blocked = self::duplicate_login_block( $account_id, $operation_id, $request_id );
+		if ( $blocked ) {
+			return new WP_REST_Response( $blocked, 200 );
+		}
 		try {
 			$result = $account_id !== ''
 				? BizCity_Zalo_Bridge_Client::instance()->start_qr( $account_id )
@@ -744,6 +992,7 @@ class BizCity_Zalo_Bridge_REST {
 			'account_id_hash' => $account_hash,
 			'stage' => $normalized['stage'],
 			'reason' => $normalized['reason_bucket'],
+			'upstream' => (string) ( $normalized['upstream_code'] ?? '' ),
 		) );
 		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — do not open an outage incident for an account that already has an active session.
 		if ( class_exists( 'BizCity_Notify_Dispatcher' ) && (string) ( $normalized['operation_status'] ?? '' ) !== 'blocked' ) {
@@ -767,6 +1016,10 @@ class BizCity_Zalo_Bridge_REST {
 		$request_id   = 'wp_' . str_replace( '-', '', wp_generate_uuid4() );
 		$account_hash = $account_id !== '' ? substr( hash( 'sha256', $account_id ), 0, 16 ) : '';
 		self::trace_qr_step( 'qr_reset_attempt', array( 'operation_id' => $operation_id, 'request_id' => $request_id, 'account_id_hash' => $account_hash, 'stage' => 'session' ) );
+		$blocked = self::duplicate_login_block( $account_id, $operation_id, $request_id );
+		if ( $blocked ) {
+			return new WP_REST_Response( $blocked, 200 );
+		}
 		try {
 			$result = $account_id !== ''
 				? BizCity_Zalo_Bridge_Client::instance()->reset_qr( $account_id )
@@ -784,6 +1037,7 @@ class BizCity_Zalo_Bridge_REST {
 			'account_id_hash' => $account_hash,
 			'stage' => $normalized['stage'],
 			'reason' => $normalized['reason_bucket'],
+			'upstream' => (string) ( $normalized['upstream_code'] ?? '' ),
 		) );
 		if ( class_exists( 'BizCity_Notify_Dispatcher' ) && (string) ( $normalized['operation_status'] ?? '' ) !== 'blocked' ) {
 			BizCity_Notify_Dispatcher::on_qr_operation_result( array(
@@ -799,8 +1053,66 @@ class BizCity_Zalo_Bridge_REST {
 		return new WP_REST_Response( $normalized, 200 );
 	}
 
-	/** Normalize a QR result without exposing the upstream response body. */
+	/**
+	 * [2026-09-18] PHASE-0.48F U10 R-ZP-DUP — block a QR start/reset that would supersede another CONNECTED
+	 * account holding the same Zalo login. Fail-open: when the account list cannot be read, never block.
+	 */
+	private static function duplicate_login_block( string $account_id, string $operation_id, string $request_id ): ?array {
+		if ( $account_id === '' || ! class_exists( 'BizCity_Zalo_Duplicate_Guard' ) ) {
+			return null;
+		}
+		try {
+			$list = BizCity_Zalo_Bridge_Client::instance()->list_accounts();
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+		if ( ! empty( $list['_degraded'] ) || empty( $list['accounts'] ) || ! is_array( $list['accounts'] ) ) {
+			return null;
+		}
+		// The list is already in hand: refresh local zalo_uid so the CRM rail can label twins (DUP-10).
+		if ( class_exists( 'BizCity_Zalo_Mapping_Repo' ) && method_exists( 'BizCity_Zalo_Mapping_Repo', 'sync_zalo_uids' ) ) {
+			BizCity_Zalo_Mapping_Repo::sync_zalo_uids( $list['accounts'] );
+		}
+		$sibling = BizCity_Zalo_Duplicate_Guard::find_connected_sibling( $account_id, $list['accounts'] );
+		if ( ! $sibling ) {
+			return null;
+		}
+		self::trace_qr_step( 'qr_duplicate_login_blocked', array(
+			'operation_id'    => $operation_id,
+			'request_id'      => $request_id,
+			'account_id_hash' => substr( hash( 'sha256', $account_id ), 0, 16 ),
+			'sibling_id_hash' => substr( hash( 'sha256', (string) ( $sibling['id'] ?? '' ) ), 0, 16 ),
+		) );
+		return self::with_error_contract( BizCity_Zalo_Duplicate_Guard::qr_blocked_payload( $sibling, $operation_id, $request_id ) );
+	}
+
+	/** [2026-09-18] R-ZP-ERR — add reason_bucket/action/contract from the published catalog to a failure payload. */
+	private static function with_error_contract( array $payload ): array {
+		return class_exists( 'BizCity_Zalo_Session_Errors' ) ? BizCity_Zalo_Session_Errors::enrich( $payload ) : $payload;
+	}
+
+	/**
+	 * [2026-09-18] R-ZP-ERR — publish the session-state + error catalog so every client (B2 `/crm/`,
+	 * C `/gpt/`, wp-admin, mobile) prints the same sentence and button for the same failure.
+	 */
+	public static function handle_error_catalog(): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Zalo_Session_Errors' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'module_not_loaded' ), 200 );
+		}
+		return new WP_REST_Response( array_merge( array( 'ok' => true ), BizCity_Zalo_Session_Errors::catalog() ), 200 );
+	}
+
+	/**
+	 * Normalize a QR result without exposing the upstream response body.
+	 * [2026-09-18] R-ZP-ERR — every failure leaves through BizCity_Zalo_Session_Errors::enrich() so the client
+	 * always gets `reason_bucket` + `message` + `hint` + `action` from the one published catalog.
+	 */
 	public static function normalize_qr_result( $result, string $operation_id, string $request_id ): array {
+		$normalized = self::normalize_qr_result_inner( $result, $operation_id, $request_id );
+		return class_exists( 'BizCity_Zalo_Session_Errors' ) ? BizCity_Zalo_Session_Errors::enrich( $normalized ) : $normalized;
+	}
+
+	private static function normalize_qr_result_inner( $result, string $operation_id, string $request_id ): array {
 		// [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — convert empty/ambiguous QR responses into an explicit R-ERROR-UX operation envelope.
 		$result = is_array( $result ) ? $result : array();
 		$qr_base64 = '';
@@ -823,6 +1135,29 @@ class BizCity_Zalo_Bridge_REST {
 				'request_id' => sanitize_text_field( $request_id ),
 				'stage' => 'qr_generation',
 				'reason_bucket' => 'qr_generated',
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — tell the UI this scan will move the account from another website to this one.
+				'rebind_pending' => ! empty( $result['rebind_pending'] ),
+			);
+		}
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — cross-site denials need an actionable message instead of the generic QR failure.
+		$site_reason = sanitize_key( (string) ( $result['reason_bucket'] ?? '' ) );
+		if ( in_array( $site_reason, array( 'managed_account_other_site', 'key_domain_mismatch' ), true ) ) {
+			return array(
+				'ok' => false,
+				'success' => false,
+				'operation_status' => 'blocked',
+				'code' => 'permission_denied',
+				'message' => 'key_domain_mismatch' === $site_reason
+					? 'Tài khoản Zalo này đang nhận tin tại website khác, và API key của website này không gắn đúng domain nên chưa thể chuyển về đây.'
+					: 'Tài khoản Zalo này đang nhận tin tại website khác.',
+				'hint' => 'key_domain_mismatch' === $site_reason
+					? 'Gắn domain của website này cho API key (hoặc dùng API key riêng), rồi bấm Đăng nhập lại để quét QR.'
+					: 'Bấm Đăng nhập lại và quét QR tại website này để chuyển tài khoản về đây.',
+				'help_code' => 'permission_denied',
+				'stage' => 'account_scope',
+				'reason_bucket' => $site_reason,
+				'operation_id' => sanitize_text_field( $operation_id ),
+				'request_id' => sanitize_text_field( $request_id ),
 			);
 		}
 		$stage = sanitize_key( (string) ( $result['stage'] ?? '' ) );
@@ -832,6 +1167,38 @@ class BizCity_Zalo_Bridge_REST {
 		}
 		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — accept the sidecar's `error` field so already-connected sessions are not misclassified as empty QR responses.
 		$reason = sanitize_key( (string) ( $result['reason_bucket'] ?? $result['code'] ?? $result['error'] ?? '' ) );
+		// [2026-09-18] PHASE-0.48F U10 — expose the upstream code only when it is a KNOWN slug so support can tell causes
+		// apart; anything else (free text from a provider) is reduced to an opaque hash for log correlation.
+		$raw_upstream = sanitize_key( (string) ( $result['code'] ?? $result['error'] ?? $reason ) );
+		$has_catalog  = class_exists( 'BizCity_Zalo_Session_Errors' );
+		$known_codes  = array_merge( array( 'personal_accounts_only' ), $has_catalog ? BizCity_Zalo_Session_Errors::known_codes() : array() );
+		$upstream_code = in_array( $raw_upstream, $known_codes, true )
+			? $raw_upstream
+			: ( $raw_upstream !== '' ? 'unrecognized:' . substr( hash( 'sha256', $raw_upstream ), 0, 8 ) : '' );
+		// Buckets with their own branch (already_connected) or never produced by the upstream (site checks, empty payload).
+		$own_branch = array( 'already_connected', 'qr_response_empty', 'duplicate_phone', 'duplicate_zalo_login', 'managed_account_other_site', 'key_domain_mismatch' );
+		$bucket = $has_catalog ? BizCity_Zalo_Session_Errors::bucket_for( $reason ) : '';
+		if ( $bucket === '' && $has_catalog ) {
+			$bucket = BizCity_Zalo_Session_Errors::bucket_for( $raw_upstream );
+		}
+		if ( $bucket !== '' && ! in_array( $bucket, $own_branch, true ) ) {
+			$entry = BizCity_Zalo_Session_Errors::ERRORS[ $bucket ];
+			return array(
+				'ok'               => false,
+				'success'          => false,
+				'_degraded'        => $entry['status'] === 'degraded',
+				'operation_status' => $entry['status'],
+				'code'             => 'qr_operation_failed',
+				'message'          => $entry['message'],
+				'hint'             => $entry['hint'],
+				'help_code'        => 'zalo_qr_generation_failed',
+				'stage'            => $stage,
+				'reason_bucket'    => $bucket,
+				'upstream_code'    => $upstream_code,
+				'operation_id'     => sanitize_text_field( $operation_id ),
+				'request_id'       => sanitize_text_field( $request_id ),
+			);
+		}
 		$allowed_reasons = array( 'account_not_found', 'personal_accounts_only', 'already_connected', 'qr_in_progress', 'qr_expired', 'qr_declined', 'qr_failed', 'mapping_failed', 'mapping_missing', 'relay_auth_failed', 'relay_timeout', 'sidecar_session_failed', 'qr_session_start_failed', 'invalid_json', 'qr_response_invalid', 'qr_response_empty', 'unauthorized', 'managed_bridge_upstream_error' );
 		if ( ! in_array( $reason, $allowed_reasons, true ) ) {
 			$reason = 'qr_response_empty';
@@ -863,6 +1230,7 @@ class BizCity_Zalo_Bridge_REST {
 			'help_code' => 'zalo_qr_generation_failed',
 			'stage' => $stage,
 			'reason_bucket' => $reason,
+			'upstream_code' => $upstream_code,
 			'operation_id' => sanitize_text_field( $operation_id ),
 			'request_id' => sanitize_text_field( $request_id ),
 		);
@@ -878,11 +1246,35 @@ class BizCity_Zalo_Bridge_REST {
 	}
 
 	public static function handle_qr_status( WP_REST_Request $request ): WP_REST_Response {
-		$id     = (string) $request->get_param( 'id' );
+		$id = (string) $request->get_param( 'id' );
+		return new WP_REST_Response( self::sync_account_status( $id, (int) get_current_user_id() ) );
+	}
+
+	/**
+	 * [2026-09-19 Johnny Chu] PHASE-0.60 — core "ask the Hub for this account's real status and
+	 * mirror it locally" logic, extracted out of `handle_qr_status()` so the periodic reconciliation
+	 * cron (`BizCity_Zalo_Personal_Reconciler::tick()`) can reuse the EXACT same detection (including
+	 * the `managed_account_other_site` branch) instead of a second copy that could drift.
+	 *
+	 * Why this needed extracting: a real incident showed a phone re-scanned into a second site
+	 * (same Hub API key) kept showing "Đang kết nối" on the FIRST site indefinitely — the cross-site
+	 * webhook (`handle_session_event()`) is best-effort with no retry, and this status check
+	 * otherwise only ran when a human happened to open that exact account's QR sheet. No behavior
+	 * change for the existing REST caller; this is a pure extraction.
+	 */
+	public static function sync_account_status( string $id, int $owner_user_id = 0 ): array {
 		$client = BizCity_Zalo_Bridge_Client::instance();
 		$result = $client->get_qr_status( $id );
 		if ( ! empty( $result['_degraded'] ) ) {
-			return new WP_REST_Response( array( 'ok' => false, '_degraded' => true, 'message' => $result['message'] ?? '' ) );
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — the account now delivers to another website: mark it here so the UI offers re-login instead of showing it as connected.
+			if ( 'managed_account_other_site' === sanitize_key( (string) ( $result['reason_bucket'] ?? '' ) ) ) {
+				self::mark_moved_away( $id );
+				return array( 'ok' => false, '_degraded' => true, 'status' => 'logged_out', 'reason_bucket' => 'managed_account_other_site', 'bound_site_host' => sanitize_text_field( (string) ( $result['bound_site_host'] ?? '' ) ), 'message' => 'Tài khoản Zalo đang nhận tin tại website khác.', 'hint' => 'Đăng nhập lại QR tại website này để chuyển tài khoản về đây.' );
+			}
+			return array( 'ok' => false, '_degraded' => true, 'message' => $result['message'] ?? '' );
+		}
+		if ( ! empty( $result['rebound'] ) ) {
+			self::adopt_rebound_account( $id, $owner_user_id );
 		}
 		$status = (string) ( $result['status'] ?? 'pending_qr' );
 		if ( class_exists( 'BizCity_Zalo_Mapping_Repo' ) && in_array( $status, array( 'connected', 'expired', 'logged_out' ), true ) ) {
@@ -893,9 +1285,102 @@ class BizCity_Zalo_Bridge_REST {
 			if ( $local ) {
 				// [2026-08-21 Johnny Chu] PHASE-0.39B — mirror terminal sidecar state into the local account registry.
 				BizCity_Zalo_Mapping_Repo::update_account_status( (int) $local['id'], $status );
+				if ( 'connected' === $status ) {
+					self::sync_uids_on_connect( $local );
+				}
 			}
 		}
-		return new WP_REST_Response( array( 'ok' => true, 'status' => $status, 'success' => true ) );
+		return array( 'ok' => true, 'status' => $status, 'success' => true, 'rebound' => ! empty( $result['rebound'] ), 'rebind_pending' => ! empty( $result['rebind_pending'] ) );
+	}
+
+	/**
+	 * [2026-09-18] PHASE-0.48F U10 DUP-10 — on the connect transition only (the row was not yet connected
+	 * or has no uid), read the bridge list once and copy zaloUid onto every local row. The sidecar
+	 * superseded the twin during this same login, so this is exactly when the rail needs the uid.
+	 * Steady-state polling of an already-connected row with a uid makes no extra call.
+	 */
+	private static function sync_uids_on_connect( array $local_row ): void {
+		if ( (string) ( $local_row['status'] ?? '' ) === 'connected' && (string) ( $local_row['zalo_uid'] ?? '' ) !== '' ) {
+			return;
+		}
+		if ( ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) || ! method_exists( 'BizCity_Zalo_Mapping_Repo', 'sync_zalo_uids' ) ) {
+			return;
+		}
+		try {
+			$list = BizCity_Zalo_Bridge_Client::instance()->list_accounts();
+		} catch ( \Throwable $e ) {
+			return;
+		}
+		if ( empty( $list['_degraded'] ) && ! empty( $list['accounts'] ) && is_array( $list['accounts'] ) ) {
+			BizCity_Zalo_Mapping_Repo::sync_zalo_uids( $list['accounts'] );
+		}
+	}
+
+	/** Bind an account that a QR login just moved to this website into the local mapping and CRM Inbox. */
+	private static function adopt_rebound_account( string $bridge_id, int $owner_user_id ): void {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — inbound for this account now arrives here; without a local mapping the emitter would drop it as unbound.
+		if ( $bridge_id === '' || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) || ! class_exists( 'BizCity_CRM_Repository' ) ) {
+			return;
+		}
+		BizCity_Zalo_Mapping_Repo::maybe_install();
+		$local = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $bridge_id );
+		if ( $local ) {
+			$extra = array();
+			if ( (int) ( $local['crm_inbox_id'] ?? 0 ) <= 0 ) {
+				$label = (string) ( $local['label'] ?? '' );
+				$inbox_id = BizCity_CRM_Repository::upsert_inbox( 'zalo_personal', $bridge_id, array( 'name' => 'Zalo Cá nhân — ' . ( $label !== '' ? $label : $bridge_id ) ) );
+				if ( $inbox_id > 0 ) {
+					$extra['crm_inbox_id'] = (int) $inbox_id;
+				}
+			}
+			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $local['id'], 'connected', $extra );
+			self::trace_create_step( 'rebind_adopted', array( 'local_id' => (int) $local['id'], 'created' => false ) );
+			return;
+		}
+		if ( $owner_user_id <= 0 ) {
+			self::trace_create_step( 'rebind_adopt_skipped', array( 'reason' => 'owner_missing' ) );
+			return;
+		}
+		$remote = BizCity_Zalo_Bridge_Client::instance()->get_account( $bridge_id );
+		$label = sanitize_text_field( (string) ( $remote['account']['label'] ?? '' ) );
+		$local_id = BizCity_Zalo_Mapping_Repo::save_account( array(
+			'kind'              => 'personal',
+			'owner_user_id'     => $owner_user_id,
+			'label'             => $label,
+			'bridge_account_id' => $bridge_id,
+			'zalo_uid'          => (string) ( $remote['account']['zaloUid'] ?? '' ),
+			'crm_inbox_id'      => 0,
+			'status'            => 'connected',
+		) );
+		if ( $local_id <= 0 ) {
+			self::trace_create_step( 'rebind_adopt_failed', array( 'reason' => 'mapping_insert_failed' ) );
+			return;
+		}
+		$inbox_id = BizCity_CRM_Repository::upsert_inbox( 'zalo_personal', $bridge_id, array( 'name' => 'Zalo Cá nhân — ' . ( $label !== '' ? $label : $bridge_id ) ) );
+		BizCity_Zalo_Mapping_Repo::update_account_status( $local_id, 'connected', $inbox_id > 0 ? array( 'crm_inbox_id' => (int) $inbox_id ) : array() );
+		if ( class_exists( 'BizCity_Channel_User_Grant' ) ) {
+			// Grant failure is non-fatal: the account already delivers here and the owner can be re-bound from Channel Gateway.
+			$grant = BizCity_Channel_User_Grant::bind_primary_from_current( 'zalo_personal', $bridge_id, array(
+				'connection_verified'      => true,
+				'connection_owner_user_id' => $owner_user_id,
+				'source'                   => 'managed_rebind',
+			) );
+			self::trace_create_step( 'rebind_grant', array( 'ok' => ! empty( $grant['ok'] ), 'reason' => sanitize_key( (string) ( $grant['reason'] ?? '' ) ) ) );
+		}
+		self::trace_create_step( 'rebind_adopted', array( 'local_id' => (int) $local_id, 'inbox_id' => (int) $inbox_id, 'created' => true ) );
+	}
+
+	/** Mark a local account whose inbound was moved to another website by a later QR login. */
+	private static function mark_moved_away( string $bridge_id ): void {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — keep mapping, CRM Inbox and history; only the session state changes.
+		if ( $bridge_id === '' || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+			return;
+		}
+		$local = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $bridge_id );
+		if ( $local && (string) ( $local['status'] ?? '' ) !== 'logged_out' ) {
+			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $local['id'], 'logged_out' );
+			self::trace_create_step( 'account_moved_away', array( 'local_id' => (int) $local['id'] ) );
+		}
 	}
 
 	/** Read one bounded experimental group-history page for an admin-scoped account. */
@@ -925,21 +1410,40 @@ class BizCity_Zalo_Bridge_REST {
 		return new WP_REST_Response( is_array( $result ) ? $result : array( 'ok' => false, 'success' => false, '_degraded' => true, 'experimental' => true, 'import_mode' => 'dry_run', 'side_effects_allowed' => false, 'resume_supported' => false, 'storage_target' => 'context_bank_filestore', 'duplicate_policy' => 'record_id_before_write', 'write_enabled' => false, 'code' => 'history_unavailable', 'message' => 'Chưa lấy được danh sách nhóm Zalo.', 'hint' => 'Kiểm tra session Zalo Personal rồi thử lại.', 'help_code' => 'gateway_degraded' ), 200 );
 	}
 
-	/** Poll QR status for an account already resolved inside the current tenant owner scope. */
-	public static function qr_status_for_owner( array $account, int $owner_user_id ): WP_REST_Response {
+	/**
+	 * Poll QR status for an account already resolved inside the current tenant owner scope.
+	 *
+	 * @param bool $authorized_by_caller See {@see start_qr_for_owner()} — same
+	 *   PHASE-0.48F R-CRMF-2 bypass for a supervisor/admin polling on behalf of
+	 *   a lower-rank team member.
+	 */
+	public static function qr_status_for_owner( array $account, int $owner_user_id, bool $authorized_by_caller = false ): WP_REST_Response {
 		// [2026-08-22 Johnny Chu] R-TWEB-1 — status polling keeps the resolved owner row through local state mirroring.
-		if ( $owner_user_id <= 0 || (string) ( $account['kind'] ?? '' ) !== 'personal' || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) {
+		if ( 'personal' !== (string) ( $account['kind'] ?? '' )
+			|| ( ! $authorized_by_caller && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
+		) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
 		}
 		$id = (string) ( $account['bridge_account_id'] ?? '' );
 		$client = BizCity_Zalo_Bridge_Client::instance();
 		$result = $id !== '' ? $client->get_qr_status( $id ) : array( 'success' => false, 'code' => 'not_found', 'message' => 'Không tìm thấy tài khoản Zalo.', 'hint' => 'Tải lại danh sách Kênh của tôi rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' );
 		if ( ! empty( $result['_degraded'] ) || empty( $result['success'] ) ) {
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — an account moved to another website must surface as re-loginable, not as a bridge outage.
+			if ( 'managed_account_other_site' === sanitize_key( (string) ( $result['reason_bucket'] ?? '' ) ) ) {
+				self::mark_moved_away( $id );
+				return new WP_REST_Response( array( 'ok' => false, 'status' => 'logged_out', 'qr_status' => 'logged_out', 'can_relogin' => true, 'reason_bucket' => 'managed_account_other_site', 'bound_site_host' => sanitize_text_field( (string) ( $result['bound_site_host'] ?? '' ) ), 'message' => 'Tài khoản Zalo đang nhận tin tại website khác.', 'hint' => 'Đăng nhập lại QR tại đây để chuyển tài khoản về website này.', 'readiness' => self::readiness_envelope( $account, array( 'status' => 'logged_out' ), $client ) ), 200 );
+			}
 			return new WP_REST_Response( array_merge( array( 'ok' => false ), $result, self::readiness_envelope( $account, $result, $client ) ), 200 );
+		}
+		if ( ! empty( $result['rebound'] ) ) {
+			self::adopt_rebound_account( $id, $owner_user_id );
 		}
 		$status = (string) ( $result['status'] ?? 'pending_qr' );
 		if ( class_exists( 'BizCity_Zalo_Mapping_Repo' ) && ! empty( $account['id'] ) && in_array( $status, array( 'connected', 'expired', 'logged_out' ), true ) ) {
 			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $account['id'], $status );
+			if ( 'connected' === $status ) {
+				self::sync_uids_on_connect( $account );
+			}
 		}
 		return new WP_REST_Response( array( 'ok' => true, 'status' => $status, 'success' => true, 'qr_status' => $status, 'can_relogin' => in_array( $status, array( 'expired', 'logged_out', 'revoked' ), true ), 'readiness' => self::readiness_envelope( $account, $result, $client ) ), 200 );
 	}
@@ -959,7 +1463,13 @@ class BizCity_Zalo_Bridge_REST {
 		}
 		$queue_status = sanitize_key( (string) ( $qr_result['queue_status'] ?? $qr_result['queue']['status'] ?? '' ) );
 		if ( ! in_array( $queue_status, array( 'healthy', 'ready', 'queued', 'stalled', 'offline', 'unknown' ), true ) ) { $queue_status = 'unknown'; }
-		$session_status = sanitize_key( (string) ( $qr_result['session_status'] ?? $qr_result['status'] ?? 'unknown' ) );
+		// [2026-09-17 09:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39C-C8 Task 4a — the sidecar /wp/accounts/:id/qr-status returns `session_live` (real in-memory RAM state) alongside `status` (DB state). They can disagree: after a deferred boot-time restore (Task 1) the DB still says `connected` while no live session exists. Collapsing them into `status` alone made the UI tell the user to re-scan a QR that may not be needed.
+		$session_live = array_key_exists( 'session_live', $qr_result ) ? (bool) $qr_result['session_live'] : null;
+		$db_status = sanitize_key( (string) ( $qr_result['status'] ?? 'unknown' ) );
+		$session_status = sanitize_key( (string) ( $qr_result['session_status'] ?? $db_status ) );
+		if ( null !== $session_live && ! $session_live && 'connected' === $db_status ) {
+			$session_status = 'session_disconnected';
+		}
 		return array(
 			'readiness_version' => '1.0.0',
 			'checked_at' => gmdate( 'c' ),
@@ -972,6 +1482,7 @@ class BizCity_Zalo_Bridge_REST {
 				'code' => sanitize_key( (string) ( $health['code'] ?? '' ) ),
 			),
 			'session_status' => $session_status,
+			'session_live' => $session_live,
 			'queue_status' => $queue_status,
 			'last_callback_at' => $callback_ts > 0 ? gmdate( 'c', $callback_ts ) : null,
 			'callback_observed' => $callback_ts > 0,

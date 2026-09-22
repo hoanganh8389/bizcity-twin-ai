@@ -125,7 +125,7 @@ class BizCity_TwinChat_Admin_Menu {
 		return $items;
 	}
 
-	/** Redirect the legacy admin wrapper to the canonical standalone shell. */
+	/** Keep the legacy admin wrapper as the outer document so WP chrome renders. */
 	public function redirect_legacy_admin_shell(): void {
 		if (
 			! is_admin() ||
@@ -135,61 +135,13 @@ class BizCity_TwinChat_Admin_Menu {
 		) {
 			return;
 		}
-
-		$initial_plugin = isset( $_GET['plugin'] ) ? sanitize_key( wp_unslash( $_GET['plugin'] ) ) : 'twinchat';
-		$shell_url      = class_exists( 'BizCity_Twin_Shell_Page' )
-			? BizCity_Twin_Shell_Page::shell_url( array( 'plugin' => $initial_plugin ) )
-			: add_query_arg( 'plugin', $initial_plugin, home_url( '/twin/' ) );
-		$forward = array(
-			'notebook_id', 'notebook', 'session', 'session_id', 'thread', 'tab',
-			'id', 'task_id', 'inbox', 'contact_id', 'doc', 'instance_id',
-		);
-		foreach ( $forward as $key ) {
-			if ( isset( $_GET[ $key ] ) && '' !== $_GET[ $key ] ) {
-				$shell_url = add_query_arg( $key, sanitize_text_field( wp_unslash( $_GET[ $key ] ) ), $shell_url );
-			}
-		}
-		if ( isset( $_GET['_iurl'] ) && '' !== $_GET['_iurl'] ) {
-			$iurl_raw = wp_unslash( $_GET['_iurl'] );
-			if (
-				substr( $iurl_raw, 0, 1 ) === '/' &&
-				strpos( $iurl_raw, '//' ) !== 0 &&
-				strpos( $iurl_raw, '://' ) === false
-			) {
-				$shell_url = add_query_arg( '_iurl', sanitize_text_field( $iurl_raw ), $shell_url );
-			}
-		}
-
-		wp_safe_redirect( $shell_url, 302 );
-		exit;
+		// [2026-09-16 11:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME — no redirect: render_page() embeds TwinShell inside wp-admin.
+		return;
 	}
 
 	// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-1 — build currentUser object for AccountButton config.
 	/**
-	 * @param int $user_id
-	 * @return array
-	 */
-	public static function build_current_user( $user_id ) {
-		if ( ! $user_id ) {
-			return null;
-		}
-		$u = get_userdata( $user_id );
-		if ( ! $u ) {
-			return null;
-		}
-		return [
-			'id'     => $user_id,
-			'name'   => $u->display_name,
-			'email'  => $u->user_email,
-			'avatar' => get_avatar_url( $user_id, [ 'size' => 64 ] ),
-		];
-	}
-
-	// [2026-06-07 Johnny Chu] PHASE-D R-BIZ-MODEL — local membership plan helpers.
-	// PlanBadge reads these from BIZCITY_TWINCHAT config, never calls hub for tier display.
-	/**
-	 * Returns the local plan slug for a user (e.g. 'free', 'pro', 'plus').
-	 * Falls back to 'free' if membership module is not loaded.
+	 * Returns the local membership plan slug for a user.
 	 *
 	 * @param int $user_id
 	 * @return string
@@ -559,9 +511,7 @@ class BizCity_TwinChat_Admin_Menu {
 	}
 
 	public function render_page() {
-		// [2026-08-27 Johnny Chu] PHASE-TWINSHELL-SINGLE-FRAME — keep the
-		// legacy admin URL as a compatibility redirect instead of embedding
-		// TwinShell inside wp-admin and then embedding a plugin inside it.
+		// [2026-09-16 11:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME — render TwinShell inside wp-admin so the WordPress admin bar and sidebar remain available to the operator.
 		$initial_plugin = isset( $_GET['plugin'] ) ? sanitize_key( wp_unslash( $_GET['plugin'] ) ) : 'twinchat';
 		$shell_url      = class_exists( 'BizCity_Twin_Shell_Page' )
 			? BizCity_Twin_Shell_Page::shell_url( array( 'plugin' => $initial_plugin ) )
@@ -582,11 +532,85 @@ class BizCity_TwinChat_Admin_Menu {
 				strpos( $iurl_raw, '//' ) !== 0 &&
 				strpos( $iurl_raw, '://' ) === false
 			) {
-				$shell_url = add_query_arg( '_iurl', sanitize_text_field( $iurl_raw ), $shell_url );
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G5 — encode: add_query_arg() does not, and a
+				// `#` or `&` inside the path (Control Panel hash route) would otherwise leave `_iurl` truncated.
+				$shell_url = add_query_arg( '_iurl', rawurlencode( sanitize_text_field( $iurl_raw ) ), $shell_url );
 			}
 		}
-		wp_safe_redirect( $shell_url, 302 );
-		exit;
+		// [2026-09-16 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX2 — mark the iframe as a host-embedded, loop-safe load. `bizcity_admin_wrapper=1` is the structural loop-breaker: while it is present the shell can never hand the top window back to admin.php, so a /twin/ <-> admin.php redirect loop cannot form.
+		$shell_url = esc_url( add_query_arg(
+			array( 'bizcity_embed' => '1', 'bizcity_admin_wrapper' => '1' ),
+			$shell_url
+		) );
+		?>
+		<div class="wrap bizcity-twinchat-admin-shell" style="margin:0 0 0 0px;">
+			<iframe
+				title="TwinShell"
+				src="<?php echo $shell_url; ?>"
+				style="display:block;width:calc(100% + 20px);height:calc(100vh - 32px);min-height:680px;border:0;background:#0f1115;"
+				allow="clipboard-read; clipboard-write; fullscreen; microphone; camera"
+			></iframe>
+		</div>
+		<script>
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F F2-01 — receive
+		// the `url-change` broadcast TwinShell already sends on every deep-link
+		// change (twin-shell.js `_doWriteShellUrl()` → `window.parent.postMessage`)
+		// and reflect it onto THIS outer `admin.php?page=bizcity-twinchat` URL.
+		// Before this listener existed nothing consumed that message here, so
+		// F5 on this page always dropped back to the default plugin/tab — the
+		// TwinShell child iframe itself already restored correctly via `_iurl`
+		// on load; only the address bar the user sees was stale.
+		(function () {
+			'use strict';
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P0 —
+			// `data.params` comes from TwinShell's own `paramsFromIframeUrl()`, which
+			// copies EVERY query key off the embedded plugin's iframe URL with no
+			// allowlist. For a `mode=link` entry (e.g. Channels → `admin.php?page=
+			// bizchat-gateway-spa`) that includes the CHILD's own `page` value, which
+			// used to get `.set()` onto this host's params AFTER `page` was already
+			// forced to `bizcity-twinchat` — so the child silently overwrote it and F5
+			// dropped the operator onto the raw gateway page, outside the shell
+			// entirely. Only these keys are allowed to cross the boundary; anything
+			// else (including `page`) is never read from `data.params`.
+			var FORWARD_KEYS = [
+				'notebook_id', 'notebook', 'session', 'session_id', 'thread', 'tab',
+				'id', 'task_id', 'inbox', 'contact_id', 'doc', 'instance_id',
+			];
+			window.addEventListener( 'message', function ( event ) {
+				if ( event.origin !== window.location.origin ) { return; }
+				var data = event.data;
+				if ( ! data || 'object' !== typeof data || 'bizcity-twin-shell' !== data.source || 'url-change' !== data.type ) { return; }
+				if ( ! data.pluginId ) { return; }
+				try {
+					var params = new URLSearchParams( window.location.search );
+					// Drop every forwardable key first — a plugin switch that does not
+					// re-send a given key (e.g. `contact_id` left over from CRM after
+					// navigating to Channels) must not leave it stuck on the URL forever.
+					FORWARD_KEYS.forEach( function ( key ) { params.delete( key ); } );
+					params.set( 'page', 'bizcity-twinchat' );
+					params.set( 'plugin', String( data.pluginId ) );
+					if ( data.params && 'object' === typeof data.params ) {
+						FORWARD_KEYS.forEach( function ( key ) {
+							var value = data.params[ key ];
+							if ( undefined !== value && null !== value && '' !== String( value ) ) {
+								params.set( key, String( value ) );
+							}
+						} );
+					}
+					if ( data.iurl ) {
+						params.set( '_iurl', String( data.iurl ) );
+					} else {
+						params.delete( '_iurl' );
+					}
+					var newUrl = window.location.pathname + '?' + params.toString();
+					if ( newUrl !== window.location.pathname + window.location.search ) {
+						window.history.replaceState( { pluginId: data.pluginId }, '', newUrl );
+					}
+				} catch ( e ) { /* URL edge cases (invalid chars) must never break the embedded shell. */ }
+			} );
+		})();
+		</script>
+		<?php
 	}
 
 }

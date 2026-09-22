@@ -1,0 +1,88 @@
+{
+  "contract": "team-ops-board",
+  "version": "1.0.0",
+  "range": "today",
+  "team_id": null,
+  "as_of": "2026-09-19T09:20:00+07:00",
+  "thresholds": { "breach_wait_minutes": 15, "low_sample_min": 10 },
+  "kpi": {
+    "online": 0,
+    "total": 8,
+    "dead_phones": 2,
+    "breach": 0,
+    "frt_median_s": null,
+    "conv_to_order": null,
+    "revenue_paid": 0,
+    "no_channel": 7
+  },
+  "attention": [
+    { "kind": "dead_session", "user_id": 5, "inbox_id": 44, "count": 1 },
+    { "kind": "duplicate_phone", "user_id": 5, "inbox_id": 45, "count": 1 },
+    { "kind": "no_phone", "count": 7 },
+    { "kind": "no_bot", "count": 6 }
+  ],
+  "staff": [
+    {
+      "user_id": 5,
+      "name": "admin1",
+      "role_label": "Supervisor",
+      "team_id": 12,
+      "online": false,
+      "silent_min": null,
+      "phones": [
+        { "inbox_id": 44, "display_phone": "0973***338", "state": "dead_session" },
+        { "inbox_id": 45, "display_phone": "0931***886", "state": "duplicate" }
+      ],
+      "zalo_bot": "linked",
+      "open": 0,
+      "breach": 0,
+      "reply_rate": null,
+      "frt_median_s": null,
+      "conv_to_order": { "num": 0, "den": 0 },
+      "paid_orders": 0,
+      "revenue": 0,
+      "spark_7d": [0, 0, 0, 0, 0, 0, 0],
+      "can": ["add_phone", "qr", "link_bot", "move_team"]
+    },
+    {
+      "user_id": 3539,
+      "name": "dangxuanhuy",
+      "role_label": "Nhân viên",
+      "team_id": 12,
+      "online": false,
+      "silent_min": null,
+      "phones": [],
+      "zalo_bot": "none",
+      "open": 0,
+      "breach": 0,
+      "reply_rate": null,
+      "frt_median_s": null,
+      "conv_to_order": null,
+      "paid_orders": 0,
+      "revenue": 0,
+      "spark_7d": [0, 0, 0, 0, 0, 0, 0],
+      "can": ["add_phone", "link_bot"]
+    }
+  ],
+  "onboarding": {
+    "steps": [
+      { "key": "plan", "done": true },
+      { "key": "team", "done": true, "count": 2, "total": 1 },
+      { "key": "staff", "done": true, "count": 8, "total": 1 },
+      { "key": "phone", "done": false, "count": 1, "total": 8 },
+      { "key": "bot", "done": false, "count": 2, "total": 8 },
+      { "key": "invite", "done": false },
+      { "key": "task", "done": false }
+    ],
+    "next": "phone"
+  },
+  "insights": [
+    {
+      "kind": "dead_channel",
+      "inbox_id": 44,
+      "value": "2 SĐT hết phiên — khoảng 6 khách đang nhắn có thể không vào CRM.",
+      "action": { "kind": "qr", "target_id": 44 }
+    }
+  ],
+  "coverage": { "degraded_sources": [] }
+}

@@ -55,7 +55,8 @@ class BizCity_WebChat_Database {
         if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::is_legacy( $bare_name ) ) {
             return ! BizCity_Legacy_Table_Policy::allow_sql( $bare_name, 'write' );
         }
-        return self::table_policy( $bare_name ) === 'quarantine_write_block';
+        // [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — locally retired projections stay blocked when the central policy is unavailable.
+        return in_array( self::table_policy( $bare_name ), array( 'quarantine_write_block', 'retired' ), true );
     }
 
     /**
@@ -64,6 +65,10 @@ class BizCity_WebChat_Database {
     public static function table_exists_for_policy( $bare_name ) {
         // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-QUARANTINE — expose a safe existence check for compatibility readers.
         if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::allow_sql( $bare_name, 'read' ) ) {
+            return false;
+        }
+        // [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — never expose a retired projection to readers when the central policy is unavailable.
+        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) && self::table_policy( $bare_name ) === 'retired' ) {
             return false;
         }
         return self::physical_table_exists( $bare_name );

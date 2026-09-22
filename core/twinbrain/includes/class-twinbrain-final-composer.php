@@ -128,6 +128,14 @@ class BizCity_TwinBrain_Final_Composer {
 				'model'     => '',
 				'tokens'    => 0,
 				'ms'        => (int) ( ( microtime( true ) - $t0 ) * 1000 ),
+				// [PHASE-1.33C-C3] No gateway call was made on this path, so the whole
+				// breakdown is honestly null/0 rather than omitted — every return shape
+				// of compose_stream() carries the same field set.
+				'prompt_prep_ms'      => (int) ( ( microtime( true ) - $t0 ) * 1000 ),
+				'provider_ttfb_ms'    => null,
+				'provider_stream_ms'  => null,
+				'post_process_ms'     => 0,
+				'client_paint_ms'     => null,
 				'fallback'  => 'gateway_unavailable',
 				'error'     => '',
 				'llm_purpose' => $llm_purpose,
@@ -200,7 +208,21 @@ class BizCity_TwinBrain_Final_Composer {
 				call_user_func( $on_token, $fallback_prefix, $visible_accumulated );
 			}
 		}
-		$relay = function ( $delta, $full ) use ( &$accumulated, &$visible_accumulated, &$delta_n, $on_token, $fallback_prefix ) {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C3 — everything above this
+		// point (depth/intent/skeleton resolution, build_messages(), model/temperature
+		// resolution) is "prompt preparation" for the Layer 4.5 duration breakdown the
+		// checklist asks for. Capture the boundary right before the gateway call so the
+		// split is exact, not estimated.
+		$prompt_ready_at = microtime( true );
+		$first_token_at  = 0.0;
+		$relay = function ( $delta, $full ) use ( &$accumulated, &$visible_accumulated, &$delta_n, $on_token, $fallback_prefix, &$first_token_at ) {
+			if ( 0.0 === $first_token_at ) {
+				// Time-to-first-token is the honest "provider wait" boundary: everything
+				// before this is the gateway/provider queueing + generating the first
+				// chunk; everything after is streaming transfer, which the client already
+				// renders incrementally and is not itself a latency risk.
+				$first_token_at = microtime( true );
+			}
 			$accumulated = (string) $full;
 			$visible_accumulated = $fallback_prefix . $accumulated;
 			$delta_n++;
@@ -237,6 +259,18 @@ class BizCity_TwinBrain_Final_Composer {
 		);
 
 		$elapsed = (int) ( ( microtime( true ) - $t0 ) * 1000 );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C3 — Layer 4.5 duration
+		// breakdown. `prompt_prep_ms` and `provider_ttfb_ms` are always computable once
+		// chat_stream() returns; `provider_stream_ms` is only meaningful when at least
+		// one token arrived (first_token_at > 0). `post_process_ms` is added later, right
+		// before the success return, so it also covers apply_notebook_source_contract()/
+		// validate_answer_skeleton(). `client_paint_ms` stays null on every path: no
+		// server-side signal can measure browser paint time, matching the same honesty
+		// rule BizCity_TwinBrain_Trace_Calculator already applies to network/client gaps.
+		$stream_returned_at   = microtime( true );
+		$compose_prompt_prep_ms     = max( 0, (int) ( ( $prompt_ready_at - $t0 ) * 1000 ) );
+		$compose_provider_ttfb_ms   = $first_token_at > 0.0 ? max( 0, (int) ( ( $first_token_at - $prompt_ready_at ) * 1000 ) ) : null;
+		$compose_provider_stream_ms = $first_token_at > 0.0 ? max( 0, (int) ( ( $stream_returned_at - $first_token_at ) * 1000 ) ) : null;
 
 		// Streaming returned empty / errored → fall back to synthesizer answer
 		// to keep the user-facing message non-blank.
@@ -272,6 +306,15 @@ class BizCity_TwinBrain_Final_Composer {
 				'model'             => (string) ( $result['model'] ?? $model ),
 				'tokens'            => (int) ( $result['usage']['total_tokens'] ?? 0 ),
 				'ms'                => $elapsed,
+				// [PHASE-1.33C-C3] Even on the fallback path (this is the exact shape the
+				// 2026-09-13 `gateway_error` trace hit), the split is diagnostically
+				// valuable: it tells us whether the 404 failed fast (low ttfb) or the
+				// gateway call hung before failing.
+				'prompt_prep_ms'      => $compose_prompt_prep_ms,
+				'provider_ttfb_ms'    => $compose_provider_ttfb_ms,
+				'provider_stream_ms'  => $compose_provider_stream_ms,
+				'post_process_ms'     => max( 0, (int) ( ( microtime( true ) - $stream_returned_at ) * 1000 ) ),
+				'client_paint_ms'     => null,
 				'fallback'          => 'stream_empty:' . ( $result['error'] ?? 'unknown' ),
 				'error'             => (string) ( $result['error'] ?? '' ),
 				'quota_exhausted'   => ! empty( $result['quota_exhausted'] ),
@@ -330,6 +373,19 @@ class BizCity_TwinBrain_Final_Composer {
 			'model'           => (string) ( $result['model'] ?? $model ),
 			'tokens'          => (int) ( $result['usage']['total_tokens'] ?? 0 ),
 			'ms'              => $elapsed,
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C3 — Layer 4.5 duration
+			// breakdown: prompt_prep_ms + provider_ttfb_ms + provider_stream_ms == `ms`
+			// above (all measured against the same $t0/chat_stream() boundaries);
+			// post_process_ms covers apply_notebook_source_contract()/
+			// validate_answer_skeleton() below, which run AFTER `ms` is computed, so
+			// `ms` does not include it — sum all four for true end-to-end compose time.
+			// client_paint_ms is intentionally null: no server-side signal can measure
+			// browser paint time.
+			'prompt_prep_ms'      => $compose_prompt_prep_ms,
+			'provider_ttfb_ms'    => $compose_provider_ttfb_ms,
+			'provider_stream_ms'  => $compose_provider_stream_ms,
+			'post_process_ms'     => max( 0, (int) ( ( microtime( true ) - $stream_returned_at ) * 1000 ) ),
+			'client_paint_ms'     => null,
 			'fallback'        => '',
 			'error'           => '',
 			'quota_exhausted' => false,
@@ -1367,6 +1423,7 @@ class BizCity_TwinBrain_Final_Composer {
 
 	private function build_messages( string $prompt, array $synth, array $answers, array $opts ): array {
 		$has_guru = ! empty( $opts['guru_id'] );
+		$work_assistant_mode = ! empty( $opts['work_assistant_mode'] ) && 'twinweb' === sanitize_key( (string) ( $opts['surface'] ?? '' ) );
 		$depth_profile = isset( $opts['notebook_depth_profile_meta'] ) && is_array( $opts['notebook_depth_profile_meta'] )
 			? $opts['notebook_depth_profile_meta']
 			: $this->resolve_notebook_depth_profile( $prompt, $opts, $has_guru );
@@ -1459,6 +1516,10 @@ SYS;
 
 		if ( $twinweb_prompt_block !== '' ) {
 			$system .= "\n\n" . $twinweb_prompt_block;
+		}
+
+		if ( $work_assistant_mode ) {
+			$system .= "\n\n" . $this->render_work_assistant_prompt();
 		}
 
 		// Wave 2.8 TBR.MEM-6 — Mode 3 function-call tools (default ON từ
@@ -2115,6 +2176,7 @@ SYS;
 		}
 
 		$has_guru = ! empty( $opts['guru_id'] );
+		$work_assistant_mode = ! empty( $opts['work_assistant_mode'] ) && 'twinweb' === sanitize_key( (string) ( $opts['surface'] ?? '' ) );
 		// [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — chat fallback should satisfy C users with fuller replies.
 		$ans_cap  = $has_guru ? 900 : 650;
 
@@ -2151,6 +2213,9 @@ NGUYÊN TẮC:
 4. KHÔNG dùng heading lớn / bullet list trừ khi câu trả lời thực sự là enumerate. Ưu tiên 1-3 đoạn văn ngắn.
 5. KHÔNG xuất JSON, KHÔNG ```fence.{$persona_hint}
 SYS;
+		}
+		if ( $work_assistant_mode ) {
+			$system .= "\n\n" . $this->render_work_assistant_prompt();
 		}
 		if ( ! empty( $followup_contract['required'] ) && $followup_contract['question'] !== '' ) {
 			// [2026-08-10 Johnny Chu] GOAL-FOLLOWUP-1 — chat/companion path must preserve the active Goal Loop question.
@@ -2301,6 +2366,24 @@ SYS;
 	/* =================================================================
 	 *  Helpers
 	 * ================================================================ */
+
+	/**
+	 * PHASE-0.55 A2 — member work assistant voice and guardrails.
+	 * This is deliberately passed as a runtime option, not stored in the
+	 * site-wide grounding policy or tied to Guru binding.
+	 */
+	private function render_work_assistant_prompt(): string {
+		return <<<'WORK'
+## VAI TRÒ TRỢ LÝ CÔNG VIỆC CỦA NHÂN VIÊN
+Bạn là “trưởng nhóm bỏ túi” của chính nhân viên đang đăng nhập Twin GPT.
+- Chỉ dùng dữ liệu trong các tool `work_*` và nguồn được tool trả về; không suy đoán việc, khách, KPI hoặc ghi chú của người khác.
+- Trả lời ngắn, cụ thể bằng số liệu của chính nhân viên; ưu tiên Inbox: khách quá hạn, khách đến hẹn, hội thoại cần trả lời và bước tiếp theo.
+- Mỗi lời khuyên theo quy trình phải nói rõ nguồn (Việc được giao, Hôm nay của tôi, Chi tiết khách, Không gian của tôi, playbook hoặc notebook). Nếu không có nguồn quy trình, nói “gợi ý chung, chưa phải quy định”.
+- Luôn đưa ra một hành động tiếp theo có thể làm trong giao diện. Không tự giao việc handoff, không tự hoàn thành việc, không tự đổi giai đoạn và không tự gửi tin cho khách.
+- Không xếp hạng, so sánh với đồng nghiệp, báo cáo KPI nhóm hoặc tiết lộ ghi chú riêng của trưởng nhóm.
+- Khi tool trả `action_card`, giải thích ngắn thao tác và nhắc nhân viên phải bấm xác nhận trong sheet; không nói như thể thao tác đã được ghi.
+WORK;
+	}
 
 	private function build_multimodal_fallback_answer( array $opts ): string {
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — return visible Vision/File result when final compose cannot call LLM.

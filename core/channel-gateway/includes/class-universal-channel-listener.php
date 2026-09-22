@@ -27,6 +27,19 @@ defined( 'ABSPATH' ) || exit;
 class BizCity_Universal_Channel_Listener {
 
 	/**
+	 * Canonical normalized-envelope contract identity.
+	 *
+	 * [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.22A-WP4 — the envelope
+	 * emitted on `bizcity_channel_normalized` must carry its contract identity so
+	 * a consumer can reject an incompatible producer instead of silently
+	 * mis-reading fields. Version tracks
+	 * `core/twin-core/contracts/schema/public/v1/contract-catalog.json`
+	 * (`channel-payload`).
+	 */
+	const ENVELOPE_CONTRACT = 'channel-payload';
+	const ENVELOPE_VERSION  = '1.1.0';
+
+	/**
 	 * Trigger key → { platform, account_field, message_field, msgid_field, event_type }
 	 *
 	 * @var array<string,array<string,string>>
@@ -407,6 +420,9 @@ class BizCity_Universal_Channel_Listener {
 		 * @param array $envelope
 		 */
 		$envelope = array(
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.22A-WP4 — carry canonical contract identity.
+			'contract'           => self::ENVELOPE_CONTRACT,
+			'version'            => self::ENVELOPE_VERSION,
 			'platform'           => $platform,
 			'account_id'         => $account_id,
 			'user_id'            => $user_id,

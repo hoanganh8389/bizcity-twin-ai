@@ -158,6 +158,29 @@ final class BizCity_Probe_Admin_Navigation implements BizCity_Diagnostics_Probe 
 			'detail' => empty( $duplicate_pairs ) ? 'All parent/slug pairs are unique' : implode( ', ', $duplicate_pairs ),
 		);
 
+		// [2026-09-21 09:35 AM Johnny Chu] HOTFIX-CHANNEL-SUPER-ADMIN — central menu registration must not downgrade the Gateway SPA capability for a Network Super Admin before the SPA owner reconciles the existing submenu.
+		$gateway_capability_ok = true;
+		$gateway_capability_detail = 'Gateway SPA submenu not present in the current menu tree.';
+		if ( is_array( $submenu ) ) {
+			foreach ( $submenu as $parent => $items ) {
+				if ( ! is_array( $items ) ) { continue; }
+				foreach ( $items as $item ) {
+					if ( isset( $item[2] ) && 'bizchat-gateway-spa' === (string) $item[2] ) {
+						$stored_capability = (string) ( $item[1] ?? '' );
+						$is_network_admin = function_exists( 'is_super_admin' ) && is_super_admin();
+						$gateway_capability_ok = ! $is_network_admin || 'manage_network' === $stored_capability;
+						$gateway_capability_detail = 'parent=' . (string) $parent . ', capability=' . $stored_capability . ', network_admin=' . ( $is_network_admin ? 'yes' : 'no' );
+						break 2;
+					}
+				}
+			}
+		}
+		$steps[] = array(
+			'label'  => 'Runtime — Channel Gateway SPA preserves Network Super Admin capability',
+			'status' => $gateway_capability_ok ? 'pass' : 'fail',
+			'detail' => $gateway_capability_detail,
+		);
+
 		$alias_specs = array(
 			array( 'bizcity-twinchat', '' ),
 			array( 'bizcity-channels', '' ),

@@ -25,7 +25,10 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 class BizCity_Twin_Event_Stream_Schema {
 
-	const DB_VERSION        = '0.12.1';
+	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — 0.12.1 → 0.12.2
+	// forces one repair pass on tenants whose version option was already stamped
+	// "0.12.1" by a run where dbDelta did not complete (see ensure_table()).
+	const DB_VERSION        = '0.12.2';
 	const DB_VERSION_OPTION = 'bizcity_twin_event_stream_db_ver';
 
 	public static function table(): string {
@@ -37,7 +40,21 @@ class BizCity_Twin_Event_Stream_Schema {
 	 * Create / migrate the event stream table. Safe to call repeatedly.
 	 */
 	public static function ensure_table(): void {
-		if ( get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION ) {
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — repair path.
+		// The version option is the fast path, but it must never be trusted when the
+		// physical schema does not match it. The previous implementation returned
+		// early on an exact option match and stamped the option unconditionally after
+		// dbDelta, so if dbDelta ever failed (or the table was created by an older
+		// DB_VERSION) the option locked the drift in permanently: every later request
+		// short-circuited on the version check and `INSERT` kept failing against a
+		// table missing columns. `persist()` then returns 0 and
+		// `dispatch_v2()` throws "Failed to persist event" on every dispatch.
+		//
+		// Cost check stays bounded: the metadata read is memoized per request and the
+		// blog+router cache backed (R-METADATA-CACHE), so the fast path does not add a
+		// live schema query per call.
+		$option_matches = ( get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION );
+		if ( $option_matches && self::schema_is_current() ) {
 			return;
 		}
 
@@ -77,6 +94,31 @@ class BizCity_Twin_Event_Stream_Schema {
 			KEY idx_blog_time (blog_id, created_epoch_ms)
 		) {$charset};" );
 
-		update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — stamp the option
+		// ONLY after the physical schema actually matches the declaration. Stamping an
+		// unverified version is what made the drift unrecoverable.
+		if ( self::schema_is_current() ) {
+			update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+		}
+	}
+
+	/**
+	 * Verify the physical schema carries every column `persist()` writes.
+	 *
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — the fast path cannot
+	 * be trusted alone: `persist()` INSERTs 14 columns, so any table missing one of
+	 * them fails every dispatch with no repair path. Uses the canonical metadata
+	 * owner (blog + routed-database keyed, finite TTL) and never a raw `SHOW COLUMNS`.
+	 *
+	 * @return bool
+	 */
+	private static function schema_is_current(): bool {
+		if ( ! class_exists( 'BizCity_Table_Metadata' ) ) {
+			// Without the canonical metadata owner, do not claim the schema is current;
+			// fall through to dbDelta, which is idempotent.
+			return false;
+		}
+		$required = array( 'event_uuid', 'trace_id', 'conversation_id', 'session_id', 'user_id', 'blog_id', 'event_type', 'event_source', 'parent_event_id', 'parent_event_uuid', 'payload_json', 'schema_version', 'created_at', 'created_epoch_ms' );
+		return BizCity_Table_Metadata::columns_exist( self::table(), $required );
 	}
 }

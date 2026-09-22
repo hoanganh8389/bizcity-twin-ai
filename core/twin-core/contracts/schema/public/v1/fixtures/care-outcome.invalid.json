@@ -1,0 +1,16 @@
+{
+  "contract": "care-outcome",
+  "version": "1.0.0",
+  "outcomes": [
+    {
+      "code": "closed_won",
+      "label": "Won",
+      "to": "closed_won",
+      "next": "",
+      "days": 0
+    }
+  ],
+  "channels": [
+    "sms"
+  ]
+}

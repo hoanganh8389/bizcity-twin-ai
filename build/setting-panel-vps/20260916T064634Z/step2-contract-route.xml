@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="6" failures="2" skipped="0" time="2.860">
+  <testsuite name="diagnostics" tests="6" failures="2" skipped="0" time="2.860">
+    <testcase classname="bizcity.diagnostics" name="core.loader.trace_completeness" time="0.000">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.framework.plugin_sdk" time="0.003">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.framework.extension_manifest" time="0.033">
+      <failure message="fail">Extension manifest contract has validation failures. | Failed steps: Runtime - valid manifest and fail-closed negative matrix: Manifest semantic policy or negative fixture expectation failed.</failure>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.framework.manifest_registry" time="0.001">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.framework.package_adoption" time="0.135">
+      <failure message="fail">Phase 1.24 package adoption contract has pending failures. | Failed steps: Disk — PageBuilder boundary markers and optional Video provider quarantine: {&quot;pagebuilder_error_boundary&quot;:true,&quot;pagebuilder_mutation_transport&quot;:false,&quot;video_provider_quarantine&quot;:&quot;skip_optional_absent&quot;}</failure>
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.twinshell.boundary" time="2.616">
+    </testcase>
+  </testsuite>
+</testsuites>

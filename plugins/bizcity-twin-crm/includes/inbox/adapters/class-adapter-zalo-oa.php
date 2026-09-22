@@ -41,47 +41,73 @@ class BizCity_CRM_Adapter_ZaloOA extends BizCity_CRM_Adapter_Zalo {
 		return $normalized;
 	}
 
+	/**
+	 * Resolve the canonical, configured Zalo OA identity for an inbound event — or fail closed.
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E4 — the previous version returned the first
+	 * numeric-looking candidate at face value before ever checking the registry, and fell back to an
+	 * unverified alias when nothing matched. Both violated the checklist: a webhook alias, a stray
+	 * `conversation_id`, or an unmapped digit string could mint a new CRM Inbox/conversation under an
+	 * identity nobody configured. Every candidate — including `conversation_id`/`account_id`/
+	 * `instance_id`, which are correlation input only — must now match a stored, configured OA account
+	 * before it can become the identity; nothing configured or nothing matched returns `''`, which
+	 * `normalize_inbound()` already treats as "drop the event", not "invent an Inbox".
+	 *
+	 * @return string Canonical configured `oa_id`, or '' when it cannot be verified.
+	 */
 	private static function canonical_oa_id( array $raw ): string {
+		if ( ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			return '';
+		}
+		$configured_accounts = array();
+		foreach ( (array) BizCity_Integration_Registry::instance()->get_accounts( 'zalo_oa' ) as $account ) {
+			$configured = trim( (string) ( $account['oa_id'] ?? '' ) );
+			if ( $configured === '' ) {
+				continue;
+			}
+			$configured_accounts[] = array(
+				'uid'   => trim( (string) ( $account['_uid'] ?? $account['uid'] ?? '' ) ),
+				'oa_id' => $configured,
+			);
+		}
+		if ( empty( $configured_accounts ) ) {
+			// Nothing to verify against — accepting any candidate here would be a guess, not a match.
+			return '';
+		}
+
+		$match_against = static function ( array $candidates ) use ( $configured_accounts ): string {
+			foreach ( $candidates as $candidate ) {
+				$candidate = trim( (string) $candidate );
+				if ( $candidate === '' ) {
+					continue;
+				}
+				foreach ( $configured_accounts as $account ) {
+					if ( $candidate === $account['oa_id'] || ( '' !== $account['uid'] && $candidate === $account['uid'] ) ) {
+						return $account['oa_id'];
+					}
+				}
+			}
+			return '';
+		};
+
 		$provider_payload = is_array( $raw['raw'] ?? null ) ? $raw['raw'] : array();
-		$candidates = array(
+		// Provider-authenticated identity fields — checked first.
+		$matched = $match_against( array(
 			$raw['oa_id'] ?? '',
 			$raw['recipient_id'] ?? '',
 			$provider_payload['recipient']['id'] ?? '',
 			$provider_payload['oa_id'] ?? '',
+		) );
+		if ( '' !== $matched ) {
+			return $matched;
+		}
+		// Correlation-only fields: still checked, but only ever used when they land on a real
+		// configured OA — they never become the identity by simply being present.
+		return $match_against( array(
 			$raw['conversation_id'] ?? '',
 			$raw['account_id'] ?? '',
 			$raw['instance_id'] ?? '',
-		);
-		$fallback = '';
-		foreach ( $candidates as $candidate ) {
-			$candidate = trim( (string) $candidate );
-			if ( $candidate === '' ) {
-				continue;
-			}
-			if ( ctype_digit( $candidate ) ) {
-				return $candidate;
-			}
-			if ( $fallback === '' ) {
-				$fallback = sanitize_key( $candidate );
-			}
-		}
-		if ( class_exists( 'BizCity_Integration_Registry' ) ) {
-			$registry = BizCity_Integration_Registry::instance();
-			foreach ( (array) $registry->get_accounts( 'zalo_oa' ) as $account ) {
-				$account_uid = (string) ( $account['_uid'] ?? $account['uid'] ?? '' );
-				$configured  = trim( (string) ( $account['oa_id'] ?? '' ) );
-				if ( $configured === '' ) {
-					continue;
-				}
-				foreach ( $candidates as $candidate ) {
-					$candidate = trim( (string) $candidate );
-					if ( $candidate !== '' && ( $candidate === $account_uid || $candidate === $configured ) ) {
-						return $configured;
-					}
-				}
-			}
-		}
-		return $fallback;
+		) );
 	}
 
 	/**
@@ -164,12 +190,21 @@ class BizCity_CRM_Adapter_ZaloOA extends BizCity_CRM_Adapter_Zalo {
 					}
 				}
 
-				// Single-account fallback — if only one OA configured, use it.
-				if ( empty( $account_raw ) && count( $raw_accounts ) === 1 ) {
-					$account_raw = $raw_accounts[0];
-				}
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E3 — removed the single-account
+				// fallback. A ref that matches none of the configured accounts is a binding bug, not
+				// license to guess; sending through "the only account configured" risked delivering a
+				// customer reply under the wrong OA identity. Fail closed via Path 2/no_send_path instead.
 
 				error_log( '[bizcity-crm-trace] P12 ZaloOA path1 accounts=' . count( $raw_accounts ) . ' matched=' . ( ! empty( $account_raw ) ? 'yes' : 'no' ) );
+
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E3 — a managed_1api account is owned
+				// entirely by the Hub-only block above (it already returned on any exact/active match).
+				// Reaching here with a managed account means the Hub binding is incomplete/inactive; never
+				// let it fall back to a self-managed-style send with a blank/foreign token.
+				if ( ! empty( $account_raw ) && 'managed_1api' === (string) ( $account_raw['connection_mode'] ?? 'self_managed' ) ) {
+					error_log( '[bizcity-crm-trace] P12 ZaloOA path1 SKIP managed_1api account not Hub-ready ref=' . $ref . ' managed_status=' . (string) ( $account_raw['managed_status'] ?? '' ) );
+					return array( 'success' => false, 'external_source_id' => null, 'error' => 'zalo_oa_managed_not_ready' );
+				}
 
 				if ( ! empty( $account_raw ) ) {
 					// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — prefer BizCity_CG_Zalo_OA_Integration

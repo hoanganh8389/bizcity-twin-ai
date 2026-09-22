@@ -65,7 +65,7 @@
     "notebook_source_block_md": { "type": "string" },
     "context_bank": {
       "type": "object",
-      "description": "Bounded Context Bank Brain metadata for MPR timeline surfaces; excludes ledger rows and owner bodies.",
+      "description": "Bounded Context Bank Brain metadata for MPR timeline surfaces; excludes ledger rows and owner bodies. Contract CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1 §2.2 (v2 additive: all v1 fields keep their meaning).",
       "properties": {
         "enabled": { "type": "boolean" },
         "mode": { "type": "string" },
@@ -74,7 +74,40 @@
         "owner_excerpt_count": { "type": "integer", "minimum": 0 },
         "degraded": { "type": "boolean" },
         "incomplete": { "type": "boolean" },
-        "reason": { "type": "string" }
+        "reason": { "type": "string" },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Server-measured wall time of the Context Bank phase. Never the turn duration; a consumer must not substitute a live turn timer for this row."
+        },
+        "budget_ms": { "type": "integer", "minimum": 0, "description": "Declared bound for the phase from the scope resolver budgets." },
+        "reason_bucket": {
+          "type": "string",
+          "description": "Stable machine bucket from the contract §4 registry. Empty string means normal completion. UI copy may translate it; logs and probes must match the token."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ran", "skipped", "degraded", "deadline"],
+          "description": "Must agree with enabled: enabled=false implies status=skipped."
+        },
+        "matched_count": { "type": "integer", "minimum": 0, "description": "Ledger rows matched before verification." },
+        "returned_count": { "type": "integer", "minimum": 0, "description": "Rows returned after verification." },
+        "truncated": { "type": "boolean", "description": "The ledger page was truncated." },
+        "vertical_id": { "type": "string", "description": "Server-derived vertical binding that applied; empty when none applied." },
+        "binding_source": { "type": "string", "enum": ["web_mode", "slash_command", "none"] },
+        "dimension_filters": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Filter field NAMES only (e.g. entity_type, date_from). Never the values, which may carry PII."
+        },
+        "contract_count": { "type": "integer", "minimum": 0, "description": "Contracts in the effective allowlist after narrowing." },
+        "mode_hint_applied": { "type": "string", "enum": ["", "inherit", "hybrid", "skip"], "description": "The vertical binding's declared hint, distinct from mode (the resolver's effective mode). Present only when vertical_id applied." },
+        "contracts_before_narrowing": { "type": "integer", "minimum": 0 },
+        "contracts_after_narrowing": { "type": "integer", "minimum": 0, "description": "Must be <= contracts_before_narrowing; equality is valid only when the binding's contract list is a superset of the allowlist by design." },
+        "rounds": { "type": "integer", "minimum": 1, "description": "How many bounded retrieve rounds reused this one phase result." },
+        "admitted_count": { "type": "integer", "minimum": 0, "description": "PHASE-1.33D-D4 - Context Bank owner excerpts admitted into the W0.20 candidate pool. Count only; never an excerpt, id or title." },
+        "final_count": { "type": "integer", "minimum": 0, "description": "PHASE-1.33D-D4 - how many of those admitted excerpts survived the canonical rerank into the final top5-8." },
+        "zero_score_final_count": { "type": "integer", "minimum": 0, "description": "PHASE-1.33D-D4 - final chunks whose normalized score is still 0. A high value means the rerank did not discriminate; used to compare a bound-vertical turn against an unbound one." }
       }
     },
     "source_file_briefs": {

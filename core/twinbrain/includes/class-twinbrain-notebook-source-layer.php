@@ -148,7 +148,8 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			(array) ( $source_file_payload['source_file_briefs'] ?? array() )
 		);
 		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB7 — reuse one bounded Context Bank result for both W0.20 blending and outer retrieval metadata.
-		$context_bank = $this->collect_context_bank_refs( $opts );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-C11 — memoize per trace so one turn performs ONE scope resolution, ONE ledger search and ONE pointer-follow budget even when run_bounded_retrieve_round() re-enters build_from_turn(). Footlog writes once per turn with a rounds counter.
+		$context_bank = $this->resolve_context_bank_phase( $opts );
 		$pack_opts = $opts;
 		$pack_opts['_context_bank_payload'] = $context_bank;
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.20 — canonical Graph -> retrieval top30 -> rerank -> top8 evidence pack for all surfaces.
@@ -209,7 +210,15 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'product_entity_count'      => count( $product_entities ),
 			'product_name_entity_count' => $product_name_entity_count,
 			// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — expose bounded nested Context Bank metadata for MPR timeline consumers while retaining flat compatibility keys.
-			'context_bank'              => $this->build_context_bank_timeline_payload( $context_bank ),
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D4 — merge the W0.20 admission funnel into the same nested object. The funnel is only known AFTER the pack is built, and the footlog is written before it, so these counters belong on the payload (and therefore the timeline row), not on the footlog.
+			'context_bank'              => array_merge(
+				$this->build_context_bank_timeline_payload( $context_bank ),
+				array(
+					'admitted_count'         => (int) ( $graph_vector_rerank_pack['context_bank_admitted_count'] ?? 0 ),
+					'final_count'            => (int) ( $graph_vector_rerank_pack['context_bank_final_count'] ?? 0 ),
+					'zero_score_final_count' => (int) ( $graph_vector_rerank_pack['zero_score_final_count'] ?? 0 ),
+				)
+			),
 				'context_bank_source_refs'  => (array) ( $context_bank['refs'] ?? array() ),
 			'context_bank_source_count' => (int) ( $context_bank['count'] ?? 0 ),
 			'context_bank_owner_records' => (array) ( $context_bank['owner_records'] ?? array() ),
@@ -412,6 +421,53 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 		$candidates     = (array) ( $hub_rerank['candidates'] ?? $candidates );
 		$retrieval_candidates = array_slice( $candidates, 0, $target_candidates );
 		$final_chunks         = array_slice( $retrieval_candidates, 0, $target_final );
+		// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — expose the real relevance
+		// number on the canonical output shape. Candidate builders set `rank`/`match_count`
+		// and the rerankers set `rerank_score`/`rerank_reason`; no builder ever set `score`,
+		// so every consumer reading `final_context_chunks[*].score` displayed `0.00` even
+		// when rerank had ranked the row. Normalize once here instead of teaching each
+		// consumer a different key.
+		$final_chunks = array_map(
+			static function ( $chunk ) {
+				if ( ! is_array( $chunk ) ) {
+					return $chunk;
+				}
+				if ( ! isset( $chunk['score'] ) ) {
+					$chunk['score'] = (float) ( $chunk['rerank_score'] ?? 0 );
+				}
+				if ( ! isset( $chunk['rerank_reason'] ) || (string) $chunk['rerank_reason'] === '' ) {
+					$chunk['rerank_reason'] = (string) ( $chunk['rank_reason'] ?? $chunk['source'] ?? '' );
+				}
+				return $chunk;
+			},
+			$final_chunks
+		);
+
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D4 — record the Context Bank
+		// admission funnel so precision is measurable per trace instead of inferred.
+		// Counts only: how many owner excerpts entered W0.20, how many survived the
+		// canonical rerank into the final top5-8, and how many final chunks still carry
+		// a zero score. This is the number the bound-vertical vs unbound comparison
+		// reads; it never carries an excerpt, id or title.
+		$context_bank_admitted = 0;
+		foreach ( $context_bank_candidates as $cb_candidate ) {
+			if ( is_array( $cb_candidate ) && (string) ( $cb_candidate['source'] ?? '' ) === 'context_bank_owner' ) {
+				$context_bank_admitted++;
+			}
+		}
+		$context_bank_final = 0;
+		$zero_score_final   = 0;
+		foreach ( $final_chunks as $chunk ) {
+			if ( ! is_array( $chunk ) ) {
+				continue;
+			}
+			if ( (string) ( $chunk['source'] ?? '' ) === 'context_bank_owner' ) {
+				$context_bank_final++;
+			}
+			if ( (float) ( $chunk['score'] ?? 0 ) <= 0.0 ) {
+				$zero_score_final++;
+			}
+		}
 
 		return array(
 			'phase'                     => 'W0.20',
@@ -439,7 +495,62 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'context_bank_source_refs'  => (array) ( $context_bank['refs'] ?? array() ),
 			'context_bank_source_count' => (int) ( $context_bank['count'] ?? 0 ),
 			'context_bank_retrieval'    => (array) ( $context_bank['meta'] ?? array() ),
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D4 — the admission funnel.
+			'context_bank_admitted_count' => $context_bank_admitted,
+			'context_bank_final_count'    => $context_bank_final,
+			'zero_score_final_count'      => $zero_score_final,
 		);
+	}
+
+	/**
+	 * Intersect a vertical binding's contract request with the mode policy allowlist.
+	 *
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D §5A.3 Direction A — pure
+	 * decision function so the narrowing rule is testable without a live ledger.
+	 * The vertical may only narrow: the result is always a subset of the mode
+	 * policy allowlist. A binding that requests nothing inherits the allowlist
+	 * unchanged (today's behavior for every unbound row). A binding whose request
+	 * intersects to nothing fails closed instead of falling back to the wider set.
+	 *
+	 * @param array<int,string>        $policy_contracts Contracts allowed by the mode policy.
+	 * @param array<string,mixed>      $binding          Vertical binding block (may be empty).
+	 * @return array{contracts:array<int,string>,denied:bool}
+	 */
+	public static function narrow_contracts_for_binding( array $policy_contracts, array $binding ): array {
+		$contracts_before   = array_values( array_filter( array_map( 'strval', $policy_contracts ) ) );
+		$vertical_contracts = array_values( array_filter( array_map( 'strval', (array) ( $binding['contracts'] ?? array() ) ) ) );
+		if ( empty( $vertical_contracts ) ) {
+			return array( 'contracts' => $contracts_before, 'denied' => false );
+		}
+		$contracts_after = array_values( array_intersect( $contracts_before, $vertical_contracts ) );
+		if ( empty( $contracts_after ) ) {
+			return array( 'contracts' => array(), 'denied' => true );
+		}
+		return array( 'contracts' => $contracts_after, 'denied' => false );
+	}
+
+	/**
+	 * Derive the MVP-safe dimension filters declared by a vertical binding.
+	 *
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D §5A.5 — only a STATIC
+	 * `entity_type` is in scope. Dynamic `entity_key` is deliberately excluded
+	 * because the concrete order/customer id is only known later in the turn.
+	 * Returns sanitized field VALUES for the query builder; the caller is
+	 * responsible for publishing field NAMES only onto the timeline.
+	 *
+	 * @param array<string,mixed> $binding Vertical binding block (may be empty).
+	 * @return array<string,string>
+	 */
+	public static function dimension_filters_for_binding( array $binding ): array {
+		$filters = array();
+		if ( empty( $binding['dimension_source'] ) || ! in_array( 'entity_type', (array) $binding['dimension_source'], true ) ) {
+			return $filters;
+		}
+		$entity_type = function_exists( 'sanitize_key' ) ? sanitize_key( (string) ( $binding['static_entity_type'] ?? '' ) ) : strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', (string) ( $binding['static_entity_type'] ?? '' ) ) );
+		if ( $entity_type !== '' ) {
+			$filters['entity_type'] = (string) $entity_type;
+		}
+		return $filters;
 	}
 
 	/**
@@ -450,8 +561,17 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 	 */
 	private function collect_context_bank_refs( array $opts ): array {
 		// [2026-09-02 Johnny Chu] PHASE-CB7.2 — keep Context Bank refs bounded and supplementary; W0.20 remains the sole top30/top8 selector.
-		$enabled = ! empty( $opts['context_bank_enabled'] )
-			|| ( function_exists( 'get_option' ) && (bool) get_option( 'bizcity_context_bank_mpr_enabled', false ) );
+		// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — resolve the flag from its canonical owner; default is ON, only an explicit stored 0 disables it.
+		if ( array_key_exists( 'context_bank_enabled', $opts ) ) {
+			$enabled = ! empty( $opts['context_bank_enabled'] );
+		} elseif ( class_exists( 'BizCity_Context_Bank_Mode_Policy' ) && method_exists( 'BizCity_Context_Bank_Mode_Policy', 'is_enabled' ) ) {
+			$enabled = (bool) BizCity_Context_Bank_Mode_Policy::is_enabled();
+		} elseif ( function_exists( 'get_option' ) ) {
+			$stored  = get_option( 'bizcity_context_bank_mpr_enabled', null );
+			$enabled = ( null === $stored || '' === $stored ) ? true : (bool) $stored;
+		} else {
+			$enabled = true;
+		}
 		if ( ! $enabled || ! $this->load_context_bank_runtime() || ! class_exists( 'BizCity_Context_Bank_Search' ) || ! class_exists( 'BizCity_Context_Bank_Scope_Resolver' ) ) {
 			return array( 'refs' => array(), 'count' => 0, 'meta' => array( 'enabled' => false, 'reason' => 'context_bank_disabled_or_unavailable' ) );
 		}
@@ -468,9 +588,25 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 		if ( empty( $scope['ok'] ) || (string) ( $scope['effective_mode'] ?? 'skip' ) === 'skip' ) {
 			return array( 'refs' => array(), 'count' => 0, 'meta' => array( 'enabled' => true, 'reason' => (string) ( $scope['reason_bucket'] ?? 'context_bank_scope_denied' ), 'scope' => $scope ) );
 		}
-		$search_filters = array( 'blog_id' => (int) ( $scope['blog_id'] ?? get_current_blog_id() ), 'wp_user_id' => (int) ( $scope['owner_user_id'] ?? 0 ), 'limit' => (int) ( $scope['budgets']['max_rows'] ?? 20 ), 'source_contract_ids' => (array) ( $scope['policy_contracts'] ?? $scope['allowed_contracts'] ?? array() ) );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D §5A.3 Direction A — let a bound vertical NARROW the horizontal contract set. The vertical can never widen it: the result is an intersection with the mode policy allowlist, and a misconfigured binding fails closed instead of falling back to the wider set.
+		$binding = isset( $opts['_vertical_binding'] ) && is_array( $opts['_vertical_binding'] ) ? $opts['_vertical_binding'] : array();
+		$contracts_before = array_values( (array) ( $scope['policy_contracts'] ?? $scope['allowed_contracts'] ?? array() ) );
+		$narrowed = self::narrow_contracts_for_binding( $contracts_before, $binding );
+		if ( ! empty( $narrowed['denied'] ) ) {
+			// The vertical asked for a contract the mode policy never allows. Fail closed.
+			return array( 'refs' => array(), 'count' => 0, 'meta' => array( 'enabled' => true, 'reason' => 'vertical_scope_widening_denied', 'contracts_before_narrowing' => count( $contracts_before ), 'contracts_after_narrowing' => 0, 'vertical_id' => (string) ( $opts['vertical_id'] ?? '' ), 'mode_hint_applied' => (string) ( $opts['_vertical_binding_hint'] ?? 'inherit' ), 'binding_source' => (string) ( $opts['_vertical_binding_source'] ?? 'none' ), 'scope' => $scope ) );
+		}
+		$contracts_after = (array) $narrowed['contracts'];
+		$dimension_filters = array();
+		$search_filters = array( 'blog_id' => (int) ( $scope['blog_id'] ?? get_current_blog_id() ), 'wp_user_id' => (int) ( $scope['owner_user_id'] ?? 0 ), 'limit' => (int) ( $scope['budgets']['max_rows'] ?? 20 ), 'source_contract_ids' => $contracts_after );
 		if ( ! empty( $scope['notebook_id'] ) ) {
 			$search_filters['notebook_id'] = (int) $scope['notebook_id'];
+		}
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D §5A.3 / §5A.5 — MVP-safe dimension narrowing: a STATIC entity_type declared by the binding only. Dynamic entity_key is deliberately out of scope for this closure because the concrete order/customer id is only known after this point in the turn. The decision itself lives in a pure static helper so D8 can assert it without a live ledger.
+		$dimension = self::dimension_filters_for_binding( $binding );
+		if ( isset( $dimension['entity_type'] ) ) {
+			$search_filters['entity_type'] = (string) $dimension['entity_type'];
+			$dimension_filters[] = 'entity_type';
 		}
 		$result = BizCity_Context_Bank_Search::search(
 			$search_filters,
@@ -501,7 +637,119 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			}
 			$owner_records[] = $owner_record;
 		}
-		return array( 'refs' => $refs, 'count' => count( $refs ), 'owner_records' => $owner_records, 'meta' => array( 'enabled' => true, 'contract_version' => 'context-retrieval-pack@1.0.0', 'tenant_scope' => array( 'blog_id' => (int) ( $scope['blog_id'] ?? 0 ) ), 'account_scope' => array( 'owner_user_id' => (int) ( $scope['owner_user_id'] ?? 0 ) ), 'retrieval_policy' => array( 'mode' => (string) ( $scope['effective_mode'] ?? 'skip' ), 'source' => 'context_bank_ledger', 'payload_access' => 'canonical_owner_after_pointer_authorization', 'max_rows' => (int) ( $scope['budgets']['max_rows'] ?? 0 ), 'max_pointer_follows' => (int) ( $scope['budgets']['max_pointer_follows'] ?? 0 ), 'max_time_ms' => (int) ( $scope['budgets']['max_time_ms'] ?? 0 ) ), 'scope' => (string) ( $result['scope'] ?? '' ), 'incomplete' => ! empty( $result['incomplete'] ), 'degraded' => ! empty( $result['degraded'] ), 'pointer_follows' => (int) ( $result['pointer_follows'] ?? 0 ), 'budget_ms' => (int) ( $result['budget_ms'] ?? 0 ) ) );
+		return array( 'refs' => $refs, 'count' => count( $refs ), 'owner_records' => $owner_records, 'meta' => array( 'enabled' => true, 'contract_version' => 'context-retrieval-pack@1.0.0', 'tenant_scope' => array( 'blog_id' => (int) ( $scope['blog_id'] ?? 0 ) ), 'account_scope' => array( 'owner_user_id' => (int) ( $scope['owner_user_id'] ?? 0 ) ), 'retrieval_policy' => array( 'mode' => (string) ( $scope['effective_mode'] ?? 'skip' ), 'source' => 'context_bank_ledger', 'payload_access' => 'canonical_owner_after_pointer_authorization', 'max_rows' => (int) ( $scope['budgets']['max_rows'] ?? 0 ), 'max_pointer_follows' => (int) ( $scope['budgets']['max_pointer_follows'] ?? 0 ), 'max_time_ms' => (int) ( $scope['budgets']['max_time_ms'] ?? 0 ) ), 'scope' => (string) ( $result['scope'] ?? '' ), 'incomplete' => ! empty( $result['incomplete'] ), 'degraded' => ! empty( $result['degraded'] ), 'pointer_follows' => (int) ( $result['pointer_follows'] ?? 0 ), 'budget_ms' => (int) ( $result['budget_ms'] ?? 0 ),
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D1 — search() already measured the phase and computed these buckets; they were dropped here, which is why the Context Bank row had no duration and no failure reason. Bounded counts/buckets only.
+			'duration_ms' => (int) ( $result['duration_ms'] ?? 0 ), 'reason_bucket' => (string) ( $result['reason_bucket'] ?? '' ), 'matched_count' => (int) ( $result['matched_count'] ?? 0 ), 'returned_count' => (int) ( $result['returned_count'] ?? 0 ), 'truncated' => ! empty( $result['truncated'] ), 'failure_buckets' => (array) ( $result['failure_buckets'] ?? array() ),
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D §5A.4 — vertical binding evidence, queryable per vertical without opening a browser trace. Counts and NAMES only.
+			'vertical_id' => (string) ( $opts['vertical_id'] ?? '' ), 'binding_source' => (string) ( $opts['_vertical_binding_source'] ?? 'none' ), 'mode_hint_applied' => (string) ( $opts['_vertical_binding_hint'] ?? '' ), 'dimension_filters' => $dimension_filters, 'contract_count' => count( $contracts_after ), 'contracts_before_narrowing' => count( $contracts_before ), 'contracts_after_narrowing' => count( $contracts_after ), 'rounds' => (int) ( $opts['_context_bank_round'] ?? 1 ) ) );
+	}
+
+	/**
+	 * Resolve the Context Bank phase once per trace and write exactly one footlog row.
+	 *
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-C11 — PHASE-1.33D F7
+	 * documented that `run_bounded_retrieve_round()` re-enters `build_from_turn()`,
+	 * so Context Bank previously paid another scope resolution, another ledger
+	 * query and another set of pointer follows per round, and wrote one footlog
+	 * row per round while the timeline only ever showed the last payload. Cost and
+	 * evidence both scaled with round count, silently.
+	 *
+	 * This wrapper runs the phase once per `trace_id`, counts how many rounds
+	 * reused it, and writes a single footlog row carrying that counter.
+	 *
+	 * @param array<string,mixed> $opts
+	 * @return array<string,mixed>
+	 */
+	private function resolve_context_bank_phase( array $opts ): array {
+		static $memo = array();
+		$trace_key = (string) ( $opts['trace_id'] ?? '' );
+		if ( $trace_key !== '' && isset( $memo[ $trace_key ] ) ) {
+			$memo[ $trace_key ]['rounds'] = (int) ( $memo[ $trace_key ]['rounds'] ?? 1 ) + 1;
+			$cached = $memo[ $trace_key ]['result'];
+			if ( isset( $cached['meta'] ) && is_array( $cached['meta'] ) ) {
+				$cached['meta']['rounds'] = $memo[ $trace_key ]['rounds'];
+			}
+			return $cached;
+		}
+		$result = $this->collect_context_bank_refs( $opts );
+		if ( ! isset( $result['meta'] ) || ! is_array( $result['meta'] ) ) {
+			$result['meta'] = array();
+		}
+		$result['meta']['rounds'] = (int) ( $opts['_context_bank_round'] ?? 1 );
+		if ( $trace_key !== '' ) {
+			$memo[ $trace_key ] = array( 'result' => $result, 'rounds' => $result['meta']['rounds'] );
+		}
+		// One footlog row per turn, carrying the round counter.
+		$this->write_context_bank_footlog( $result, $opts );
+		return $result;
+	}
+
+	/**
+	 * Write one bounded Context Bank footlog row through the canonical JSONL contract.
+	 *
+	 * [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — the MPR timeline must
+	 * leave durable evidence for every Context Bank evaluation, including the
+	 * disabled/denied path. Without this row a policy decision was
+	 * indistinguishable from missing data. Only counts, budgets, scope identity
+	 * and reason buckets are written; ledger rows, owner bodies, queries and
+	 * credentials never enter the log.
+	 *
+	 * @param array<string,mixed> $context_bank Result of collect_context_bank_refs().
+	 * @param array<string,mixed> $opts
+	 * @return void
+	 */
+	private function write_context_bank_footlog( array $context_bank, array $opts ): void {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			return;
+		}
+		$meta   = isset( $context_bank['meta'] ) && is_array( $context_bank['meta'] ) ? $context_bank['meta'] : array();
+		$policy = isset( $meta['retrieval_policy'] ) && is_array( $meta['retrieval_policy'] ) ? $meta['retrieval_policy'] : array();
+		$enabled = ! empty( $meta['enabled'] );
+		$reason  = (string) ( $meta['reason'] ?? '' );
+		if ( $reason === '' ) {
+			$reason = $enabled ? 'context_bank_retrieved' : 'context_bank_disabled_or_unavailable';
+		}
+		$event = $enabled ? 'context_bank_mpr_retrieved' : 'context_bank_mpr_skipped';
+		$level = $enabled ? 'info' : 'warn';
+		$message = $enabled
+			? 'Context Bank MPR retrieval completed.'
+			: 'Context Bank MPR retrieval did not run.';
+		$ctx = array(
+			'trace_id'          => (string) ( $opts['trace_id'] ?? '' ),
+			'surface'           => (string) ( $opts['surface'] ?? '' ),
+			'channel'           => (string) ( $opts['channel'] ?? $opts['platform'] ?? '' ),
+			'mode'              => (string) ( $policy['mode'] ?? $opts['context_bank_mode'] ?? 'context_bank' ),
+			'enabled'           => $enabled,
+			'reason_bucket'     => $reason,
+			'source_ref_count'  => count( (array) ( $context_bank['refs'] ?? array() ) ),
+			'owner_excerpt_count' => count( (array) ( $context_bank['owner_records'] ?? array() ) ),
+			'pointer_follows'   => (int) ( $meta['pointer_follows'] ?? 0 ),
+			'budget_ms'         => (int) ( $meta['budget_ms'] ?? 0 ),
+			'degraded'          => ! empty( $meta['degraded'] ),
+			'incomplete'        => ! empty( $meta['incomplete'] ),
+			'blog_id'           => (int) ( $meta['tenant_scope']['blog_id'] ?? 0 ),
+			'owner_user_id'     => (int) ( $meta['account_scope']['owner_user_id'] ?? 0 ),
+			'max_rows'          => (int) ( $policy['max_rows'] ?? 0 ),
+			'max_pointer_follows' => (int) ( $policy['max_pointer_follows'] ?? 0 ),
+			'max_time_ms'       => (int) ( $policy['max_time_ms'] ?? 0 ),
+			'contract_version'  => (string) ( $meta['contract_version'] ?? '' ),
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D §5A.4 — vertical binding evidence, so the interaction is provable per vertical without opening a browser trace. Counts and NAMES only; never filter values.
+			'vertical_id'                => (string) ( $meta['vertical_id'] ?? '' ),
+			'mode_hint_applied'          => (string) ( $meta['mode_hint_applied'] ?? '' ),
+			'binding_source'             => (string) ( $meta['binding_source'] ?? 'none' ),
+			'dimension_filters'          => (array) ( $meta['dimension_filters'] ?? array() ),
+			'contracts_before_narrowing' => (int) ( $meta['contracts_before_narrowing'] ?? 0 ),
+			'contracts_after_narrowing'  => (int) ( $meta['contracts_after_narrowing'] ?? 0 ),
+			'duration_ms'                => (int) ( $meta['duration_ms'] ?? 0 ),
+			'reason_bucket'              => (string) ( $meta['reason_bucket'] ?? '' ),
+			'rounds'                     => (int) ( $meta['rounds'] ?? 1 ),
+			'status'                     => (string) ( $context_bank['meta']['status'] ?? '' ),
+		);
+		try {
+			BizCity_JSONL_File_Logger::write_contract( 'core.context_bank.mpr_trace', $level, $event, $message, $ctx );
+		} catch ( \Throwable $e ) {
+			// Footlog is best-effort; a logging failure must never break the turn.
+		}
 	}
 
 	/**
@@ -512,14 +760,25 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 	 */
 	private function build_context_bank_timeline_payload( array $context_bank ): array {
 		// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — expose counts/status only; ledger rows and owner bodies never enter the timeline payload.
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D1 — add the measured phase duration and the diagnostic buckets so the row stops falling back to the whole-turn live timer. Contract: CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1 §2.2 (v2, additive).
 		$meta = isset( $context_bank['meta'] ) && is_array( $context_bank['meta'] ) ? $context_bank['meta'] : array();
 		$policy = isset( $meta['retrieval_policy'] ) && is_array( $meta['retrieval_policy'] ) ? $meta['retrieval_policy'] : array();
 		$reason = (string) ( $meta['reason'] ?? '' );
 		if ( $reason === '' && ! empty( $meta['degraded'] ) ) {
 			$reason = 'context_bank_degraded';
 		}
+		$enabled = ! empty( $meta['enabled'] );
+		$reason_bucket = (string) ( $meta['reason_bucket'] ?? '' );
+		if ( $reason_bucket === '' && ! $enabled ) {
+			$reason_bucket = 'context_bank_disabled_or_unavailable';
+		}
+		if ( $reason_bucket === '' && ! empty( $meta['degraded'] ) ) {
+			$reason_bucket = 'context_bank_degraded';
+		}
+		// §2.2 rule 2 — status and enabled must agree.
+		$status = $enabled ? ( ( ! empty( $meta['degraded'] ) || ! empty( $meta['incomplete'] ) ) ? 'degraded' : 'ran' ) : 'skipped';
 		return array(
-			'enabled'              => ! empty( $meta['enabled'] ),
+			'enabled'              => $enabled,
 			'mode'                 => (string) ( $policy['mode'] ?? 'context_bank' ),
 			'source_ref_count'    => count( (array) ( $context_bank['refs'] ?? array() ) ),
 			'pointer_follows'     => (int) ( $meta['pointer_follows'] ?? 0 ),
@@ -527,6 +786,22 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'degraded'            => ! empty( $meta['degraded'] ),
 			'incomplete'          => ! empty( $meta['incomplete'] ),
 			'reason'              => $reason,
+			// v2 additive fields.
+			'duration_ms'         => (int) ( $meta['duration_ms'] ?? 0 ),
+			'budget_ms'           => (int) ( $meta['budget_ms'] ?? 0 ),
+			'reason_bucket'       => $reason_bucket,
+			'status'              => $status,
+			'matched_count'       => (int) ( $meta['matched_count'] ?? 0 ),
+			'returned_count'      => (int) ( $meta['returned_count'] ?? 0 ),
+			'truncated'           => ! empty( $meta['truncated'] ),
+			'vertical_id'         => (string) ( $meta['vertical_id'] ?? '' ),
+			'binding_source'      => (string) ( $meta['binding_source'] ?? 'none' ),
+			'dimension_filters'   => (array) ( $meta['dimension_filters'] ?? array() ),
+			'contract_count'      => (int) ( $meta['contract_count'] ?? 0 ),
+			'mode_hint_applied'   => (string) ( $meta['mode_hint_applied'] ?? '' ),
+			'contracts_before_narrowing' => (int) ( $meta['contracts_before_narrowing'] ?? 0 ),
+			'contracts_after_narrowing'  => (int) ( $meta['contracts_after_narrowing'] ?? 0 ),
+			'rounds'              => (int) ( $meta['rounds'] ?? 1 ),
 		);
 	}
 

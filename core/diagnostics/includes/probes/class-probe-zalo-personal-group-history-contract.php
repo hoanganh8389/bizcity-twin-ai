@@ -52,47 +52,106 @@ final class BizCity_Probe_Zalo_Personal_Group_History_Contract implements BizCit
 		$client_file = $root . 'plugins/bizcity-zalo-personal/includes/shared/class-zalo-bridge-client.php';
 		// [2026-09-03 03:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H3-GROUP-DDV — include the exact-key Hub artifact in the discovery contract.
 		$hub_file = $root . '../bizcity-llm-router/includes/class-router-zalo-personal-bridge-rest.php';
-		$sidecar_file = $root . 'plugins/bizcity-zalo-personal/_library/zca-bridge-main/src/wp/wpRoutes.ts';
-		$history_file = $root . 'plugins/bizcity-zalo-personal/_library/zca-bridge-main/src/zalo/groupHistory.ts';
+		// [2026-09-18 11:11 AM Johnny Chu - Chu Hoàng Anh] R-DDV — the deployed sidecar lives outside the plugin; resolve it from BIZCITY_ZCA_BRIDGE_ROOT (env or constant) and fall back to the repository bundle. No operator path is hard-coded in shared code.
+		$sidecar_root = getenv( 'BIZCITY_ZCA_BRIDGE_ROOT' );
+		if ( ( ! is_string( $sidecar_root ) || trim( $sidecar_root ) === '' ) && defined( 'BIZCITY_ZCA_BRIDGE_ROOT' ) ) {
+			$sidecar_root = (string) BIZCITY_ZCA_BRIDGE_ROOT;
+		}
+		$sidecar_origin = ( is_string( $sidecar_root ) && trim( $sidecar_root ) !== '' ) ? 'runtime' : 'bundle';
+		$sidecar_root = 'runtime' === $sidecar_origin
+			? rtrim( (string) $sidecar_root, '/\\' )
+			: $root . 'plugins/bizcity-zalo-personal/_library/zca-bridge-main';
+		$sidecar_file = $sidecar_root . '/src/wp/wpRoutes.ts';
+		$history_file = $sidecar_root . '/src/zalo/groupHistory.ts';
 		$rest_source = is_readable( $rest_file ) ? (string) file_get_contents( $rest_file ) : '';
 		$client_source = is_readable( $client_file ) ? (string) file_get_contents( $client_file ) : '';
 		$hub_source = is_readable( $hub_file ) ? (string) file_get_contents( $hub_file ) : '';
 		$sidecar_source = is_readable( $sidecar_file ) ? (string) file_get_contents( $sidecar_file ) : '';
 		$history_source = is_readable( $history_file ) ? (string) file_get_contents( $history_file ) : '';
 
-		$disk_ok = $rest_source !== ''
-			&& strpos( $rest_source, 'handle_group_history' ) !== false
-			&& strpos( $rest_source, 'handle_group_history_candidates' ) !== false
-			&& strpos( $rest_source, 'history/group' ) !== false
-			&& strpos( $rest_source, 'history/groups' ) !== false
-			&& strpos( $rest_source, 'get_group_history' ) !== false
-			&& strpos( $rest_source, "'resume_supported' => false" ) !== false
-			&& strpos( $rest_source, "'storage_target' => 'context_bank_filestore'" ) !== false
-			&& strpos( $rest_source, "'duplicate_policy' => 'record_id_before_write'" ) !== false
-			&& strpos( $rest_source, "'write_enabled' => false" ) !== false
-			&& strpos( $hub_source, 'normalize_group_history_response' ) !== false
-			&& strpos( $rest_source, 'history_pagination_unavailable' ) !== false
-			&& strpos( $client_source, 'function get_group_candidates' ) !== false
-			&& strpos( $hub_source, 'handle_group_history_candidates' ) !== false
-			&& strpos( $hub_source, 'history/groups' ) !== false
-			&& strpos( $hub_source, 'history/group?threadRef=' ) !== false
-			&& strpos( $hub_source, "'resume_supported' => false" ) !== false
-			&& strpos( $hub_source, 'history_pagination_unavailable' ) !== false
-			&& strpos( $hub_source, "'storage_target' => 'context_bank_filestore'" ) !== false
-			&& strpos( $hub_source, "'duplicate_policy' => 'record_id_before_write'" ) !== false
-			&& strpos( $hub_source, "'write_enabled' => false" ) !== false
-			&& $client_source !== ''
-			&& strpos( $client_source, 'function get_group_history' ) !== false
-			&& strpos( $sidecar_source, 'import_mode: "dry_run"' ) !== false
-			&& strpos( $sidecar_source, 'side_effects_allowed: false' ) !== false
-			&& strpos( $sidecar_source, 'resume_supported: false' ) !== false
-			&& strpos( $sidecar_source, 'storage_target: "context_bank_filestore"' ) !== false
-			&& strpos( $sidecar_source, 'duplicate_policy: "record_id_before_write"' ) !== false
-			&& strpos( $sidecar_source, 'write_enabled: false' ) !== false
-			&& strpos( $history_source, 'origin: "historical_import"' ) !== false
-			&& strpos( $history_source, 'dedupe_key_hash' ) !== false
-			&& strpos( $history_source, 'context_record_id' ) !== false;
-		$emit( 'Disk', 'Group-history PHP, sidecar and normalization artifacts exist', $disk_ok, $disk_ok ? 'Route, bridge client and dry-run normalization markers are present.' : 'One or more group-history contract artifacts are missing.' );
+		// Named checks per artifact group, so a failure says exactly what is missing.
+		$missing_in = static function ( $source, array $markers ) {
+			$missing = array();
+			foreach ( $markers as $name => $needle ) {
+				if ( strpos( $source, $needle ) === false ) {
+					$missing[] = $name;
+				}
+			}
+			return $missing;
+		};
+
+		// 1. Client PHP (always shipped with the plugin) — a gap here is a real FAIL.
+		$client_missing = array();
+		if ( $rest_source === '' ) {
+			$client_missing[] = 'class-zalo-bridge-rest.php unreadable';
+		}
+		if ( $client_source === '' ) {
+			$client_missing[] = 'class-zalo-bridge-client.php unreadable';
+		}
+		$client_missing = array_merge( $client_missing, $missing_in( $rest_source, array(
+			'rest.handle_group_history'            => 'handle_group_history',
+			'rest.handle_group_history_candidates' => 'handle_group_history_candidates',
+			'rest.route_history_group'             => 'history/group',
+			'rest.route_history_groups'            => 'history/groups',
+			'rest.get_group_history'               => 'get_group_history',
+			'rest.resume_supported_false'          => "'resume_supported' => false",
+			'rest.storage_target'                  => "'storage_target' => 'context_bank_filestore'",
+			'rest.duplicate_policy'                => "'duplicate_policy' => 'record_id_before_write'",
+			'rest.write_enabled_false'             => "'write_enabled' => false",
+			'rest.pagination_unavailable'          => 'history_pagination_unavailable',
+		) ), $missing_in( $client_source, array(
+			'client.get_group_candidates' => 'function get_group_candidates',
+			'client.get_group_history'    => 'function get_group_history',
+		) ) );
+		$client_ok = empty( $client_missing );
+		$emit( 'Disk', 'Client group-history PHP route and bridge client markers', $client_ok, $client_ok ? 'Route, bridge client and dry-run policy markers are present.' : 'Missing: ' . implode( ', ', $client_missing ) . '.' );
+
+		// 2. Hub router (only present on the B1 Hub) — skip on a client-only host.
+		$hub_ok = true;
+		if ( $hub_source === '' ) {
+			$step = array( 'layer' => 'Disk', 'label' => 'Hub group-history normalization markers', 'status' => 'skip', 'detail' => 'Hub router source is not present on this host; validate these markers on the deployed Hub.' );
+			$steps[] = $step;
+			$ctx->emit_step( $step );
+		} else {
+			$hub_missing = $missing_in( $hub_source, array(
+				'hub.normalize_group_history_response' => 'normalize_group_history_response',
+				'hub.handle_group_history_candidates'  => 'handle_group_history_candidates',
+				'hub.route_history_groups'             => 'history/groups',
+				'hub.route_history_group_thread'       => 'history/group?threadRef=',
+				'hub.resume_supported_false'           => "'resume_supported' => false",
+				'hub.pagination_unavailable'           => 'history_pagination_unavailable',
+				'hub.storage_target'                   => "'storage_target' => 'context_bank_filestore'",
+				'hub.duplicate_policy'                 => "'duplicate_policy' => 'record_id_before_write'",
+				'hub.write_enabled_false'              => "'write_enabled' => false",
+			) );
+			$hub_ok = empty( $hub_missing );
+			$emit( 'Disk', 'Hub group-history normalization markers', $hub_ok, $hub_ok ? 'Hub normalizer enforces the dry-run storage envelope.' : 'Missing: ' . implode( ', ', $hub_missing ) . '.' );
+		}
+
+		// 3. Sidecar source (deployed outside the plugin) — skip when it is not readable here.
+		$sidecar_ok = true;
+		if ( $sidecar_source === '' || $history_source === '' ) {
+			$step = array( 'layer' => 'Disk', 'label' => 'Sidecar group-history dry-run markers (' . $sidecar_origin . ')', 'status' => 'skip', 'detail' => 'Sidecar source is not readable on this host. Set BIZCITY_ZCA_BRIDGE_ROOT (environment or constant) to the deployed sidecar root to include it.' );
+			$steps[] = $step;
+			$ctx->emit_step( $step );
+		} else {
+			$sidecar_missing = array_merge( $missing_in( $sidecar_source, array(
+				'sidecar.import_mode_dry_run'    => 'import_mode: "dry_run"',
+				'sidecar.side_effects_false'     => 'side_effects_allowed: false',
+				'sidecar.resume_supported_false' => 'resume_supported: false',
+				'sidecar.storage_target'         => 'storage_target: "context_bank_filestore"',
+				'sidecar.duplicate_policy'       => 'duplicate_policy: "record_id_before_write"',
+				'sidecar.write_enabled_false'    => 'write_enabled: false',
+			) ), $missing_in( $history_source, array(
+				'history.origin_historical_import' => 'origin: "historical_import"',
+				'history.dedupe_key_hash'          => 'dedupe_key_hash',
+				'history.context_record_id'        => 'context_record_id',
+			) ) );
+			$sidecar_ok = empty( $sidecar_missing );
+			$emit( 'Disk', 'Sidecar group-history dry-run markers (' . $sidecar_origin . ')', $sidecar_ok, $sidecar_ok ? 'Sidecar route and normalization keep the dry-run, no-write envelope.' : 'Missing: ' . implode( ', ', $sidecar_missing ) . '.' );
+		}
+
+		$disk_ok = $client_ok && $hub_ok && $sidecar_ok;
 
 		$loader_ok = class_exists( 'BizCity_Zalo_Bridge_REST', false )
 			&& method_exists( 'BizCity_Zalo_Bridge_REST', 'handle_group_history' )
@@ -177,10 +236,17 @@ final class BizCity_Probe_Zalo_Personal_Group_History_Contract implements BizCit
 		}
 
 		$pass = $disk_ok && $loader_ok && $route_ok && $discovery_route_ok && $invalid_ok && $cursor_ok && $hub_guard_ok;
+		// [2026-09-18 11:11 AM Johnny Chu - Chu Hoàng Anh] R-DDV — Hub-only skips are not applicable on a client host, but an unreadable sidecar source is missing evidence: warn, never a silent pass.
+		$sidecar_skipped = $sidecar_source === '' || $history_source === '';
+		$status = ! $pass ? 'fail' : ( $sidecar_skipped ? 'warn' : 'pass' );
 		return array(
-			'status'   => $pass ? 'pass' : 'fail',
-			'summary'  => $pass ? 'Experimental group-history route contract and pre-transport safety checks passed.' : 'Experimental group-history contract checks failed.',
-			'fix_hint' => $pass ? '' : 'Keep group history bounded and dry-run, register the PHP route, and reject missing thread_ref before bridge transport.',
+			'status'   => $status,
+			'summary'  => 'pass' === $status
+				? 'Experimental group-history route contract and pre-transport safety checks passed.'
+				: ( 'warn' === $status ? 'Group-history PHP and runtime checks passed; sidecar dry-run markers were not verifiable on this host.' : 'Experimental group-history contract checks failed.' ),
+			'fix_hint' => 'pass' === $status ? '' : ( 'warn' === $status
+				? 'Set BIZCITY_ZCA_BRIDGE_ROOT (environment or constant) to the deployed sidecar root and rerun: php bin/diagnostics-run.php --filter=modules.zalo-personal.group_history_contract --format=json'
+				: 'Fix the failing step(s) above: keep group history bounded and dry-run, register the PHP route, and reject missing thread_ref before bridge transport.' ),
 			'steps'    => $steps,
 		);
 	}

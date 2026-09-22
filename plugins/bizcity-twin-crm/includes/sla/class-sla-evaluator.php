@@ -101,16 +101,22 @@ class BizCity_CRM_SLA_Evaluator {
 
 		// MET path: conversation resolved.
 		if ( ( $conv['status'] ?? '' ) === 'resolved' && empty( $row['met_at'] ) ) {
+			$resolved_at = self::resolved_at( $conv, $now );
+			$rt_due = isset( $row['rt_due_at'] ) ? (int) $row['rt_due_at'] : 0;
+			if ( $rt_due > 0 && $resolved_at > $rt_due ) {
+				BizCity_CRM_Repository::update_applied_sla_fields( (int) $row['id'], array( 'state' => 'breached', 'last_evaluated_at' => $now ) );
+				return array( 'breached' => 0, 'met' => false );
+			}
 			BizCity_CRM_Repository::update_applied_sla_fields( (int) $row['id'], array(
 				'state'             => 'met',
-				'met_at'            => $now,
+				'met_at'            => $resolved_at,
 				'last_evaluated_at' => $now,
 			) );
 			BizCity_CRM_Event_Emitter::emit( 'crm_sla_met', array(
 				'conversation_id' => $conv_id,
 				'sla_policy_id'   => (int) $row['sla_policy_id'],
 				'applied_sla_id'  => (int) $row['id'],
-				'resolved_at'     => $now,
+				'resolved_at'     => $resolved_at,
 			) );
 			return array( 'met' => true );
 		}
@@ -140,6 +146,9 @@ class BizCity_CRM_SLA_Evaluator {
 		if ( $breach_count > 0 ) {
 			$updates['state'] = 'breached';
 		}
+		if ( 'breached' === (string) ( $row['state'] ?? '' ) && 0 === $breach_count ) {
+			$updates['state'] = 'active';
+		}
 		BizCity_CRM_Repository::update_applied_sla_fields( (int) $row['id'], $updates );
 		return array( 'breached' => $breach_count );
 	}
@@ -163,15 +172,36 @@ class BizCity_CRM_SLA_Evaluator {
 			if ( $min <= 0 ) { continue; }
 			$naive_due = $applied_at + ( $min * 60 );
 			if ( $bh_only && $inbox_id > 0 ) {
-				// Add back the closed-seconds inside [applied_at, naive_due) so
-				// the *effective* business-hour budget equals threshold.
-				$closed   = BizCity_CRM_Working_Hours::closed_seconds_between( $inbox_id, $applied_at, $naive_due );
-				$shifted  = $naive_due + $closed;
-				$out[ $kind . '_due_at' ] = $shifted;
+				$out[ $kind . '_due_at' ] = self::working_due( $inbox_id, $applied_at, $min * 60 );
 			} else {
 				$out[ $kind . '_due_at' ] = $naive_due;
 			}
 		}
 		return $out;
+	}
+
+	private static function working_due( int $inbox_id, int $anchor, int $budget ): int {
+		$cursor = $anchor;
+		$remaining = $budget;
+		for ( $round = 0; $round < 30 && $remaining > 0; $round++ ) {
+			$probe = $cursor + $remaining;
+			$closed = BizCity_CRM_Working_Hours::closed_seconds_between( $inbox_id, $cursor, $probe );
+			$next = $probe + $closed;
+			if ( $next === $cursor ) { break; }
+			$cursor = $next;
+			$elapsed = max( 0, $cursor - $anchor - $closed );
+			$remaining = max( 0, $budget - $elapsed );
+		}
+		return $cursor;
+	}
+
+	private static function resolved_at( array $conversation, int $fallback ): int {
+		foreach ( array( 'resolved_at', 'closed_at', 'updated_at' ) as $key ) {
+			if ( ! empty( $conversation[ $key ] ) ) {
+				$value = is_numeric( $conversation[ $key ] ) ? (int) $conversation[ $key ] : strtotime( (string) $conversation[ $key ] );
+				if ( $value > 0 ) { return $value; }
+			}
+		}
+		return $fallback;
 	}
 }

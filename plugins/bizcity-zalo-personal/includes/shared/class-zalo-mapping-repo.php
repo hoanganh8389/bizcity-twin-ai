@@ -456,6 +456,46 @@ class BizCity_Zalo_Mapping_Repo {
 		self::flush_cache();
 	}
 
+	/**
+	 * Copy the bridge's zaloUid onto local Personal rows whose uid is missing or stale.
+	 *
+	 * [2026-09-18] PHASE-0.48F U10 R-ZP-DUP — the QR status poll only mirrors `status`, so the local
+	 * `zalo_uid` stayed empty after a login and the CRM rail could not tell a superseded twin
+	 * ("Trùng SĐT") from an ordinary logged-out phone. Only rows that differ are written.
+	 *
+	 * @param array $bridge_accounts Items shaped like BizCity_Zalo_Bridge_Client::list_accounts()['accounts'].
+	 * @return int Rows updated.
+	 */
+	public static function sync_zalo_uids( array $bridge_accounts ): int {
+		global $wpdb;
+		$remote = array();
+		foreach ( $bridge_accounts as $acc ) {
+			$id  = is_array( $acc ) ? (string) ( $acc['id'] ?? '' ) : '';
+			$uid = is_array( $acc ) ? sanitize_text_field( (string) ( $acc['zaloUid'] ?? $acc['zalo_uid'] ?? '' ) ) : '';
+			if ( $id !== '' && $uid !== '' ) {
+				$remote[ $id ] = $uid;
+			}
+		}
+		if ( empty( $remote ) ) {
+			return 0;
+		}
+		$table = $wpdb->prefix . 'bizcity_zalo_accounts';
+		$updated = 0;
+		foreach ( self::list_personal_accounts( array( 'limit' => 200 ) ) as $row ) {
+			$bridge_id = (string) ( $row['bridge_account_id'] ?? '' );
+			if ( isset( $remote[ $bridge_id ] ) && (string) ( $row['zalo_uid'] ?? '' ) !== $remote[ $bridge_id ] ) {
+				if ( false !== $wpdb->update( $table, array( 'zalo_uid' => $remote[ $bridge_id ] ), array( 'id' => (int) $row['id'] ) ) ) {
+					$updated++;
+				}
+			}
+		}
+		if ( $updated > 0 ) {
+			self::flush_owner_cache();
+			self::flush_cache();
+		}
+		return $updated;
+	}
+
 	// ── bizcity_zalo_message_map ──────────────────────────────────────────
 
 	/**

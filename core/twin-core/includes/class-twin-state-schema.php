@@ -134,7 +134,8 @@ class BizCity_Twin_State_Schema {
 		self::create_prompt_specs_table( $charset );
 		self::create_milestones_table( $charset );
 		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not provision the retired context-log SQL projection.
-		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::install_blocked( self::context_logs_table() ) ) {
+		// [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — a missing lifecycle policy must not recreate the retired context-log table.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::install_blocked( self::context_logs_table() ) ) {
 			self::create_context_logs_table( $charset );
 		}
 

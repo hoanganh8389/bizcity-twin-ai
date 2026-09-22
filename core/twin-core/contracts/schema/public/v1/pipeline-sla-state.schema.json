@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/pipeline-sla-state.schema.json",
+  "title": "BizCity Pipeline SLA State",
+  "description": "PHASE-0.63A F-13 — read-only SLA deadline state for one pinned pipeline run. No customer PII belongs in this DTO.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "run_id", "items"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "contract": { "const": "pipeline-sla-state" },
+    "version": { "const": "1.0.0" },
+    "run_id": { "type": "integer", "minimum": 1 },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "layer", "stage_key", "due_at", "state", "level", "remaining_s"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "layer": { "enum": ["step", "wait", "process", "exception"] },
+        "stage_key": { "type": "string", "maxLength": 64 },
+        "due_at": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "state": { "enum": ["pending", "at_risk", "breached", "met", "cancelled"] },
+        "level": { "type": "integer", "minimum": 0 },
+        "next_fire_at": { "type": ["string", "null"], "maxLength": 32 },
+        "remaining_s": { "type": "integer", "minimum": 0 },
+        "met_at": { "type": ["string", "null"], "maxLength": 32 },
+        "breached_at": { "type": ["string", "null"], "maxLength": 32 },
+        "paused_ms": { "type": "integer", "minimum": 0 },
+        "paused": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -80,6 +80,65 @@ final class BizCity_CRM_Team_Manager {
 		return $ok;
 	}
 
+	/**
+	 * Every active team membership row for one user, across all teams.
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F — feeds
+	 * `BizCity_CRM_Staff_Policy`, which resolves an actor's highest team rank
+	 * (`agent`/`lead`/`supervisor`) and the team(s) that rank applies to. A user
+	 * in more than one team keeps a separate role per team; the policy layer
+	 * picks the membership matching the subject's team when comparing rank.
+	 *
+	 * @return array<int,array{team_id:int,member_role:string}>
+	 */
+	public static function list_user_memberships( int $user_id ): array {
+		if ( $user_id <= 0 ) { return array(); }
+		$cache_key = 'user_memberships_' . (int) $user_id;
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			$cached = BizCity_Cache::get( self::CACHE_GROUP, $cache_key );
+			if ( false !== $cached && is_array( $cached ) ) { return $cached; }
+		}
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_team_members();
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT team_id, member_role FROM `{$table}` WHERE user_id = %d AND is_active = 1", $user_id ), ARRAY_A );
+		$out = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$out[] = array( 'team_id' => (int) ( $row['team_id'] ?? 0 ), 'member_role' => sanitize_key( (string) ( $row['member_role'] ?? 'agent' ) ) );
+		}
+		if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::set( self::CACHE_GROUP, $cache_key, $out ); }
+		return $out;
+	}
+
+	/**
+	 * The most recently updated team membership row for a user, active or not.
+	 * Used by staff reactivate (F6) to restore the team/role a suspended user
+	 * had, without guessing — suspend never deletes the row, only flips
+	 * `is_active`.
+	 */
+	public static function find_last_membership( int $user_id ): ?array {
+		if ( $user_id <= 0 ) { return null; }
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_team_members();
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT team_id, member_role FROM `{$table}` WHERE user_id = %d ORDER BY updated_at DESC, id DESC LIMIT 1", $user_id ), ARRAY_A );
+		if ( ! is_array( $row ) ) { return null; }
+		return array( 'team_id' => (int) ( $row['team_id'] ?? 0 ), 'member_role' => sanitize_key( (string) ( $row['member_role'] ?? 'agent' ) ) );
+	}
+
+	/**
+	 * Every inbox id a user is currently an active member of. Used by staff
+	 * suspend (F6) to deactivate all of a suspended user's inbox memberships
+	 * without the caller having to already know which inboxes those are.
+	 *
+	 * @return array<int,int>
+	 */
+	public static function list_user_inbox_ids( int $user_id ): array {
+		if ( $user_id <= 0 ) { return array(); }
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_inbox_members();
+		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT inbox_id FROM `{$table}` WHERE user_id = %d AND is_active = 1", $user_id ) );
+		return array_values( array_unique( array_map( 'intval', is_array( $ids ) ? $ids : array() ) ) );
+	}
+
 	public static function list_team_members( int $team_id ): array {
 		$cache_key = 'team_members_' . (int) $team_id;
 		if ( class_exists( 'BizCity_Cache' ) ) {
@@ -92,6 +151,46 @@ final class BizCity_CRM_Team_Manager {
 		$rows = is_array( $rows ) ? $rows : array();
 		if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::set( self::CACHE_GROUP, $cache_key, $rows ); }
 		return $rows;
+	}
+
+	/**
+	 * Deactivate a user's team membership (soft — row stays for history/audit).
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F-F6 — used by staff
+	 * suspend/reactivate; team roster and `Staff_Policy` rank resolution both
+	 * read `is_active`, so this alone removes the user from management scope.
+	 */
+	/**
+	 * PHASE-0.56 T-3 (11.B2 tree view "Chuyển nhóm") — move an employee's ACTIVE membership from
+	 * `$from_team_id` to `$to_team_id`, keeping their `member_role`. Adds to the new team FIRST, only
+	 * deactivating the old one once that succeeds, so a failed move never leaves the employee with
+	 * zero active team memberships (no orphan state). Not itself an ACL check — the caller
+	 * (`class-staff-rest.php::move_staff_team()`) already resolved `Staff_Policy::can()` for both the
+	 * subject and, separately, whether the actor may reach `$to_team_id` at all.
+	 */
+	public static function move_team_member( int $from_team_id, int $to_team_id, int $user_id, string $member_role = 'agent' ): bool {
+		if ( $to_team_id <= 0 || $to_team_id === $from_team_id || ! self::wp_user_exists( $user_id ) ) {
+			return false;
+		}
+		if ( ! self::add_team_member( $to_team_id, $user_id, $member_role ) ) {
+			return false;
+		}
+		if ( $from_team_id > 0 ) {
+			self::remove_team_member( $from_team_id, $user_id );
+		}
+		return true;
+	}
+
+	public static function remove_team_member( int $team_id, int $user_id ): bool {
+		if ( $team_id <= 0 || $user_id <= 0 ) { return false; }
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_team_members();
+		$ok = false !== $wpdb->update( $table, array( 'is_active' => 0, 'updated_at' => current_time( 'mysql' ) ), array( 'team_id' => $team_id, 'user_id' => $user_id ), array( '%d', '%s' ), array( '%d', '%d' ) );
+		if ( $ok ) {
+			self::flush_cache();
+			if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::CACHE_GROUP ); }
+		}
+		return $ok;
 	}
 
 	public static function list_inbox_members( int $inbox_id ): array {
@@ -123,6 +222,24 @@ final class BizCity_CRM_Team_Manager {
 		} else {
 			$ok = false !== $wpdb->insert( $table, array_merge( array( 'inbox_id' => $inbox_id, 'user_id' => $user_id ), $data, array( 'created_at' => $now ) ), array( '%d', '%d', '%s', '%d', '%d', '%s', '%s' ) );
 		}
+		if ( $ok ) {
+			self::flush_cache();
+			if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::CACHE_GROUP ); }
+		}
+		return $ok;
+	}
+
+	/**
+	 * Remove (soft-deactivate) one user's inbox membership.
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F F-UID-03b — the
+	 * companion to `add_inbox_member()`; row stays for audit/history.
+	 */
+	public static function remove_inbox_member( int $inbox_id, int $user_id ): bool {
+		if ( $inbox_id <= 0 || $user_id <= 0 ) { return false; }
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_inbox_members();
+		$ok = false !== $wpdb->update( $table, array( 'is_active' => 0, 'updated_at' => current_time( 'mysql' ) ), array( 'inbox_id' => $inbox_id, 'user_id' => $user_id ), array( '%d', '%s' ), array( '%d', '%d' ) );
 		if ( $ok ) {
 			self::flush_cache();
 			if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::CACHE_GROUP ); }

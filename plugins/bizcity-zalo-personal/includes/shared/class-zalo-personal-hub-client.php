@@ -138,19 +138,39 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	/** Start a QR session for an owned managed account. */
 	public function start_qr( string $account_id ): array {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — QR command is key/account scoped at the Hub.
-		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr', array() );
+		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr', $this->rebind_context() );
 	}
 
 	/** Reset the managed runtime session and start QR without deleting the account. */
 	public function reset_qr( string $account_id ): array {
 		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — request controlled session reset through the exact-key Hub boundary.
-		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr/reset', array() );
+		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr/reset', $this->rebind_context() );
 	}
 
 	/** Poll QR/session status for an owned managed account. */
 	public function get_qr_status( string $account_id ): array {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — status projection contains no bridge credential.
-		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr-status' );
+		$result = $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr-status' );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — when this site's QR login moved the account here, keep the rotated callback credential and never pass it upward.
+		if ( array_key_exists( 'callback_token', $result ) ) {
+			$token = (string) $result['callback_token'];
+			unset( $result['callback_token'] );
+			if ( ! empty( $result['rebound'] ) && ( $token === '' || ! $this->save_callback_token( $account_id, $token ) ) ) {
+				$result['rebound'] = false;
+				$result['rebind_error'] = 'callback_token_store_failed';
+			}
+		}
+		return $result;
+	}
+
+	/** Callback identity sent with QR start/reset so the Hub can move an account to this site after login. */
+	private function rebind_context(): array {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — the Hub validates this against the key domain; it is ignored for accounts already bound here.
+		return array(
+			'callback_url'       => rest_url( 'bizcity-channel/v1/zalo-bridge/inbound' ),
+			'client_instance_id' => $this->client_instance_id(),
+			'tenant_key'         => $this->tenant_key(),
+		);
 	}
 
 	/** Read hash-only experimental group candidates for an owned managed account. */
@@ -171,6 +191,18 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	public function get_group_members( string $account_id, string $group_id ): array {
 		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — route managed roster reads through Hub Branch 19 instead of degrading locally.
 		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/group-members?group_id=' . rawurlencode( $group_id ) );
+	}
+
+	/** Read the provider group label for an exact key-owned account. */
+	public function get_group_name( string $account_id, string $group_id ): array {
+		// [2026-09-17 11:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CX2 — route managed group-label reads through Hub Branch 19.
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/group-info?group_id=' . rawurlencode( $group_id ) );
+	}
+
+	/** Read one Zalo user's display name + avatar for an exact key-owned account. */
+	public function get_user_profile( string $account_id, string $user_id ): array {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-AVATAR — route managed avatar reads through Hub Branch 19.
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/user-profile?user_id=' . rawurlencode( $user_id ) );
 	}
 
 	/** Enqueue Personal outbound through the managed Hub. */

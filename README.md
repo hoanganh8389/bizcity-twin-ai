@@ -1,5 +1,14 @@
 # Bizcity Twin AI: All Channel, One Brain
 
+> **Current product focus — Zalo Personal first:** BizCity Twin AI is being
+> hardened around the real daily workflow of **Zalo Cá nhân** (QR/session
+> ownership, cross-site status, customer-care Inbox, message/media fidelity
+> and reliable sending). Zalo OA and Facebook/Fanpage assets follow as
+> business-owned channels managed centrally; Zalo Bot, Telegram and TwinChat
+> remain supporting/admin expansion surfaces. This priority changes sequencing,
+> not the shared Channel → CRM → Brain architecture: every later channel must
+> reuse the same contracts, identity scope, audit and delivery evidence.
+
 > **All Channel, One Brain.** Xây dựng ứng dụng AI, plugin nghiệp vụ và hệ thống omni-channel trên một bộ não doanh nghiệp thống nhất.
 
 **Bizcity Twin AI** là nền tảng mã nguồn mở giúp biến WordPress thành **Bộ não thứ 2 cho doanh nghiệp**: tiếp nhận dữ liệu đa kênh, hợp nhất danh tính và dữ liệu doanh nghiệp, xây đồ thị tri thức, suy luận có bằng chứng, tự động hóa công việc và cung cấp dữ liệu có kiểm soát cho Claude, ChatGPT hoặc trợ lý AI qua MCP.
@@ -16,7 +25,7 @@
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-2ea44f)](LICENSE)
 [![Graph RAG](https://img.shields.io/badge/knowledge-Graph%20RAG-008CC1)](#một-kiến-trúc-ba-trục)
 
-[Xem bản dùng thử](https://libedemo.bizcity.vn/gpt/) · [Nguyên tắc phát triển](docs/vibe/README.md) · [Đóng góp mã nguồn](CONTRIBUTING.md) · [Lộ trình phát triển](docs/vibe/MASTER-CHECKLIST.md)
+[Xem bản dùng thử](https://libedemo.bizcity.vn/gpt/) · [Nguyên tắc phát triển](.github/copilot-instructions.md) · [Đóng góp mã nguồn](CONTRIBUTING.md) · [Lịch sử phát hành](CHANGELOG.md)
 
 </div>
 
@@ -224,7 +233,54 @@ BizCity_Twin_Plugin_SDK::register_ui( $workspace_definition );
 | `register_source()` | Đóng góp nguồn tri thức vào KG Hub |
 | `register_event()` | Khai báo event thuộc taxonomy được phép |
 | `register_diagnostic()` | Cung cấp self-check Disk/Loader/Runtime |
-| `register_ui()` | Đăng ký navigation và output renderer |
+| `register_ui()` | Đăng ký navigation, output renderer và Setting Panel metadata |
+
+### Đóng góp một mục vào Control Panel
+
+`register_ui()` nhận thêm mảng `setting_panel` để khai báo metadata hiển thị
+trong TwinShell Control Panel. Đây là metadata-only: plugin giữ nguyên
+renderer, storage, capability và credential của mình.
+
+```php
+BizCity_Twin_Plugin_SDK::register_ui( array(
+    'setting_panel' => array(
+        array(
+            'contract'    => 'setting-panel-registration',
+            'version'     => '1.0.0',
+            'id'          => 'bundle.my-plugin.settings',
+            'owner'       => 'plugins/my-plugin',
+            'origin'      => 'bundle',
+            'destination' => 'control-panel',
+            'group'       => 'studio',
+            'label_key'   => 'settings.my_plugin.label',
+            'icon'        => 'cil-description',
+            'capability'  => 'manage_options',
+            'scope'       => 'site',
+            'surface'     => 'admin_shell',
+            'renderer'    => array(
+                'type'           => 'deep_link',
+                'id'             => 'bundle.my-plugin.settings',
+                'canonical_slug' => 'my-plugin-settings',
+            ),
+            'availability' => array(
+                'policy'         => 'registered-owner',
+                'dependency_ids' => array( 'plugins.my-plugin' ),
+            ),
+            'position'    => 700,
+        ),
+    ),
+) );
+```
+
+Lưu ý bắt buộc:
+
+- Đăng ký **ngoài** guard `is_admin()` để CLI/cron/probe thấy cùng registry.
+- Nếu framework contract load sau plugin, retry qua `plugins_loaded`/`init`.
+- `destination = channel-settings` phải khai báo thêm `zone`
+  (`customer` | `admin` | `system`).
+- Không đưa credential, option value, callable hoặc PII vào metadata.
+
+Hướng dẫn đầy đủ: [SETTING-PANEL-REGISTRATION-CONTRACT-v1.md](docs/contracts/SETTING-PANEL-REGISTRATION-CONTRACT-v1.md) §2.1.
 
 Golden fixture: [examples/bizcity-reference-plugin](examples/bizcity-reference-plugin).
 
@@ -497,7 +553,7 @@ TikTok hiện phù hợp cho nghiên cứu, tạo kịch bản/video và theo d�
 - Tổng quan Trung tâm dữ liệu Twin hợp nhất phân tích từ nhiều mô-đun.
 - Kết nối tin nhắn khách hàng TikTok sẵn sàng vận hành.
 
-Nguồn trạng thái duy nhất: [docs/vibe/MASTER-CHECKLIST.md](docs/vibe/MASTER-CHECKLIST.md). Không dùng nội dung marketing để suy ra readiness của một capability.
+Nguồn trạng thái duy nhất là kết quả probe diagnostics của chính capability đó (xem [CHANGELOG.md](CHANGELOG.md) cho phần đã phát hành). Không dùng nội dung marketing để suy ra readiness của một capability.
 
 ## Demo
 
@@ -517,14 +573,14 @@ Nguồn trạng thái duy nhất: [docs/vibe/MASTER-CHECKLIST.md](docs/vibe/MAST
 
 | Bắt đầu từ | Nội dung |
 |---|---|
-| [Vibecode Constitution](docs/vibe/README.md) | Lộ trình đọc và nguyên tắc extension |
-| [Nguyên tắc phát triển](docs/vibe/00-VIBE-CANON.md) | Một KG Hub, năng lực chuyên môn và Trung tâm dữ liệu Twin |
-| [Plugin SDK](docs/vibe/07-PLUGIN-SDK-PUBLIC-INTERFACES.md) | Bảy public verb |
-| [Manifest Spec](docs/vibe/08-TWIN-PLUGIN-MANIFEST-SPEC.md) | Permission, taxonomy và capability schema |
-| [CLI Scaffolding](docs/vibe/09-CLI-SCAFFOLDING-WP-BIZCITY.md) | `wp bizcity make:*` |
-| [Lint and Diagnostics](docs/vibe/10-PLUGIN-LINT-DIAGNOSTICS-CLOSED-LOOP.md) | Closed-loop FAIL -> FIX -> PASS |
+| [Rule cho AI agent](.github/copilot-instructions.md) | Rule tối thượng, giao thức làm việc và checklist anti-pattern |
+| [Framework Guide](docs/framework/FRAMEWORK-GUIDE-v1.md) | Một KG Hub, năng lực chuyên môn và Trung tâm dữ liệu Twin |
+| [Plugin Standard](docs/extending/PLUGIN-TWIN-STANDARD.md) | Public interface và chuẩn plugin Twin |
+| [Public Contracts](docs/contracts/PUBLIC-CONTRACTS-v1.md) | Permission, taxonomy và capability schema |
+| [Sub-plugin Quickstart](docs/extending/sub-plugin-quickstart.md) | Scaffolding và plugin đầu tiên |
+| [Validation & Evidence](.github/copilot-instructions.md) | Closed-loop FAIL -> FIX -> PASS, probe và bằng chứng |
 | [Kiến trúc đa kênh](docs/architecture/OMNI-CHANNEL-UNIFIED-CORE.md) | Kênh, CRM, tự động hóa và luồng sự kiện |
-| [Canonical Rules](docs/rules/PHASE-0-CANON.md) | Security, data, loader và runtime contracts |
+| [Agent Environment Map](.github/instructions/agent-environment.instructions.md) | Contract, README, tool `bin/`, lệnh test và CI |
 | [Contribution Guide](CONTRIBUTING.md) | Test, DCO và pull request workflow |
 
 ## Cộng Đồng Và Đóng Góp
@@ -539,7 +595,7 @@ Bizcity Twin AI dành cho:
 
 Quy trình đóng góp:
 
-1. Đọc [docs/vibe/ai.md](docs/vibe/ai.md) và [CONTRIBUTING.md](CONTRIBUTING.md).
+1. Đọc [.github/copilot-instructions.md](.github/copilot-instructions.md) và [CONTRIBUTING.md](CONTRIBUTING.md).
 2. Tạo khung plugin thay vì sửa Core.
 3. Chạy kiểm tra mã, tương thích PHP 7.4, kiểm thử đơn vị và kiểm tra thực tế phạm vi hẹp.
 4. Cập nhật changelog và public hook documentation khi cần.

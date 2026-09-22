@@ -97,6 +97,8 @@ BizCity_KG_Triplet_Raw_Migration::instance()->bind();
 BizCity_KG_Filestore_Diagnostic::instance()->bind();
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-embedding-writer.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-notebook-service.php';
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-access.php';
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-public-link-service.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-source-service.php';
 // [2026-07-25 Johnny Chu] PHASE-0.46 W4.5 — dedicated JSONL logger for notebook bridge capture lifecycle.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-notebook-bridge-file-logger.php';

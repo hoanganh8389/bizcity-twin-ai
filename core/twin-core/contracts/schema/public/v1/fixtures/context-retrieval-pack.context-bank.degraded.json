@@ -1,0 +1,32 @@
+{
+  "contract": "context-retrieval-pack",
+  "version": "1.0.0",
+  "query_id": "q_degraded_6f1c2a9b4e7d0f35a8c1",
+  "scope": {
+    "mode": "skip",
+    "blog_id": 1526
+  },
+  "authorization": {
+    "allowed": false,
+    "identity_scope": "identity",
+    "denied_count": 0
+  },
+  "budget": {
+    "max_records": 50,
+    "max_bytes": 262144,
+    "max_ms": 250,
+    "max_tokens": 3000
+  },
+  "matched_count": 0,
+  "returned_count": 0,
+  "truncated": false,
+  "records": [],
+  "rollups": [],
+  "references": [],
+  "relations": [],
+  "evidence_refs": [],
+  "kg_candidates": [],
+  "degraded": true,
+  "incomplete": true,
+  "reason_bucket": "context_bank_disabled"
+}

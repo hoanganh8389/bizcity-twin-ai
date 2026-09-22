@@ -233,6 +233,21 @@ class BizCity_TwinBrain_REST {
 	}
 
 	/**
+	 * PHASE-0.57A/T5 — apply the site default notebook only to /twin/ Brain
+	 * requests. The explicit focus/force list always wins and /gpt/ does not
+	 * call this helper.
+	 */
+	private function apply_default_notebook( array &$opts, int $user_id, string $surface ): void {
+		if ( $surface !== 'twin' || ! empty( $opts['force_notebooks'] ) || ! class_exists( 'BizCity_KG_Access' ) ) {
+			return;
+		}
+		$default_id = (int) get_option( BizCity_KG_Access::OPTION_DEFAULT_NOTEBOOK, 0 );
+		if ( $default_id > 0 && BizCity_KG_Access::can_read_notebook( $default_id, $user_id, $surface ) ) {
+			$opts['force_notebooks'] = array( $default_id );
+		}
+	}
+
+	/**
 	 * [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — Resolve session_id from
 	 * the request, validating ownership when supplied. Mints a fresh session
 	 * (with brain_session_created event) when missing or invalid. Returns
@@ -290,7 +305,9 @@ class BizCity_TwinBrain_REST {
 			'web_mode'         => $this->sanitize_web_mode( $req->get_param( 'web_mode' ) ),
 			'session_id'       => $session_id,
 			'notebook_upload_url' => esc_url_raw( $notebook_upload_url ),
+			'surface'          => 'twin',
 		];
+		$this->apply_default_notebook( $opts, get_current_user_id(), 'twin' );
 		if ( $focus_notebook_id > 0 ) {
 			$opts['force_notebooks'] = array( $focus_notebook_id );
 		}
@@ -389,7 +406,9 @@ class BizCity_TwinBrain_REST {
 			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — resolve / mint session.
 			'session_id'       => $this->resolve_session_id( $req, get_current_user_id() ),
 			'notebook_upload_url' => esc_url_raw( $notebook_upload_url ),
+			'surface'          => 'twin',
 		];
+		$this->apply_default_notebook( $opts, get_current_user_id(), 'twin' );
 		if ( $focus_notebook_id > 0 ) {
 			$opts['force_notebooks'] = array( $focus_notebook_id );
 		}
@@ -636,11 +655,22 @@ class BizCity_TwinBrain_REST {
 				$sse->emit( 'memory_recall', (array) $start['memory_recall'] );
 			}
 
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — forward real start-stage timings so the timeline can attribute pre-MPR cost.
+			$stage_timings = (array) ( $start['stage_timings'] ?? array() );
+			if ( ! empty( $stage_timings ) ) {
+				$sse->emit( 'stage_timings', array(
+					'trace_id' => $trace_id,
+					'timings'  => $stage_timings,
+				) );
+			}
+
 			$sse->emit( 'candidates_selected', [
 				'trace_id'        => $trace_id,
 				'candidates'      => (array) ( $start['candidates']      ?? [] ),
 				'tool_candidates' => (array) ( $start['tool_candidates'] ?? [] ),
 				'keyword_tokens'  => (array) ( $start['keyword_tokens']  ?? [] ),
+				// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — carry the measured selector duration on the event that owns the step.
+				'duration_ms'     => (int) ( $stage_timings['candidate_selection'] ?? 0 ),
 			] );
 
 			$done = $runtime->complete_turn_stream(

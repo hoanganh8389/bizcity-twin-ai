@@ -1,0 +1,17 @@
+{
+  "contract": "member-customer-360",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "principal": { "blog_id": 1258, "actor_user_id": 42 },
+  "subject": { "user_id": 42, "display_name": "Nguyễn Hương", "team_role": "agent" },
+  "as_of": "2026-09-18T09:25:00+07:00",
+  "coverage": { "complete": true, "degraded_sources": [], "truncated": false },
+  "data": {
+    "contact": { "contact_id": 9001, "conversation_id": 88, "display_name": "Chị Lan" },
+    "journey": { "stage": "consulting", "paid_order_count": 0, "last_touch_at": null, "previously_cared": true, "previous_owner": { "user_id": 57, "display_name": "Trần Minh" }, "milestones": [] },
+    "ownership": { "current": { "user_id": 42 } },
+    "staff_touches": [ { "user_id": 57, "display_name": "Trần Minh", "replies": 4 } ],
+    "tasks": [],
+    "orders": []
+  }
+}

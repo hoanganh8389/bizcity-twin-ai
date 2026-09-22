@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "id": "fixture.parity.invalid",
+  "name": "Manifest capability parity invalid fixture",
+  "version": "1.0.0",
+  "capabilities": {
+    "tools": [
+      {
+        "id": "fixture.parity.missing_symbol",
+        "label": "Fixture parity missing symbol",
+        "class": "Fixture_Parity_Missing_Class",
+        "primary": true
+      }
+    ]
+  }
+}

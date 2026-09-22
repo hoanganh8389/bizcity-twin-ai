@@ -1796,7 +1796,35 @@ class BizCity_LLM_Client {
                 : 'Kiểm tra kết nối và thử lại.';
             $base['error_help'] = 'llm_generic_error';
 
-            error_log( "[bizcity-llm] chat_gateway error: HTTP {$code} model={$model} purpose={$purpose} error={$error_msg}" );
+            // [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — leave a route footlog.
+            // A WordPress `rest_no_route` 404 previously surfaced only as a generic
+            // gateway error, so a wrong endpoint could not be told apart from a
+            // provider outage. Log the method, path and reason bucket only — never
+            // the Bearer key, query string or request body.
+            $route_path = (string) wp_parse_url( $endpoint, PHP_URL_PATH );
+            $reason_bucket = 'gateway_http_error';
+            if ( $code === 404 ) {
+                $reason_bucket = 'gateway_route_not_found';
+            } elseif ( $code === 401 || $code === 403 ) {
+                $reason_bucket = 'gateway_auth_denied';
+            } elseif ( $code === 429 ) {
+                $reason_bucket = 'gateway_rate_limited';
+            } elseif ( $code >= 500 ) {
+                $reason_bucket = 'gateway_upstream_error';
+            }
+            $base['reason_bucket'] = $reason_bucket;
+            $base['route_path']    = $route_path;
+            $base['http_code']     = (int) $code;
+
+            error_log( sprintf(
+                '[bizcity-llm] chat_gateway error: HTTP %d method=POST path=%s reason=%s model=%s purpose=%s error=%s',
+                (int) $code,
+                $route_path,
+                $reason_bucket,
+                $model,
+                $purpose,
+                $error_msg
+            ) );
         }
 
         return $base;

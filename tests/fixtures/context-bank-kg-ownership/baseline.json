@@ -1,0 +1,210 @@
+{
+  "schema": "bizcity-context-bank-kg-ownership-baseline-v1",
+  "generated_at": "2026-09-16T16:33:18.138Z",
+  "owner": "WP6 — Context Bank and KG Evidence Closure",
+  "contract": "PHASE-0-RULE-CONTEXT-BANK + PHASE-0-RULE-KG-HUB-CONTRACT",
+  "note": "Reviewed legacy debt captured in report mode before --strict was enabled. All findings are R-KG.promotion_outside_owner: KG CONTENT tables (passages/sources/entities/relations/notebooks) written from outside core/knowledge/kg-hub/, so the row carries no KG provenance and its citation cannot be resolved back to a ledger pointer. R-CB.ledger_payload_column and R-CB.ledger_write_outside_owner are CLEAN in production and are deliberately NOT baselined, so any regression fails on the introducing commit. Namespace-adjacent bizcity_kg_learning_* operational tables are out of scope by design. The 31st finding (class-personal-kg-service.php:480) was added by the interprocedural parameter-passthrough pass closing the WP6 stated false negative: insert_passage( $tbl_passages, array $args ) writes $wpdb->insert( $tbl_passages, ... ) using its own parameter, invisible to per-function variable tracking until a caller (ingest(), line 189) was proven to pass a KG-tagged argument into that position. Same code, same debt — now visible.",
+  "source_counts": {
+    "files_scanned": 1892,
+    "functions_parsed": 2957,
+    "table_accessors_resolved": 128,
+    "ledger_ddl_tables_checked": 2,
+    "ledger_ddl_columns_checked": 61,
+    "context_bank_writers": 2,
+    "context_bank_owner_writers": 2,
+    "kg_writing_files": 29,
+    "kg_owner_writers": 17,
+    "kg_exempt_writers": 4,
+    "kg_bypass_writers": 8,
+    "kg_passthrough_resolved": 1,
+    "ledger_passthrough_resolved": 0
+  },
+  "known_findings": [
+    {
+      "fingerprint": "kg_bypass_write|core/knowledge/includes/class-admin-menu.php|5488",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "core/knowledge/includes/class-admin-menu.php",
+      "line": 5488
+    },
+    {
+      "fingerprint": "kg_bypass_write|core/knowledge/includes/class-admin-menu.php|5509",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "core/knowledge/includes/class-admin-menu.php",
+      "line": 5509
+    },
+    {
+      "fingerprint": "kg_bypass_write|core/knowledge/includes/class-character-quick-edit-rest.php|299",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "core/knowledge/includes/class-character-quick-edit-rest.php",
+      "line": 299
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-rest-controller.php|1810",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-rest-controller.php",
+      "line": 1810
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-rest-controller.php|1812",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-rest-controller.php",
+      "line": 1812
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-rest-controller.php|1815",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-rest-controller.php",
+      "line": 1815
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-rest-controller.php|1855",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-rest-controller.php",
+      "line": 1855
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-database.php|306",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-database.php",
+      "line": 306
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-database.php|343",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-database.php",
+      "line": 343
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-database.php|426",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-database.php",
+      "line": 426
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-database.php|459",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-database.php",
+      "line": 459
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-database.php|462",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-database.php",
+      "line": 462
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|564",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 564
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|567",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 567
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|579",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 579
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|662",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 662
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|665",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 665
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|671",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 671
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|1680",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 1680
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|1712",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 1712
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|1729",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 1729
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/class-twinchat-sources-service.php|1787",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/class-twinchat-sources-service.php",
+      "line": 1787
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/learning/class-twinchat-learning-pipeline.php|579",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/learning/class-twinchat-learning-pipeline.php",
+      "line": 579
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/learning/class-twinchat-learning-pipeline.php|620",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/learning/class-twinchat-learning-pipeline.php",
+      "line": 620
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/learning/class-twinchat-learning-pipeline.php|750",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/learning/class-twinchat-learning-pipeline.php",
+      "line": 750
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/learning/class-twinchat-rest-learning.php|3045",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/learning/class-twinchat-rest-learning.php",
+      "line": 3045
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/learning/class-twinchat-rest-learning.php|3077",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/learning/class-twinchat-rest-learning.php",
+      "line": 3077
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/learning/class-twinchat-rest-learning.php|3086",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/learning/class-twinchat-rest-learning.php",
+      "line": 3086
+    },
+    {
+      "fingerprint": "kg_bypass_write|modules/twinchat/includes/learning/class-twinchat-rest-learning.php|3093",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "modules/twinchat/includes/learning/class-twinchat-rest-learning.php",
+      "line": 3093
+    },
+    {
+      "fingerprint": "kg_bypass_write|plugins/bizcity-profile/includes/class-personal-kg-service.php|315",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "plugins/bizcity-profile/includes/class-personal-kg-service.php",
+      "line": 315
+    },
+    {
+      "fingerprint": "kg_bypass_write|plugins/bizcity-profile/includes/class-personal-kg-service.php|480",
+      "rule": "R-KG.promotion_outside_owner",
+      "file": "plugins/bizcity-profile/includes/class-personal-kg-service.php",
+      "line": 480
+    }
+  ]
+}

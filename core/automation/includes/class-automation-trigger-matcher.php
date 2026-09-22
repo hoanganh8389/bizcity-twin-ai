@@ -2019,6 +2019,18 @@ final class BizCity_Automation_Trigger_Matcher {
 		do_action( 'bizcity_automation_run_enqueued', $run_id, (int) $wf['id'], $payload );
 
 		if ( $run_sync && class_exists( 'BizCity_Automation_Runner' ) ) {
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — R-CLI-ASYNC-ISOLATION
+			// requires the worker to be blocked in EVERY diagnostics path, not only at
+			// the runner entry. `execute()` already returns `diagnostics_async_isolated`
+			// in that context, but the call was still made, so a diagnostics probe could
+			// not distinguish "the guard fired where it was supposed to" from "the runner
+			// refused an unexpected call" - and a real regression that removed the guard
+			// inside `execute()` would have been invisible here. Skip the call entirely.
+			if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+				// The run row stays QUEUED on purpose: diagnostics must not mark a run
+				// completed by a worker it never executed.
+				return $run_id;
+			}
 			BizCity_Automation_Runner::instance()->execute( $run_id );
 		}
 		return $run_id;

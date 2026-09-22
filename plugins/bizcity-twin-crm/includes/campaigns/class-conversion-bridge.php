@@ -135,41 +135,34 @@ final class BizCity_CRM_Campaign_Conversion_Bridge {
 		$conv = BizCity_CRM_Repository::get_conversation( $conv_id );
 		if ( ! $conv ) { return array( 'ok' => false, 'detail' => 'conversation_not_found' ); }
 
-		$msg_id = BizCity_CRM_Repository::insert_message( array(
-			'conversation_id'    => $conv_id,
-			'inbox_id'           => (int) $conv['inbox_id'],
-			'content'            => $content,
-			'content_type'       => 'text',
-			'message_type'       => 'outgoing',
-			'sender_type'        => 'system',
-			'status'             => 'pending',
-			'responder_kind'     => 'auto',
-			'macro_id'           => $macro_id,
-			'parent_event_uuid'  => $event_meta['event_uuid'] ?? null,
-			'external_source_id' => 'campaign:welcome:' . $event_meta['campaign_code'] . ':' . wp_generate_uuid4(),
-		) );
-
-		// Dispatch via inbox adapter so the user actually receives the message.
-		$dispatched = false;
-		if ( $msg_id && class_exists( 'BizCity_CRM_Channel_Registry' ) ) {
-			$inbox = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
-			if ( $inbox ) {
-				$adapter = BizCity_CRM_Channel_Registry::adapter_for( (string) $inbox['channel_type'] );
-				if ( $adapter && method_exists( $adapter, 'send' ) ) {
-					try {
-						$result = $adapter->send( $conv, array( 'content' => $content, 'content_type' => 'text' ) );
-						$dispatched = (bool) ( $result['success'] ?? false );
-					} catch ( \Throwable $e ) {
-						$dispatched = false;
-					}
-				}
-			}
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7c — the welcome template goes through the canonical outbound owner so a replayed campaign event cannot double-send.
+		if ( ! class_exists( 'BizCity_CRM_Outbound_Dispatcher' ) ) {
+			return array( 'ok' => false, 'detail' => 'outbound_dispatcher_unavailable' );
 		}
+		$campaign_code = (string) ( $event_meta['campaign_code'] ?? '' );
+		$correlation   = (string) ( $event_meta['event_uuid'] ?? '' );
+		$envelope = BizCity_CRM_Outbound_Dispatcher::dispatch( array(
+			'conversation_id'      => $conv_id,
+			'content'              => $content,
+			'content_type'         => 'text',
+			// One welcome per (conversation, campaign, macro) even if the event replays.
+			'idempotency_key'      => 'welcome_' . md5( $conv_id . '|' . $campaign_code . '|' . $macro_id . '|' . $correlation ),
+			'request_hash'         => md5( 'campaign_welcome|' . $conv_id . '|' . $macro_id . '|' . $content ),
+			'actor'                => 'system',
+			'system_source'        => 'campaign',
+			'on_behalf_of_user_id' => (int) ( $event_meta['owner_user_id'] ?? 0 ),
+			'parent_event_uuid'    => $event_meta['event_uuid'] ?? null,
+			'macro_id'             => $macro_id,
+		) );
+		$outcome = (string) ( $envelope['outcome'] ?? 'failed' );
 
 		return array(
-			'ok'         => (bool) $msg_id,
-			'message_id' => (int) $msg_id,
-			'dispatched' => $dispatched,
+			'ok'           => 'failed' !== $outcome,
+			'message_id'   => (int) ( $envelope['message_id'] ?? 0 ),
+			'outcome'      => $outcome,
+			'replayed'     => ! empty( $envelope['replayed'] ),
+			'owner_source' => (string) ( $envelope['owner_source'] ?? '' ),
+			'detail'       => 'failed' === $outcome ? (string) ( $envelope['code'] ?? 'send_failed' ) : '',
 		);
 	}
 }

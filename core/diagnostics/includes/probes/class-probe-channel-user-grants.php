@@ -18,8 +18,11 @@ if ( ! interface_exists( 'BizCity_Diagnostics_Probe' ) || class_exists( 'BizCity
 final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Probe {
 
 	private $meta_key = '';
+	private $second_meta_key = '';
 	private $fixture_users = array();
 	private $primary_user_id = 0;
+	/** @var string[] extra account meta keys created by the PHASE-0.53 N2 checks below, cleaned up alongside the rest. */
+	private $extra_meta_keys = array();
 
 	public function id(): string {
 		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A-DDV — expose the exact channel grant ownership probe.
@@ -70,6 +73,28 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 		if ( ! $cache_invalidation_ok ) {
 			return array( 'status' => 'fail', 'summary' => 'Grant cache invalidation owner is incomplete.', 'error' => 'grant_cache_invalidation_missing', 'fix_hint' => 'Route grant mutation invalidation through the Context Bank ledger cache owner.', 'steps' => array() );
 		}
+		// [2026-09-18 11:11 AM Johnny Chu - Chu Hoàng Anh] R-DDV — this matrix asserts the PHASE-0.50 R-LM-2 quota API. When the loaded grant owner predates it, report deployment drift instead of dying on "Call to undefined method" halfway through the disposable fixture.
+		$required_methods = array( 'personal_account_quota', 'personal_quota_status', 'bind_primary_from_current', 'bind_primary_for_owner', 'reassign_owner', 'authorize_account_key', 'account_key', 'meta_key' );
+		$missing_methods = array();
+		foreach ( $required_methods as $required_method ) {
+			if ( ! method_exists( 'BizCity_Channel_User_Grant', $required_method ) ) {
+				$missing_methods[] = $required_method;
+			}
+		}
+		$ctx->emit_step( array(
+			'label'  => 'Loader - grant owner exposes the PHASE-0.50 quota API',
+			'status' => empty( $missing_methods ) ? 'pass' : 'fail',
+			'detail' => empty( $missing_methods ) ? 'BizCity_Channel_User_Grant exposes every method this matrix calls.' : 'Loaded BizCity_Channel_User_Grant is missing: ' . implode( ', ', $missing_methods ) . '.',
+		) );
+		if ( ! empty( $missing_methods ) ) {
+			return array(
+				'status'   => 'fail',
+				'summary'  => 'Loaded channel grant owner is older than this probe.',
+				'error'    => 'grant_owner_outdated',
+				'fix_hint' => 'Deploy core/channel-gateway/includes/class-channel-user-grant.php (PHASE-0.50 R-LM-2 personal_account_quota) together with this probe, then rerun: php bin/diagnostics-run.php --filter=core.channel.channel_user_grants --format=json',
+				'steps'    => array(),
+			);
+		}
 		$this->primary_user_id = (int) get_current_user_id();
 		$suffix = strtolower( substr( md5( (string) microtime( true ) . '|' . wp_generate_uuid4() ), 0, 12 ) );
 		$account_id = 'grant_probe_' . $suffix;
@@ -114,8 +139,45 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 		$same_label_account_id = $account_id . '_same_label';
 		$same_label_key = BizCity_Channel_User_Grant::account_key( 'zalo_personal', $same_label_account_id );
 		// [2026-09-06 11:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.33A-DDV — prove display labels never collapse exact account HMAC identity and one user cannot bind a second Personal primary.
-		$second_primary = BizCity_Channel_User_Grant::bind_primary_from_current( 'zalo_personal', $same_label_account_id, array( 'connection_verified' => true, 'connection_owner_user_id' => $this->primary_user_id, 'source' => 'diagnostics' ) );
-		$second_primary_denied = empty( $second_primary['ok'] ) && 'personal_primary_limit_reached' === (string) ( $second_primary['reason'] ?? '' );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 R-LM-2 — one user owns N Personal numbers; only a plan quota may refuse.
+		$this->second_meta_key = BizCity_Channel_User_Grant::meta_key( 'zalo_personal', $same_label_account_id );
+		$quota_one = static function () { return 1; };
+		add_filter( 'bizcity_channel_personal_accounts_per_user', $quota_one );
+		$quota_refused = BizCity_Channel_User_Grant::bind_primary_from_current( 'zalo_personal', $same_label_account_id, array( 'connection_verified' => true, 'connection_owner_user_id' => $this->primary_user_id, 'source' => 'diagnostics' ) );
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 UID-02 — at quota, re-binding a number the user already owns must still work.
+		$rebind_at_quota = BizCity_Channel_User_Grant::bind_primary_from_current( 'zalo_personal', $account_id, array( 'connection_verified' => true, 'connection_owner_user_id' => $this->primary_user_id, 'source' => 'diagnostics' ) );
+		$quota_status_at_one = BizCity_Channel_User_Grant::personal_quota_status( $this->primary_user_id );
+		remove_filter( 'bizcity_channel_personal_accounts_per_user', $quota_one );
+		$rebind_ok = ! empty( $rebind_at_quota['ok'] ) && ! empty( $quota_status_at_one['reached'] ) && 1 === (int) $quota_status_at_one['quota'];
+
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N2 (E4-03/G3) — an admin binding a number
+		// for a NAMED delegate (not themselves), unauthorized calls refused, and the target's own quota
+		// (not the caller's) governs it.
+		$for_owner_account_id = $account_id . '_for_owner';
+		$this->extra_meta_keys[] = BizCity_Channel_User_Grant::meta_key( 'zalo_personal', $for_owner_account_id );
+		$bind_for_owner_unauthorized = $delegate_id > 0
+			? BizCity_Channel_User_Grant::bind_primary_for_owner( 'zalo_personal', $for_owner_account_id, $delegate_id, $this->primary_user_id, false, array( 'source' => 'diagnostics' ) )
+			: array( 'ok' => true ); // no fixture: don't fail the matrix on an unrelated user-creation problem.
+		$bind_for_owner_unauthorized_denied = $delegate_id <= 0 || ( empty( $bind_for_owner_unauthorized['ok'] ) && 'bind_not_authorized' === (string) ( $bind_for_owner_unauthorized['reason'] ?? '' ) );
+		$bind_for_owner = $delegate_id > 0
+			? BizCity_Channel_User_Grant::bind_primary_for_owner( 'zalo_personal', $for_owner_account_id, $delegate_id, $this->primary_user_id, true, array( 'source' => 'diagnostics' ) )
+			: array( 'ok' => false );
+		$for_owner_primary = $delegate_id > 0 ? BizCity_Channel_User_Grant::primary_for_account( 'zalo_personal', $for_owner_account_id ) : array();
+		$bind_for_owner_ok = $delegate_id > 0 && ! empty( $bind_for_owner['ok'] ) && (int) ( $for_owner_primary['user_id'] ?? 0 ) === $delegate_id;
+		// The delegate (not the admin caller) is now at quota=1: a second bind_primary_for_owner for the
+		// SAME delegate must refuse on THEIR count, proving the quota check reads the named owner.
+		$for_owner_account_id_2 = $account_id . '_for_owner2';
+		$this->extra_meta_keys[] = BizCity_Channel_User_Grant::meta_key( 'zalo_personal', $for_owner_account_id_2 );
+		add_filter( 'bizcity_channel_personal_accounts_per_user', $quota_one );
+		$bind_for_owner_quota = $delegate_id > 0
+			? BizCity_Channel_User_Grant::bind_primary_for_owner( 'zalo_personal', $for_owner_account_id_2, $delegate_id, $this->primary_user_id, true, array( 'source' => 'diagnostics' ) )
+			: array( 'ok' => false );
+		remove_filter( 'bizcity_channel_personal_accounts_per_user', $quota_one );
+		$bind_for_owner_quota_ok = $delegate_id > 0 && empty( $bind_for_owner_quota['ok'] ) && 'personal_account_quota_reached' === (string) ( $bind_for_owner_quota['reason'] ?? '' );
+		$second_primary = BizCity_Channel_User_Grant::personal_account_quota( $this->primary_user_id ) > 0
+			? array( 'ok' => true )
+			: BizCity_Channel_User_Grant::bind_primary_from_current( 'zalo_personal', $same_label_account_id, array( 'connection_verified' => true, 'connection_owner_user_id' => $this->primary_user_id, 'source' => 'diagnostics' ) );
+		$second_primary_denied = empty( $quota_refused['ok'] ) && 'personal_account_quota_reached' === (string) ( $quota_refused['reason'] ?? '' ) && ! empty( $second_primary['ok'] );
 		$same_label_isolated = $delegate_id > 0 && $same_label_key !== $account_key && empty( BizCity_Channel_User_Grant::authorize_account_key( 'zalo_personal', $same_label_key, $delegate_id, 'view_context' )['ok'] );
 		$channel_pointer = array(
 			'blog_id' => (int) get_current_blog_id(),
@@ -158,6 +220,30 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 		$revoke = $delegate_id > 0 ? BizCity_Channel_User_Grant::revoke( 'zalo_personal', $account_id, $delegate_id, $this->primary_user_id, array( 'source' => 'diagnostics' ) ) : array( 'ok' => false );
 		$revoke_ok = $delegate_id > 0 && ! empty( $revoke['ok'] ) && empty( BizCity_Channel_User_Grant::authorize( 'zalo_personal', $account_id, $delegate_id, 'view_context' )['ok'] );
 
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N2 (G4) — CRM's transfer-owner must move
+		// mapping AND grant together; `reassign_owner()` is the grant half. `$account_id` is still
+		// primary=admin (the earlier revoke only touched the delegate's access, not the primary).
+		$reassign_unauthorized = $outsider_id > 0
+			? BizCity_Channel_User_Grant::reassign_owner( 'zalo_personal', $account_id, $outsider_id, $this->primary_user_id, false, array( 'source' => 'diagnostics' ) )
+			: array( 'ok' => true );
+		$reassign_unauthorized_denied = $outsider_id <= 0 || ( empty( $reassign_unauthorized['ok'] ) && 'reassign_not_authorized' === (string) ( $reassign_unauthorized['reason'] ?? '' ) );
+		$reassign = $outsider_id > 0
+			? BizCity_Channel_User_Grant::reassign_owner( 'zalo_personal', $account_id, $outsider_id, $this->primary_user_id, true, array( 'source' => 'diagnostics' ) )
+			: array( 'ok' => false );
+		$old_owner_denied_after_reassign = $outsider_id > 0 && empty( BizCity_Channel_User_Grant::authorize( 'zalo_personal', $account_id, $this->primary_user_id, 'view_context' )['ok'] );
+		$new_owner_authorized_after_reassign = $outsider_id > 0 && ! empty( BizCity_Channel_User_Grant::authorize( 'zalo_personal', $account_id, $outsider_id, 'view_context' )['ok'] );
+		$reassign_ok = $outsider_id > 0 && ! empty( $reassign['ok'] )
+			&& (int) ( $reassign['from_user_id'] ?? 0 ) === $this->primary_user_id
+			&& $old_owner_denied_after_reassign && $new_owner_authorized_after_reassign;
+		$reassign_again = $outsider_id > 0
+			? BizCity_Channel_User_Grant::reassign_owner( 'zalo_personal', $account_id, $outsider_id, $this->primary_user_id, true, array( 'source' => 'diagnostics' ) )
+			: array( 'ok' => false );
+		$reassign_idempotent_ok = $outsider_id > 0 && ! empty( $reassign_again['ok'] ) && 'unchanged' === (string) ( $reassign_again['status'] ?? '' );
+		// Hand the account back to the admin so the later "Multiple primary state fails closed" fixture below starts from a known primary.
+		if ( $outsider_id > 0 ) {
+			BizCity_Channel_User_Grant::reassign_owner( 'zalo_personal', $account_id, $this->primary_user_id, $this->primary_user_id, true, array( 'source' => 'diagnostics' ) );
+		}
+
 		$conflict_ok = false;
 		if ( $outsider_id > 0 ) {
 			$conflict_grant = array(
@@ -185,7 +271,8 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 			array( 'label' => 'Pointer account key authorizes exact grant', 'ok' => $delegate_pointer_ok, 'detail' => $delegate_pointer_ok ? 'The HMAC account key resolves the delegated Context Bank permission.' : 'Pointer account-key authorization failed.' ),
 			array( 'label' => 'Wrong account key is denied', 'ok' => $wrong_account_denied, 'detail' => $wrong_account_denied ? 'A different HMAC account key is denied.' : 'A delegate crossed into another account scope.' ),
 			array( 'label' => 'Same-label account keeps a distinct HMAC scope', 'ok' => $same_label_isolated, 'detail' => $same_label_isolated ? 'A delegate for account A cannot authorize the distinct account B key even when the display label is the same.' : 'Same-label account identity was not isolated by its exact HMAC key.' ),
-			array( 'label' => 'One user cannot bind a second Personal primary', 'ok' => $second_primary_denied, 'detail' => $second_primary_denied ? 'The one-active-Personal-primary policy returned personal_primary_limit_reached.' : 'A second Zalo Personal primary was not refused with the canonical limit reason.' ),
+			array( 'label' => 'One user may own N Personal numbers, bounded only by plan quota', 'ok' => $second_primary_denied, 'detail' => $second_primary_denied ? 'Quota=1 refused with personal_account_quota_reached; with no quota a second Personal primary was bound.' : 'Multi-number ownership or quota refusal did not match R-LM-2.' ),
+			array( 'label' => 'Re-binding an owned number is allowed at quota', 'ok' => $rebind_ok, 'detail' => $rebind_ok ? 'With quota=1 reached, the same account re-bound successfully and the status reports reached=true.' : 'Re-bind at quota was refused or the quota status was wrong: rebind=' . sanitize_key( (string) ( $rebind_at_quota['reason'] ?? ( ! empty( $rebind_at_quota['ok'] ) ? 'ok' : 'unknown' ) ) ) ),
 			array( 'label' => 'Malformed grant payload is denied', 'ok' => $malformed_denied, 'detail' => $malformed_denied ? 'An active but malformed usermeta payload is denied.' : 'Malformed grant metadata was accepted.' ),
 			array( 'label' => 'Unlisted user is denied', 'ok' => $outsider_denied, 'detail' => $outsider_denied ? 'A user without the exact meta-key grant is denied.' : 'An unlisted user received channel access.' ),
 			array( 'label' => 'Delegate can follow only the exact channel pointer scope', 'ok' => $delegate_channel_matrix_ok, 'detail' => $delegate_channel_matrix_ok ? 'The delegated user is authorized for the exact channel account before any filestore follow.' : 'The exact channel pointer was not authorized through the Context Bank access boundary.' ),
@@ -210,9 +297,18 @@ final class BizCity_Probe_Channel_User_Grants implements BizCity_Diagnostics_Pro
 		if ( $this->meta_key !== '' ) {
 			if ( $this->primary_user_id > 0 ) {
 				delete_user_meta( $this->primary_user_id, $this->meta_key );
+				if ( $this->second_meta_key !== '' ) {
+					delete_user_meta( $this->primary_user_id, $this->second_meta_key );
+				}
 			}
 			foreach ( $this->fixture_users as $user_id ) {
 				delete_user_meta( (int) $user_id, $this->meta_key );
+				// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N2 — belt-and-suspenders for the
+				// bind_primary_for_owner() fixtures below; wp_delete_user() already strips all of a
+				// disposable fixture user's meta, so this only matters if that call is ever skipped.
+				foreach ( $this->extra_meta_keys as $extra_meta_key ) {
+					delete_user_meta( (int) $user_id, $extra_meta_key );
+				}
 			}
 		}
 		foreach ( $this->fixture_users as $user_id ) {

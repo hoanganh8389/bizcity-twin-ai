@@ -362,35 +362,43 @@ class BizCity_CRM_Action_Registry {
 		if ( $context['dry_run'] ?? false ) {
 			return self::ok( 'dry_run_would_send', array( 'content' => $content, 'content_type' => $ctype ) );
 		}
-		$msg_id = BizCity_CRM_Repository::insert_message( array(
-			'conversation_id'    => (int) $conv['id'],
-			'inbox_id'           => (int) $conv['inbox_id'],
-			'content'            => $content,
-			'content_type'       => $ctype,
-			'message_type'       => 'outgoing',
-			'sender_type'        => 'system',
-			'status'             => 'pending',
-			'responder_kind'     => 'auto',
-			'parent_event_uuid'  => $context['event_uuid'] ?? null,
-			'external_source_id' => 'rule:out:' . wp_generate_uuid4(),
-		) );
-		// Dispatch via adapter
-		$dispatched = false;
-		if ( $msg_id && class_exists( 'BizCity_CRM_Channel_Registry' ) ) {
-			$inbox = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
-			if ( $inbox ) {
-				$adapter = BizCity_CRM_Channel_Registry::adapter_for( (string) $inbox['channel_type'] );
-				if ( $adapter && method_exists( $adapter, 'send' ) ) {
-					try {
-						$result = $adapter->send( $conv, array( 'content' => $content, 'content_type' => $ctype ) );
-						$dispatched = (bool) ( $result['success'] ?? false );
-					} catch ( \Throwable $e ) {
-						$dispatched = false;
-					}
-				}
-			}
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7b — one outbound owner; the rule action no longer inserts and dispatches on its own.
+		if ( ! class_exists( 'BizCity_CRM_Outbound_Dispatcher' ) ) {
+			return self::fail( 'outbound_dispatcher_unavailable', array( 'conversation_id' => (int) $conv['id'] ) );
 		}
-		return self::ok( $dispatched ? 'sent' : 'queued_no_dispatch', array( 'message_id' => (int) $msg_id, 'dispatched' => $dispatched ) );
+		$correlation = (string) ( $context['event_uuid'] ?? $context['run_id'] ?? '' );
+		$envelope = BizCity_CRM_Outbound_Dispatcher::dispatch( array(
+			'conversation_id'      => (int) $conv['id'],
+			'content'              => $content,
+			'content_type'         => $ctype,
+			// A retried rule run must not post the same reply twice.
+			'idempotency_key'      => 'ruleout_' . md5( (int) $conv['id'] . '|' . $correlation . '|' . $content ),
+			'request_hash'         => md5( 'rule_out|' . (int) $conv['id'] . '|' . $ctype . '|' . $content ),
+			'actor'                => 'system',
+			'system_source'        => 'automation',
+			'on_behalf_of_user_id' => (int) ( $context['owner_user_id'] ?? $context['user_id'] ?? 0 ),
+			'parent_event_uuid'    => $context['event_uuid'] ?? null,
+			'trace_id'             => (string) ( $context['trace_id'] ?? '' ),
+		) );
+		$outcome = (string) ( $envelope['outcome'] ?? 'failed' );
+		if ( 'failed' === $outcome ) {
+			return self::fail( 'send_message_not_dispatched', array(
+				'conversation_id' => (int) $conv['id'],
+				'code'            => (string) ( $envelope['code'] ?? '' ),
+				'reason_bucket'   => (string) ( $envelope['reason_bucket'] ?? '' ),
+				'retryable'       => ! empty( $envelope['retryable'] ),
+			) );
+		}
+		// Provider acceptance is `queued`; only a delivery callback may say sent.
+		return self::ok(
+			! empty( $envelope['replayed'] ) ? 'idempotency_replayed' : $outcome,
+			array(
+				'message_id'   => (int) ( $envelope['message_id'] ?? 0 ),
+				'outcome'      => $outcome,
+				'replayed'     => ! empty( $envelope['replayed'] ),
+				'owner_source' => (string) ( $envelope['owner_source'] ?? '' ),
+			)
+		);
 	}
 
 	public static function do_add_private_note( array $params, array $context ): array {

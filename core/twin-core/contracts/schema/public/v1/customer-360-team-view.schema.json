@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/customer-360-team-view.schema.json",
+  "title": "BizCity Customer 360 Team View",
+  "description": "PHASE-0.50 W2: leader view of one customer (B2 only). Compose-on-read; conversations and touches are limited to inboxes the actor may see. Counts and timestamps only — never message bodies. Channels expose only account_key + phone_masked (never a raw provider UID). 1.1.0: contact.phone/contact.email are optional B2-only fields for a leader who has the customer in scope (master roadmap §10 item 4); never in a URL, log or cache key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "surface", "principal", "subject", "as_of", "coverage", "data"],
+  "properties": {
+    "contract": { "const": "customer-360-team-view" },
+    "version": { "const": "1.1.0" },
+    "surface": { "const": "B2_ADMIN_CRM" },
+    "principal": { "$ref": "#/$defs/principal" },
+    "subject": { "$ref": "#/$defs/subject" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contact", "owner", "conversations", "touched_by", "automated_replies", "orders", "marketing", "open_tasks", "identity_conflicts", "can"],
+      "properties": {
+        "contact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contact_id", "display_name"],
+          "properties": {
+            "contact_id": { "type": "integer", "minimum": 1 },
+            "display_name": { "type": "string", "maxLength": 190 },
+            "phone_masked": { "type": ["string", "null"] },
+            "phone": { "type": "string", "maxLength": 32, "description": "1.1.0 — B2 only; full number for a leader with the customer in scope." },
+            "email": { "type": "string", "maxLength": 190, "description": "1.1.0 — B2 only." },
+            "created_at": { "type": ["string", "null"] }
+          }
+        },
+        "owner": { "type": ["object", "null"], "description": "Assignee of the most recent conversation in actor scope: { user_id, display_name, conversation_id, inbox_id }." },
+        "conversations": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["conversation_id", "inbox_id", "channel_type", "status", "last_activity_at"],
+            "properties": {
+              "conversation_id": { "type": "integer", "minimum": 1 },
+              "inbox_id": { "type": "integer", "minimum": 1 },
+              "inbox_name": { "type": "string", "maxLength": 190 },
+              "channel_type": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,31}$" },
+              "status": { "type": "string", "pattern": "^[a-z_]{2,20}$" },
+              "assignee": { "type": ["object", "null"] },
+              "last_activity_at": { "type": ["string", "null"] },
+              "created_at": { "type": ["string", "null"] },
+              "session_state": { "type": ["string", "null"] },
+              "phone_owner": { "type": ["object", "null"] },
+              "account_key": { "type": "string", "pattern": "^[a-f0-9]{16,64}$" },
+              "phone_masked": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "touched_by": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["user_id", "display_name", "replies", "first_at", "last_at"],
+            "properties": {
+              "user_id": { "type": ["integer", "null"], "description": "null = staff outside the actor's team, grouped as 'Nhân viên khác'." },
+              "display_name": { "type": "string", "maxLength": 120 },
+              "replies": { "type": "integer", "minimum": 1 },
+              "first_at": { "type": "string", "minLength": 10 },
+              "last_at": { "type": "string", "minLength": 10 },
+              "inbox_ids": { "type": "array", "items": { "type": "integer", "minimum": 1 } }
+            }
+          }
+        },
+        "automated_replies": { "type": "integer", "minimum": 0 },
+        "orders": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available", "items"],
+          "properties": {
+            "available": { "type": "boolean" },
+            "items": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["order_id", "status", "total", "currency", "paid", "attribution"],
+                "properties": {
+                  "order_id": { "type": "integer", "minimum": 1 },
+                  "number": { "type": "string", "maxLength": 40 },
+                  "status": { "type": "string", "pattern": "^[a-z0-9_-]{2,32}$" },
+                  "total": { "type": "number", "minimum": 0 },
+                  "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+                  "paid": { "type": "boolean" },
+                  "created_at": { "type": ["string", "null"] },
+                  "assignee": { "type": ["object", "null"] },
+                  "attribution": { "enum": ["assignee_at_create", "creator_fallback", "backfill_event", "backfill_current", null] },
+                  "conversation_id": { "type": ["integer", "null"] }
+                }
+              }
+            }
+          }
+        },
+        "marketing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["acquisition_source", "first_seen_at"],
+          "properties": {
+            "acquisition_source": { "type": ["string", "null"], "maxLength": 190 },
+            "first_seen_at": { "type": ["string", "null"] },
+            "labels": { "type": "array", "items": { "type": "string", "maxLength": 80 } }
+          }
+        },
+        "open_tasks": { "type": "integer", "minimum": 0 },
+        "identity_conflicts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["open"],
+          "properties": {
+            "open": { "type": "integer", "minimum": 0 },
+            "review_url": { "type": "string", "maxLength": 500 }
+          }
+        },
+        "can": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["view_owner_workspace", "assign_task"],
+          "properties": {
+            "view_owner_workspace": { "type": "boolean" },
+            "assign_task": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "denied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "reason"],
+        "properties": {
+          "scope": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "reason": { "enum": ["member_not_manageable", "contact_not_in_scope"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blog_id", "actor_user_id"],
+      "properties": {
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "actor_user_id": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "display_name", "team_role"],
+      "properties": {
+        "user_id": { "type": "integer", "minimum": 1 },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "team_role": { "enum": ["admin", "supervisor", "lead", "agent", "none"] }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "degraded_sources", "truncated"],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "degraded_sources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$" } },
+        "truncated": { "type": "boolean" }
+      }
+    }
+  }
+}

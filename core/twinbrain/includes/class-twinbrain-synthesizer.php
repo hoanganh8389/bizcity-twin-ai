@@ -75,7 +75,48 @@ class BizCity_TwinBrain_Synthesizer {
 
 		if ( empty( $result['success'] ) ) {
 			error_log( '[TwinBrain][synth] gateway error: ' . ( $result['error'] ?? 'unknown' ) );
-			return $this->text_fallback( $prompt, $answers, 'gateway_error:' . ( $result['error'] ?? '' ) );
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C3 — a raw error_log()
+			// line is not durable, queryable evidence: it never reaches
+			// `bizcity-twinbrain-logs/runtime/YYYY-MM-DD.jsonl`, so this correctness
+			// failure was invisible to the same log-based evidence every other
+			// exception path in this codebase relies on (memory_recall_exception,
+			// context_bank_phase_event_exception, etc.). A synthesis fallback still
+			// returns a user-visible answer (text_fallback() below), which is exactly
+			// why it must be logged loudly here — HTTP success on the outer turn must
+			// not hide that Layer 4.5's consensus/tensions step silently failed.
+			// Bounded fields only: reason_bucket/route_path/http_code/error are short
+			// stable tokens from class-llm-client.php, never the raw provider response
+			// body, prompt or credential.
+			if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+				BizCity_JSONL_File_Logger::write_contract(
+					'core.twinbrain.runtime_trace',
+					'error',
+					'synthesis_gateway_fallback',
+					'Synthesis fell back to text concatenation because the gateway chat call failed.',
+					array(
+						'trace_id'      => $trace_id,
+						'surface'       => 'twinbrain',
+						'error'         => (string) ( $result['error'] ?? 'unknown' ),
+						'reason_bucket' => (string) ( $result['reason_bucket'] ?? '' ),
+						'route_path'    => (string) ( $result['route_path'] ?? '' ),
+						'http_code'     => (int) ( $result['http_code'] ?? 0 ),
+					)
+				);
+			}
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — carry the gateway
+			// route/reason footlog into the synthesis payload so the MPR timeline can
+			// show why synthesis degraded instead of only `gateway_error`.
+			$fallback = $this->text_fallback( $prompt, $answers, 'gateway_error:' . ( $result['error'] ?? '' ) );
+			if ( ! empty( $result['reason_bucket'] ) ) {
+				$fallback['reason_bucket'] = (string) $result['reason_bucket'];
+			}
+			if ( ! empty( $result['route_path'] ) ) {
+				$fallback['route_path'] = (string) $result['route_path'];
+			}
+			if ( isset( $result['http_code'] ) ) {
+				$fallback['http_code'] = (int) $result['http_code'];
+			}
+			return $fallback;
 		}
 
 		$parsed = $this->parse_synthesis( (string) ( $result['message'] ?? '' ) );

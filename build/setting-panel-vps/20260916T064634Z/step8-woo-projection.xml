@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="1" failures="0" skipped="0" time="40.530">
+  <testsuite name="diagnostics" tests="1" failures="0" skipped="0" time="40.530">
+    <testcase classname="bizcity.diagnostics" name="core.membership.woo_projection" time="40.519">
+    </testcase>
+  </testsuite>
+</testsuites>

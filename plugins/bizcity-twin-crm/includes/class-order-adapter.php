@@ -277,6 +277,15 @@ class BizCity_CRM_Order_Adapter_Woo_Bank_QR implements BizCity_CRM_Order_Adapter
 			throw new \RuntimeException( 'order_items_required' );
 		}
 
+		// [PHASE-0.54 R-INBOX-PIPE-6b] snapshot the pipeline stage BEFORE this order exists, so we can tell
+		// afterwards whether creating it pushed the customer up (order ↔ stage is one loop, D54-2).
+		$pipeline_contact_id = (int) ( $contact['id'] ?? ( $contact['contact_id'] ?? 0 ) );
+		$pipeline_from_stage = '';
+		if ( $pipeline_contact_id > 0 && class_exists( 'BizCity_CRM_Customer_Pipeline' ) ) {
+			$pre_rows = BizCity_CRM_Customer_Pipeline::rows( array( $pipeline_contact_id ) );
+			$pipeline_from_stage = (string) ( $pre_rows[ $pipeline_contact_id ]['stage'] ?? '' );
+		}
+
 		$order = wc_create_order( array(
 			'status'      => 'pending',
 			'created_via' => 'bizcity-crm',
@@ -340,10 +349,44 @@ class BizCity_CRM_Order_Adapter_Woo_Bank_QR implements BizCity_CRM_Order_Adapter
 		$order->update_meta_data( '_bizcity_crm_adapter', $this->slug() );
 		$contact_id_for_meta = (int) ( $contact['id'] ?? ( $contact['contact_id'] ?? 0 ) );
 		if ( $contact_id_for_meta > 0 ) { $order->update_meta_data( '_bizcity_crm_contact_id', $contact_id_for_meta ); }
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F S3/F-UID-04b — stamp
+		// who this order counts toward, at the moment the order is created, so
+		// the team dashboard's "conversation → order / revenue" metric (D4) can
+		// attribute it without guessing later. The server re-reads the current
+		// assignee here — a browser-posted `assignee_id`/`created_by` is never
+		// trusted (this adapter has no such payload field to begin with). The
+		// current actor is always the fallback: if nobody is assigned yet, the
+		// person closing the sale right now is the one who earns the credit.
+		$actor_id = get_current_user_id();
+		$assignee_id = 0;
+		$attribution = 'creator_fallback';
+		if ( $conv_id > 0 && class_exists( 'BizCity_CRM_Repository' ) ) {
+			$conversation_for_attribution = BizCity_CRM_Repository::get_conversation( $conv_id );
+			$assignee_id = (int) ( $conversation_for_attribution['assignee_id'] ?? 0 );
+		}
+		if ( $assignee_id <= 0 ) {
+			$assignee_id = (int) $actor_id;
+		} else {
+			$attribution = 'assignee_at_create';
+		}
+		if ( $assignee_id > 0 ) { $order->update_meta_data( '_bizcity_crm_assignee_id', $assignee_id ); }
+		if ( $actor_id > 0 ) { $order->update_meta_data( '_bizcity_crm_created_by', (int) $actor_id ); }
+		$order->update_meta_data( '_bizcity_crm_attribution', $attribution );
 		if ( $opt ) { $order->update_meta_data( '_bizcity_crm_payment_option', $opt['value'] ); }
 
 		$order->calculate_totals();
 		$order->save();
+
+		// [PHASE-0.54 R-INBOX-PIPE-6b] the new order just entered the facts this contact resolves from — if that
+		// pushed the stage up (never down, R-PIPE-2), leave a 🧭 line in the thread + audit entry (R-PIPE-3).
+		if ( $pipeline_contact_id > 0 && class_exists( 'BizCity_CRM_Customer_Pipeline' ) && class_exists( 'BizCity_CRM_Pipeline_Stage_Service' ) ) {
+			$post_rows = BizCity_CRM_Customer_Pipeline::rows( array( $pipeline_contact_id ) );
+			$to_stage = (string) ( $post_rows[ $pipeline_contact_id ]['stage'] ?? '' );
+			if ( '' !== $to_stage && '' !== $pipeline_from_stage && $to_stage !== $pipeline_from_stage
+				&& BizCity_CRM_Customer_Pipeline::rank( $to_stage ) > BizCity_CRM_Customer_Pipeline::rank( $pipeline_from_stage ) ) {
+				BizCity_CRM_Pipeline_Stage_Service::note_order_created( $pipeline_contact_id, $pipeline_from_stage, $to_stage, $conv_id, (int) $order->get_id(), (int) $actor_id );
+			}
+		}
 
 		return array(
 			'order_id'     => (int) $order->get_id(),

@@ -34,13 +34,14 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/channels/(?P<code>[a-z0-9_]+)', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_channel_detail' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E1 — channel setup (Add Inbox wizard) stays admin-only.
+			'permission_callback' => array( __CLASS__, 'can_read' ),
 		) );
 
 		register_rest_route( $ns, '/channels/(?P<code>[a-z0-9_]+)/verify', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_channel_verify' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'permission_callback' => array( __CLASS__, 'can_read' ),
 			'args'                => array(
 				'config' => array( 'type' => 'object', 'required' => true ),
 			),
@@ -56,7 +57,8 @@ class BizCity_CRM_REST_Controller {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'post_inbox_create' ),
-				'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E1 — creating an Inbox is admin-only; employee scope never grants it.
+				'permission_callback' => array( __CLASS__, 'can_read' ),
 				'args'                => array(
 					'channel_type' => array( 'type' => 'string', 'required' => true ),
 					'config'       => array( 'type' => 'object', 'required' => true ),
@@ -81,7 +83,7 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/health', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_inbox_health' ),
-			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_id_scope' ),
 		) );
 		// [2026-08-22 Johnny Chu] PHASE-0.39C — read-only Zalo Personal flow diagnostic for CRM operators.
 		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/zalo-diagnostic', array(
@@ -106,28 +108,35 @@ class BizCity_CRM_REST_Controller {
 				'q'           => array( 'type' => 'string' ),
 				'limit'       => array( 'type' => 'integer', 'default' => 50 ),
 				'before_id'   => array( 'type' => 'integer' ),
+				// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.51 A3 — browser cache fingerprint; mirrors modules/twinweb's `/crm/inbox`.
+				'sync_token'  => array( 'type' => 'string' ),
+				// [PHASE-0.54 R-INBOX-PIPE-8] filter by resolved pipeline stage; 'stuck' is a pseudo-stage.
+				'stage'       => array( 'type' => 'string' ),
 			),
 		) );
 		register_rest_route( $ns, '/conversations/export', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'export_conversations' ),
-			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope_response' ),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_conversation' ),
-			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope_response' ),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/messages', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
-				'callback'            => array( __CLASS__, 'get_messages' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope_response' ),
 				'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 				'args'                => array(
 					'after_id' => array( 'type' => 'integer', 'default' => 0 ),
 					'limit'    => array( 'type' => 'integer', 'default' => 100 ),
+					// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.51 A3 — older-message paging + delivery-state recheck, same shape as modules/twinweb's `/crm/inbox`.
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope_response' ),
+					'recheck_ids' => array( 'type' => 'string', 'default' => '' ),
 				),
 			),
 			array(
@@ -135,6 +144,20 @@ class BizCity_CRM_REST_Controller {
 				'callback'            => array( __CLASS__, 'post_message' ),
 				'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			),
+		) );
+
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.48-§2.11.5 — upload a clipboard-pasted image into WP Media so Composer can attach its public URL exactly like the existing wp.media picker (post_message() already accepts a public Media Library URL, unchanged).
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/composer-image', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_composer_image' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
+		) );
+
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48-H2.1 — re-dispatch one failed outbound row in place; never inserts a second message.
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/messages/(?P<message_id>\d+)/retry', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_message_retry' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/group-members', array(
@@ -147,6 +170,36 @@ class BizCity_CRM_REST_Controller {
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_note' ),
 			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
+		) );
+
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48B-8.11 — contact-scoped care tools; contact_id is resolved from the scoped conversation, never posted.
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/contact-care', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'get_contact_care' ),
+				'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'post_contact_care' ),
+				'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
+				'args'                => array(
+					'kind'              => array( 'type' => 'string', 'required' => true, 'enum' => array( 'note', 'task', 'appointment' ) ),
+					'content'           => array( 'type' => 'string', 'required' => true ),
+					'due_at'            => array( 'type' => 'integer' ),
+					'reminder_min'      => array( 'type' => 'integer', 'minimum' => 0, 'maximum' => 10080 ),
+					'client_request_id' => array( 'type' => 'string' ),
+				),
+			),
+		) );
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/contact-facts', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_contact_fact' ),
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
+			'args'                => array(
+				'field' => array( 'type' => 'string', 'required' => true, 'enum' => array( 'phone', 'email', 'name' ) ),
+				'value' => array( 'type' => 'string', 'required' => true ),
+			),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/resolve', array(
@@ -259,7 +312,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/ai-reply', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_ai_reply' ),
-			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
+			// [2026-09-20 Johnny Chu] PHASE-0.60 C60-A09 — dedicated `crm.ai.use` door (§8-Q5) instead of sharing `can_write_inbox_scope` with unrelated Inbox mutations.
+			'permission_callback' => array( __CLASS__, 'can_ai_use_inbox_scope' ),
 			'args'                => array(
 				'prompt'       => array( 'type' => 'string' ),
 				'dispatch'     => array( 'type' => 'boolean', 'default' => true ),
@@ -272,7 +326,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/convert-to-lead', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_convert_conv_to_lead' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-T5 — conversation side effect requires handle capability + conversation scope.
+			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 			'args'                => array(
 				'first_name' => array( 'type' => 'string' ),
 				'last_name'  => array( 'type' => 'string' ),
@@ -287,7 +342,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/contacts/(?P<id>\d+)', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_contact' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			// [2026-09-21 11:05 PM OpenAI GPT-5.6 Luna] HOTFIX — CRM staff may read an in-scope contact; the admin-only gate caused REST 403s in the Inbox.
+			'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
 			'args'                => array(
 				'context_inbox_id' => array( 'type' => 'integer', 'default' => 0 ),
 			),
@@ -297,7 +353,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/last-skip', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_last_skip' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			// [2026-09-21 11:05 PM OpenAI GPT-5.6 Luna] HOTFIX — this is conversation-scoped Inbox data, not an admin-only settings read.
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 		) );
 
 		// [2026-08-03 Johnny Chu] R-TGL-CS — expose the CRM Inbox Goal/Case
@@ -305,7 +362,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/goal-loop', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_goal_loop_trace' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			// [2026-09-21 11:05 PM OpenAI GPT-5.6 Luna] HOTFIX — keep the retired trace endpoint scoped to the Inbox while the Goal Loop UI is disabled.
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 		) );
 
 		register_rest_route( $ns, '/sandbox/test-persona', array(
@@ -573,7 +631,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/macros/(?P<id>\d+)/preview', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_macro_preview' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-T4 — preview renders conversation context; scope the posted conversation_id.
+			'permission_callback' => array( __CLASS__, 'can_preview_macro' ),
 			'args'                => array(
 				'conversation_id' => array( 'type' => 'integer', 'required' => false ),
 			),
@@ -581,7 +640,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/macros/(?P<id>\d+)/run', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_macro_run' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-T5 — macro run sends/mutates; require handle capability + conversation scope.
+			'permission_callback' => array( __CLASS__, 'can_run_macro' ),
 			'args'                => array(
 				'conversation_id' => array( 'type' => 'integer', 'required' => true ),
 			),
@@ -666,7 +726,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/sla', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_conversation_sla' ),
-			'permission_callback' => array( __CLASS__, 'can_write' ),
+			// [2026-09-21 11:05 PM OpenAI GPT-5.6 Luna] HOTFIX — SLA is read-only conversation data; use Inbox scope instead of composer write permission.
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 		) );
 
 		/* ── PHASE 0.35 M5 — Reports + CSAT ── */
@@ -921,6 +982,12 @@ class BizCity_CRM_REST_Controller {
 		) );
 
 		// PHASE 0.35 M-CRM.M8.W6.2 — Woo orders for a CRM contact (uses Order Adapter Registry).
+		// PHASE-0.50 W2 — Customer 360 leader view (compose-on-read; contact must be in the actor's scope).
+		register_rest_route( $ns, '/crm-contacts/(?P<id>\d+)/team-360', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_crm_contact_team_360' ),
+			'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
+		) );
 		register_rest_route( $ns, '/crm-contacts/(?P<id>\d+)/woo-orders', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
@@ -1102,7 +1169,7 @@ class BizCity_CRM_REST_Controller {
 				'permission_callback' => array( __CLASS__, 'can_write' ),
 				'args'                => array(
 					'status'     => array( 'type' => 'string'  ),
-					'owner_id'   => array( 'type' => 'integer' ),
+					'owner_id'   => array( 'type' => array( 'integer', 'string' ), 'pattern' => '^(me|[0-9]+)$' ), // [2026-09-18] PHASE-0.52 B52-01 — "me" is resolved server-side.
 					'contact_id' => array( 'type' => 'integer' ),
 					'q'          => array( 'type' => 'string'  ),
 					'limit'      => array( 'type' => 'integer', 'default' => 50 ),
@@ -1149,7 +1216,7 @@ class BizCity_CRM_REST_Controller {
 				'args'                => array(
 					'stage'      => array( 'type' => 'string'  ),
 					'status'     => array( 'type' => 'string'  ),
-					'owner_id'   => array( 'type' => 'integer' ),
+					'owner_id'   => array( 'type' => array( 'integer', 'string' ), 'pattern' => '^(me|[0-9]+)$' ), // [2026-09-18] PHASE-0.52 B52-01 — "me" is resolved server-side.
 					'account_id' => array( 'type' => 'integer' ),
 					'contact_id' => array( 'type' => 'integer' ),
 					'q'          => array( 'type' => 'string'  ),
@@ -1202,7 +1269,7 @@ class BizCity_CRM_REST_Controller {
 				'args'                => array(
 					'status'     => array( 'type' => 'string'  ),
 					'account_id' => array( 'type' => 'integer' ),
-					'owner_id'   => array( 'type' => 'integer' ),
+					'owner_id'   => array( 'type' => array( 'integer', 'string' ), 'pattern' => '^(me|[0-9]+)$' ), // [2026-09-18] PHASE-0.52 B52-01 — "me" is resolved server-side.
 					'q'          => array( 'type' => 'string'  ),
 					'limit'      => array( 'type' => 'integer', 'default' => 100 ),
 					'offset'     => array( 'type' => 'integer', 'default' => 0 ),
@@ -1875,7 +1942,8 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/admin-chat-grants', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'admin_chat_grants_list' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			// [2026-09-21 11:10 PM OpenAI GPT-5.6 Luna] HOTFIX — grant administration must accept Super Admin/network CRM admins, not only local manage_options.
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
 			'args'                => array(
 				'status' => array( 'type' => 'string', 'required' => false ),
 				'limit'  => array( 'type' => 'integer', 'required' => false ),
@@ -1885,22 +1953,22 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/admin-chat-grants/version', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'admin_chat_grants_version' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
 		) );
 		register_rest_route( $ns, '/admin-chat-grants/(?P<id>\d+)/approve', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'admin_chat_grants_approve' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
 		) );
 		register_rest_route( $ns, '/admin-chat-grants/(?P<id>\d+)/revoke', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'admin_chat_grants_revoke' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
 		) );
 		register_rest_route( $ns, '/admin-chat-grants/(?P<id>\d+)', array(
 			'methods'             => WP_REST_Server::EDITABLE,
 			'callback'            => array( __CLASS__, 'admin_chat_grants_update' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
 		) );
 
 		// M-CRM.M1.W3 — Audit log (v1.17.0)
@@ -2106,6 +2174,20 @@ class BizCity_CRM_REST_Controller {
 			'callback'            => array( __CLASS__, 'post_cf7_submissions_bulk_assign' ),
 			'permission_callback' => array( __CLASS__, 'can_write' ),
 		) );
+		// PHASE-0.48F U6-04 — contact activities. The FE (`ActivityFeed`, `OpenProfileTimeline`) has called
+		// these since PHASE-0.46 but no route was registered, so the list and "Activity mới" returned 404.
+		register_rest_route( $ns, '/crm-contacts/(?P<id>\d+)/activities', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'get_contact_activities' ),
+				'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'post_contact_activity' ),
+				'permission_callback' => array( __CLASS__, 'can_write_contact_scope' ),
+			),
+		) );
 		register_rest_route( $ns, '/cf7-submissions/(?P<id>\d+)/activities', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
@@ -2161,6 +2243,12 @@ class BizCity_CRM_REST_Controller {
 				'user_id' => array( 'type' => 'integer', 'required' => true, 'minimum' => 1 ),
 				'limit' => array( 'type' => 'integer', 'default' => 100, 'minimum' => 1, 'maximum' => 200 ),
 			),
+		) );
+		// [2026-09-16 01:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D-USER-RAIL — B2 management tier groups the Inbox rail by WordPress user instead of by channel; C /gpt/ stays current-user-only.
+		register_rest_route( $ns, '/crm-settings/inbox-user-groups', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_crm_inbox_user_groups' ),
+			'permission_callback' => array( __CLASS__, 'can_view_inbox_user_groups' ),
 		) );
 
 		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — admin-only identity conflict queue review API.
@@ -2243,7 +2331,26 @@ class BizCity_CRM_REST_Controller {
 	/* ------- permissions ------- */
 
 	public static function can_read(): bool {
-		return current_user_can( 'manage_options' );
+		// [2026-09-21 11:00 PM OpenAI GPT-5.6 Luna] HOTFIX — CRM read routes must work for authorized staff, not only site administrators.
+		return current_user_can( 'manage_options' )
+			|| ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin() )
+			|| self::can_handle_inbox();
+	}
+
+	public static function can_read_inbox_scope_response( $request = null ) {
+		return self::can_read_inbox_scope( $request ) ? true : self::permission_denied_response( 'Bạn chưa được cấp quyền xem Inbox hoặc hội thoại này.' );
+	}
+
+	public static function can_manage_rules_response() {
+		return self::can_manage_rules() ? true : self::permission_denied_response( 'Bạn chưa được cấp quyền quản lý cấu hình CRM.' );
+	}
+
+	/** Return a structured permission response instead of WordPress' generic 403. */
+	public static function permission_denied_response( $message = 'Bạn không có quyền xem dữ liệu CRM.' ) {
+		$payload = class_exists( 'BizCity_Error_Payload' )
+			? BizCity_Error_Payload::make( 'permission_denied', $message, 'Đăng nhập bằng tài khoản CRM được cấp quyền hoặc liên hệ quản trị viên.', 'crm_capability_required' )
+			: array( 'success' => false, 'code' => 'permission_denied', 'message' => $message, 'hint' => 'Đăng nhập bằng tài khoản CRM được cấp quyền hoặc liên hệ quản trị viên.', 'help_code' => 'crm_capability_required' );
+		return new WP_Error( 'permission_denied', (string) $payload['message'], array( 'status' => 403, 'response' => $payload ) );
 	}
 
 	public static function can_read_contact_scope( $request = null ): bool {
@@ -2261,8 +2368,8 @@ class BizCity_CRM_REST_Controller {
 
 	public static function can_write_contact_scope( $request = null ): bool {
 		if ( current_user_can( 'manage_options' ) ) { return true; }
-		$cap = (string) apply_filters( 'bizcity_crm_write_cap', 'edit_posts' );
-		if ( ! current_user_can( $cap ) ) { return false; }
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E2 — contact mutations are Inbox side effects; edit_posts alone is not enough.
+		if ( ! self::can_handle_inbox() ) { return false; }
 		$contact_id = $request instanceof WP_REST_Request ? (int) $request->get_param( 'id' ) : 0;
 		return $contact_id > 0 && self::contact_is_in_scope( $contact_id, (int) get_current_user_id() );
 	}
@@ -2305,7 +2412,19 @@ class BizCity_CRM_REST_Controller {
 		$cap = class_exists( 'BizCity_CRM_Capabilities' )
 			? BizCity_CRM_Capabilities::CAP_MANAGE_RULES
 			: 'manage_options';
-		return current_user_can( $cap ) || current_user_can( 'manage_options' );
+		// [2026-09-21 06:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.60-C02 — network Super Admins must receive tenant-wide CRM roster scope even when the mapped blog does not grant local manage_options.
+		return ( function_exists( 'is_super_admin' ) && is_super_admin() )
+			|| current_user_can( $cap )
+			|| current_user_can( 'manage_options' )
+			|| current_user_can( 'manage_network' );
+	}
+
+	/** PHASE-0.48F T1 — rail "Theo người dùng": rule managers (tenant-wide, as before) or a team lead/supervisor (scoped in the callback). */
+	public static function can_view_inbox_user_groups(): bool {
+		if ( function_exists( 'is_super_admin' ) && is_super_admin() ) { return true; }
+		if ( self::can_manage_rules() ) { return true; }
+		return class_exists( 'BizCity_CRM_Staff_Policy' )
+			&& BizCity_CRM_Staff_Policy::rank( BizCity_CRM_Staff_Policy::role( get_current_user_id() ) ) >= 2;
 	}
 
 	public static function can_view_reports(): bool {
@@ -2365,23 +2484,75 @@ class BizCity_CRM_REST_Controller {
 		if ( current_user_can( 'manage_options' ) ) {
 			return true;
 		}
-		$cap = (string) apply_filters( 'bizcity_crm_write_cap', 'edit_posts' );
-		if ( ! current_user_can( $cap ) && ! current_user_can( 'bizcity_crm_handle_inbox' ) ) {
-			return $request instanceof WP_REST_Request
-				&& (int) $request->get_param( 'id' ) > 0
-				&& class_exists( 'BizCity_CRM_Inbox_Access' )
-				&& BizCity_CRM_Inbox_Access::can_view_conversation( (int) $request->get_param( 'id' ) );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E2 — capability gate before resource scope; a read-only viewer must not send/resolve/assign.
+		if ( ! self::can_handle_inbox() ) {
+			return false;
 		}
 		return self::can_read_inbox_scope( $request );
 	}
 
+	/**
+	 * PHASE-0.60 C60-A09 — `crm.ai.use` is its own action in the C2 catalog (§8-Q5: editor,
+	 * supervisor, admin and a Super Admin without a local blog role must all be able to use
+	 * Twin Brain inside CRM). This is the single door for the AI-reply route rather than that
+	 * route silently sharing `can_write_inbox_scope` with every other Inbox mutation; the floor
+	 * and scope check are behaviorally equivalent to before (both already resolve to
+	 * handle_inbox-or-admin + inbox scope after C60-A05/A06), the action name is now explicit
+	 * and future `crm.ai.use` policy changes apply here without hunting through unrelated routes.
+	 */
+	public static function can_ai_use_inbox_scope( $request = null ): bool {
+		if ( class_exists( 'BizCity_CRM_Authority' ) && ! BizCity_CRM_Authority::can( 'crm.ai.use' )['ok'] ) {
+			return false;
+		}
+		return self::can_read_inbox_scope( $request );
+	}
+
+	/**
+	 * Employee Inbox handle capability (send/resolve/assign/notes).
+	 */
+	private static function can_handle_inbox(): bool {
+		return class_exists( 'BizCity_CRM_Capabilities' ) && method_exists( 'BizCity_CRM_Capabilities', 'user_can_handle_inbox' )
+			? BizCity_CRM_Capabilities::user_can_handle_inbox()
+			: current_user_can( 'manage_options' );
+	}
+
+	/**
+	 * Read scope for routes whose `id` path param is an Inbox ID, not a conversation ID.
+	 */
+	public static function can_read_inbox_id_scope( $request = null ): bool {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E2 — /inboxes/{id}/* must not resolve `id` as a conversation.
+		$user_id = (int) get_current_user_id();
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) { return false; }
+		$inbox_id = $request instanceof WP_REST_Request ? (int) $request->get_param( 'id' ) : 0;
+		return $inbox_id > 0 && BizCity_CRM_Inbox_Access::can_view_inbox( $inbox_id, $user_id );
+	}
+
+	/**
+	 * Write scope for routes that carry the target conversation in a `conversation_id` param.
+	 *
+	 * Required when `$optional` is false; when true, an absent ID only needs the handle capability.
+	 */
+	private static function can_write_conversation_param( $request, bool $optional ): bool {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-T4/T5 — never trust a posted conversation_id without inbox scope.
+		if ( current_user_can( 'manage_options' ) ) { return true; }
+		if ( ! self::can_handle_inbox() ) { return false; }
+		$conversation_id = $request instanceof WP_REST_Request ? (int) $request->get_param( 'conversation_id' ) : 0;
+		if ( $conversation_id <= 0 ) { return $optional; }
+		return class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::can_view_conversation( $conversation_id );
+	}
+
+	public static function can_run_macro( $request = null ): bool {
+		return self::can_write_conversation_param( $request, false );
+	}
+
+	public static function can_preview_macro( $request = null ): bool {
+		return self::can_write_conversation_param( $request, true );
+	}
+
 	public static function can_write_board_move( $request = null ): bool {
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — scope board mutations by conversation_id, not by a generic route parameter.
-		if ( current_user_can( 'manage_options' ) ) { return true; }
-		$cap = (string) apply_filters( 'bizcity_crm_write_cap', 'edit_posts' );
-		if ( ! current_user_can( $cap ) && ! current_user_can( 'bizcity_crm_handle_inbox' ) ) { return false; }
-		$conversation_id = $request instanceof WP_REST_Request ? (int) $request->get_param( 'conversation_id' ) : 0;
-		return $conversation_id > 0 && class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::can_view_conversation( $conversation_id );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E2 — board moves are side effects; require the Inbox handle capability.
+		return self::can_write_conversation_param( $request, false );
 	}
 
 	public static function can_write_order_care_move( $request = null ): bool {
@@ -3701,7 +3872,7 @@ class BizCity_CRM_REST_Controller {
 
 	public static function admin_chat_grants_version( WP_REST_Request $req ) {
 		return self::wrap( static function () {
-			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) ) {
+			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) || ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_Admin_Chat_Grants::table() ) ) {
 				return array( 'version' => 0, 'pending' => 0 );
 			}
 			$ver = self::grants_version();
@@ -3719,7 +3890,7 @@ class BizCity_CRM_REST_Controller {
 
 	public static function admin_chat_grants_list( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
-			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) ) {
+			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) || ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_Admin_Chat_Grants::table() ) ) {
 				return array( 'rows' => array(), 'counts' => array( 'pending' => 0, 'active' => 0, 'revoked' => 0 ), 'version' => 0 );
 			}
 			$status = sanitize_key( (string) $req->get_param( 'status' ) );
@@ -3764,7 +3935,7 @@ class BizCity_CRM_REST_Controller {
 
 	public static function admin_chat_grants_approve( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
-			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) ) { throw new \RuntimeException( 'grants_unavailable' ); }
+			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) || ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_Admin_Chat_Grants::table() ) ) { throw new \RuntimeException( 'grants_unavailable' ); }
 			$id = (int) $req->get_param( 'id' );
 			if ( $id <= 0 ) { throw new \RuntimeException( 'invalid_id' ); }
 			global $wpdb;
@@ -3790,7 +3961,7 @@ class BizCity_CRM_REST_Controller {
 
 	public static function admin_chat_grants_revoke( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
-			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) ) { throw new \RuntimeException( 'grants_unavailable' ); }
+			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) || ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_Admin_Chat_Grants::table() ) ) { throw new \RuntimeException( 'grants_unavailable' ); }
 			$id = (int) $req->get_param( 'id' );
 			if ( $id <= 0 ) { throw new \RuntimeException( 'invalid_id' ); }
 			BizCity_CRM_Admin_Chat_Grants::revoke( $id, get_current_user_id() );
@@ -3803,7 +3974,7 @@ class BizCity_CRM_REST_Controller {
 
 	public static function admin_chat_grants_update( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
-			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) ) { throw new \RuntimeException( 'grants_unavailable' ); }
+			if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Grants' ) || ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_Admin_Chat_Grants::table() ) ) { throw new \RuntimeException( 'grants_unavailable' ); }
 			$id = (int) $req->get_param( 'id' );
 			if ( $id <= 0 ) { throw new \RuntimeException( 'invalid_id' ); }
 			$body = (array) $req->get_json_params();
@@ -5790,6 +5961,10 @@ class BizCity_CRM_REST_Controller {
 
 	public static function get_inboxes( WP_REST_Request $req ) {
 		return self::wrap( static function () {
+			// [2026-09-22 12:15 AM OpenAI GPT-5.6 Luna] HOTFIX — degrade cleanly when the tenant CRM inbox schema is unavailable.
+			if ( ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_inboxes() ) ) {
+				return array();
+			}
 			$rows = BizCity_CRM_Repository::list_inboxes();
 			if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
 				$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
@@ -5805,6 +5980,10 @@ class BizCity_CRM_REST_Controller {
 
 	public static function get_conversations( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
+			// [2026-09-22 12:15 AM OpenAI GPT-5.6 Luna] HOTFIX — avoid repeated SQL exceptions during partial CRM schema/bootstrap states.
+			if ( ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_conversations() ) ) {
+				return array();
+			}
 			$args = array(
 				'inbox_id'    => (int) $req->get_param( 'inbox_id' ),
 				'status'      => (string) $req->get_param( 'status' ),
@@ -5826,6 +6005,10 @@ class BizCity_CRM_REST_Controller {
 				if ( is_array( $selected_scope['inbox_ids'] ?? null ) ) {
 					$args['inbox_ids'] = $selected_scope['inbox_ids'];
 				}
+				// [2026-09-18] PHASE-0.48F F-UID-05 — reading an employee's queue is audited (1 row/actor/subject/day).
+				if ( class_exists( 'BizCity_CRM_Staff_REST' ) ) {
+					BizCity_CRM_Staff_REST::record_workspace_read( get_current_user_id(), $scope_user_id, 'scope_user_list' );
+				}
 			}
 			if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
 				$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
@@ -5843,9 +6026,81 @@ class BizCity_CRM_REST_Controller {
 			if ( $unassigned_raw !== null && $unassigned_raw !== '' ) {
 				$args['unassigned'] = $unassigned_raw;
 			}
+			// [PHASE-0.54 R-INBOX-PIPE-8] ?stage= filters the list by resolved pipeline stage ("stuck" is a
+			// second pseudo-value). Stage isn't a stored column (it's computed on read — R-PIPE-2), so this
+			// over-fetches a wider window from the repository, resolves it, filters, then trims back to the
+			// page size the caller asked for. Known limit: on a very filtered inbox this can under-fill a
+			// page rather than reaching further back; acceptable for now (R-PIPE tôn chỉ linh hoạt).
+			$stage_filter = sanitize_key( (string) $req->get_param( 'stage' ) );
+			if ( '' !== $stage_filter && 'stuck' !== $stage_filter && ! in_array( $stage_filter, BizCity_CRM_Customer_Pipeline::ALL_STAGES, true ) ) {
+				$stage_filter = '';
+			}
+			$requested_limit = (int) $args['limit'];
+			if ( '' !== $stage_filter ) {
+				$args['limit'] = min( 300, max( $requested_limit * 6, 120 ) );
+			}
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.51 A3 — an unchanged list fingerprint answers
+			// `not_modified` before the list query runs, same idea as modules/twinweb's `/crm/inbox`. `$args`
+			// at this point already carries every filter list_conversations() itself will use (inbox_ids
+			// resolved, scope_user_id applied, snoozed/unassigned normalized), so the token is exactly as
+			// scoped as the query. The token travels in a response header, not the JSON body — `data` stays
+			// the same plain array `transformResponse` already expects, so no existing caller needs to change.
+			if ( method_exists( 'BizCity_CRM_Repository', 'get_inbox_sync_token' ) ) {
+				$sync_token = BizCity_CRM_Repository::get_inbox_sync_token( $args );
+				$client_token = sanitize_key( (string) $req->get_param( 'sync_token' ) );
+				$not_modified = '' !== $client_token && hash_equals( $sync_token, $client_token );
+				$items = $not_modified ? array() : array_map( array( __CLASS__, 'shape_conversation' ), BizCity_CRM_Repository::list_conversations( $args ) );
+				$items = self::merge_pipeline_into_conversations( $items, $stage_filter, $requested_limit );
+				$response = new WP_REST_Response( array(
+					'ok'   => true,
+					'data' => $items,
+					'ts'   => (int) round( microtime( true ) * 1000 ),
+				), 200 );
+				$response->header( 'X-BizCity-Sync-Token', $sync_token );
+				if ( $not_modified ) { $response->header( 'X-BizCity-Not-Modified', '1' ); }
+				return $response;
+			}
 			$rows = BizCity_CRM_Repository::list_conversations( $args );
-			return array_map( array( __CLASS__, 'shape_conversation' ), $rows );
+			$items = array_map( array( __CLASS__, 'shape_conversation' ), $rows );
+			return self::merge_pipeline_into_conversations( $items, $stage_filter, $requested_limit );
 		} );
+	}
+
+	/**
+	 * [PHASE-0.54 R-INBOX-PIPE-8] Batch-resolve pipeline stage for a page of shaped conversations (one
+	 * `Customer_Pipeline::rows()` call, no N+1), stamp `pipeline_stage/pipeline_days/pipeline_stuck/
+	 * pipeline_payment_pending`, then apply `$stage_filter` ('' = no filter, 'stuck' = pseudo-stage) and
+	 * trim back to `$limit`.
+	 *
+	 * @param array  $items  shaped conversations (each with `contact.id`)
+	 * @param string $stage_filter '' | a BizCity_CRM_Customer_Pipeline::ALL_STAGES value | 'stuck'
+	 */
+	private static function merge_pipeline_into_conversations( array $items, string $stage_filter, int $limit ): array {
+		if ( empty( $items ) || ! class_exists( 'BizCity_CRM_Customer_Pipeline' ) ) { return $items; }
+		$contact_ids = array_values( array_unique( array_filter( array_map( static function ( $item ) {
+			return (int) ( $item['contact']['id'] ?? 0 );
+		}, $items ) ) ) );
+		if ( empty( $contact_ids ) ) { return $items; }
+		$rows = BizCity_CRM_Customer_Pipeline::rows( $contact_ids );
+		$out = array();
+		foreach ( $items as $item ) {
+			$cid = (int) ( $item['contact']['id'] ?? 0 );
+			$row = $rows[ $cid ] ?? null;
+			$item['pipeline_stage'] = $row ? (string) $row['stage'] : null;
+			$item['pipeline_days'] = $row ? (int) $row['days'] : null;
+			$item['pipeline_stuck'] = $row ? (bool) $row['stuck'] : false;
+			$item['pipeline_payment_pending'] = $row ? (bool) $row['payment_pending'] : false;
+			if ( '' !== $stage_filter ) {
+				if ( 'stuck' === $stage_filter ) {
+					if ( empty( $item['pipeline_stuck'] ) ) { continue; }
+				} elseif ( $item['pipeline_stage'] !== $stage_filter ) {
+					continue;
+				}
+			}
+			$out[] = $item;
+			if ( $limit > 0 && count( $out ) >= $limit ) { break; }
+		}
+		return $out;
 	}
 
 	/**
@@ -5951,11 +6206,32 @@ class BizCity_CRM_REST_Controller {
 
 	public static function get_messages( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
-			$id       = (int) $req['id'];
-			$after_id = (int) $req->get_param( 'after_id' );
-			$limit    = (int) ( $req->get_param( 'limit' ) ?: 100 );
-			$rows     = BizCity_CRM_Repository::list_messages( $id, $limit, $after_id );
-			return array_map( array( __CLASS__, 'shape_message' ), $rows );
+			$id        = (int) $req['id'];
+			$after_id  = (int) $req->get_param( 'after_id' );
+			$limit     = (int) ( $req->get_param( 'limit' ) ?: 100 );
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.51 A3 — older-message paging (scroll-up) and a
+			// bounded delivery-state recheck for a browser cache, reusing the repository methods PHASE-0.48C
+			// added for modules/twinweb's `/crm/inbox` (same `bizcity_crm_messages` table, no schema change).
+			// `data` stays a plain array (same shape `transformResponse` already expects) — a rechecked row
+			// simply replaces its stale copy by id; a row missing from the merge is one the caller can infer
+			// as gone by diffing the `recheck_ids` it sent against the ids that came back.
+			$before_id = (int) $req->get_param( 'before_id' );
+			$rows = ( $before_id > 0 && method_exists( 'BizCity_CRM_Repository', 'list_messages_before' ) )
+				? BizCity_CRM_Repository::list_messages_before( $id, $before_id, $limit )
+				: BizCity_CRM_Repository::list_messages( $id, $limit, $after_id );
+			$by_id = array();
+			foreach ( $rows as $row ) { $by_id[ (int) $row['id'] ] = $row; }
+			$recheck_raw = (string) $req->get_param( 'recheck_ids' );
+			if ( '' !== $recheck_raw && method_exists( 'BizCity_CRM_Repository', 'get_messages_by_ids' ) ) {
+				$recheck_ids = array_slice( array_values( array_unique( array_filter( array_map( 'absint', explode( ',', $recheck_raw ) ) ) ) ), 0, 50 );
+				if ( $recheck_ids ) {
+					foreach ( BizCity_CRM_Repository::get_messages_by_ids( $id, $recheck_ids ) as $row ) {
+						$by_id[ (int) $row['id'] ] = $row; // overwrite: the freshly-read row wins over the delta-window copy, if any.
+					}
+				}
+			}
+			ksort( $by_id, SORT_NUMERIC );
+			return array_map( array( __CLASS__, 'shape_message' ), array_values( $by_id ) );
 		} );
 	}
 
@@ -6301,6 +6577,98 @@ class BizCity_CRM_REST_Controller {
 	/* ------- write handlers (PHASE 0.34 FE-M4/M5) ------- */
 
 	/**
+	 * Dispatch one CRM outbound payload through the inbox's CRM adapter (or the Gateway sender fallback).
+	 *
+	 * Caller owns Responder_Stamper push/pop and the CRM message row lifecycle.
+	 *
+	 * @param array $payload { content, content_type, attachments, mentions, reply_to }
+	 * @return array Normalized dispatch result for update_message_delivery().
+	 */
+	private static function dispatch_crm_outbound( array $conv, $inbox_row, array $resolved, array $payload ): array {
+		$content     = (string) ( $payload['content'] ?? '' );
+		$ctype       = (string) ( $payload['content_type'] ?? 'text' );
+		$attachments = is_array( $payload['attachments'] ?? null ) ? $payload['attachments'] : array();
+		$mentions    = is_array( $payload['mentions'] ?? null ) ? $payload['mentions'] : array();
+		$reply_to    = (int) ( $payload['reply_to'] ?? 0 );
+		$result = array( 'sent' => false, 'outcome' => 'failed', 'error' => 'no-sender', 'platform' => $resolved['platform'] );
+
+		// Prefer the CRM channel adapter when one is registered for this inbox's channel
+		// (`facebook`, `zalo`, …). The CRM adapter knows per-page/per-OA tokens, branches
+		// for comment-replies, and never falls through Channel Gateway's UNKNOWN bucket.
+		$adapter_code  = $inbox_row ? (string) $inbox_row['channel_type'] : '';
+		$crm_adapter   = $adapter_code ? BizCity_CRM_Channel_Registry::get( $adapter_code ) : null;
+		if ( $crm_adapter ) {
+			// Tap to detect whether the adapter dispatched through a path
+			// that already emits `bizcity_channel_outbound_logged` itself
+			// (e.g. Zalo Bot via BizCity_Gateway_Sender). When it does, we
+			// MUST NOT mirror again \u2014 otherwise the Responder_Stamper hook
+			// would write a second row to wp_bizcity_channel_messages.
+			$gw_emitted = 0;
+			$gw_tap     = static function () use ( &$gw_emitted ) { $gw_emitted++; };
+			if ( class_exists( 'BizCity_CRM_Facebook_Ingestor' ) ) {
+				BizCity_CRM_Facebook_Ingestor::set_crm_outbound_in_flight( true );
+			}
+			add_action( 'bizcity_channel_outbound_logged', $gw_tap, 1 );
+			try {
+				$adapter_res = $crm_adapter->send(
+					$conv,
+					array(
+						'content'      => $content,
+						'content_type' => $ctype,
+						'attachments'  => $attachments,
+						'mentions'     => $mentions,
+						'reply_to'     => $reply_to,
+					)
+				);
+				// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — normalize every channel outcome before CRM status and ledger updates.
+				if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
+					throw new \RuntimeException( 'channel_contract_not_loaded' );
+				}
+				$adapter_res = BizCity_CRM_Channel_Contract::normalize_send_result( $adapter_code, $adapter_res );
+			} finally {
+				remove_action( 'bizcity_channel_outbound_logged', $gw_tap, 1 );
+				if ( class_exists( 'BizCity_CRM_Facebook_Ingestor' ) ) {
+					BizCity_CRM_Facebook_Ingestor::set_crm_outbound_in_flight( false );
+				}
+			}
+			$result = array(
+				'sent'              => in_array( (string) ( $adapter_res['outcome'] ?? '' ), array( 'sent', 'delivered' ), true ),
+				'outcome'           => (string) ( $adapter_res['outcome'] ?? ( ! empty( $adapter_res['success'] ) ? 'accepted' : 'failed' ) ),
+				'code'              => (string) ( $adapter_res['code'] ?? '' ),
+				'retryable'         => ! empty( $adapter_res['retryable'] ),
+				'contract_version'  => (string) ( $adapter_res['contract_version'] ?? '' ),
+				'error'             => (string) ( $adapter_res['error'] ?? '' ),
+				'platform'          => $resolved['platform'],
+				'mid'               => (string) ( $adapter_res['external_source_id'] ?? '' ),
+			);
+			// Mirror to Channel Gateway ledger only when the adapter did
+			// not already emit (e.g. Facebook Bridge sends via Graph API
+			// without firing the gateway hook).
+			if ( $gw_emitted === 0 ) {
+				do_action( 'bizcity_channel_outbound_logged', array(
+					'chat_id'  => $resolved['chat_id'],
+					'platform' => $resolved['platform'],
+					'message'  => $content,
+					'type'     => $ctype,
+					'extra'    => array( 'mid' => $result['mid'], 'source' => 'crm-adapter' ),
+					'sent'     => (bool) $result['sent'],
+					'error'    => (string) $result['error'],
+				) );
+			}
+		} elseif ( class_exists( 'BizCity_Gateway_Sender' ) ) {
+			$first_attachment = $attachments[0] ?? array();
+			$result = BizCity_Gateway_Sender::instance()->send(
+				$resolved['chat_id'],
+				$content,
+				$ctype,
+				$first_attachment ? array( 'image_url' => $first_attachment['data_url'], 'file_url' => $first_attachment['data_url'] ) : array()
+			);
+		}
+
+		return $result;
+	}
+
+	/**
 	 * POST /conversations/{id}/messages — manual outbound.
 	 * Body: { content, content_type?, responder_kind?='manual', character_id? }
 	 *
@@ -6445,6 +6813,18 @@ class BizCity_CRM_REST_Controller {
 			if ( ! $resolved ) { throw new \RuntimeException( 'chat_id_unresolved' ); }
 
 			$user_id = (int) get_current_user_id();
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48-H2.1 — the same client_message_id (double click, network retry) never dispatches twice.
+			$client_message_id = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) ( $body['client_message_id'] ?? '' ) );
+			$send_idem_key = ( is_string( $client_message_id ) && strlen( $client_message_id ) >= 8 )
+				? 'bzc_send_' . md5( get_current_blog_id() . '|' . $user_id . '|' . $conv_id . '|' . $client_message_id )
+				: '';
+			if ( $send_idem_key !== '' ) {
+				$previous_id = (int) get_transient( $send_idem_key );
+				$previous_row = $previous_id > 0 ? BizCity_CRM_Repository::get_message( $previous_id ) : null;
+				if ( is_array( $previous_row ) && (int) $previous_row['conversation_id'] === $conv_id ) {
+					return array( 'message' => self::shape_message( $previous_row ), 'dispatch' => array( 'sent' => 'sent' === (string) $previous_row['status'], 'outcome' => 'duplicate', 'platform' => (string) $resolved['platform'], 'chat_id' => (string) $resolved['chat_id'], 'error' => '' ), 'duplicate' => true );
+				}
+			}
 			if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
 				BizCity_Responder_Stamper::push( array(
 					'kind'         => $kind,
@@ -6470,81 +6850,10 @@ class BizCity_CRM_REST_Controller {
 				'character_id'      => $cid ?: null,
 				'ai_metadata'       => $message_meta,
 			) );
+			if ( $msg_id && $send_idem_key !== '' ) { set_transient( $send_idem_key, (int) $msg_id, 10 * MINUTE_IN_SECONDS ); }
 
-			$result = array( 'sent' => false, 'outcome' => 'failed', 'error' => 'no-sender', 'platform' => $resolved['platform'] );
-
-			// Prefer the CRM channel adapter when one is registered for this inbox's channel
-			// (`facebook`, `zalo`, …). The CRM adapter knows per-page/per-OA tokens, branches
-			// for comment-replies, and never falls through Channel Gateway's UNKNOWN bucket.
-			$adapter_code  = $inbox_row ? (string) $inbox_row['channel_type'] : '';
-			$crm_adapter   = $adapter_code ? BizCity_CRM_Channel_Registry::get( $adapter_code ) : null;
-			if ( $crm_adapter ) {
-				// Tap to detect whether the adapter dispatched through a path
-				// that already emits `bizcity_channel_outbound_logged` itself
-				// (e.g. Zalo Bot via BizCity_Gateway_Sender). When it does, we
-				// MUST NOT mirror again \u2014 otherwise the Responder_Stamper hook
-				// would write a second row to wp_bizcity_channel_messages.
-				$gw_emitted = 0;
-				$gw_tap     = static function () use ( &$gw_emitted ) { $gw_emitted++; };
-				if ( class_exists( 'BizCity_CRM_Facebook_Ingestor' ) ) {
-					BizCity_CRM_Facebook_Ingestor::set_crm_outbound_in_flight( true );
-				}
-				add_action( 'bizcity_channel_outbound_logged', $gw_tap, 1 );
-				try {
-					$adapter_res = $crm_adapter->send(
-						$conv,
-						array(
-							'content'      => $content,
-							'content_type' => $ctype,
-							'attachments'  => $attachments,
-							'mentions'     => $mentions,
-							'reply_to'     => $reply_to,
-						)
-					);
-					// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — normalize every channel outcome before CRM status and ledger updates.
-					if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
-						throw new \RuntimeException( 'channel_contract_not_loaded' );
-					}
-					$adapter_res = BizCity_CRM_Channel_Contract::normalize_send_result( $adapter_code, $adapter_res );
-				} finally {
-					remove_action( 'bizcity_channel_outbound_logged', $gw_tap, 1 );
-					if ( class_exists( 'BizCity_CRM_Facebook_Ingestor' ) ) {
-						BizCity_CRM_Facebook_Ingestor::set_crm_outbound_in_flight( false );
-					}
-				}
-				$result = array(
-					'sent'              => in_array( (string) ( $adapter_res['outcome'] ?? '' ), array( 'sent', 'delivered' ), true ),
-					'outcome'           => (string) ( $adapter_res['outcome'] ?? ( ! empty( $adapter_res['success'] ) ? 'accepted' : 'failed' ) ),
-					'code'              => (string) ( $adapter_res['code'] ?? '' ),
-					'retryable'         => ! empty( $adapter_res['retryable'] ),
-					'contract_version'  => (string) ( $adapter_res['contract_version'] ?? '' ),
-					'error'             => (string) ( $adapter_res['error'] ?? '' ),
-					'platform'          => $resolved['platform'],
-					'mid'               => (string) ( $adapter_res['external_source_id'] ?? '' ),
-				);
-				// Mirror to Channel Gateway ledger only when the adapter did
-				// not already emit (e.g. Facebook Bridge sends via Graph API
-				// without firing the gateway hook).
-				if ( $gw_emitted === 0 ) {
-					do_action( 'bizcity_channel_outbound_logged', array(
-						'chat_id'  => $resolved['chat_id'],
-						'platform' => $resolved['platform'],
-						'message'  => $content,
-						'type'     => $ctype,
-						'extra'    => array( 'mid' => $result['mid'], 'source' => 'crm-adapter' ),
-						'sent'     => (bool) $result['sent'],
-						'error'    => (string) $result['error'],
-					) );
-				}
-			} elseif ( class_exists( 'BizCity_Gateway_Sender' ) ) {
-				$first_attachment = $attachments[0] ?? array();
-				$result = BizCity_Gateway_Sender::instance()->send(
-					$resolved['chat_id'],
-					$content,
-					$ctype,
-					$first_attachment ? array( 'image_url' => $first_attachment['data_url'], 'file_url' => $first_attachment['data_url'] ) : array()
-				);
-			}
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48-H2.1 — one dispatch path shared by send and failed-message retry.
+			$result = self::dispatch_crm_outbound( $conv, $inbox_row, $resolved, array( 'content' => $content, 'content_type' => $ctype, 'attachments' => $attachments, 'mentions' => $mentions, 'reply_to' => $reply_to ) );
 
 			if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
 				BizCity_Responder_Stamper::pop();
@@ -6564,6 +6873,172 @@ class BizCity_CRM_REST_Controller {
 					'platform' => (string) $resolved['platform'],
 					'chat_id'  => (string) $resolved['chat_id'],
 					'error'    => (string) $result['error'],
+				),
+			);
+		} );
+	}
+
+	/**
+	 * POST /conversations/{id}/composer-image — upload one clipboard-pasted image into WordPress Media.
+	 *
+	 * PHASE-0.48 §2.11.5. Returns the same shape (`url`/`thumb_url`/`mime`/`size`/`filename`) the
+	 * Composer's `wp.media` picker already produces client-side, so `post_message()` and every channel
+	 * adapter downstream stay unchanged — both already accept an attachment as a public Media Library URL.
+	 */
+	public static function post_composer_image( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$conv_id = (int) $req['id'];
+			$conv    = BizCity_CRM_Repository::get_conversation( $conv_id );
+			if ( ! $conv ) { return self::care_error( 'conversation_not_found', 'Không tìm thấy hội thoại.', 404 ); }
+
+			$user_id = (int) get_current_user_id();
+			if ( ! $user_id ) { return self::care_error( 'auth_required', 'Vui lòng đăng nhập lại.', 401 ); }
+
+			if ( empty( $_FILES['file'] ) || ! is_array( $_FILES['file'] ) ) {
+				return self::care_error( 'invalid_param', 'Thiếu ảnh cần tải lên.', 400 );
+			}
+			$file = $_FILES['file'];
+			$name = isset( $file['name'] ) ? sanitize_file_name( (string) $file['name'] ) : '';
+			$tmp  = isset( $file['tmp_name'] ) ? (string) $file['tmp_name'] : '';
+			$size = isset( $file['size'] ) ? (int) $file['size'] : 0;
+			if ( '' === $name || '' === $tmp || $size <= 0 || ! is_uploaded_file( $tmp ) ) {
+				return self::care_error( 'invalid_param', 'Ảnh tải lên không hợp lệ.', 400 );
+			}
+
+			// Same ceiling post_message() enforces at send time (PHASE-0.48-ATTACHMENT-POLICY) — checked
+			// again here so an oversized paste never reaches media_handle_upload().
+			$max_bytes = (int) apply_filters( 'bizcity_crm_composer_image_max_bytes', 10 * 1024 * 1024 );
+			if ( $size > $max_bytes ) {
+				return self::care_error( 'attachment_image_too_large', 'Ảnh vượt quá giới hạn 10 MB.', 413 );
+			}
+
+			$allowed_mimes = array(
+				'jpg|jpeg|jpe' => 'image/jpeg',
+				'png'          => 'image/png',
+				'gif'          => 'image/gif',
+				'webp'         => 'image/webp',
+			);
+			$checked = wp_check_filetype_and_ext( $tmp, $name, $allowed_mimes );
+			$mime    = isset( $checked['type'] ) ? (string) $checked['type'] : '';
+			if ( '' === $mime || empty( $checked['ext'] ) ) {
+				return self::care_error( 'attachment_mime_not_allowed', 'Định dạng ảnh chưa được hỗ trợ — dùng JPG, PNG, GIF hoặc WebP.', 415 );
+			}
+
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+			require_once ABSPATH . 'wp-admin/includes/media.php';
+			require_once ABSPATH . 'wp-admin/includes/image.php';
+
+			$attachment_id = media_handle_upload( 'file', 0, array(
+				'post_author' => $user_id,
+				'post_title'  => preg_replace( '/\.[^.]+$/', '', $name ),
+			), array(
+				'test_form' => false,
+				'mimes'     => $allowed_mimes,
+			) );
+			if ( is_wp_error( $attachment_id ) ) {
+				return self::care_error( 'artifact_write_failed', 'Không thể lưu ảnh. Thử lại sau.', 500 );
+			}
+
+			$attachment_id = (int) $attachment_id;
+			update_post_meta( $attachment_id, '_bizcity_crm_composer_attachment', '1' );
+			update_post_meta( $attachment_id, '_bizcity_crm_composer_conversation_id', $conv_id );
+
+			$thumb = wp_get_attachment_image_src( $attachment_id, 'medium' );
+			return array(
+				'id'        => $attachment_id,
+				'url'       => (string) wp_get_attachment_url( $attachment_id ),
+				'thumb_url' => is_array( $thumb ) ? (string) $thumb[0] : '',
+				'mime'      => $mime,
+				'size'      => $size,
+				'filename'  => $name,
+			);
+		} );
+	}
+
+	/**
+	 * POST /conversations/{id}/messages/{message_id}/retry — re-send a failed outbound message.
+	 *
+	 * Atomic claim failed → pending guards against concurrent retries (double click, two agents).
+	 */
+	public static function post_message_retry( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$conv_id    = (int) $req['id'];
+			$message_id = (int) $req['message_id'];
+			$row = BizCity_CRM_Repository::get_message( $message_id );
+			if ( ! is_array( $row ) || (int) $row['conversation_id'] !== $conv_id ) {
+				return self::care_error( 'message_not_found', 'Không tìm thấy tin nhắn.', 404 );
+			}
+			if ( 'outgoing' !== (string) $row['message_type'] || 'failed' !== (string) $row['status'] ) {
+				return self::care_error( 'retry_not_allowed', 'Chỉ gửi lại được tin gửi đi đang ở trạng thái lỗi.', 409 );
+			}
+			$conv = BizCity_CRM_Repository::get_conversation( $conv_id );
+			if ( ! $conv ) { return self::care_error( 'conversation_not_found', 'Không tìm thấy hội thoại.', 404 ); }
+			$inbox_row = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
+			if ( class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
+				$descriptor = BizCity_CRM_Channel_Contract::require_crm_enabled( (string) ( $inbox_row['channel_type'] ?? '' ) );
+				if ( is_wp_error( $descriptor ) ) {
+					$disabled_response = self::channel_setup_error( (string) ( $inbox_row['channel_type'] ?? '' ) );
+					return $disabled_response ?: self::care_error( $descriptor->get_error_code(), 'Kênh chưa sẵn sàng gửi tin.', 409 );
+				}
+			}
+			$resolved = BizCity_CRM_Repository::resolve_chat_id( $conv_id );
+			if ( ! $resolved ) { return self::care_error( 'chat_id_unresolved', 'Không xác định được người nhận.', 409 ); }
+
+			$msg_tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
+			$claimed = $wpdb->query( $wpdb->prepare( "UPDATE `{$msg_tbl}` SET status = 'pending' WHERE id = %d AND status = 'failed'", $message_id ) );
+			if ( 1 !== (int) $claimed ) {
+				return self::care_error( 'retry_in_progress', 'Tin nhắn đang được gửi lại.', 409 );
+			}
+
+			$attachments = array();
+			$att_tbl = BizCity_CRM_DB_Installer_V2::tbl_attachments();
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT file_type, data_url, thumb_url, meta_json FROM `{$att_tbl}` WHERE message_id = %d ORDER BY id ASC LIMIT 1", $message_id ), ARRAY_A ) as $att ) {
+				$meta = json_decode( (string) ( $att['meta_json'] ?? '' ), true );
+				$attachments[] = array(
+					'file_type' => (string) $att['file_type'],
+					'data_url'  => (string) $att['data_url'],
+					'thumb_url' => (string) ( $att['thumb_url'] ?? '' ),
+					'meta'      => is_array( $meta ) ? $meta : array(),
+				);
+			}
+			$ai_meta  = json_decode( (string) ( $row['ai_metadata_json'] ?? '' ), true );
+			$reply_to = is_array( $ai_meta ) ? (int) ( $ai_meta['reply_to']['id'] ?? 0 ) : 0;
+			$kind     = (string) ( $row['responder_kind'] ?? '' );
+
+			if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
+				BizCity_Responder_Stamper::push( array(
+					'kind'         => $kind !== '' ? $kind : 'manual',
+					'character_id' => ! empty( $row['character_id'] ) ? (int) $row['character_id'] : null,
+					'user_id'      => (int) get_current_user_id(),
+					'source'       => 'crm-rest-retry',
+				) );
+			}
+			try {
+				// Group mentions are not persisted on the row, so a retry sends the stored text without native mentions.
+				$result = self::dispatch_crm_outbound( $conv, $inbox_row, $resolved, array(
+					'content'      => (string) $row['content'],
+					'content_type' => (string) ( $row['content_type'] ?: 'text' ),
+					'attachments'  => $attachments,
+					'mentions'     => array(),
+					'reply_to'     => $reply_to,
+				) );
+			} catch ( \Throwable $e ) {
+				// Never leave the row stuck in pending when the adapter throws.
+				$result = array( 'sent' => false, 'outcome' => 'failed', 'error' => $e->getMessage() );
+			} finally {
+				if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
+					BizCity_Responder_Stamper::pop();
+				}
+			}
+			BizCity_CRM_Repository::update_message_delivery( $message_id, array_merge( $result, array( 'platform' => $resolved['platform'] ) ) );
+			$fresh = BizCity_CRM_Repository::get_message( $message_id );
+			return array(
+				'message'  => $fresh ? self::shape_message( $fresh ) : null,
+				'dispatch' => array(
+					'sent'    => (bool) ( $result['sent'] ?? false ),
+					'outcome' => (string) ( $result['outcome'] ?? '' ),
+					'error'   => (string) ( $result['error'] ?? '' ),
 				),
 			);
 		} );
@@ -6601,6 +7076,300 @@ class BizCity_CRM_REST_Controller {
 			$row = $msg_id ? BizCity_CRM_Repository::get_message( $msg_id ) : null;
 			if ( $row ) { $row['attachments'] = array(); }
 			return $row ? self::shape_message( $row ) : null;
+		} );
+	}
+
+	/* ================================================================
+	 * PHASE-0.48B-8.11 — Contact-scoped care tools (notes · schedule · facts)
+	 *
+	 * Owners stay canonical: private notes → CRM messages, reminders → CRM
+	 * tasks, appointments → Scheduler events (contact_id/conversation_id FK).
+	 * No new table. The contact is always derived from the scoped conversation.
+	 * ================================================================ */
+
+	private static function care_error( string $code, string $message, int $status ): WP_REST_Response {
+		return new WP_REST_Response( array(
+			'ok'    => false,
+			'error' => array( 'code' => $code, 'message' => $message ),
+			'ts'    => (int) round( microtime( true ) * 1000 ),
+		), $status );
+	}
+
+	/**
+	 * Canonical contact ID behind a conversation (0 when unresolved).
+	 */
+	private static function care_contact_id_for_conversation( array $conv ): int {
+		global $wpdb;
+		$contact_inbox_id = (int) ( $conv['contact_inbox_id'] ?? 0 );
+		if ( $contact_inbox_id <= 0 ) { return 0; }
+		$ci_tbl = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$contact_id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT contact_id FROM `{$ci_tbl}` WHERE id = %d", $contact_inbox_id ) );
+		return self::resolve_canonical_contact_id( $contact_id );
+	}
+
+	/**
+	 * Conversation IDs of a contact limited to the caller's Inbox scope (no cross-table JOIN).
+	 *
+	 * @return int[]
+	 */
+	private static function care_scoped_conversation_ids( int $contact_id ): array {
+		global $wpdb;
+		$ci_tbl = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$ci_ids = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( "SELECT id FROM `{$ci_tbl}` WHERE contact_id = %d LIMIT 200", $contact_id ) ) );
+		if ( empty( $ci_ids ) ) { return array(); }
+		$conv_tbl = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$params = $ci_ids;
+		$sql = "SELECT id FROM `{$conv_tbl}` WHERE contact_inbox_id IN (" . implode( ',', array_fill( 0, count( $ci_ids ), '%d' ) ) . ')';
+		$allowed = class_exists( 'BizCity_CRM_Inbox_Access' ) ? BizCity_CRM_Inbox_Access::allowed_inbox_ids( (int) get_current_user_id() ) : array();
+		if ( is_array( $allowed ) ) {
+			if ( empty( $allowed ) ) { return array(); }
+			$sql .= ' AND inbox_id IN (' . implode( ',', array_fill( 0, count( $allowed ), '%d' ) ) . ')';
+			$params = array_merge( $params, array_map( 'intval', $allowed ) );
+		}
+		$sql .= ' ORDER BY id DESC LIMIT 200';
+		return array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( $sql, $params ) ) );
+	}
+
+	private static function care_user_label( int $user_id ): string {
+		if ( $user_id <= 0 ) { return ''; }
+		$user = get_userdata( $user_id );
+		return $user ? (string) $user->display_name : '';
+	}
+
+	/**
+	 * GET /conversations/{id}/contact-care — notes + reminders + appointments of the conversation's contact.
+	 */
+	public static function get_contact_care( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$conv = BizCity_CRM_Repository::get_conversation( (int) $req['id'] );
+			if ( ! $conv ) { return self::care_error( 'conversation_not_found', 'Không tìm thấy hội thoại.', 404 ); }
+			$contact_id = self::care_contact_id_for_conversation( $conv );
+			if ( $contact_id <= 0 ) { return self::care_error( 'contact_not_resolved', 'Hội thoại chưa gắn contact.', 404 ); }
+
+			$degraded = array();
+			$notes = array();
+			$conv_ids = self::care_scoped_conversation_ids( $contact_id );
+			if ( ! empty( $conv_ids ) ) {
+				$msg_tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
+				$sql = "SELECT id, conversation_id, content, sender_id, created_at FROM `{$msg_tbl}` WHERE message_type = 'private_note' AND conversation_id IN (" . implode( ',', array_fill( 0, count( $conv_ids ), '%d' ) ) . ') ORDER BY id DESC LIMIT 20';
+				$note_rows = $wpdb->get_results( $wpdb->prepare( $sql, $conv_ids ), ARRAY_A );
+				$note_rows = BizCity_CRM_Repository::hydrate_messages( is_array( $note_rows ) ? $note_rows : array() );
+				foreach ( $note_rows as $row ) {
+					$author_id = (int) ( $row['sender_id'] ?? 0 );
+					$notes[] = array(
+						'id'              => (int) $row['id'],
+						'conversation_id' => (int) $row['conversation_id'],
+						'content'         => wp_strip_all_tags( (string) $row['content'] ),
+						'author'          => self::care_user_label( $author_id ),
+						'created_at'      => $row['created_at'],
+					);
+				}
+			}
+
+			$task_tbl = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+			$tasks = array();
+			$task_rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT * FROM `{$task_tbl}` WHERE deleted_at IS NULL AND related_entity_type = 'contact' AND related_entity_id = %d ORDER BY completed ASC, (due_date IS NULL) ASC, due_date ASC, id DESC LIMIT 20",
+				$contact_id
+			), ARRAY_A );
+			foreach ( (array) $task_rows as $row ) {
+				$task = self::shape_crm_task( $row );
+				if ( $task ) {
+					$task['assignee'] = self::care_user_label( (int) ( $task['assignee_id'] ?? 0 ) );
+					$tasks[] = $task;
+				}
+			}
+
+			$appointments = array();
+			if ( class_exists( 'BizCity_Scheduler_Manager' ) && BizCity_Scheduler_Manager::instance()->is_ready() ) {
+				$event_tbl = BizCity_Scheduler_Manager::instance()->get_table();
+				$event_rows = $wpdb->get_results( $wpdb->prepare(
+					"SELECT id, title, start_at, end_at, event_type, status, reminder_min, conversation_id, user_id FROM `{$event_tbl}` WHERE contact_id = %d AND status IN ('active','done') ORDER BY start_at DESC LIMIT 20",
+					$contact_id
+				), ARRAY_A );
+				foreach ( (array) $event_rows as $row ) {
+					$appointments[] = array(
+						'id'              => (int) $row['id'],
+						'title'           => (string) $row['title'],
+						'start_at'        => ! empty( $row['start_at'] ) ? (int) strtotime( $row['start_at'] . ' UTC' ) : 0,
+						'end_at'          => ! empty( $row['end_at'] ) ? (int) strtotime( $row['end_at'] . ' UTC' ) : 0,
+						'status'          => (string) $row['status'],
+						'reminder_min'    => (int) $row['reminder_min'],
+						'conversation_id' => (int) ( $row['conversation_id'] ?? 0 ),
+						'owner'           => self::care_user_label( (int) ( $row['user_id'] ?? 0 ) ),
+					);
+				}
+			} else {
+				$degraded[] = 'scheduler_unavailable';
+			}
+
+			return array(
+				'contact_id'   => $contact_id,
+				'notes'        => $notes,
+				'tasks'        => $tasks,
+				'appointments' => $appointments,
+				'degraded'     => $degraded,
+			);
+		} );
+	}
+
+	/**
+	 * POST /conversations/{id}/contact-care — create a note, reminder task or appointment for the conversation's contact.
+	 * Body: { kind: note|task|appointment, content, due_at?: unix, reminder_min?, client_request_id? }
+	 */
+	public static function post_contact_care( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$conv_id = (int) $req['id'];
+			$conv = BizCity_CRM_Repository::get_conversation( $conv_id );
+			if ( ! $conv ) { return self::care_error( 'conversation_not_found', 'Không tìm thấy hội thoại.', 404 ); }
+			$contact_id = self::care_contact_id_for_conversation( $conv );
+			if ( $contact_id <= 0 ) { return self::care_error( 'contact_not_resolved', 'Hội thoại chưa gắn contact.', 404 ); }
+
+			$body    = self::extract_json_body( $req );
+			$kind    = sanitize_key( (string) ( $body['kind'] ?? '' ) );
+			$content = trim( sanitize_textarea_field( (string) ( $body['content'] ?? '' ) ) );
+			if ( ! in_array( $kind, array( 'note', 'task', 'appointment' ), true ) ) { return self::care_error( 'invalid_kind', 'Loại thao tác không hợp lệ.', 422 ); }
+			if ( $content === '' ) { return self::care_error( 'content_required', 'Nội dung không được để trống.', 422 ); }
+			if ( mb_strlen( $content ) > 2000 ) { return self::care_error( 'content_too_long', 'Nội dung tối đa 2000 ký tự.', 422 ); }
+			$user_id = (int) get_current_user_id();
+
+			// Idempotency: the same client_request_id from the same user returns the first result (double Enter / retry).
+			$request_key = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) ( $body['client_request_id'] ?? '' ) );
+			$idem_key = $request_key !== '' ? 'bzc_care_' . md5( get_current_blog_id() . '|' . $user_id . '|' . $conv_id . '|' . $request_key ) : '';
+			if ( $idem_key !== '' ) {
+				$previous = get_transient( $idem_key );
+				if ( is_array( $previous ) ) { return array_merge( $previous, array( 'duplicate' => true ) ); }
+			}
+
+			$title = mb_substr( preg_replace( '/\s+/', ' ', $content ), 0, 180 );
+			$due_at = (int) ( $body['due_at'] ?? 0 );
+			$result = array( 'kind' => $kind, 'contact_id' => $contact_id, 'conversation_id' => $conv_id );
+
+			if ( 'note' === $kind ) {
+				$msg_id = BizCity_CRM_Repository::insert_message( array(
+					'conversation_id'   => $conv_id,
+					'inbox_id'          => (int) $conv['inbox_id'],
+					'content'           => $content,
+					'content_type'      => 'text',
+					'message_type'      => 'private_note',
+					'sender_type'       => 'agent',
+					'sender_id'         => $user_id ?: null,
+					'status'            => 'note',
+					'responder_kind'    => 'manual',
+					'responder_user_id' => $user_id ?: null,
+				) );
+				if ( ! $msg_id ) { return self::care_error( 'note_insert_failed', 'Không lưu được ghi chú.', 500 ); }
+				$result['id'] = (int) $msg_id;
+			} elseif ( 'task' === $kind ) {
+				// crm_tasks.due_date is a DATE column: reminders are day-granular in the site timezone.
+				$due_date = $due_at > 0 ? get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $due_at ), 'Y-m-d' ) : null;
+				if ( $due_date !== null && $due_date < current_time( 'Y-m-d' ) ) { return self::care_error( 'due_in_past', 'Ngày nhắc đã qua.', 422 ); }
+				$now = current_time( 'mysql' );
+				$wpdb->insert( BizCity_CRM_DB_Installer_V2::tbl_crm_tasks(), array(
+					'title'               => $title,
+					'status'              => 'open',
+					'priority'            => 'medium',
+					'due_date'            => $due_date,
+					'assignee_id'         => $user_id ?: null,
+					'related_entity_type' => 'contact',
+					'related_entity_id'   => $contact_id,
+					'notes'               => $content . "\n\n— conversation #" . $conv_id,
+					'completed'           => 0,
+					'created_by'          => $user_id ?: null,
+					'created_at'          => $now,
+					'updated_at'          => $now,
+				) );
+				$task_id = (int) $wpdb->insert_id;
+				if ( ! $task_id ) { return self::care_error( 'task_insert_failed', 'Không tạo được nhắc việc.', 500 ); }
+				$result['id'] = $task_id;
+			} else {
+				if ( $due_at <= 0 ) { return self::care_error( 'due_at_required', 'Chọn thời gian lịch hẹn.', 422 ); }
+				if ( $due_at < time() - 300 ) { return self::care_error( 'due_in_past', 'Thời gian lịch hẹn đã qua.', 422 ); }
+				if ( ! class_exists( 'BizCity_Scheduler_Manager' ) ) { return self::care_error( 'scheduler_unavailable', 'Scheduler chưa sẵn sàng.', 503 ); }
+				$event_id = BizCity_Scheduler_Manager::instance()->create_event( array(
+					'title'           => $title,
+					'description'     => $content,
+					'start_at'        => gmdate( 'Y-m-d H:i:s', $due_at ),
+					'end_at'          => gmdate( 'Y-m-d H:i:s', $due_at + 30 * MINUTE_IN_SECONDS ),
+					'event_type'      => 'meeting',
+					'source'          => 'crm_inbox',
+					'reminder_min'    => isset( $body['reminder_min'] ) ? max( 0, min( 10080, (int) $body['reminder_min'] ) ) : 15,
+					'user_id'         => $user_id ?: null,
+					'contact_id'      => $contact_id,
+					'conversation_id' => $conv_id,
+					'metadata'        => array( 'related_entity_type' => 'contact', 'related_entity_id' => $contact_id, 'origin' => 'crm_contact_care' ),
+				) );
+				if ( is_wp_error( $event_id ) ) { return self::care_error( 'appointment_create_failed', $event_id->get_error_message(), 422 ); }
+				$result['id'] = (int) $event_id;
+			}
+
+			if ( $idem_key !== '' ) { set_transient( $idem_key, $result, 10 * MINUTE_IN_SECONDS ); }
+			do_action( 'bizcity_crm_contact_care_created', $result, $user_id );
+			return $result;
+		} );
+	}
+
+	/**
+	 * POST /conversations/{id}/contact-facts — save a normalized phone/email on the conversation's contact.
+	 * Body: { field: phone|email, value }
+	 */
+	public static function post_contact_fact( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$conv = BizCity_CRM_Repository::get_conversation( (int) $req['id'] );
+			if ( ! $conv ) { return self::care_error( 'conversation_not_found', 'Không tìm thấy hội thoại.', 404 ); }
+			$contact_id = self::care_contact_id_for_conversation( $conv );
+			if ( $contact_id <= 0 ) { return self::care_error( 'contact_not_resolved', 'Hội thoại chưa gắn contact.', 404 ); }
+
+			$body  = self::extract_json_body( $req );
+			$field = sanitize_key( (string) ( $body['field'] ?? '' ) );
+			$raw   = trim( (string) ( $body['value'] ?? '' ) );
+			// `name` added for the R-ACTION-SHEET "Sửa thông tin" sheet (parity with /gpt/crm/ ContactFactsSheet).
+			if ( ! in_array( $field, array( 'phone', 'email', 'name' ), true ) ) { return self::care_error( 'invalid_field', 'Trường không hợp lệ.', 422 ); }
+			if ( $raw === '' ) { return self::care_error( 'value_required', 'Giá trị không được để trống.', 422 ); }
+
+			if ( 'name' === $field ) {
+				$value = mb_substr( sanitize_text_field( $raw ), 0, 190 );
+				if ( $value === '' ) { return self::care_error( 'value_required', 'Tên không được để trống.', 422 ); }
+			} elseif ( 'email' === $field ) {
+				$value = strtolower( sanitize_email( $raw ) );
+				if ( $value === '' || ! is_email( $value ) ) { return self::care_error( 'invalid_email', 'Email không hợp lệ.', 422 ); }
+			} else {
+				$value = class_exists( 'BizCity_Phone_Normalizer' )
+					? (string) BizCity_Phone_Normalizer::normalize_vn( $raw )
+					: (string) preg_replace( '/\D+/', '', $raw );
+				$digits = (string) preg_replace( '/\D+/', '', $value );
+				if ( strlen( $digits ) < 9 || strlen( $digits ) > 12 ) { return self::care_error( 'invalid_phone', 'Số điện thoại không hợp lệ.', 422 ); }
+			}
+
+			$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+			$current = (string) $wpdb->get_var( $wpdb->prepare( "SELECT `{$field}` FROM `{$tbl}` WHERE id = %d", $contact_id ) );
+			if ( $current !== '' && strtolower( $current ) === strtolower( $value ) ) {
+				return array( 'status' => 'unchanged', 'field' => $field, 'value' => $value, 'contact_id' => $contact_id );
+			}
+
+			$other_id = 'name' === $field ? 0 : (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE deleted_at IS NULL AND id <> %d AND `{$field}` = %s LIMIT 1", $contact_id, $value ) );
+			if ( $other_id > 0 ) {
+				// Never expose another contact's ID outside tenant-admin scope; conflicts go to the identity owner, not an auto-merge.
+				$response = self::care_error( 'contact_fact_conflict', 'phone' === $field ? 'Số điện thoại đã thuộc một contact khác.' : 'Email đã thuộc một contact khác.', 409 );
+				if ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin() ) {
+					$data = $response->get_data();
+					$data['error']['conflict_contact_id'] = $other_id;
+					$response->set_data( $data );
+				}
+				return $response;
+			}
+
+			// P-U-3: never report success when the row was not written.
+			if ( false === $wpdb->update( $tbl, array( $field => $value, 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $contact_id ) ) ) {
+				return self::care_error( 'contact_fact_write_failed', 'Không lưu được thông tin khách, thử lại sau.', 500 );
+			}
+			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$tbl}` WHERE id = %d", $contact_id ), ARRAY_A );
+			if ( method_exists( 'BizCity_CRM_Repository', 'invalidate_read_models' ) ) { BizCity_CRM_Repository::invalidate_read_models(); }
+			do_action( 'bizcity_crm_contact_saved', $contact_id, $row );
+			return array( 'status' => 'saved', 'field' => $field, 'value' => $value, 'contact_id' => $contact_id, 'previous_present' => $current !== '' );
 		} );
 	}
 
@@ -6858,6 +7627,7 @@ class BizCity_CRM_REST_Controller {
 			if ( isset( $body['dispatch'] ) )     { $opts['dispatch']     = (bool)   $body['dispatch']; }
 			if ( isset( $body['notebook_id'] ) )  { $opts['notebook_id']  = (int)    $body['notebook_id']; }
 			if ( isset( $body['character_id'] ) ) { $opts['character_id'] = (int)    $body['character_id']; }
+			if ( ! empty( $body['draft_only'] ) ) { $opts['draft_only'] = true; $opts['dispatch'] = false; }
 
 			$result = BizCity_CRM_AI_Replier::reply( $conv_id, $opts );
 
@@ -6868,6 +7638,9 @@ class BizCity_CRM_REST_Controller {
 
 			return array(
 				'message'  => $row ? self::shape_message( $row ) : null,
+				'reply'    => (string) ( $result['reply'] ?? '' ),
+				'draft_only' => ! empty( $result['draft_only'] ),
+				'skipped'  => ! empty( $result['skipped'] ),
 				'trace'    => array(
 					'trace_uuid'   => $result['trace_uuid'],
 					'notebook_id'  => $result['notebook_id'],
@@ -7254,14 +8027,24 @@ class BizCity_CRM_REST_Controller {
 			if ( $mode === 'link' ) {
 				$lines[] = sprintf( '🔗 Link thanh toán đơn #%d (%s %s):', $oid, number_format( (float) $order['total'], 0, ',', '.' ), $order['currency'] );
 				$lines[] = (string) $order['checkout_url'];
-			} elseif ( $mode === 'qr' && $pay ) {
+			} elseif ( $mode === 'qr' ) {
+				if ( ! $pay ) { throw new \RuntimeException( 'order_payment_option_missing' ); }
 				$lines[] = sprintf( '🏦 Quý khách vui lòng chuyển khoản đơn #%d:', $oid );
 				$lines[] = sprintf( '• Ngân hàng: %s', $pay['bank_label'] );
 				$lines[] = sprintf( '• STK: %s — %s', $pay['account_no'], $pay['account_name'] );
 				$lines[] = sprintf( '• Số tiền: %s đ', number_format( (float) $pay['amount'], 0, ',', '.' ) );
 				$lines[] = sprintf( '• Nội dung: %s', $pay['content'] );
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-ORDER-SEND — send the VietQR as a real image attachment (caption = bank details) instead of a bare URL.
 				if ( ! empty( $pay['qr_img_url'] ) ) {
-					$lines[] = '🔳 Mã QR: ' . $pay['qr_img_url'];
+					$qr_attachment = array(
+						'file_type' => 'image',
+						'data_url'  => (string) $pay['qr_img_url'],
+						'thumb_url' => (string) $pay['qr_img_url'],
+						'name'      => 'qr-thanh-toan-don-' . $oid . '.jpg',
+						'mime'      => 'image/jpeg',
+					);
+				} else {
+					$lines[] = '🔗 Thanh toán online: ' . $order['checkout_url'];
 				}
 			} else { // recap (default)
 				$lines[] = sprintf( '📦 Cảm ơn anh/chị đã đặt đơn #%d', $oid );
@@ -7281,23 +8064,31 @@ class BizCity_CRM_REST_Controller {
 				$lines[] = '🔗 Thanh toán online: ' . $order['checkout_url'];
 			}
 			$content = implode( "\n", $lines );
+			$attachments = isset( $qr_attachment ) ? array( $qr_attachment ) : array();
 
 			// Reuse post_message dispatch path so adapter routing + ledger mirror stay consistent.
 			$inner = new WP_REST_Request( 'POST', '' );
 			$inner->set_url_params( array( 'id' => $conv_id ) );
 			$inner->set_body( wp_json_encode( array(
 				'content'        => $content,
-				'content_type'   => 'text',
+				'content_type'   => empty( $attachments ) ? 'text' : 'image',
+				'attachments'    => $attachments,
 				'responder_kind' => 'manual',
 			) ) );
 			$inner->set_header( 'content-type', 'application/json' );
 			$resp = self::post_message( $inner );
 			$data = is_object( $resp ) && method_exists( $resp, 'get_data' ) ? $resp->get_data() : $resp;
+			if ( is_array( $data ) && false === ( $data['ok'] ?? true ) ) {
+				throw new \RuntimeException( (string) ( $data['error']['message'] ?? 'order_send_failed' ) );
+			}
+			$inner_data = is_array( $data['data'] ?? null ) ? $data['data'] : ( is_array( $data ) ? $data : array() );
 			return array(
-				'sent'    => ! empty( $data['data']['sent'] ?? $data['sent'] ?? false ),
-				'mode'    => $mode,
-				'order'   => $order,
-				'preview' => $content,
+				'sent'     => ! empty( $inner_data['dispatch']['sent'] ?? $inner_data['sent'] ?? false ),
+				'dispatch' => is_array( $inner_data['dispatch'] ?? null ) ? $inner_data['dispatch'] : null,
+				'mode'     => $mode,
+				'order'    => $order,
+				'preview'  => $content,
+				'has_qr_image' => ! empty( $attachments ),
 			);
 		} );
 	}
@@ -7606,7 +8397,16 @@ class BizCity_CRM_REST_Controller {
 				}
 			}
 			$diff = BizCity_CRM_Repository::set_conversation_labels( $cid, $ids, get_current_user_id() );
+			if ( ! empty( $diff['failed'] ) ) {
+				return new WP_Error( 'label_write_failed', 'Không lưu được nhãn cho hội thoại.', array( 'status' => 500, 'hint' => 'Bảng nhãn của site chưa sẵn sàng hoặc không ghi được — báo quản trị kiểm tra Schema/Site Provisioner.', 'help_code' => 'label_write_failed' ) );
+			}
 			$rows = BizCity_CRM_Repository::get_conversation_labels( $cid );
+			$saved_ids = array_map( static function ( $r ) { return (int) $r['id']; }, $rows );
+			$wanted = array_values( array_filter( array_unique( array_map( 'intval', $ids ) ), static function ( $id ) { return $id > 0 && BizCity_CRM_Repository::get_label( $id ); } ) );
+			sort( $saved_ids ); sort( $wanted );
+			if ( $saved_ids !== $wanted ) {
+				return new WP_Error( 'label_write_mismatch', 'Nhãn chưa được lưu đúng như đã chọn.', array( 'status' => 500, 'hint' => 'Tải lại hội thoại và thử lại; nếu lặp lại, báo quản trị kiểm tra bảng nhãn.', 'help_code' => 'label_write_failed' ) );
+			}
 			return array(
 				'labels'  => array_map( array( __CLASS__, 'shape_label' ), $rows ),
 				'added'   => $diff['added'],
@@ -8084,6 +8884,18 @@ class BizCity_CRM_REST_Controller {
 	public static function get_conversation_sla( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			$cid = (int) $req->get_param( 'id' );
+			// [2026-09-22 11:35 AM OpenAI GPT-5.6 Luna] HOTFIX — legacy SLA is optional; a missing/partial schema or cache backend outage must degrade to an empty DTO, not HTTP 500.
+			try {
+				if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+					return array( 'conversation_id' => $cid, 'applied' => null, '_degraded' => true );
+				}
+				$applied_table = BizCity_CRM_DB_Installer_V2::tbl_applied_slas();
+				if ( ! BizCity_CRM_DB_Installer_V2::table_exists( $applied_table ) ) {
+					return array( 'conversation_id' => $cid, 'applied' => null, '_degraded' => true );
+				}
+			} catch ( Throwable $error ) {
+				return array( 'conversation_id' => $cid, 'applied' => null, '_degraded' => true );
+			}
 			$row = BizCity_CRM_Repository::get_applied_sla_for_conversation( $cid );
 			if ( ! $row ) { return array( 'conversation_id' => $cid, 'applied' => null ); }
 			$policy = BizCity_CRM_Repository::get_sla_policy( (int) $row['sla_policy_id'] );
@@ -8766,6 +9578,15 @@ class BizCity_CRM_REST_Controller {
 	 */
 
 	/** Resolve an incoming `id` (canonical OR legacy biz_contacts id) to canonical contact_id. */
+	/**
+	 * [2026-09-18] PHASE-0.52 B52-01 — `owner_id` selector for leads/opportunities/contracts: `me` means the logged-in
+	 * user (the SPA default "Pipeline của: Tôi"); anything else must be a positive integer, otherwise no row matches.
+	 */
+	private static function resolve_owner_param( $raw ): int {
+		if ( 'me' === strtolower( trim( (string) $raw ) ) ) { return (int) get_current_user_id(); }
+		return max( 0, (int) $raw );
+	}
+
 	private static function resolve_canonical_contact_id( int $id ): int {
 		if ( $id <= 0 ) { return 0; }
 		global $wpdb;
@@ -8812,13 +9633,40 @@ class BizCity_CRM_REST_Controller {
 				$like = '%' . $wpdb->esc_like( $q ) . '%';
 				$where[] = $wpdb->prepare( '(name LIKE %s OR first_name LIKE %s OR last_name LIKE %s OR email LIKE %s OR phone LIKE %s)', $like, $like, $like, $like, $like );
 			}
+			// PHASE-0.50 W1 — `owner` is a selector checked by Staff_Policy on every request (never an ACL by itself).
+			$owner_id = (int) ( $req->get_param( 'owner' ) ?: 0 );
+			$stage    = sanitize_key( (string) ( $req->get_param( 'stage' ) ?: '' ) );
+			if ( $owner_id > 0 ) {
+				if ( ! class_exists( 'BizCity_CRM_Staff_Policy' ) || ! class_exists( 'BizCity_CRM_Staff_REST' ) ) {
+					return new WP_Error( 'module_not_loaded', 'Chưa bật quản lý nhân viên.', array( 'status' => 503 ) );
+				}
+				$actor_id = (int) get_current_user_id();
+				if ( $owner_id !== $actor_id ) {
+					$decision = BizCity_CRM_Staff_Policy::can( $actor_id, 'contact.view_by_owner', $owner_id );
+					if ( ! $decision['ok'] ) {
+						return new WP_Error( 'member_not_manageable', (string) $decision['why'], array( 'status' => 403, 'hint' => 'Chọn "Cả đội" hoặc một nhân viên trong team bạn quản lý.' ) );
+					}
+				}
+				// PHASE-0.50 W1 — `inbox` = one phone/inbox of the owner (selector only); must sit in the owner's own scope.
+				$inbox_id = (int) ( $req->get_param( 'inbox' ) ?: 0 );
+				if ( $inbox_id > 0 && ! BizCity_CRM_Staff_REST::subject_has_inbox( $owner_id, $inbox_id ) ) {
+					return new WP_Error( 'inbox_not_in_owner_scope', 'SĐT/inbox này không thuộc nhân viên đang chọn.', array( 'status' => 403, 'hint' => 'Chọn lại SĐT trong hàng "SĐT Zalo" của nhân viên.' ) );
+				}
+				// PHASE-0.52 P52-C-04 — 'consulting' added so the W3 portfolio bucket's drill-down (stage=consulting) works.
+				$owner_ids = BizCity_CRM_Staff_REST::owner_contact_ids( $owner_id, in_array( $stage, array( 'new', 'touched', 'buyer', 'repeat', 'dormant', 'consulting' ), true ) ? $stage : '', 30, $inbox_id );
+				$where[] = empty( $owner_ids ) ? '0=1' : 'id IN (' . implode( ',', array_map( 'intval', $owner_ids ) ) . ')';
+			}
 			$limit  = max( 1, min( 500, (int) ( $req->get_param( 'limit' ) ?: 100 ) ) );
 			$offset = max( 0, (int) ( $req->get_param( 'offset' ) ?: 0 ) );
 			// [2026-07-03 Johnny Chu] PHASE-0.46 FIX — prioritize meaningful/recent contacts; avoid blank-name rows dominating first page.
 			$sql    = "SELECT * FROM `{$tbl}` WHERE " . implode( ' AND ', $where ) . " ORDER BY updated_at DESC, created_at DESC, id DESC LIMIT {$limit} OFFSET {$offset}";
 			$rows   = $wpdb->get_results( $sql, ARRAY_A );
+			$contacts = array_map( array( __CLASS__, 'shape_crm_contact' ), (array) $rows );
+			if ( 'team' === sanitize_key( (string) ( $req->get_param( 'with' ) ?: '' ) ) ) {
+				$contacts = self::enrich_contacts_team_columns( $contacts );
+			}
 			return array(
-				'contacts' => array_map( array( __CLASS__, 'shape_crm_contact' ), (array) $rows ),
+				'contacts' => $contacts,
 				'count'    => count( (array) $rows ),
 			);
 		} );
@@ -9070,6 +9918,233 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	/**
+	 * GET /crm-contacts/{id}/team-360 — PHASE-0.50 W2 `customer-360-team-view@1.0.0`.
+	 * Who owns the customer now, which phone/inbox cares for them, who has touched them (counts and
+	 * timestamps only, no message bodies), and orders with their D4 attribution.
+	 */
+	public static function get_crm_contact_team_360( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$contact_id = self::resolve_canonical_contact_id( (int) $req['id'] );
+			$actor_id = (int) get_current_user_id();
+			if ( ! $contact_id || ! self::contact_is_in_scope( $contact_id, $actor_id ) ) {
+				return new WP_Error( 'not_found', 'Không tìm thấy khách hàng trong phạm vi của bạn.', array( 'status' => 404 ) );
+			}
+			$ct_t = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$ct_t}` WHERE id=%d AND deleted_at IS NULL", $contact_id ), ARRAY_A );
+			if ( ! $row ) { return new WP_Error( 'not_found', 'Không tìm thấy khách hàng.', array( 'status' => 404 ) ); }
+			$contact = self::shape_crm_contact( $row );
+
+			$ci_t   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+			$conv_t = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+			$msg_t  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+			$ibx_t  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+			$allowed = class_exists( 'BizCity_CRM_Inbox_Access' ) ? BizCity_CRM_Inbox_Access::allowed_inbox_ids( $actor_id ) : array();
+			$inbox_filter = '';
+			if ( is_array( $allowed ) ) {
+				$allowed = array_values( array_filter( array_map( 'intval', $allowed ) ) );
+				$inbox_filter = empty( $allowed ) ? ' AND 0=1' : ' AND c.inbox_id IN (' . implode( ',', $allowed ) . ')';
+			}
+
+			$names = array();
+			$user_ref = static function ( int $uid ) use ( &$names ) {
+				if ( $uid <= 0 ) { return null; }
+				if ( ! isset( $names[ $uid ] ) ) { $u = get_userdata( $uid ); $names[ $uid ] = $u ? (string) $u->display_name : '#' . $uid; }
+				return array( 'user_id' => $uid, 'display_name' => $names[ $uid ] );
+			};
+
+			$zalo_lookup = class_exists( 'BizCity_Zalo_Mapping_Repo' ) && method_exists( 'BizCity_Zalo_Mapping_Repo', 'find_account_by_crm_inbox_id' );
+			$conversations = array();
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+				"SELECT c.id, c.inbox_id, c.status, c.assignee_id, c.last_activity_at, c.created_at, i.name AS inbox_name, i.channel_type
+				 FROM `{$conv_t}` c INNER JOIN `{$ci_t}` ci ON ci.id = c.contact_inbox_id LEFT JOIN `{$ibx_t}` i ON i.id = c.inbox_id
+				 WHERE ci.contact_id = %d{$inbox_filter} ORDER BY c.last_activity_at DESC LIMIT 20", $contact_id ), ARRAY_A ) as $c ) {
+				$item = array(
+					'conversation_id'  => (int) $c['id'],
+					'inbox_id'         => (int) $c['inbox_id'],
+					'inbox_name'       => sanitize_text_field( (string) $c['inbox_name'] ),
+					'channel_type'     => sanitize_key( (string) $c['channel_type'] ),
+					'status'           => sanitize_key( (string) $c['status'] ),
+					'assignee'         => $user_ref( (int) $c['assignee_id'] ),
+					'last_activity_at' => $c['last_activity_at'],
+					'created_at'       => $c['created_at'],
+					'session_state'    => null,
+					'phone_owner'      => null,
+				);
+				if ( $zalo_lookup && 'zalo_personal' === $item['channel_type'] ) {
+					$account = BizCity_Zalo_Mapping_Repo::find_account_by_crm_inbox_id( $item['inbox_id'] );
+					if ( is_array( $account ) ) {
+						$item['session_state'] = sanitize_key( (string) ( $account['status'] ?? 'unknown' ) );
+						$item['phone_owner'] = $user_ref( (int) ( $account['owner_user_id'] ?? 0 ) );
+					}
+				}
+				$conversations[] = $item;
+			}
+			$owner = null;
+			foreach ( $conversations as $c ) { if ( $c['assignee'] ) { $owner = $c['assignee'] + array( 'conversation_id' => $c['conversation_id'], 'inbox_id' => $c['inbox_id'] ); break; } }
+
+			$touched_by = array();
+			$automated = 0;
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+				"SELECT m.responder_user_id AS uid, COUNT(*) AS replies, MIN(m.created_at) AS first_at, MAX(m.created_at) AS last_at, GROUP_CONCAT(DISTINCT c.inbox_id) AS inbox_ids
+				 FROM `{$msg_t}` m INNER JOIN `{$conv_t}` c ON c.id = m.conversation_id INNER JOIN `{$ci_t}` ci ON ci.id = c.contact_inbox_id
+				 WHERE m.message_type = 'outgoing' AND ci.contact_id = %d{$inbox_filter}
+				 GROUP BY m.responder_user_id ORDER BY last_at DESC", $contact_id ), ARRAY_A ) as $t ) {
+				$uid = (int) $t['uid'];
+				if ( $uid <= 0 ) { $automated += (int) $t['replies']; continue; }
+				$touched_by[] = array_merge( (array) $user_ref( $uid ), array(
+					'replies'   => (int) $t['replies'],
+					'first_at'  => $t['first_at'],
+					'last_at'   => $t['last_at'],
+					'inbox_ids' => array_map( 'intval', array_filter( explode( ',', (string) $t['inbox_ids'] ) ) ),
+				) );
+			}
+
+			$orders = array();
+			$orders_available = function_exists( 'wc_get_orders' );
+			if ( $orders_available ) {
+				foreach ( (array) wc_get_orders( array( 'limit' => 50, 'return' => 'objects', 'meta_key' => '_bizcity_crm_contact_id', 'meta_value' => $contact_id, 'orderby' => 'date', 'order' => 'DESC' ) ) as $order ) {
+					if ( ! is_object( $order ) || ! method_exists( $order, 'get_id' ) ) { continue; }
+					$created = $order->get_date_created();
+					$orders[] = array(
+						'order_id'    => (int) $order->get_id(),
+						'number'      => (string) $order->get_order_number(),
+						'status'      => (string) $order->get_status(),
+						'total'       => (float) $order->get_total(),
+						'currency'    => (string) $order->get_currency(),
+						'paid'        => method_exists( $order, 'is_paid' ) ? (bool) $order->is_paid() : false,
+						'created_at'  => $created ? $created->date( 'Y-m-d H:i:s' ) : null,
+						'assignee'    => $user_ref( (int) $order->get_meta( '_bizcity_crm_assignee_id' ) ),
+						'attribution' => sanitize_key( (string) $order->get_meta( '_bizcity_crm_attribution' ) ) ?: null,
+						'conversation_id' => (int) $order->get_meta( '_bizcity_crm_conversation_id' ) ?: null,
+					);
+				}
+			}
+
+			$task_t = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+			$open_tasks = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$task_t}` WHERE deleted_at IS NULL AND completed = 0 AND related_entity_type = 'contact' AND related_entity_id = %d", $contact_id ) );
+
+			$can_workspace = false;
+			if ( $owner && class_exists( 'BizCity_CRM_Staff_Policy' ) && (int) $owner['user_id'] !== $actor_id ) {
+				$can_workspace = BizCity_CRM_Staff_Policy::can( $actor_id, 'staff.view_workspace', (int) $owner['user_id'] )['ok'];
+			}
+
+			$view = array(
+				'contract'      => 'customer-360-team-view',
+				'version'       => '1.0.0',
+				'as_of'         => current_time( 'mysql' ),
+				'contact'       => $contact,
+				'owner'         => $owner,
+				'identity_conflicts' => self::contact_identity_conflicts( $contact_id ),
+				'conversations' => $conversations,
+				'touched_by'    => $touched_by,
+				'automated_replies' => $automated,
+				'orders'        => $orders,
+				'orders_available' => $orders_available,
+				'marketing'     => array(
+					'acquisition_source' => $contact['acquisition_source'] ?? '',
+					'acquisition_meta'   => $contact['acquisition_meta'] ?? array(),
+					'tags'               => $contact['tags'] ?? array(),
+					'first_seen_at'      => $contact['created_at'] ?? null,
+				),
+				'open_tasks'    => $open_tasks,
+				'can'           => array( 'view_owner_workspace' => $can_workspace, 'assign_task' => class_exists( 'BizCity_CRM_Staff_Policy' ) && BizCity_CRM_Staff_Policy::rank( BizCity_CRM_Staff_Policy::role( $actor_id ) ) >= 2 ),
+			);
+			// [2026-09-18] Master roadmap M3-01 (C-02) — `?format=contract` returns the public envelope built by the
+			// dedicated B2 serializer; without it the flat read model the /crm/ SPA already uses is unchanged.
+			if ( 'contract' === (string) $req->get_param( 'format' ) && class_exists( 'BizCity_CRM_Customer_360_Team_View' ) ) {
+				$visible = class_exists( 'BizCity_CRM_Staff_Policy' ) ? BizCity_CRM_Staff_Policy::visible_user_ids( $actor_id ) : array( $actor_id );
+				return new WP_REST_Response( BizCity_CRM_Customer_360_Team_View::to_contract( $view, $actor_id, (int) get_current_blog_id(), current_time( 'c' ), $visible ), 200 );
+			}
+			return $view;
+		} );
+	}
+
+	/**
+	 * PHASE-0.50 W2 (mockup, G7) — open identity conflicts that name this contact. Count only: the other
+	 * candidate contacts may sit outside the actor's scope, so their ids/names never leave the server.
+	 * `review_url` only for users who may work the Identity Queue.
+	 *
+	 * @return array{open:int,review_url:string}
+	 */
+	private static function contact_identity_conflicts( int $contact_id ): array {
+		global $wpdb;
+		$out = array( 'open' => 0, 'review_url' => '' );
+		if ( $contact_id <= 0 || ! method_exists( 'BizCity_CRM_DB_Installer_V2', 'tbl_identity_conflicts' ) ) { return $out; }
+		$table = BizCity_CRM_DB_Installer_V2::tbl_identity_conflicts();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) { return $out; }
+		// contact_ids_json is a sorted JSON int array, e.g. [12,34].
+		$id = (string) $contact_id;
+		$out['open'] = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM `{$table}` WHERE blog_id = %d AND status IN ('open','claimed')
+			 AND ( contact_ids_json LIKE %s OR contact_ids_json LIKE %s OR contact_ids_json LIKE %s OR contact_ids_json = %s )",
+			(int) get_current_blog_id(), '[' . $id . ',%', '%,' . $id . ',%', '%,' . $id . ']', '[' . $id . ']'
+		) );
+		if ( $out['open'] > 0 && self::can_manage_rules() ) {
+			$out['review_url'] = admin_url( 'admin.php?page=' . ( class_exists( 'BizCity_CRM_Admin_Menu' ) ? BizCity_CRM_Admin_Menu::SLUG : 'bizcity-crm' ) . '-identity-queue' );
+		}
+		return $out;
+	}
+
+	/**
+	 * PHASE-0.50 W1 columns for one page of contacts (≤500): current owner (assignee of the most
+	 * recent conversation), last human touch (time + who), open task count. Three grouped queries.
+	 */
+	private static function enrich_contacts_team_columns( array $contacts ): array {
+		global $wpdb;
+		$ids = array_values( array_filter( array_map( static function ( $c ) { return (int) ( $c['id'] ?? 0 ); }, $contacts ) ) );
+		if ( empty( $ids ) ) { return $contacts; }
+		$ph     = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$ci_t   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$conv_t = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$msg_t  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$task_t = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+
+		$owner = array();
+		foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT ci.contact_id, c.assignee_id, c.inbox_id FROM `{$conv_t}` c INNER JOIN `{$ci_t}` ci ON ci.id = c.contact_inbox_id
+			 WHERE ci.contact_id IN ({$ph}) ORDER BY c.last_activity_at DESC", $ids ), ARRAY_A ) as $r ) {
+			$cid = (int) $r['contact_id'];
+			if ( ! isset( $owner[ $cid ] ) && (int) $r['assignee_id'] > 0 ) { $owner[ $cid ] = (int) $r['assignee_id']; }
+		}
+
+		$touch = array();
+		foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT ci.contact_id, m.responder_user_id, m.created_at FROM `{$msg_t}` m
+			 INNER JOIN `{$conv_t}` c ON c.id = m.conversation_id INNER JOIN `{$ci_t}` ci ON ci.id = c.contact_inbox_id
+			 INNER JOIN ( SELECT ci2.contact_id AS cid, MAX(m2.id) AS max_id FROM `{$msg_t}` m2
+			              INNER JOIN `{$conv_t}` c2 ON c2.id = m2.conversation_id INNER JOIN `{$ci_t}` ci2 ON ci2.id = c2.contact_inbox_id
+			              WHERE m2.message_type = 'outgoing' AND ci2.contact_id IN ({$ph}) GROUP BY ci2.contact_id ) last ON last.max_id = m.id
+			", $ids ), ARRAY_A ) as $r ) {
+			$touch[ (int) $r['contact_id'] ] = array( 'at' => (string) $r['created_at'], 'user_id' => (int) $r['responder_user_id'] );
+		}
+
+		$tasks = array();
+		foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT related_entity_id AS cid, COUNT(*) AS n FROM `{$task_t}` WHERE deleted_at IS NULL AND completed = 0 AND related_entity_type = 'contact' AND related_entity_id IN ({$ph}) GROUP BY related_entity_id", $ids ), ARRAY_A ) as $r ) {
+			$tasks[ (int) $r['cid'] ] = (int) $r['n'];
+		}
+
+		$names = array();
+		$name_of = static function ( int $uid ) use ( &$names ) {
+			if ( $uid <= 0 ) { return ''; }
+			if ( ! isset( $names[ $uid ] ) ) { $u = get_userdata( $uid ); $names[ $uid ] = $u ? (string) $u->display_name : ''; }
+			return $names[ $uid ];
+		};
+		foreach ( $contacts as &$c ) {
+			$cid = (int) $c['id'];
+			$oid = $owner[ $cid ] ?? 0;
+			$c['team'] = array(
+				'owner'      => $oid ? array( 'user_id' => $oid, 'display_name' => $name_of( $oid ) ) : null,
+				'last_touch' => isset( $touch[ $cid ] ) ? array( 'at' => $touch[ $cid ]['at'], 'user_id' => $touch[ $cid ]['user_id'], 'display_name' => $touch[ $cid ]['user_id'] > 0 ? $name_of( $touch[ $cid ]['user_id'] ) : '', 'kind' => $touch[ $cid ]['user_id'] > 0 ? 'human' : 'automated' ) : null,
+				'open_tasks' => $tasks[ $cid ] ?? 0,
+			);
+		}
+		unset( $c );
+		return $contacts;
+	}
+
 	private static function shape_crm_contact( ?array $r ): ?array {
 		if ( ! $r ) { return null; }
 		$tags = json_decode( (string) ( $r['tags_json'] ?? '' ), true );
@@ -9143,17 +10218,73 @@ class BizCity_CRM_REST_Controller {
 
 	/* ── Tasks ── */
 
+	/**
+	 * PHASE-0.50 G5 / 0.48F T4-02 — task ACL. `can_write` alone let any editor list or edit
+	 * every user's tasks and pick any `assignee_id`. Null = administrator (tenant-wide);
+	 * otherwise the actor plus the staff `Staff_Policy` lets them manage.
+	 *
+	 * @return array<int,int>|null
+	 */
+	private static function task_scope_user_ids(): ?array {
+		$actor_id = (int) get_current_user_id();
+		if ( current_user_can( 'manage_options' ) || ! class_exists( 'BizCity_CRM_Staff_Policy' ) ) { return null; }
+		return (array) ( BizCity_CRM_Staff_Policy::visible_user_ids( $actor_id ) ?? array( $actor_id ) );
+	}
+
+	/** SQL fragment confining task rows to {@see task_scope_user_ids()}; '' for administrators. */
+	private static function task_scope_sql(): string {
+		global $wpdb;
+		$ids = self::task_scope_user_ids();
+		if ( null === $ids ) { return ''; }
+		$ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+		$actor_id = (int) get_current_user_id();
+		if ( empty( $ids ) ) { return $wpdb->prepare( '(created_by = %d)', $actor_id ); }
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		return $wpdb->prepare( "(assignee_id IN ({$placeholders}) OR created_by = %d)", array_merge( $ids, array( $actor_id ) ) );
+	}
+
+	private static function task_row_in_scope( int $task_id ): bool {
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+		$scope = self::task_scope_sql();
+		$sql = $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE id=%d AND deleted_at IS NULL", $task_id ) . ( '' !== $scope ? ' AND ' . $scope : '' );
+		return (bool) $wpdb->get_var( $sql );
+	}
+
+	/** Null when the assignee is allowed; otherwise an R-ERROR-UX 403. `0`/empty = unassigned, always allowed. */
+	private static function task_assignee_denied( int $assignee_id ): ?WP_Error {
+		if ( $assignee_id <= 0 || ! class_exists( 'BizCity_CRM_Staff_Policy' ) || current_user_can( 'manage_options' ) ) { return null; }
+		// A personal to-do for yourself is not a manager handoff (Staff_Policy lists task.assign as SELF_FORBIDDEN).
+		if ( $assignee_id === (int) get_current_user_id() ) { return null; }
+		$decision = BizCity_CRM_Staff_Policy::can( (int) get_current_user_id(), 'task.assign', $assignee_id );
+		if ( $decision['ok'] ) { return null; }
+		return new WP_Error( 'member_not_manageable', (string) $decision['why'], array( 'status' => 403, 'hint' => 'Chỉ giao việc cho chính bạn hoặc nhân viên trong team bạn quản lý.' ) );
+	}
+
 	public static function get_crm_tasks( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			global $wpdb;
 			$tbl   = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
 			$where = array( 'deleted_at IS NULL' );
+			$scope_sql = self::task_scope_sql();
+			if ( '' !== $scope_sql ) { $where[] = $scope_sql; }
 			$status = (string) ( $req->get_param( 'status' ) ?: '' );
 			if ( $status !== '' ) { $where[] = $wpdb->prepare( 'status = %s', $status ); }
 			$aid = $req->get_param( 'assignee_id' );
-			if ( $aid !== null ) { $where[] = $wpdb->prepare( 'assignee_id = %d', (int) $aid ); }
+			if ( $aid !== null ) {
+				$scope_ids = self::task_scope_user_ids();
+				if ( null !== $scope_ids && (int) $aid > 0 && ! in_array( (int) $aid, array_map( 'intval', $scope_ids ), true ) ) {
+					return new WP_Error( 'member_not_manageable', 'Bạn không xem được việc của nhân viên này.', array( 'status' => 403, 'hint' => 'Chọn chính bạn hoặc nhân viên trong team bạn quản lý.' ) );
+				}
+				$where[] = $wpdb->prepare( 'assignee_id = %d', (int) $aid );
+			}
 			$q = (string) ( $req->get_param( 'q' ) ?: '' );
 			if ( $q !== '' ) { $where[] = $wpdb->prepare( 'title LIKE %s', '%' . $wpdb->esc_like( $q ) . '%' ); }
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48B-8.11 — honor related-entity filters; callers asking for one contact must not get the tenant-wide list.
+			$related_type = sanitize_key( (string) ( $req->get_param( 'related_entity_type' ) ?: '' ) );
+			$related_id   = (int) ( $req->get_param( 'related_entity_id' ) ?: 0 );
+			if ( $related_type !== '' ) { $where[] = $wpdb->prepare( 'related_entity_type = %s', $related_type ); }
+			if ( $related_id > 0 ) { $where[] = $wpdb->prepare( 'related_entity_id = %d', $related_id ); }
 			$limit  = max( 1, min( 500, (int) ( $req->get_param( 'limit' ) ?: 100 ) ) );
 			$offset = max( 0, (int) ( $req->get_param( 'offset' ) ?: 0 ) );
 			$sql    = "SELECT * FROM `{$tbl}` WHERE " . implode( ' AND ', $where ) . " ORDER BY due_date ASC, id DESC LIMIT {$limit} OFFSET {$offset}";
@@ -9169,6 +10300,7 @@ class BizCity_CRM_REST_Controller {
 		return self::wrap( static function () use ( $req ) {
 			global $wpdb;
 			$tbl = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+			if ( ! self::task_row_in_scope( (int) $req['id'] ) ) { return new WP_Error( 'not_found', 'Task not found', array( 'status' => 404 ) ); }
 			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$tbl}` WHERE id=%d AND deleted_at IS NULL", (int) $req['id'] ), ARRAY_A );
 			if ( ! $row ) { return new WP_Error( 'not_found', 'Task not found', array( 'status' => 404 ) ); }
 			return self::shape_crm_task( $row );
@@ -9181,6 +10313,8 @@ class BizCity_CRM_REST_Controller {
 			$body = self::extract_json_body( $req );
 			$title = trim( (string) ( $body['title'] ?? '' ) );
 			if ( $title === '' ) { return new WP_Error( 'invalid_title', '"title" is required', array( 'status' => 422 ) ); }
+			$denied = self::task_assignee_denied( (int) ( $body['assignee_id'] ?? 0 ) );
+			if ( $denied ) { return $denied; }
 			$now = current_time( 'mysql' );
 			$wpdb->insert( BizCity_CRM_DB_Installer_V2::tbl_crm_tasks(), array(
 				'title'               => $title,
@@ -9208,10 +10342,14 @@ class BizCity_CRM_REST_Controller {
 			global $wpdb;
 			$tbl = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
 			$id  = (int) $req['id'];
-			if ( ! $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE id=%d AND deleted_at IS NULL", $id ) ) ) {
+			if ( ! self::task_row_in_scope( $id ) ) {
 				return new WP_Error( 'not_found', 'Task not found', array( 'status' => 404 ) );
 			}
 			$body   = self::extract_json_body( $req );
+			if ( isset( $body['assignee_id'] ) ) {
+				$denied = self::task_assignee_denied( (int) $body['assignee_id'] );
+				if ( $denied ) { return $denied; }
+			}
 			$fields = array( 'updated_at' => current_time( 'mysql' ) );
 			foreach ( array( 'title', 'status', 'priority', 'due_date', 'notes' ) as $f ) {
 				if ( isset( $body[ $f ] ) ) { $fields[ $f ] = (string) $body[ $f ]; }
@@ -9233,6 +10371,7 @@ class BizCity_CRM_REST_Controller {
 			global $wpdb;
 			$tbl = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
 			$id  = (int) $req['id'];
+			if ( ! self::task_row_in_scope( $id ) ) { return new WP_Error( 'not_found', 'Task not found', array( 'status' => 404 ) ); }
 			$ok  = $wpdb->update( $tbl, array( 'deleted_at' => current_time( 'mysql' ) ), array( 'id' => $id ) );
 			return array( 'deleted' => (bool) $ok, 'id' => $id );
 		} );
@@ -9630,7 +10769,7 @@ class BizCity_CRM_REST_Controller {
 			$contact = $req->get_param( 'contact_id' );
 			$q      = (string) ( $req->get_param( 'q' ) ?: '' );
 			if ( $status !== '' ) { $where[] = $wpdb->prepare( 'status = %s', $status ); }
-			if ( $owner  !== null ) { $where[] = $wpdb->prepare( 'owner_id = %d', (int) $owner ); }
+			if ( $owner  !== null && '' !== (string) $owner ) { $where[] = $wpdb->prepare( 'owner_id = %d', self::resolve_owner_param( $owner ) ); }
 			// [2026-08-04 Johnny Chu] PHASE-0.48-H4 — scope opportunities to Customer 360 contact projections.
 			if ( $contact !== null ) { $where[] = $wpdb->prepare( 'contact_id = %d', (int) $contact ); }
 			if ( $q !== '' ) {
@@ -9934,7 +11073,7 @@ class BizCity_CRM_REST_Controller {
 			$q      = (string) ( $req->get_param( 'q' ) ?: '' );
 			if ( $stage  !== '' ) { $where[] = $wpdb->prepare( 'stage = %s', $stage ); }
 			if ( $status !== '' ) { $where[] = $wpdb->prepare( 'status = %s', $status ); }
-			if ( $owner  !== null ) { $where[] = $wpdb->prepare( 'owner_id = %d', (int) $owner ); }
+			if ( $owner  !== null && '' !== (string) $owner ) { $where[] = $wpdb->prepare( 'owner_id = %d', self::resolve_owner_param( $owner ) ); }
 			if ( $acct   !== null ) { $where[] = $wpdb->prepare( 'account_id = %d', (int) $acct ); }
 			if ( $contact !== null ) { $where[] = $wpdb->prepare( 'contact_id = %d', (int) $contact ); }
 			if ( $q !== '' ) {
@@ -10176,7 +11315,7 @@ class BizCity_CRM_REST_Controller {
 			$acct   = $req->get_param( 'account_id' );
 			$q      = (string) ( $req->get_param( 'q' ) ?: '' );
 			if ( $status !== '' ) { $where[] = $wpdb->prepare( 'status = %s', $status ); }
-			if ( $owner  !== null ) { $where[] = $wpdb->prepare( 'owner_id = %d', (int) $owner ); }
+			if ( $owner  !== null && '' !== (string) $owner ) { $where[] = $wpdb->prepare( 'owner_id = %d', self::resolve_owner_param( $owner ) ); }
 			if ( $acct   !== null ) { $where[] = $wpdb->prepare( 'account_id = %d', (int) $acct ); }
 			if ( $q !== '' ) {
 				$like = '%' . $wpdb->esc_like( $q ) . '%';
@@ -12641,6 +13780,99 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 		} );
 	}
 
+	const CONTACT_ACTIVITY_TYPES = array( 'note', 'call', 'meeting', 'email', 'task' );
+
+	/**
+	 * Contact activity list (entity_type = 'contact') — shared by B2 REST and the C `/gpt/crm/` care route.
+	 * Caller must have checked contact scope.
+	 *
+	 * @return array{items: array<int,array>, total: int}
+	 */
+	public static function list_contact_activities( int $contact_id, int $limit = 30, int $offset = 0 ): array {
+		global $wpdb;
+		$act_tbl = BizCity_CRM_DB_Installer_V2::tbl_crm_activities();
+		if ( $contact_id <= 0 || ! bizcity_tbl_exists( $act_tbl ) ) { return array( 'items' => array(), 'total' => 0 ); }
+		$where = "entity_type = 'contact' AND entity_id = %d AND ( deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00' )";
+		$total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$act_tbl}` WHERE {$where}", $contact_id ) );
+		$rows  = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, type, title, body, user_id, user_label, created_at FROM `{$act_tbl}` WHERE {$where} ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d",
+			$contact_id, max( 1, min( 100, $limit ) ), max( 0, $offset )
+		), ARRAY_A );
+		$items = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $r ) {
+			$uid = (int) ( $r['user_id'] ?? 0 );
+			$label = (string) ( $r['user_label'] ?? '' );
+			if ( $uid && '' === $label ) { $u = get_userdata( $uid ); $label = $u ? (string) $u->display_name : "User#{$uid}"; }
+			$items[] = array(
+				'id'                => (int) $r['id'],
+				'type'              => (string) $r['type'],
+				'title'             => (string) $r['title'],
+				'body'              => (string) $r['body'],
+				'user_id'           => $uid,
+				'user_display_name' => $label,
+				'user'              => $label,
+				'created_at'        => (string) $r['created_at'],
+			);
+		}
+		return array( 'items' => $items, 'total' => $total );
+	}
+
+	/**
+	 * Create one contact activity; returns the created item or a WP_Error (R-ERROR-UX codes).
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function create_contact_activity( int $contact_id, array $body, int $user_id ) {
+		global $wpdb;
+		$act_tbl = BizCity_CRM_DB_Installer_V2::tbl_crm_activities();
+		if ( ! bizcity_tbl_exists( $act_tbl ) ) {
+			return new WP_Error( 'activity_store_missing', 'Kho activity của site chưa sẵn sàng.', array( 'status' => 503, 'hint' => 'Báo quản trị chạy cập nhật cơ sở dữ liệu CRM.' ) );
+		}
+		$type  = sanitize_key( (string) ( $body['type'] ?? 'note' ) );
+		$title = mb_substr( sanitize_text_field( (string) ( $body['title'] ?? '' ) ), 0, 255 );
+		$text  = sanitize_textarea_field( (string) ( $body['body'] ?? '' ) );
+		if ( ! in_array( $type, self::CONTACT_ACTIVITY_TYPES, true ) ) {
+			return new WP_Error( 'invalid_activity_type', 'Loại activity không hợp lệ.', array( 'status' => 422, 'hint' => 'Chọn ghi chú, cuộc gọi, cuộc hẹn, email hoặc việc.' ) );
+		}
+		if ( '' === $title ) {
+			return new WP_Error( 'activity_title_required', 'Cần nhập tiêu đề activity.', array( 'status' => 422, 'hint' => 'Ví dụ: "Gọi tư vấn combo".' ) );
+		}
+		$user  = get_userdata( $user_id );
+		$now   = current_time( 'mysql' );
+		$ok = $wpdb->insert( $act_tbl, array(
+			'entity_type' => 'contact',
+			'entity_id'   => $contact_id,
+			'type'        => $type,
+			'title'       => $title,
+			'body'        => $text,
+			'user_id'     => $user_id ?: null,
+			'user_label'  => $user ? (string) $user->display_name : '',
+			'created_at'  => $now,
+		) );
+		if ( false === $ok ) {
+			error_log( '[bizcity-crm] create_contact_activity failed contact=' . $contact_id . ' ' . $wpdb->last_error );
+			return new WP_Error( 'activity_write_failed', 'Không lưu được activity.', array( 'status' => 500, 'hint' => 'Thử lại; nếu lặp lại, báo quản trị kiểm tra bảng activity.' ) );
+		}
+		return array( 'id' => (int) $wpdb->insert_id, 'type' => $type, 'title' => $title, 'body' => $text, 'user_id' => $user_id, 'user_display_name' => $user ? (string) $user->display_name : '', 'user' => $user ? (string) $user->display_name : '', 'created_at' => $now );
+	}
+
+	/** GET /crm-contacts/{id}/activities */
+	public static function get_contact_activities( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$contact_id = self::resolve_canonical_contact_id( (int) $req['id'] );
+			return self::list_contact_activities( $contact_id, (int) ( $req->get_param( 'limit' ) ?: 30 ), (int) ( $req->get_param( 'offset' ) ?: 0 ) );
+		} );
+	}
+
+	/** POST /crm-contacts/{id}/activities — body { type, title, body } */
+	public static function post_contact_activity( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$contact_id = self::resolve_canonical_contact_id( (int) $req['id'] );
+			if ( $contact_id <= 0 ) { return new WP_Error( 'not_found', 'Không tìm thấy khách hàng.', array( 'status' => 404 ) ); }
+			return self::create_contact_activity( $contact_id, self::extract_json_body( $req ), (int) get_current_user_id() );
+		} );
+	}
+
 	/**
 	 * GET /cf7-submissions/{id}/activities — list activities for a submission.
 	 */
@@ -13036,7 +14268,311 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 		if ( $user_id <= 0 || ! function_exists( 'get_userdata' ) ) { return false; }
 		$user = get_userdata( $user_id );
 		if ( ! $user || in_array( 'subscriber', (array) $user->roles, true ) ) { return false; }
+		// [2026-09-21 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.60-C02 — Super Admins and tenant admins remain valid CRM principals even when the current multisite blog has no local role row.
+		if ( ( function_exists( 'is_super_admin' ) && is_super_admin( $user_id ) ) || user_can( $user_id, 'manage_options' ) || user_can( $user_id, 'manage_network' ) ) {
+			return true;
+		}
 		return ! function_exists( 'is_user_member_of_blog' ) || is_user_member_of_blog( $user_id, get_current_blog_id() );
+	}
+
+	/**
+	 * GET /crm-settings/inbox-user-groups — B2 management rail grouped by WordPress user.
+	 *
+	 * [2026-09-16 01:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D-USER-RAIL
+	 *
+	 * The management tier (`/twin/?plugin=crm`) manages Inbox per WordPress
+	 * `user_id` instead of per channel. Each member logs in and uses the public
+	 * frontend at `/gpt/`; this endpoint only supplies the B2 grouping catalog.
+	 *
+	 * Ownership sources, in order:
+	 *   1. `bizcity_zalo_accounts.owner_user_id` → `crm_inbox_id` (exact owner).
+	 *   2. `bizcity_crm_inbox_members` (business inbox membership).
+	 *
+	 * Only safe labels are returned; raw provider identifiers never leave the
+	 * server. A posted user ID is a selector input, never an ACL.
+	 */
+	public static function get_crm_inbox_user_groups( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+				return array( 'groups' => array(), 'unassigned' => array(), '_degraded' => true );
+			}
+			global $wpdb;
+			$inboxes_table = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+			$rows = $wpdb->get_results( "SELECT id, name, channel_type, channel_ref_id FROM `{$inboxes_table}` WHERE is_active = 1 ORDER BY id ASC", ARRAY_A );
+			$rows = is_array( $rows ) ? $rows : array();
+
+			$inbox_ids = array();
+			foreach ( $rows as $row ) {
+				$inbox_ids[] = (int) ( $row['id'] ?? 0 );
+			}
+			$inbox_ids = array_values( array_filter( array_unique( $inbox_ids ) ) );
+
+			// 1) Exact Personal-account ownership.
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F F1-02 (S2 slice) —
+			// piggy-back on this same `list_personal_accounts()` read to also expose
+			// `session_state`/`can_relogin` per inbox, straight from the already-synced
+			// local `bizcity_zalo_accounts.status` column — no per-account bridge/
+			// readiness call, so a 30-employee rail stays one query. The richer
+			// `session_disconnected`/`superseded`/`bridge_unavailable` states from the
+			// full readiness envelope (0.48E §E3.2) need live sidecar state and remain
+			// F1-01 (not done here).
+			$owner_map = array();
+			$session_state_map = array();
+			$dead_states = array( 'expired', 'logged_out' );
+			if ( ! empty( $inbox_ids ) && class_exists( 'BizCity_Zalo_Mapping_Repo' ) && method_exists( 'BizCity_Zalo_Mapping_Repo', 'list_personal_accounts' ) ) {
+				foreach ( (array) BizCity_Zalo_Mapping_Repo::list_personal_accounts( array( 'limit' => 200 ) ) as $account ) {
+					$owner_user_id = (int) ( $account['owner_user_id'] ?? 0 );
+					$inbox_id      = (int) ( $account['crm_inbox_id'] ?? 0 );
+					if ( $owner_user_id > 0 && $inbox_id > 0 ) {
+						$owner_map[ $inbox_id ] = $owner_user_id;
+					}
+					if ( $inbox_id > 0 ) {
+						$status = sanitize_key( (string) ( $account['status'] ?? 'unknown' ) );
+						// [2026-09-18] R-ZP-ERR — 'revoked' (deleted) is a known state: shown as "Đã xoá", never offered QR, not counted dead.
+						if ( ! in_array( $status, array( 'connected', 'pending_qr', 'expired', 'logged_out', 'revoked' ), true ) ) { $status = 'unknown'; }
+						$session_state_map[ $inbox_id ] = array(
+							'session_state' => $status,
+							'can_relogin'   => in_array( $status, $dead_states, true ),
+						);
+					}
+				}
+			}
+			// [2026-09-18] PHASE-0.48F U10 DUP-10 — a logged-out phone whose Zalo login is now CONNECTED on
+			// another account of this site is a duplicate, not a session to re-login: re-login would kick the
+			// live one (R-ZP-DUP-2). Mark it so the rail says "Trùng SĐT" and offers cleanup instead of QR.
+			if ( class_exists( 'BizCity_Zalo_Duplicate_Guard' ) && method_exists( 'BizCity_Zalo_Duplicate_Guard', 'find_twins' ) ) {
+				foreach ( BizCity_Zalo_Duplicate_Guard::find_twins( (array) BizCity_Zalo_Mapping_Repo::list_personal_accounts( array( 'limit' => 200 ) ) ) as $dead_inbox_id => $twin ) {
+					$session_state_map[ $dead_inbox_id ] = array(
+						'session_state'         => 'duplicate',
+						'can_relogin'           => false,
+						'duplicate_of_inbox_id' => (int) $twin['crm_inbox_id'],
+						'duplicate_of_label'    => (string) $twin['label'],
+					);
+				}
+			}
+
+			// 2) Business inbox membership.
+			$member_map = array();
+			$members_table = BizCity_CRM_DB_Installer_V2::tbl_inbox_members();
+			if ( ! empty( $inbox_ids ) && BizCity_CRM_DB_Installer_V2::table_exists( $members_table ) ) {
+				$placeholders = implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) );
+				$member_rows = $wpdb->get_results( $wpdb->prepare( "SELECT inbox_id, user_id FROM `{$members_table}` WHERE is_active = 1 AND inbox_id IN ({$placeholders})", $inbox_ids ), ARRAY_A );
+				foreach ( is_array( $member_rows ) ? $member_rows : array() as $member_row ) {
+					$inbox_id  = (int) ( $member_row['inbox_id'] ?? 0 );
+					$user_id   = (int) ( $member_row['user_id'] ?? 0 );
+					if ( $inbox_id > 0 && $user_id > 0 ) {
+						$member_map[ $inbox_id ][] = $user_id;
+					}
+				}
+			}
+
+			// PHASE-0.48F T1-07 — open / waiting-past-SLA counts per inbox, one grouped query
+			// (same last-message rule as `BizCity_CRM_Staff_REST::fetch_conversation_aggregates()`).
+			$count_map = array();
+			if ( ! empty( $inbox_ids ) ) {
+				$conv_table = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+				$msg_table  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+				$wait_minutes = class_exists( 'BizCity_CRM_Staff_REST' ) ? (int) BizCity_CRM_Staff_REST::WAIT_MINUTES_BREACH : 15;
+				$cutoff = gmdate( 'Y-m-d H:i:s', strtotime( '-' . $wait_minutes . ' minutes', current_time( 'timestamp' ) ) );
+				$placeholders = implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) );
+				$count_rows = $wpdb->get_results( $wpdb->prepare(
+					"SELECT c.inbox_id, COUNT(*) AS open_count,
+						SUM(CASE WHEN m.message_type = 'incoming' AND m.created_at < %s THEN 1 ELSE 0 END) AS breach_count
+					 FROM `{$conv_table}` c
+					 LEFT JOIN `{$msg_table}` m ON m.id = c.last_message_id
+					 WHERE c.status = 'open' AND c.inbox_id IN ({$placeholders})
+					 GROUP BY c.inbox_id",
+					array_merge( array( $cutoff ), $inbox_ids )
+				), ARRAY_A );
+				foreach ( is_array( $count_rows ) ? $count_rows : array() as $count_row ) {
+					$count_map[ (int) $count_row['inbox_id'] ] = array(
+						'open_count'   => (int) $count_row['open_count'],
+						'breach_count' => (int) $count_row['breach_count'],
+					);
+				}
+			}
+
+			// PHASE-0.48F T1 — a team lead/supervisor without the rules cap sees only the staff
+			// Staff_Policy lets them see, and no "unassigned" bucket (that is tenant administration).
+			$visible_user_ids = null;
+			if ( ! self::can_manage_rules() && class_exists( 'BizCity_CRM_Staff_Policy' ) ) {
+				$visible_user_ids = (array) ( BizCity_CRM_Staff_Policy::visible_user_ids( get_current_user_id() ) ?? array() );
+			}
+
+			$groups     = array();
+			$unassigned = array();
+			foreach ( $rows as $row ) {
+				$inbox_id = (int) ( $row['id'] ?? 0 );
+				if ( $inbox_id <= 0 ) { continue; }
+				$item = array(
+					'id'           => $inbox_id,
+					'name'         => sanitize_text_field( (string) ( $row['name'] ?? '' ) ),
+					'channel_type' => sanitize_key( (string) ( $row['channel_type'] ?? '' ) ),
+					'open_count'   => (int) ( $count_map[ $inbox_id ]['open_count'] ?? 0 ),
+					'breach_count' => (int) ( $count_map[ $inbox_id ]['breach_count'] ?? 0 ),
+				);
+				if ( isset( $session_state_map[ $inbox_id ] ) ) {
+					$item = array_merge( $item, $session_state_map[ $inbox_id ] );
+				}
+				$user_ids = array();
+				if ( isset( $owner_map[ $inbox_id ] ) ) {
+					$user_ids[] = (int) $owner_map[ $inbox_id ];
+				}
+				foreach ( (array) ( $member_map[ $inbox_id ] ?? array() ) as $member_user_id ) {
+					$user_ids[] = (int) $member_user_id;
+				}
+				$user_ids = array_values( array_unique( array_filter( $user_ids ) ) );
+				if ( empty( $user_ids ) ) {
+					if ( null === $visible_user_ids ) { $unassigned[] = $item; }
+					continue;
+				}
+				foreach ( $user_ids as $user_id ) {
+					if ( ! self::is_crm_assignable_user( $user_id ) ) { continue; }
+					if ( null !== $visible_user_ids && ! in_array( $user_id, $visible_user_ids, true ) ) { continue; }
+					if ( ! isset( $groups[ $user_id ] ) ) {
+						$user = get_userdata( $user_id );
+						$groups[ $user_id ] = array(
+							'user_id'      => $user_id,
+							'display_name' => $user ? sanitize_text_field( (string) $user->display_name ) : ( '#' . $user_id ),
+							'inboxes'      => array(),
+							'open_count'   => 0,
+							'breach_count' => 0,
+							'dead_count'   => 0,
+						);
+					}
+					$groups[ $user_id ]['inboxes'][] = $item;
+					$groups[ $user_id ]['open_count']   += $item['open_count'];
+					$groups[ $user_id ]['breach_count'] += $item['breach_count'];
+					if ( ! empty( $item['can_relogin'] ) || 'duplicate' === ( $item['session_state'] ?? '' ) ) { $groups[ $user_id ]['dead_count']++; }
+				}
+			}
+
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N6 (§5.1 `business[]`) — OA/Facebook/WebChat
+			// channels, one row per inbox (not nested per-member like `groups` above, even though the same
+			// inbox also shows up there today via `$member_map`). `can.manage` is deliberately
+			// `current_user_can('manage_options')` directly (not a `Staff_Policy` action — rule 6 in the doc
+			// says kênh doanh nghiệp is admin-only to connect/reconfigure); `can.members` mirrors
+			// `self::can_manage_teams()`, the ACTUAL gate on the existing `POST/DELETE /inboxes/{id}/members`
+			// routes — not the doc's own §4 rule 6 text ("gán người trực theo inbox.member", i.e. a
+			// `Staff_Policy` lead+ check), which does not match what those routes enforce today. Showing
+			// `Staff_Policy`'s looser rank-2 answer here would offer a "Người trực" control to leads who the
+			// real endpoint would then 403 — surfacing the stricter, TRUE gate instead.
+			$business = array();
+			$business_channel_types = array( 'zalo_oa', 'facebook', 'facebook_page', 'webchat' );
+			// Deliberately two different checks, not one reused value: `manage` (connect/reconfigure the
+			// channel, rule 6 "chỉ admin") is strictly `manage_options`; `members` mirrors the real
+			// `POST/DELETE /inboxes/{id}/members` gate (`can_manage_teams()`), which also allows the
+			// narrower `bizcity_crm_manage_teams` capability without full `manage_options`.
+			$can_manage_channel = current_user_can( 'manage_options' );
+			$can_manage_members = self::can_manage_teams();
+			foreach ( $rows as $row ) {
+				$inbox_id = (int) ( $row['id'] ?? 0 );
+				$channel_type = sanitize_key( (string) ( $row['channel_type'] ?? '' ) );
+				if ( $inbox_id <= 0 || ! in_array( $channel_type, $business_channel_types, true ) ) { continue; }
+				$state = 'connected';
+				if ( 'zalo_oa' === $channel_type && class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+					// OA accounts live in the same `bizcity_zalo_accounts` table as Zalo Personal (`kind = 'oa'`),
+					// same `status` column — no separate OA session model to build.
+					$oa_account = BizCity_Zalo_Mapping_Repo::find_account_by_crm_inbox_id( $inbox_id );
+					if ( is_array( $oa_account ) ) { $state = sanitize_key( (string) ( $oa_account['status'] ?? 'connected' ) ); }
+				}
+				$members = array();
+				foreach ( (array) ( $member_map[ $inbox_id ] ?? array() ) as $member_user_id ) {
+					$member_user = get_userdata( (int) $member_user_id );
+					$members[] = array(
+						'user_id'      => (int) $member_user_id,
+						'display_name' => $member_user ? sanitize_text_field( (string) $member_user->display_name ) : ( '#' . $member_user_id ),
+					);
+				}
+				$business[] = array(
+					'inbox_id' => $inbox_id,
+					'channel'  => $channel_type,
+					'name'     => sanitize_text_field( (string) ( $row['name'] ?? '' ) ),
+					'state'    => $state,
+					'members'  => $members,
+					'can'      => array(
+						'manage'  => $can_manage_channel,
+						'members' => $can_manage_members,
+					),
+				);
+			}
+
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N1 — `?include=staff` adds every D1-eligible
+			// user (administrator + editor + `bizcity_crm_staff`, same roster as `GET /crm-staff`) who has
+			// no inbox at all yet, so the rail can show a "Chưa có SĐT Zalo · [+ Thêm SĐT]" invite row
+			// instead of the person disappearing (doc gap G1). Scoped the same way the loop above already
+			// scopes existing groups: null `$visible_user_ids` = administrator (tenant-wide), otherwise the
+			// actor's own team.
+			$include = array_map( 'sanitize_key', array_filter( array_map( 'trim', explode( ',', (string) ( $req->get_param( 'include' ) ?? '' ) ) ) ) );
+			if ( in_array( 'staff', $include, true ) ) {
+				$roster_ids = null !== $visible_user_ids
+					? $visible_user_ids
+					: ( class_exists( 'BizCity_CRM_Staff_REST' ) ? BizCity_CRM_Staff_REST::admin_staff_user_ids() : array() );
+				foreach ( (array) $roster_ids as $roster_user_id ) {
+					$roster_user_id = (int) $roster_user_id;
+					if ( $roster_user_id <= 0 || isset( $groups[ $roster_user_id ] ) || ! self::is_crm_assignable_user( $roster_user_id ) ) { continue; }
+					$roster_user = get_userdata( $roster_user_id );
+					$groups[ $roster_user_id ] = array(
+						'user_id'      => $roster_user_id,
+						'display_name' => $roster_user ? sanitize_text_field( (string) $roster_user->display_name ) : ( '#' . $roster_user_id ),
+						'inboxes'      => array(),
+						'open_count'   => 0,
+						'breach_count' => 0,
+						'dead_count'   => 0,
+					);
+				}
+			}
+
+			// PHASE-0.53 N1 (§5.1) — `role_label` + `can{assign_phone,qr,transfer,remove}` + `quota{used,limit}`
+			// per group, so the FE can hide/disable the `+`/QR/Chuyển/Gỡ actions per P7 without guessing the
+			// actor's rank client-side. `assign_phone` gates the S1 "+" (add a NEW phone for this person):
+			// true for your own row (self-add never runs an ACL check — see `Staff_Policy::MIN_RANK` note on
+			// `phone.add_for_other`), otherwise the fail-closed `phone.add_for_other` (D2, administrator-only).
+			// `transfer`/`remove` both gate on `phone.assign`, matching S4/S5's access column in the doc exactly.
+			$actor_id       = get_current_user_id();
+			$has_policy     = class_exists( 'BizCity_CRM_Staff_Policy' );
+			$has_grant_layer = class_exists( 'BizCity_Channel_User_Grant' );
+			foreach ( $groups as $group_user_id => &$group ) {
+				$group['role_label'] = $has_policy ? BizCity_CRM_Staff_Policy::label( BizCity_CRM_Staff_Policy::role( $group_user_id ) ) : '—';
+				$can_assign = $has_policy && ! empty( BizCity_CRM_Staff_Policy::can( $actor_id, 'phone.assign', $group_user_id )['ok'] );
+				$group['can'] = array(
+					'assign_phone' => $group_user_id === $actor_id || ( $has_policy && ! empty( BizCity_CRM_Staff_Policy::can( $actor_id, 'phone.add_for_other', $group_user_id )['ok'] ) ),
+					'qr'           => $has_policy && ! empty( BizCity_CRM_Staff_Policy::can( $actor_id, 'phone.qr', $group_user_id )['ok'] ),
+					'transfer'     => $can_assign,
+					'remove'       => $can_assign,
+				);
+				$quota_status = $has_grant_layer ? BizCity_Channel_User_Grant::personal_quota_status( $group_user_id ) : array();
+				$group['quota'] = array(
+					'used'  => (int) ( $quota_status['owned'] ?? 0 ),
+					'limit' => (int) ( $quota_status['quota'] ?? 0 ),
+				);
+			}
+			unset( $group );
+
+			$out = array_values( $groups );
+			// Mockup §2.1: groups with a dead session float to the top, then most customers waiting past SLA.
+			usort( $out, static function ( $a, $b ) {
+				return ( ( $b['dead_count'] > 0 ) <=> ( $a['dead_count'] > 0 ) )
+					?: ( $b['breach_count'] <=> $a['breach_count'] )
+					?: strcasecmp( (string) $a['display_name'], (string) $b['display_name'] );
+			} );
+
+			return array(
+				'contract'   => 'crm-inbox-user-groups',
+				// 1.1.0 added optional `session_state`/`can_relogin`; 1.2.0 adds optional
+				// `open_count`/`breach_count` (inbox + group) and `dead_count` (group).
+				// 1.3.0 adds session_state 'duplicate' + optional duplicate_of_inbox_id/duplicate_of_label (R-ZP-DUP).
+				// 1.4.0 (PHASE-0.53 N1) adds `?include=staff` (0-phone D1 members) and, on every group,
+				// `role_label` + `can{assign_phone,qr,transfer,remove}` + `quota{used,limit}`.
+				// 1.5.0 (PHASE-0.53 N6) adds `business[]` (OA/Facebook/WebChat channels, one row per inbox).
+				'version'    => '1.5.0',
+				'scoped'     => null !== $visible_user_ids,
+				'wait_minutes' => class_exists( 'BizCity_CRM_Staff_REST' ) ? (int) BizCity_CRM_Staff_REST::WAIT_MINUTES_BREACH : 15,
+				'groups'     => $out,
+				'unassigned' => $unassigned,
+				'business'   => $business,
+			);
+		} );
 	}
 
 	/**

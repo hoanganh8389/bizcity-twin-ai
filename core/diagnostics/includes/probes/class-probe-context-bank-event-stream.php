@@ -65,6 +65,33 @@ final class BizCity_Probe_Context_Bank_Event_Stream implements BizCity_Diagnosti
 		if ( function_exists( 'get_current_blog_id' ) && (int) get_current_blog_id() <= 0 ) {
 			return new WP_Error( 'event_stream_tenant_missing', 'Current tenant is not resolved.' );
 		}
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — the canonical
+		// Event Stream table is a hard precondition of this probe, but it was never
+		// declared. Without it a missing/cold table degrades into a generic
+		// "controlled exception" fail instead of a named precondition, which is
+		// exactly what a VPS run reported. Declare it so the runner classifies the
+		// result as precondition_skip and names the missing artifact.
+		if ( class_exists( 'BizCity_Twin_Event_Stream_Schema' ) && function_exists( 'bizcity_tbl_exists' ) ) {
+			$stream_table = BizCity_Twin_Event_Stream_Schema::table();
+			if ( $stream_table !== '' && ! bizcity_tbl_exists( $stream_table ) ) {
+				return new WP_Error( 'event_stream_table_not_provisioned', 'Canonical Twin Event Stream table is not provisioned on the current tenant shard.' );
+			}
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — a table that
+			// EXISTS but is missing a column `persist()` writes is the failure mode
+			// actually observed on libedemo.bizcity.vn / blog 1511: the INSERT fails,
+			// `persist()` returns 0 and `dispatch_v2()` throws "Failed to persist
+			// event". Name the drift here instead of letting it surface as a generic
+			// exception, so the next run reports the missing columns directly.
+			if ( class_exists( 'BizCity_Table_Metadata' ) ) {
+				$required_columns = array( 'event_uuid', 'trace_id', 'conversation_id', 'session_id', 'user_id', 'blog_id', 'event_type', 'event_source', 'parent_event_id', 'parent_event_uuid', 'payload_json', 'schema_version', 'created_at', 'created_epoch_ms' );
+				if ( ! BizCity_Table_Metadata::columns_exist( $stream_table, $required_columns ) ) {
+					return new WP_Error(
+						'event_stream_schema_drift',
+						'Canonical Twin Event Stream table exists but is missing columns that BizCity_Twin_Event_Store::persist() writes; every dispatch will fail with "Failed to persist event". Run the registered installer (BizCity_Twin_Event_Stream_Schema::ensure_table) in a repair context.'
+					);
+				}
+			}
+		}
 		return true;
 	}
 
@@ -128,7 +155,19 @@ final class BizCity_Probe_Context_Bank_Event_Stream implements BizCity_Diagnosti
 			$cleanup_ok = is_array( $tombstone ) && ! empty( $tombstone['ok'] );
 			$emit( 'Runtime - derived projection tombstone', $cleanup_ok ? 'pass' : 'fail', $cleanup_ok ? 'Projection tombstone admitted; canonical Event Stream history remains untouched.' : 'Projection tombstone failed: ' . (string) ( $tombstone['reason'] ?? 'unknown' ) );
 		} catch ( \Throwable $e ) {
-			$emit( 'Runtime - Event Stream projection exception', 'fail', 'Canonical projection failed with a controlled exception.' );
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — a caught
+			// Throwable must leave an actionable detail. The previous message was a
+			// fixed sentence, so a runtime FAIL carried no diagnosable cause and the
+			// rerun produced the identical sentence every time. Keep the exception
+			// CLASS and a bounded message (basename only, never an absolute path).
+			$emit(
+				'Runtime - Event Stream projection exception',
+				'fail',
+				'Canonical projection failed with a controlled exception: '
+					. get_class( $e )
+					. ' @ ' . basename( (string) $e->getFile() ) . ':' . (int) $e->getLine()
+					. ' · ' . mb_substr( (string) $e->getMessage(), 0, 240 )
+			);
 		} finally {
 			if ( $previous_flag === $flag_missing ) {
 				delete_option( $flag_key );

@@ -1,0 +1,16 @@
+{
+  "contract": "core-entities",
+  "version": "1.0.0",
+  "entities": [
+    {"key":"event","label":"Event","canonical_store":"wrong"},
+    {"key":"person","label":"Person","canonical_store":"contacts"},
+    {"key":"organization","label":"Organization","canonical_store":"accounts"},
+    {"key":"conversation","label":"Conversation","canonical_store":"conversations"},
+    {"key":"work","label":"Work","canonical_store":"tasks"},
+    {"key":"request","label":"Request","canonical_store":"requests"},
+    {"key":"flow","label":"Flow","canonical_store":"flows"},
+    {"key":"document","label":"Document","canonical_store":"documents"},
+    {"key":"approval","label":"Approval","canonical_store":"approvals"},
+    {"key":"context","label":"Context","canonical_store":"context"}
+  ]
+}

@@ -74,6 +74,10 @@ class BizCity_KG_Notebook_Service {
 		$db = BizCity_KG_Database::instance();
 
 		$user_id = (int) $user_id;
+		// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57A W2-01 — all notebook reads use the canonical workspace/grant resolver when available.
+		$access_where = class_exists( 'BizCity_KG_Access' ) && $user_id > 0
+			? BizCity_KG_Access::readable_where( $user_id )
+			: '';
 		$include_public = ! empty( $args['include_public'] );
 		// [2026-07-27 Johnny Chu] PHASE-0.51 — anonymous list calls cannot read owner_id=0 as private data.
 		if ( $user_id <= 0 && ! $include_public ) {
@@ -85,9 +89,10 @@ class BizCity_KG_Notebook_Service {
 		if ( $scope !== '' && ! in_array( $scope, self::NOTEBOOK_SCOPES, true ) ) {
 			$scope = '';
 		}
-		$where  = 'owner_id = %d';
-		$params = [ $user_id ];
-		if ( $include_public ) {
+		$where  = $access_where !== '' ? $access_where : 'owner_id = %d';
+		$where .= " AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settings, '$.deleted_at')), '') = ''";
+		$params = $access_where !== '' ? [ $user_id ] : [ $user_id ];
+		if ( $access_where === '' && $include_public ) {
 			if ( $user_id > 0 ) {
 				$where = "(owner_id = %d OR (owner_id = 0 AND notebook_scope IN ('business_kb','guru_kb')))";
 			} else {
@@ -194,7 +199,7 @@ class BizCity_KG_Notebook_Service {
 			}
 			$update['notebook_scope'] = $scope;
 		}
-		if ( isset( $data['settings'] ) )     $update['settings']    = wp_json_encode( $data['settings'] );
+		if ( isset( $data['settings'] ) )     $update['settings']    = wp_json_encode( is_array( $data['settings'] ) ? $data['settings'] : array(), JSON_UNESCAPED_UNICODE );
 
 		// Wave 0.18.1c — convenient shortcut: merge `workspace_id` into existing settings JSON
 		// without forcing the FE to round-trip the full settings object.
@@ -202,7 +207,7 @@ class BizCity_KG_Notebook_Service {
 			$current = $this->get( (int) $id );
 			$cur_settings = is_array( $current['settings'] ?? null ) ? $current['settings'] : (array) ( $current['settings'] ?? [] );
 			$cur_settings['workspace_id'] = sanitize_key( $data['workspace_id'] );
-			$update['settings'] = wp_json_encode( $cur_settings );
+			$update['settings'] = wp_json_encode( $cur_settings, JSON_UNESCAPED_UNICODE );
 		}
 
 		if ( empty( $update ) ) {
@@ -224,6 +229,8 @@ class BizCity_KG_Notebook_Service {
 		 * @param int $id Notebook id about to be deleted.
 		 */
 		do_action( 'bizcity_kg_notebook_before_delete', $id );
+		// [2026-09-19 Johnny Chu] PHASE-0.57A W3-03 — remove canonical Guru attachments before graph rows.
+		$wpdb->delete( $db->tbl_notebook_character_attachments(), array( 'notebook_id' => $id ) );
 
 		// Cascade delete graph data scoped to this notebook.
 		$wpdb->query( $wpdb->prepare(

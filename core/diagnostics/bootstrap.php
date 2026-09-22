@@ -116,6 +116,55 @@ if ( ! function_exists( 'bizcity_diagnostics_should_load_probes' ) ) {
 	}
 }
 
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-10 — register the Diagnostics Control
+// Panel surface as a metadata-only deep-link. Probe values and log payloads stay in Diagnostics; nothing
+// is copied into panel metadata. Guarded function + hook retry so CLI/cron/probe contexts see the same
+// registry when this file loads before the framework contracts (see the Setting Panel author guide).
+if ( ! function_exists( 'bizcity_diagnostics_register_setting_panel' ) ) {
+	function bizcity_diagnostics_register_setting_panel(): bool {
+		if ( ! class_exists( 'BizCity_Twin_Plugin_SDK' ) || ! class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+			return false;
+		}
+		BizCity_Twin_Plugin_SDK::register_ui(
+			array(
+				'setting_panel' => array(
+					array(
+						'contract'        => 'setting-panel-registration',
+						'version'         => '1.0.0',
+						'id'              => 'core.diagnostics.control_panel',
+						'owner'           => 'core/diagnostics',
+						'origin'          => 'core',
+						'destination'     => 'settings',
+						'group'           => 'diagnostics',
+						'label_key'       => 'settings.diagnostics.label',
+						'description_key' => 'settings.diagnostics.description',
+						'icon'            => 'cil-list',
+						'capability'      => 'manage_options',
+						'scope'           => 'site',
+						'surface'         => 'admin_shell',
+						'renderer'        => array(
+							'type'           => 'deep_link',
+							'id'             => 'core.diagnostics.control_panel',
+							'canonical_slug' => 'bizcity-twin-diagnostics',
+						),
+						'availability'    => array(
+							'policy'         => 'registered-owner',
+							'dependency_ids' => array( 'core.diagnostics' ),
+						),
+						'position'        => 340,
+					),
+				),
+			)
+		);
+		return true;
+	}
+}
+
+if ( ! bizcity_diagnostics_register_setting_panel() && function_exists( 'add_action' ) ) {
+	add_action( 'plugins_loaded', 'bizcity_diagnostics_register_setting_panel', 1 );
+	add_action( 'init', 'bizcity_diagnostics_register_setting_panel', 1 );
+}
+
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-table-registry.php', 'diagnostics.table_registry' );
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-table-inspector.php', 'diagnostics.table_inspector' );
 BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-column-inspector.php', 'diagnostics.column_inspector' );
@@ -169,6 +218,8 @@ bizcity_diagnostics_require_probe( 'class-probe-webchat-surface.php' );
 bizcity_diagnostics_require_probe( 'class-probe-legacy-table-lifecycle.php' );
 // [2026-08-28 Johnny Chu] PHASE-1.30-DDV — verify every Group A/B installer is blocked before CREATE TABLE or dbDelta.
 bizcity_diagnostics_require_probe( 'class-probe-legacy-table-install-prevention.php' );
+// [2026-09-18 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — prove fail-closed owner guards and physical absence of retired tables on the current shard.
+bizcity_diagnostics_require_probe( 'class-probe-legacy-table-install-absence.php' );
 // [2026-08-26 Johnny Chu] PHASE-1.30-DDV — report active PHP SQL callers that still mention deprecated table names.
 bizcity_diagnostics_require_probe( 'class-probe-legacy-table-callers.php' );
 // [2026-08-29 Johnny Chu] PHASE-1.30-DDV — emit independent writer/reader/fallback and request-local mutation evidence for nine proposed filestore candidates.
@@ -232,6 +283,26 @@ bizcity_diagnostics_require_probe( 'class-probe-context-bank-ui.php' );
 bizcity_diagnostics_require_probe( 'class-probe-zalo-multi-account-isolation.php' );
 // [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A-DDV — verify exact primary/delegate channel grants and fail-closed revocation.
 bizcity_diagnostics_require_probe( 'class-probe-channel-user-grants.php' );
+// PHASE-0.48F U5-05 — conversation label write/read round-trip (the "ok:true but labels[]" field report).
+bizcity_diagnostics_require_probe( 'class-probe-crm-conversation-labels-write.php' );
+// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-06 — leader assigns work only inside their team, and refuses before writing.
+bizcity_diagnostics_require_probe( 'class-probe-crm-leader-member-workspace.php' );
+// [2026-09-18] PHASE-0.48F F6-06 — Staff_Policy rank/team/self matrix on throw-away teams + workspace read audit (F-UID-05).
+bizcity_diagnostics_require_probe( 'class-probe-crm-staff-policy.php' );
+// [2026-09-20] PHASE-0.60 — Actor/Authority/Zone Registry persona matrix, menu/Setting Panel capability parity, REST permission-callback allowlist, manage_options literal count.
+bizcity_diagnostics_require_probe( 'class-probe-crm-boundary-contract.php' );
+// [2026-09-21 01:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.56 H-15 — read-only hot/cold message storage gate; must be queued or the filter drops it silently.
+bizcity_diagnostics_require_probe( 'class-probe-crm-message-storage.php' );
+// [2026-09-21] PHASE-0.63B C-09 — Context App registry/resolver contract gate.
+bizcity_diagnostics_require_probe( 'class-probe-crm-context-apps.php' );
+bizcity_diagnostics_require_probe( 'class-probe-crm-pipeline-registry.php' );
+bizcity_diagnostics_require_probe( 'class-probe-crm-pipeline-sla.php' );
+// [2026-09-18] PHASE-0.52 R-PIPE — customer pipeline services, routes, scope, goal policy, contracts.
+bizcity_diagnostics_require_probe( 'class-probe-crm-customer-pipeline.php' );
+// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-06 — /gpt/crm/ assigned work stays bound to the logged-in member (R-LM-3).
+bizcity_diagnostics_require_probe( 'class-probe-twingpt-crm-task-inbox-scope.php' );
+// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-06 — one user may own N Zalo Personal numbers (G1) and customer transfer keeps the exact-owner guard.
+bizcity_diagnostics_require_probe( 'class-probe-channel-personal-multi-account-owner.php' );
 // [2026-08-28 Johnny Chu] PHASE-1.30-DDV — source-progress JSONL owner/reader parity evidence; no business-filestore migration.
 bizcity_diagnostics_require_probe( 'class-probe-kg-source-progress-parity.php' );
 // [2026-08-28 Johnny Chu] PHASE-1.30-DDV — Google usage audit reader/writer parity; OAuth/connect evidence is a separate probe.
@@ -283,6 +354,8 @@ bizcity_diagnostics_require_probe( 'class-probe-cache-trace-integrity.php' );
 // trace assertion; normal requests do not register metadata filters.
 bizcity_diagnostics_require_probe( 'class-probe-user-meta-trace-integrity.php' );
 bizcity_diagnostics_require_probe( 'class-probe-kg-seeding.php' );
+// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57A — workspace ACL/public training wiring evidence.
+bizcity_diagnostics_require_probe( 'class-probe-kg-workspace-acl.php' );
 // [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — verify runtime skill rows
 // remain active while system-owned rows stay out of the Journal tree.
 bizcity_diagnostics_require_probe( 'class-probe-skills-journal-isolation.php' );
@@ -377,6 +450,12 @@ bizcity_diagnostics_require_probe( 'class-probe-astro-per-day-loop.php' );
 // [2026-07-09 Johnny Chu] PHASE-FAA2-TWINBRAIN A16 — DDV probe for
 // astro_data_action_required runtime evidence + payload contract.
 bizcity_diagnostics_require_probe( 'class-probe-astro-data-action-required.php' );
+
+// [2026-09-17] PHASE-1.22A WP7 §8 — DDV probe for the vertical bridge
+// registration + mode/plan/guest policy layer (item 1 + item 7), using the
+// one real external vertical (bizcoach-pro/astro) end-to-end. Distinct from
+// the astro probes above, which test astro's own chart/transit pipeline.
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-vertical-policy-e2e.php' );
 
 // [2026-07-04 Johnny Chu] PHASE-FAA2-DDV — DDV probe for FAA2 natal-wheel-chart
 // (url-only) pipeline. 3 layers: Disk (provider file in bizcity-llm-router),
@@ -776,6 +855,8 @@ bizcity_diagnostics_require_probe( 'class-probe-mabel-wheel-channel.php' );
 bizcity_diagnostics_require_probe( 'class-probe-reference-plugin-wave5.php' );
 // [2026-08-11 Johnny Chu] PHASE-1.26-CONTRACT — register the unified admin navigation contract probe.
 bizcity_diagnostics_require_probe( 'class-probe-admin-navigation.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-HOTFIX3 — register the Twin Brain menu owner contract probe so a menu regression cannot hide inside the TwinChat shell gate again.
+bizcity_diagnostics_require_probe( 'class-probe-admin-menu-twin-brain-owner.php' );
 // [2026-08-10 Johnny Chu] PHASE-1.25-PIAPI-DDV — mock submit/poll/header contract.
 bizcity_diagnostics_require_probe( 'class-probe-piapi-image-task.php' );
 // [2026-08-10 Johnny Chu] PHASE-1.24-DDV — queue PageBuilder/Video Kling package adoption probe lazily.
@@ -818,6 +899,12 @@ bizcity_diagnostics_require_probe( 'class-probe-twinshell-boundary.php' );
 // [2026-07-10 Johnny Chu] PHASE-TWINSHELL-IMPL — consolidated runtime evidence
 // probe for checklist sections 2-5 (timeline/account-hub executable checks).
 bizcity_diagnostics_require_probe( 'class-probe-twinshell-runtime-evidence.php' );
+
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G8 — Setting Panel R-DDV probe
+// (Disk/Loader/Registry/Resolve/Isolation). The probe file self-registers through the
+// `bizcity_diagnostics_register_probes` filter, but that filter only runs once the file is
+// included, so a missing queue entry silently drops the probe from the catalog.
+bizcity_diagnostics_require_probe( 'class-probe-setting-panel.php' );
 
 // TASK-UNIFY Phase 3 (2026-05-30) — Woo Product + Lead Report + Woo Order handlers.
 // disk + loader + hook priorities + event_type whitelist + legacy wrapper gates.
@@ -887,6 +974,8 @@ bizcity_diagnostics_require_probe( 'class-probe-crm-group-inbox.php' );
 bizcity_diagnostics_require_probe( 'class-probe-crm-inbox-by-ref.php' );
 // [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — register the read-only Twin GPT exact-account CRM console scope probe.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-inbox-console.php' );
+// [2026-09-17 11:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CRM-CONTEXT — register the C Inbox content-parity probe (sender, group label, media, Zalo files).
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-inbox-parity.php' );
 // [2026-09-10 06:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-C10 — register the Google-independent local Scheduler hook probe.
 bizcity_diagnostics_require_probe( 'class-probe-crm-google-independent-cron.php' );
 // [2026-09-10 07:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7-C — register the read-only C contact-care scope probe.
@@ -903,6 +992,22 @@ bizcity_diagnostics_require_probe( 'class-probe-twinweb-order-confirmation.php' 
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-fulfillment-contract.php' );
 // [2026-09-13 01:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.6 — register metadata-only before/after action evidence before mutation wiring.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-action-evidence.php' );
+// [2026-09-13 02:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.7 — register the C order mutation fail-closed route gate before a governed owner exists.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-order-mutation-gate.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D1 — register the positive exact-account projection probe; a missing assigned Zone 1 fixture is a FAIL, never a SKIP.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-inbox-positive-projection.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D2 — register the two-user/two-account isolation matrix probe.
+bizcity_diagnostics_require_probe( 'class-probe-crm-two-user-isolation.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D3 — register the canonical L4 Context Retrieval Pack builder probe.
+bizcity_diagnostics_require_probe( 'class-probe-context-bank-retrieval-pack.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D4 — register the shared Brain/MCP parity probe.
+bizcity_diagnostics_require_probe( 'class-probe-brain-kg-mcp-parity.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5 — register the outbound delivery state machine probe; mock provider PASS is never production delivery evidence.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-outbound-delivery.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D6 — register the browser-acceptance precondition probe; it never replaces human browser evidence.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-crm-browser-parity.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D8 — register the per-capability rollback drill; it restores every switch it touches.
+bizcity_diagnostics_require_probe( 'class-probe-release-rollback-drill.php' );
 
 // [2026-07-10 Johnny Chu] PHASE-0.47 — Broadcast import smoke matrix probe
 // for csv/xls/xlsx/google_sheet_url REST path.
@@ -916,6 +1021,8 @@ bizcity_diagnostics_require_probe( 'class-probe-zalo-personal.php' );
 bizcity_diagnostics_require_probe( 'class-probe-zalo-personal-bridge-diagnostics.php' );
 // [2026-09-03 03:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H6-GROUP-DDV — queue the read-only experimental group-history contract probe.
 bizcity_diagnostics_require_probe( 'class-probe-zalo-personal-group-history-contract.php' );
+// [2026-09-17 09:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39C-C8 — session retention/recovery hardening contract (restore retry, telemetry, restart policy, UI message split).
+bizcity_diagnostics_require_probe( 'class-probe-zalo-personal-session-retention.php' );
 
 // M-CRM.M4.Inbox (2026-05-28) — Broadcast + Lead Classification smoke.
 // 3-layer: tables (bizcity_crm_broadcasts, recipients), lead_score/segment cols, REST routes.
@@ -938,6 +1045,8 @@ if ( is_admin() ) {
 // pages keep the table/REST infrastructure without the probe class graph.
 if ( function_exists( 'bizcity_diagnostics_should_load_probes' )
 	&& bizcity_diagnostics_should_load_probes() ) {
+	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D1 — the shared CRM Inbox fixture factory is a diagnostics-only owner; load it only on the same Diagnostics boundary as the probe graph.
+	BizCity_Safe_Loader::require_file( BIZCITY_DIAGNOSTICS_DIR . 'includes/fixtures/class-crm-inbox-fixture-factory.php', 'diagnostics.fixture.crm_inbox' );
 	bizcity_diagnostics_load_probes_once();
 }
 

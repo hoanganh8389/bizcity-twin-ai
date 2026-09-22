@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.ghost-vertical",
+  "name": "Ghost Vertical",
+  "vertical_modes": [
+    {
+      "id": "ghost",
+      "label": "Ghost Vertical",
+      "role": "Never actually wired up.",
+      "output_shape": "narrative",
+      "guest_allowed": false,
+      "min_plan": "free",
+      "registry_filter": "bizcity_twinbrain_vertical_bridge_registry"
+    }
+  ]
+}

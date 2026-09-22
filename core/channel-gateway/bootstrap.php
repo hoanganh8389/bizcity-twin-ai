@@ -532,6 +532,70 @@ if ( is_admin() ) {
 	BizCity_Gateway_Admin_SPA::instance();
 }
 
+// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — register Zone 1/Zone 2 channel groups with exact-account scope metadata.
+if ( ! defined( 'BIZCITY_CG_SETTING_PANEL_REGISTERED' )
+	&& class_exists( 'BizCity_Twin_Plugin_SDK' )
+	&& class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+	BizCity_Twin_Plugin_SDK::register_ui( array(
+		'setting_panel' => array(
+			array(
+				'contract'        => 'setting-panel-registration',
+				'version'         => '1.0.0',
+				'id'              => 'core.channel-gateway.zone1',
+				'owner'           => 'core/channel-gateway',
+				'origin'          => 'core',
+				'destination'     => 'channel-settings',
+				'group'           => 'channels.customer',
+				'zone'            => 'customer',
+				'label_key'       => 'settings.channels_zone1.label',
+				'description_key' => 'settings.channels_zone1.description',
+				'icon'            => 'cil-settings',
+				'capability'      => 'manage_options',
+				'scope'           => 'site',
+				'surface'         => 'admin_shell',
+				'renderer'        => array(
+					'type'           => 'deep_link',
+					'id'             => 'core.channel-gateway.zone1',
+					'canonical_slug' => 'bizcity-channels',
+				),
+				'availability'    => array(
+					'policy'         => 'registered-owner',
+					'dependency_ids' => array( 'core.channel-gateway' ),
+				),
+				'position'        => 400,
+				'aliases'         => array( 'bizchat-gateway' ),
+			),
+			array(
+				'contract'        => 'setting-panel-registration',
+				'version'         => '1.0.0',
+				'id'              => 'core.channel-gateway.zone2',
+				'owner'           => 'core/channel-gateway',
+				'origin'          => 'core',
+				'destination'     => 'channel-settings',
+				'group'           => 'channels.admin',
+				'zone'            => 'admin',
+				'label_key'       => 'settings.channels_zone2.label',
+				'description_key' => 'settings.channels_zone2.description',
+				'icon'            => 'cil-settings',
+				'capability'      => 'manage_options',
+				'scope'           => 'site',
+				'surface'         => 'admin_shell',
+				'renderer'        => array(
+					'type'           => 'deep_link',
+					'id'             => 'core.channel-gateway.zone2',
+					'canonical_slug' => 'bizcity-channels',
+				),
+				'availability'    => array(
+					'policy'         => 'registered-owner',
+					'dependency_ids' => array( 'core.channel-gateway' ),
+				),
+				'position'        => 410,
+			),
+		),
+	) );
+	define( 'BIZCITY_CG_SETTING_PANEL_REGISTERED', true );
+}
+
 /* ─── Helper Functions (public API) ─── */
 
 /**

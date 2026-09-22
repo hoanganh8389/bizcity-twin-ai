@@ -53,7 +53,7 @@ if ( ! defined( 'BIZCITY_CRM_FILE' ) )       { define( 'BIZCITY_CRM_FILE', __FIL
 if ( ! defined( 'BIZCITY_CRM_DIR' ) )        { define( 'BIZCITY_CRM_DIR', __DIR__ ); }
 if ( ! defined( 'BIZCITY_CRM_URL' ) )        { define( 'BIZCITY_CRM_URL', plugins_url( '', __FILE__ ) ); }
 if ( ! defined( 'BIZCITY_CRM_REST_NS' ) )    { define( 'BIZCITY_CRM_REST_NS', 'bizcity-crm/v1' ); }
-if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.31.0' ); } // [2026-08-24 Johnny Chu] PHASE-0.39F-F2-F5 — storage receipts, reporting rollups, teams and assignment schema
+if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.35.0' ); } // [2026-09-21 PHASE-0.63A WP-0.5] — pipeline run columns, tasks.data_json and the bizcity_crm_pipeline_deadlines queue
 
 require_once __DIR__ . '/bootstrap.php';
 
@@ -79,17 +79,12 @@ register_activation_hook( __FILE__, static function () {
 } );
 
 /* ------------------------------------------------------------------
- * Public slug `/crm/` — front-end shell that iframes the admin CRM Inbox.
+ * Public slug `/crm/` — direct CRM SPA mount.
  *
- * Twin Shell ActivityBar registers an embed entry with public_slug `/crm/`
- * (see modules/twinshell/includes/default-plugins.php). The shell already
- * iframes /crm/ inside its workspace; this front-end route then renders a
- * second-level iframe pointing at the admin CRM page with `bizcity_iframe=1`
- * so wp-admin chrome is hidden.
- *
- * We render directly (no redirect) to avoid cross-host loops on multisite +
- * domain-mapped installs where admin_url() and home_url() resolve to
- * different hostnames.
+ * TwinShell already provides the outer iframe. Do not create a second iframe
+ * or load wp-admin inside `/crm/`; the CRM admin asset is mounted directly by
+ * the public route below. This keeps the runtime at one TwinShell iframe and
+ * avoids nested admin/bootstrap/URL-sync failures.
  * ------------------------------------------------------------------ */
 add_action( 'init', static function () {
 	add_rewrite_rule( '^crm/?$', 'index.php?bizcity_agent_page=crm', 'top' );
@@ -104,14 +99,12 @@ add_action( 'template_redirect', static function () {
 		wp_safe_redirect( wp_login_url( home_url( '/crm/' ) ) );
 		exit;
 	}
-
-	$forward = [ 'page' => 'bizcity-crm', 'bizcity_iframe' => '1' ];
-	foreach ( [ 'id', 'tab', 'inbox', 'thread', 'contact_id' ] as $key ) {
-		if ( isset( $_GET[ $key ] ) && is_scalar( $_GET[ $key ] ) ) {
-			$forward[ $key ] = sanitize_text_field( wp_unslash( $_GET[ $key ] ) );
-		}
+	// [2026-09-22 12:30 AM OpenAI GPT-5.6 Luna] CRM-BACKEND-SURFACE — hide the public WordPress admin bar from the CRM backend shell.
+	add_filter( 'show_admin_bar', '__return_false', 100 );
+	// [2026-09-19 Johnny Chu] PHASE-0.60 C2/C5 — public /crm/ uses the same action gate as wp-admin and TwinShell.
+	if ( class_exists( 'BizCity_CRM_Authority' ) && ! BizCity_CRM_Authority::can( 'crm.inbox.open', array(), BizCity_CRM_Actor::current( 'be' ) )['ok'] ) {
+		wp_die( 'Tài khoản này chưa được cấp quyền sử dụng CRM Inbox. Hãy liên hệ quản lý để được cấp quyền.', 'CRM', array( 'response' => 403 ) );
 	}
-	$admin_url = add_query_arg( $forward, admin_url( 'admin.php' ) );
 
 	nocache_headers();
 	header( 'Content-Type: text/html; charset=utf-8' );
@@ -122,14 +115,25 @@ add_action( 'template_redirect', static function () {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title><?php esc_html_e( 'CRM Inbox', 'bizcity-twin-crm' ); ?></title>
+<?php
+// Reuse the canonical CRM asset/bootstrap contract without rendering wp-admin.
+if ( class_exists( 'BizCity_CRM_Admin_Menu' ) ) {
+	BizCity_CRM_Admin_Menu::instance()->enqueue( 'toplevel_page-bizcity-crm' );
+}
+wp_head();
+?>
 <style>
 html,body{margin:0;padding:0;height:100%;background:#FAFBFC;}
+html { margin-top: 0 !important; }
+body { padding-top: 0 !important; }
+#wpadminbar, #bizchat-float-btn, #bizchat-window, .bizchat-window, [id*="bizchat"], [class*="bizchat"] { display:none !important; }
 
-#bizcity-crm-frame{display:block;border:0;width:100vw;height:100vh;}
+#bizcity-crm-inbox-root{display:block;width:100vw;height:100vh;min-height:600px;}
 </style>
 </head>
 <body>
-<iframe id="bizcity-crm-frame" src="<?php echo esc_url( $admin_url ); ?>" allow="clipboard-read; clipboard-write" loading="eager"></iframe>
+<div id="bizcity-crm-inbox-root"></div>
+<?php wp_footer(); ?>
 </body>
 </html><?php
 	exit;

@@ -11,6 +11,57 @@
 // [2026-07-29 Johnny Chu] PHASE-1.21-I — reference implementations for all content contracts.
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * Register the reference Control Panel entry.
+ *
+ * [2026-09-14 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G7 — golden fixture for extension
+ * authors: metadata-only registration through the SDK, retried across load order, never inside an
+ * is_admin() guard so CLI/cron/diagnostics see the same registry.
+ *
+ * @return bool
+ */
+function bizcity_reference_register_setting_panel() {
+	if ( ! class_exists( 'BizCity_Twin_Plugin_SDK' ) || ! class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+		return false;
+	}
+	return BizCity_Twin_Plugin_SDK::register_ui(
+		array(
+			'setting_panel' => array(
+				array(
+					'contract'        => 'setting-panel-registration',
+					'version'         => '1.0.0',
+					'id'              => 'extension.reference.settings',
+					'owner'           => 'examples/bizcity-reference-plugin',
+					'origin'          => 'extension',
+					'destination'     => 'control-panel',
+					'group'           => 'extensions',
+					'label_key'       => 'reference.settings.label',
+					'description_key' => 'reference.settings.description',
+					'icon'            => 'cil-puzzle',
+					'capability'      => 'manage_options',
+					'scope'           => 'site',
+					'surface'         => 'admin_page',
+					'renderer'        => array(
+						'type'           => 'deep_link',
+						'id'             => 'extension.reference.settings',
+						'canonical_slug' => 'bizcity-reference',
+					),
+					'availability'    => array(
+						'policy'         => 'registered-owner',
+						'dependency_ids' => array( 'bizcity.reference' ),
+					),
+					'position'        => 900,
+				),
+			),
+		)
+	);
+}
+
+if ( ! bizcity_reference_register_setting_panel() && function_exists( 'add_action' ) ) {
+	add_action( 'plugins_loaded', 'bizcity_reference_register_setting_panel', 1 );
+	add_action( 'init', 'bizcity_reference_register_setting_panel', 1 );
+}
+
 if ( ! interface_exists( 'BizCity_Tool_Interface' ) ) {
 	return;
 }

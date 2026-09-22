@@ -1,0 +1,18 @@
+{
+  "contract": "staff-customer-portfolio",
+  "version": "1.0.0",
+  "surface": "B2_ADMIN_CRM",
+  "principal": { "blog_id": 1258, "actor_user_id": 10 },
+  "subject": { "user_id": 57, "display_name": "Trần Minh", "team_role": "agent" },
+  "as_of": "2026-09-18T09:30:00+07:00",
+  "coverage": { "complete": true, "degraded_sources": [], "truncated": false },
+  "data": {
+    "range": { "key": "7d", "days": 7 },
+    "phones": [ { "inbox_id": 21, "label": "Zalo Minh", "status": "connected", "customers": 6, "phone": "0888123064" } ],
+    "customers_total": 6,
+    "buckets": [ { "key": "buyer", "label": "Đã mua", "value": 2 } ],
+    "sources": {},
+    "funnel": { "touched": 6, "ordered": 2, "rate": 33.3, "rate_basis": { "num": 2, "den": 6 }, "repeat": 0 },
+    "revenue_attributed": 1200000
+  }
+}

@@ -28,6 +28,19 @@ liệu song song.
 
 ## Khám phá hệ thống
 
+### Control Panel và framework settings
+
+- [R-SETTING-PANEL](rules/PHASE-0-RULE-SETTING-PANEL.md): một entry Control
+	Panel, sáu destination và rule bắt buộc mọi core/module/plugin đăng ký
+	settings vào TwinShell.
+- [PHASE-0-SETTING-PANEL](../modules/twinshell/docs/PHASE-0-SETTING-PANEL.md):
+	canon sản phẩm, IA, CoreUI UX, permission, migration và diagnostics.
+- [Setting Panel roadmap](../modules/twinshell/docs/PHASE-0-SETTING-PANEL-ROADMAP.md):
+	checklist điều phối SP0-SP7 và rollback boundary.
+- [Master Plan lifecycle](../modules/twinshell/docs/PHASE-0-SETTING-PANEL-MASTER-PLAN-LIFECYCLE.md):
+	theo dõi exact-key B1 plan, quota/usage, mua/nâng cấp/gia hạn trên BizCity và
+	refresh entitlement B2 mà không tạo billing owner thứ hai.
+
 <table>
 <tr>
 <td>🤖 <a href="twinbrain/overview.md"><strong>TwinBrain</strong></a><br>Trợ lý AI đa chế độ</td>

@@ -3,7 +3,7 @@
   "module_id": "modules.twin-crm",
   "owner": "plugins/bizcity-twin-crm",
   "installer_id": "twin_crm",
-  "current_version": "1.31.0",
+  "current_version": "1.34.0",
   "version_option": "bizcity_crm_db_ver",
   "tables": {
     "bizcity_crm_broadcasts": {
@@ -795,6 +795,8 @@
         "archive_schema_version": { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 1", "since": "1.29.0" },
         "archive_key_version": { "type": "VARCHAR(32) NOT NULL DEFAULT 'v1'", "since": "1.29.0" },
         "line_hash": { "type": "CHAR(64) NOT NULL", "since": "1.29.0" },
+        "byte_offset": { "type": "BIGINT NULL", "since": "1.34.0", "comment": "Byte offset of the durable JSONL line; legacy receipts remain NULL." },
+        "line_bytes": { "type": "INT NULL", "since": "1.34.0", "comment": "Durable JSONL line length in bytes; legacy receipts remain NULL." },
         "archive_status": { "type": "VARCHAR(16) NOT NULL DEFAULT 'written'", "since": "1.29.0", "comment": "pending | written | verify_failed | erased" },
         "written_at": { "type": "DATETIME NULL", "since": "1.29.0" },
         "verified_at": { "type": "DATETIME NULL", "since": "1.29.0" },
@@ -943,6 +945,7 @@
     }
   },
   "history": [
+    { "version": "1.34.0", "date": "2026-09-19", "change": "PHASE-0.56 H-03: Add byte_offset and line_bytes to archive receipts so cold reads can seek and verify one durable JSONL line without rescanning a monthly file. Legacy receipts remain NULL." },
     { "version": "1.31.0", "date": "2026-08-24", "change": "PHASE-0.39F F2-F5: Declare archive receipts, message storage lifecycle fields, bounded reporting facts/daily rollups, tenant-local Teams, Team Members, Inbox Members and assignment policy bindings. No CRM user shadow table; no message content in reporting tables." },
     { "version": "1.30.0", "date": "2026-08-24", "change": "PHASE-0.39F F3: Add content-free reporting events and daily rollup schema contract." },
     { "version": "1.29.0", "date": "2026-08-24", "change": "PHASE-0.39F F2: Add message storage lifecycle and verified archive receipt schema contract." },

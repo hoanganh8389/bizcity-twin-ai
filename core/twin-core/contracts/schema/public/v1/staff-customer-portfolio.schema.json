@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/staff-customer-portfolio.schema.json",
+  "title": "BizCity Staff Customer Portfolio",
+  "description": "PHASE-0.50 W3: one employee's customer portfolio for a leader (B2 only). Unsourced buckets are null, never 0. A conversion rate is only published with its basis and a denominator of at least 10 (D3). Phones carry label/session only — no raw number or provider UID.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "surface", "principal", "subject", "as_of", "coverage", "data"],
+  "properties": {
+    "contract": { "const": "staff-customer-portfolio" },
+    "version": { "const": "1.0.0" },
+    "surface": { "const": "B2_ADMIN_CRM" },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blog_id", "actor_user_id"],
+      "properties": {
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "actor_user_id": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "display_name", "team_role"],
+      "properties": {
+        "user_id": { "type": "integer", "minimum": 1 },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "team_role": { "enum": ["admin", "supervisor", "lead", "agent", "none"] }
+      }
+    },
+    "as_of": { "type": "string", "format": "date-time" },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "degraded_sources", "truncated"],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "degraded_sources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$" } },
+        "truncated": { "type": "boolean", "description": "true when the contact set hit the portfolio cap (runtime `capped`)." }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["range", "phones", "customers_total", "buckets", "sources", "funnel", "revenue_attributed"],
+      "properties": {
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "days"],
+          "properties": {
+            "key": { "enum": ["today", "7d", "30d"] },
+            "days": { "type": "integer", "minimum": 1, "maximum": 31 }
+          }
+        },
+        "phones": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["inbox_id", "label", "status", "customers"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 1 },
+              "inbox_id": { "type": "integer", "minimum": 0 },
+              "label": { "type": "string", "maxLength": 120 },
+              "status": { "type": "string", "pattern": "^[a-z_]{2,32}$" },
+              "customers": { "type": "integer", "minimum": 0 },
+              "account_key": { "type": "string", "pattern": "^[a-f0-9]{16,64}$" },
+              "phone_masked": { "type": "string", "pattern": "^[0-9]{0,2}\\*+[0-9]{0,2}$" }
+            }
+          }
+        },
+        "customers_total": { "type": "integer", "minimum": 0 },
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "label", "value"],
+            "properties": {
+              "key": { "enum": ["new", "consulting", "buyer", "repeat", "dormant", "at_risk"] },
+              "label": { "type": "string", "maxLength": 60 },
+              "value": { "type": ["integer", "null"], "minimum": 0 },
+              "warn": { "type": "boolean" },
+              "drill_down": { "type": "string", "pattern": "^#/contacts\\?[a-z0-9_=&.-]+$" }
+            }
+          }
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {},
+          "patternProperties": { "^[a-z0-9_-]{1,40}$": { "type": "integer", "minimum": 0 } }
+        },
+        "funnel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["touched", "ordered", "rate", "repeat"],
+          "properties": {
+            "touched": { "type": "integer", "minimum": 0 },
+            "ordered": { "type": "integer", "minimum": 0 },
+            "rate": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+            "rate_basis": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["num", "den"],
+              "properties": {
+                "num": { "type": "integer", "minimum": 0 },
+                "den": { "type": "integer", "minimum": 10 }
+              }
+            },
+            "repeat": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "revenue_attributed": { "type": "number", "minimum": 0, "description": "Confirmed revenue only (attribution assignee_at_create | creator_fallback | backfill_event)." },
+        "revenue_estimated": { "type": "number", "minimum": 0, "description": "Revenue attributed via backfill_current (0.48F §3.4 rule 3) — shown separately as 'ước tính', never summed silently." },
+        "notes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "attribution": { "type": "string", "maxLength": 300 } }
+        }
+      }
+    },
+    "denied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "reason"],
+        "properties": {
+          "scope": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "reason": { "enum": ["member_not_manageable"] }
+        }
+      }
+    }
+  }
+}

@@ -2,7 +2,11 @@
 
 > Status: Stable opt-in contract  
 > Added: 2026-08-11  
-> Product policy: Phase 1.26 Unified Admin Menu
+> Product policy: Phase 1.26 Unified Admin Menu  
+> Migration notice: the three-visible-group product policy is superseded by
+> [R-SETTING-PANEL](../rules/PHASE-0-RULE-SETTING-PANEL.md). This v1 contract,
+> schema and registry remain stable compatibility inputs until the
+> `setting-panel-registration` schema/adapter and runtime migration pass.
 
 ## Purpose
 
@@ -10,7 +14,7 @@ The Admin Navigation Contract standardizes how a module or plugin describes its
 WordPress admin navigation without owning the global menu tree. It is a metadata
 contract, not a renderer or business-logic contract.
 
-The Twin AI product currently exposes exactly three visible site-level groups:
+The currently implemented Twin AI runtime exposes three visible site-level groups:
 
 | Group | Canonical slug | Responsibility |
 |---|---|---|
@@ -18,9 +22,11 @@ The Twin AI product currently exposes exactly three visible site-level groups:
 | `workspace` | `bizcity-twin-workspace` | Twin Chat, Knowledge, CRM, Channels, Automation and Studio |
 | `diagnostics` | `bizcity-twin-diagnostics` | Runtime, loader, logs, probes, schema and health |
 
-The three-group policy belongs to Phase 1.26. The framework contract defines the
-registration shape and enforcement rules so another product profile can use the
-same registry mechanism without copying product business logic.
+The three-group policy belongs to the Phase 1.26 runtime and must not be treated
+as the target product IA for new work. The Setting Panel target materializes one
+visible Control Panel and adapts this metadata into six TwinShell destinations.
+This framework contract continues to define the current registration shape and
+deep-link compatibility without copying product business logic.
 
 ## Contract Shape
 
@@ -28,7 +34,7 @@ A contract payload has:
 
 - `contract`: always `admin-navigation`;
 - `version`: contract semver;
-- `top_level_groups`: exactly three canonical visible groups for the Twin AI profile;
+- `top_level_groups`: the three groups implemented by the v1 compatibility profile;
 - `items`: submenu metadata owned by modules/plugins through the central registry;
 - `slot`: the approved area inside a group;
 - `origin`: `core`, `bundle` or `extension`.
@@ -88,6 +94,10 @@ on `network_admin_menu` and is not imported into the site navigation tree.
 
 ## Invariants
 
+The following invariants describe the v1 runtime profile. During the Setting
+Panel migration, invariant 1 is replaced at the materialization layer by the
+one-visible-entry rule; invariants 2-9 remain mandatory.
+
 1. Only the three canonical groups may be visible as site-level top-level menus.
 2. A module must not create a top-level menu as a fallback when its parent is unavailable.
 3. A `(parent, slug)` pair must have one visible registration owner.
@@ -109,6 +119,12 @@ The contract is opt-in for new modules. Legacy `add_menu_page()` and
 `add_submenu_page()` callers are migrated through adapters and remain supported for
 the deprecation window. A slug may move parent while retaining a legacy alias and
 redirect/deep-link behavior.
+
+New settings contributions target
+[`setting-panel-registration@1.x`](SETTING-PANEL-REGISTRATION-CONTRACT-v1.md).
+Existing `admin-navigation@1.x` providers remain valid inputs to the migration
+adapter and must not be bulk-renamed or removed before runtime compatibility
+evidence exists.
 
 ## Validation
 

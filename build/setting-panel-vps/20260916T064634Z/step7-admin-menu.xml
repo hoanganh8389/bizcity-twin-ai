@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="1" failures="0" skipped="1" time="0.011">
+  <testsuite name="diagnostics" tests="1" failures="0" skipped="1" time="0.011">
+    <testcase classname="bizcity.diagnostics" name="core.admin_menu.unified" time="0.000">
+      <skipped message="Probe cần chạy trong wp-admin."/>
+    </testcase>
+  </testsuite>
+</testsuites>

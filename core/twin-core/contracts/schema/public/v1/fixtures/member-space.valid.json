@@ -1,0 +1,84 @@
+{
+  "success": true,
+  "contract": "member-space",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "as_of": "2026-09-18T09:20:00+07:00",
+  "read_only": false,
+  "goal_set_by_leader": true,
+  "customers": 10,
+  "counts": {
+    "target": 2,
+    "contacted": 1,
+    "consult": 2,
+    "quote": 2,
+    "won": 1,
+    "repeat": 1,
+    "dormant": 1,
+    "lost": 0
+  },
+  "no_next": 2,
+  "stuck": 2,
+  "assigned": {
+    "open": 2,
+    "overdue": 0,
+    "unseen": 1
+  },
+  "week": [
+    {
+      "date": "2026-09-18",
+      "tasks": 9,
+      "today": true
+    },
+    {
+      "date": "2026-09-19",
+      "tasks": 6,
+      "today": false
+    }
+  ],
+  "goal": {
+    "month": "2026-09",
+    "won_target": 12,
+    "set_by": 10,
+    "set_at": "2026-09-01 08:00:00"
+  },
+  "won_month": 7,
+  "first": [
+    {
+      "contact_id": 9001,
+      "display_name": "Chị Lan",
+      "stage": "quote",
+      "days": 4,
+      "stuck": true,
+      "has_next": true,
+      "next_due": "2026-09-19",
+      "overdue_tasks": 0,
+      "source": "zalo_personal",
+      "manual_won_pending": false,
+      "paid_orders": 0,
+      "conversation_id": 88,
+      "inbox_id": 13,
+      "steps_done": 1,
+      "channel": "zalo_personal",
+      "ref": "154b8863a47ee6a9",
+      "task": null
+    }
+  ],
+  "recent": [
+    {
+      "at": "2026-09-14 20:15:00",
+      "kind": "stage_changed",
+      "contact": "Chị Lan",
+      "contact_id": 9001,
+      "from": "consult",
+      "to": "quote",
+      "note": "Gửi báo giá combo",
+      "outcome": "quoted"
+    }
+  ],
+  "phones": {
+    "total": 2,
+    "attention": 1
+  },
+  "capped": false
+}

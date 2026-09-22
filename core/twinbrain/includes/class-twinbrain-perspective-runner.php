@@ -403,6 +403,11 @@ SYS;
 
 			$started   = microtime( true );
 			$passages  = $this->fetch_passages( $nb_id, $prompt, $passage_limit );
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — record where the
+			// per-notebook wall time actually goes. The perspective row previously
+			// exposed only a single `ms`, so a slow notebook was indistinguishable
+			// from a slow embedding call, a slow `.bin` scan or slow DB hydration.
+			$t_retrieve = microtime( true );
 
 			// TBR.SEL-LEX — when retriever returns nothing (no embedding /
 			// notebook empty), try keyword-LIKE pass to grab any passages
@@ -410,6 +415,7 @@ SYS;
 			if ( empty( $passages ) && ! empty( $tokens ) ) {
 				$passages = $this->fetch_passages_by_keyword( $nb_id, $tokens, $passage_limit );
 			}
+			$t_keyword = microtime( true );
 
 			// TBR.SEL-LEX — rerank: passages matching more tokens go first.
 			// Tag each passage with matched_tokens (FE highlights via <mark>).
@@ -419,11 +425,31 @@ SYS;
 
 			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — expand deep/audit hits with neighboring chunks for section-level meaning.
 			$passages = $this->expand_passage_neighborhood( $nb_id, $passages, $evidence_budget );
+			$t_neighbor = microtime( true );
 			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — add same-source siblings, then diversify so one source does not crowd out the answer.
 			$passages = $this->expand_source_siblings( $nb_id, $passages, $tokens, $evidence_budget );
 			$passages = $this->diversify_expanded_passages( $passages, $evidence_budget );
+			$t_expand = microtime( true );
 
 			$ms = (int) round( ( microtime( true ) - $started ) * 1000 );
+			$timing = array(
+				'retrieve_ms'  => (int) round( ( $t_retrieve - $started ) * 1000 ),
+				'keyword_ms'   => (int) round( ( $t_keyword - $t_retrieve ) * 1000 ),
+				'neighbor_ms'  => (int) round( ( $t_neighbor - $t_keyword ) * 1000 ),
+				'expand_ms'    => (int) round( ( $t_expand - $t_neighbor ) * 1000 ),
+				'passage_count' => count( $passages ),
+			);
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — expose embedding cache
+			// counters so a slow notebook can be attributed to a real gateway embedding
+			// call (misses) versus a cached vector (hits_memory/hits_transient).
+			if ( class_exists( 'BizCity_Knowledge_Embedding' ) ) {
+				$embed_stats = BizCity_Knowledge_Embedding::instance()->get_cache_stats();
+				if ( is_array( $embed_stats ) ) {
+					$timing['embed_hits_memory']    = (int) ( $embed_stats['hits_memory'] ?? 0 );
+					$timing['embed_hits_transient'] = (int) ( $embed_stats['hits_transient'] ?? 0 );
+					$timing['embed_misses']         = (int) ( $embed_stats['misses'] ?? 0 );
+				}
+			}
 
 			$citations = [];
 			$lines     = [];
@@ -474,6 +500,8 @@ SYS;
 				'diversity_rerank_applied' => (int) ( $evidence_budget['diversity_per_source_cap'] ?? 0 ) > 0,
 				'tokens'         => 0,
 				'ms'             => $ms,
+				// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — per-phase timing so the MPR timeline can attribute the notebook cost.
+				'timing'         => $timing,
 				'http_status'    => 0,
 				'error'          => '',
 				'model'          => 'sources-only',

@@ -178,6 +178,17 @@ if ( class_exists( 'BizCity_File_Contract_Registry' ) ) {
 		'retention_days'     => 365,
 		'storage_scope'      => 'blog',
 	) );
+	// [2026-09-21 OpenAI GPT-5.6 Luna] PHASE-0.63A WP-8.1 — CRM pipeline lifecycle pointer source; run/deadline truth remains in CRM SQL.
+	BizCity_File_Contract_Registry::register( 'core.context_bank.crm_pipeline_lifecycle', array(
+		'owner_module'       => 'plugins/bizcity-twin-crm',
+		'label'              => 'CRM pipeline lifecycle Context Bank records',
+		'folder'             => 'bizcity-context-bank',
+		'module'             => 'crm-pipeline-lifecycle',
+		'record_key'         => 'record_id',
+		'related_sql_tables' => array( 'bizcity_crm_opportunities', 'bizcity_crm_pipeline_deadlines' ),
+		'retention_days'     => 365,
+		'storage_scope'      => 'blog',
+	) );
 	// [2026-09-03 Johnny Chu] PHASE-CB5.1 - register durable rollup outputs before the worker writes encrypted JSONL receipts.
 	BizCity_File_Contract_Registry::register( 'core.context_bank.rollup', array(
 		'owner_module'       => 'core/context-bank',
@@ -405,6 +416,16 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'jsonl_folder'       => 'bizcity-twinbrain-logs',
 		'jsonl_module'       => 'runtime',
 		'related_sql_tables' => array(),
+		'retention_days'     => 7,
+		'indexed'            => true,
+	) );
+	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — bounded MPR Context Bank footlog; counts/budgets/reason buckets only, never ledger rows or owner bodies.
+	BizCity_Log_Contract_Registry::register( 'core.context_bank.mpr_trace', array(
+		'owner_module'       => 'core/context-bank',
+		'label'              => 'Context Bank MPR retention footlog',
+		'jsonl_folder'       => 'bizcity-twinbrain-logs',
+		'jsonl_module'       => 'context-bank-mpr',
+		'related_sql_tables' => array( 'bizcity_context_bank' ),
 		'retention_days'     => 7,
 		'indexed'            => true,
 	) );

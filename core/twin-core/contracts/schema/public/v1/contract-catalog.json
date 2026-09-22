@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "catalog_id": "bizcity-twin-public-contracts",
-  "catalog_version": "1.9.0",
+  "catalog_version": "1.17.0",
   "namespace": "bizcity.twin.contracts.public.v1",
   "semver_policy": "semver",
   "stability": "stable",
@@ -20,6 +20,50 @@
     ]
   },
   "contracts": [
+    {
+      "id": "core-entities",
+      "version": "1.0.0",
+      "schema": "core-entities.schema.json",
+      "fixtures": {
+        "valid": "fixtures/core-entities.valid.json",
+        "invalid": "fixtures/core-entities.invalid.json"
+      },
+      "compatibility": {"producer": "1.x", "consumer": "1.x"},
+      "deprecation": {"grace_versions": 3, "status": "active"}
+    },
+    {
+      "id": "context-app",
+      "version": "1.0.0",
+      "schema": "context-app.schema.json",
+      "fixtures": {
+        "valid": "fixtures/context-app.valid.json",
+        "invalid": "fixtures/context-app.invalid.json"
+      },
+      "compatibility": {"producer": "1.x", "consumer": "1.x"},
+      "deprecation": {"grace_versions": 3, "status": "active"}
+    },
+    {
+      "id": "app-shell-nav",
+      "version": "1.0.0",
+      "schema": "app-shell-nav.schema.json",
+      "fixtures": {
+        "valid": "fixtures/app-shell-nav.valid.json",
+        "invalid": "fixtures/app-shell-nav.invalid.json"
+      },
+      "compatibility": {"producer": "1.x", "consumer": "1.x"},
+      "deprecation": {"grace_versions": 3, "status": "active"}
+    },
+    {
+      "id": "approval-decision",
+      "version": "1.0.0",
+      "schema": "approval-decision.schema.json",
+      "fixtures": {
+        "valid": "fixtures/approval-decision.valid.json",
+        "invalid": "fixtures/approval-decision.invalid.json"
+      },
+      "compatibility": {"producer": "1.x", "consumer": "1.x"},
+      "deprecation": {"grace_versions": 3, "status": "active"}
+    },
     {
       "id": "event-envelope",
       "version": "1.0.0",
@@ -371,7 +415,8 @@
         "valid": "fixtures/context-retrieval-pack.valid.json",
         "invalid": "fixtures/context-retrieval-pack.invalid.json",
         "additional_valid": [
-          "fixtures/context-retrieval-pack.context-bank.valid.json"
+          "fixtures/context-retrieval-pack.context-bank.valid.json",
+          "fixtures/context-retrieval-pack.context-bank.degraded.json"
         ]
       },
       "compatibility": {
@@ -485,6 +530,258 @@
       "fixtures": {
         "valid": "fixtures/user-inbox-scope.valid.json",
         "invalid": "fixtures/user-inbox-scope.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "leader-task-handoff",
+      "version": "1.1.0",
+      "schema": "leader-task-handoff.schema.json",
+      "fixtures": {
+        "valid": "fixtures/leader-task-handoff.valid.json",
+        "invalid": "fixtures/leader-task-handoff.invalid.json",
+        "additional_valid": [
+          "fixtures/leader-task-handoff.c-member.valid.json"
+        ],
+        "additional_invalid": [
+          "fixtures/leader-task-handoff.c-selector.invalid.json"
+        ]
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "customer-360-team-view",
+      "version": "1.1.0",
+      "schema": "customer-360-team-view.schema.json",
+      "fixtures": {
+        "valid": "fixtures/customer-360-team-view.valid.json",
+        "invalid": "fixtures/customer-360-team-view.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "member-customer-360",
+      "version": "1.0.0",
+      "schema": "member-customer-360.schema.json",
+      "fixtures": {
+        "valid": "fixtures/member-customer-360.valid.json",
+        "invalid": "fixtures/member-customer-360.invalid.json",
+        "additional_invalid": [
+          "fixtures/member-customer-360.c-selector.invalid.json"
+        ]
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "staff-customer-portfolio",
+      "version": "1.0.0",
+      "schema": "staff-customer-portfolio.schema.json",
+      "fixtures": {
+        "valid": "fixtures/staff-customer-portfolio.valid.json",
+        "invalid": "fixtures/staff-customer-portfolio.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "care-outcome",
+      "version": "1.0.0",
+      "schema": "care-outcome.schema.json",
+      "fixtures": {
+        "valid": "fixtures/care-outcome.valid.json",
+        "invalid": "fixtures/care-outcome.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "pipeline-stage-change",
+      "version": "1.0.0",
+      "schema": "pipeline-stage-change.schema.json",
+      "fixtures": {
+        "valid": "fixtures/pipeline-stage-change.valid.json",
+        "invalid": "fixtures/pipeline-stage-change.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "customer-pipeline-board",
+      "version": "1.0.0",
+      "schema": "customer-pipeline-board.schema.json",
+      "fixtures": {
+        "valid": "fixtures/customer-pipeline-board.valid.json",
+        "invalid": "fixtures/customer-pipeline-board.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "member-pipeline",
+      "version": "1.0.0",
+      "schema": "member-pipeline.schema.json",
+      "fixtures": {
+        "valid": "fixtures/member-pipeline.valid.json",
+        "invalid": "fixtures/member-pipeline.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "member-space",
+      "version": "1.0.0",
+      "schema": "member-space.schema.json",
+      "fixtures": {
+        "valid": "fixtures/member-space.valid.json",
+        "invalid": "fixtures/member-space.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "team-ops-board",
+      "version": "1.0.0",
+      "schema": "team-ops-board.schema.json",
+      "fixtures": {
+        "valid": "fixtures/team-ops-board.valid.json",
+        "invalid": "fixtures/team-ops-board.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "pipeline-definition",
+      "version": "1.0.0",
+      "schema": "pipeline-definition.schema.json",
+      "fixtures": {
+        "valid": "fixtures/pipeline-definition.valid.json",
+        "invalid": "fixtures/pipeline-definition.invalid.json",
+        "additional_valid": [
+          "../../../../../../plugins/bizcity-twin-crm/templates/pipelines/purchase.json",
+          "../../../../../../plugins/bizcity-twin-crm/templates/pipelines/request.json",
+          "../../../../../../plugins/bizcity-twin-crm/templates/pipelines/production.json"
+        ]
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "pipeline-sla-state",
+      "version": "1.0.0",
+      "schema": "pipeline-sla-state.schema.json",
+      "fixtures": {
+        "valid": "fixtures/pipeline-sla-state.valid.json",
+        "invalid": "fixtures/pipeline-sla-state.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "sla-rule-set",
+      "version": "1.0.0",
+      "schema": "sla-rule-set.schema.json",
+      "fixtures": {
+        "valid": "fixtures/sla-rule-set.valid.json",
+        "invalid": "fixtures/sla-rule-set.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "staff-bot-link",
+      "version": "1.0.0",
+      "schema": "staff-bot-link.schema.json",
+      "fixtures": {
+        "valid": "fixtures/staff-bot-link.valid.json",
+        "invalid": "fixtures/staff-bot-link.invalid.json"
       },
       "compatibility": {
         "producer": "1.x",

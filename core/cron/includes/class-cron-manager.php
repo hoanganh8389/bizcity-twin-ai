@@ -179,6 +179,55 @@ class BizCity_Cron_Manager {
 	}
 
 	/**
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-PERF/self-heal — `maybe_install()` (bên trên) chỉ chạy
+	 * được khi `BizCity_Diagnostics_Auto_Create` đã nạp, nhưng module đó (`core/diagnostics/bootstrap.php`,
+	 * ~957KB/101 file) chỉ nạp trong `$_bizcity_diagnostics_ctx` (is_admin()/WP_CLI/trang diagnostics) —
+	 * KHÔNG bao gồm `DOING_CRON`. `flush_pending_registry()` chạy ở `init:99`, tải qua cổng
+	 * `$_bizcity_admin_ctx` (bao gồm DOING_CRON) rộng hơn nhiều. Kết quả: tenant nào INSERT lỗi đúng lúc
+	 * WP-Cron tự chạy (đa số trường hợp thật — wp-cron.php do khách ghé site kích hoạt, rải đều theo
+	 * blog_id) không bao giờ tự chữa được — `maybe_install()` return ngay vì thiếu class, mãi mãi.
+	 * Log production 2026-09-18 xác nhận: mọi dòng `registry upsert failed` đều có `heal=auto_create_not_loaded`.
+	 *
+	 * Cố tình KHÔNG mở rộng `$_bizcity_diagnostics_ctx` sang DOING_CRON — sẽ nạp toàn bộ 101 file diagnostics
+	 * trên MỌI tick WP-Cron của MỌI tenant, đúng chi phí mà cổng đó sinh ra để tránh (xem comment R-PERF
+	 * tại bizcity-twin-ai.php). Thay vào đó: tự tạo đúng 1 bảng này bằng CREATE TABLE IF NOT EXISTS tối
+	 * thiểu, khớp `core/diagnostics/changelog/core.cron.json`, không phụ thuộc Auto_Create. Không tạo
+	 * TABLE_RUNS/RETRIES/LOCKS ở đây — các bảng đó không nằm trên đường ghi registry, và request admin/CLI
+	 * kế tiếp vẫn sẽ tự chữa chúng qua `maybe_install()` như cũ.
+	 *
+	 * @return bool true nếu bảng tồn tại sau khi gọi (đã có sẵn hoặc vừa tạo xong).
+	 */
+	private static function ensure_registry_table_minimal(): bool {
+		global $wpdb;
+		if ( ! $wpdb ) { return false; }
+		$t = $wpdb->prefix . self::TABLE_REGISTRY;
+		$charset = method_exists( $wpdb, 'get_charset_collate' ) ? $wpdb->get_charset_collate() : 'DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+		$wpdb->suppress_errors( true );
+		$wpdb->query( "CREATE TABLE IF NOT EXISTS {$t} (
+			id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			job_id          VARCHAR(128) NOT NULL DEFAULT '',
+			hook            VARCHAR(191) NOT NULL DEFAULT '',
+			interval_key    VARCHAR(64)  NOT NULL DEFAULT '',
+			owner           VARCHAR(128) NOT NULL DEFAULT '',
+			description     TEXT NULL,
+			singleton       TINYINT(1) NOT NULL DEFAULT 1,
+			enabled         TINYINT(1) NOT NULL DEFAULT 1,
+			retention_days  INT NOT NULL DEFAULT 7,
+			registered_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_job_id (job_id),
+			KEY idx_owner (owner),
+			KEY idx_hook (hook)
+		) {$charset}" );
+		$wpdb->suppress_errors( false );
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $t );
+		}
+		return $wpdb->last_error === '';
+	}
+
+	/**
 	 * Register a cron job. Idempotent — calling twice with same job_id updates the row.
 	 *
 	 * @param array{
@@ -355,19 +404,110 @@ class BizCity_Cron_Manager {
 	 */
 	public function flush_pending_registry(): void {
 		if ( empty( $this->pending_rows ) ) { return; }
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE-FOLLOWUP — a REST API or
+		// admin-ajax request has nothing to gain from syncing this registry synchronously (the
+		// jobs it describes are static, hardcoded at plugin-boot time; no REST caller reads this
+		// table within its own request). `REST_REQUEST` is not yet defined at `init` (WordPress
+		// only sets it later, in `rest_api_loaded()` on `parse_request`), so detect the same thing
+		// from the request URI instead. Rows simply stay in `$this->pending_rows` for this request
+		// and flush on the next regular page/cron load — the fingerprint gate below still applies
+		// there, so this changes nothing about *whether* the registry ends up in sync, only *when*.
+		if ( self::is_latency_sensitive_request() ) { return; }
 
-		$rows_sorted = $this->pending_rows;
-		ksort( $rows_sorted );
-		$fp_new = md5( serialize( $rows_sorted ) );
-		$fp_old = (string) get_option( self::REGISTRY_FP_OPTION, '' );
-		if ( $fp_new === $fp_old ) { return; } // spec không đổi → 0 queries.
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE-FOLLOWUP v4 — fingerprint THEO TỪNG JOB,
+		// không phải 1 md5 cho cả bộ. Query Monitor (blog 1511) cho thấy các loại request khác nhau đăng ký
+		// SỐ job khác nhau (module intent/automation/kg.learning_sweep chỉ nạp ở một số request: 14 vs 18 job)
+		// → md5 cả bộ dao động c0ea…↔44002… giữa 2 loại request → INSERT + UPDATE option ở GẦN NHƯ MỌI page
+		// load, vô hạn. Giờ lưu map job_id => md5(row) và chỉ ghi các job mới / đổi spec thật sự; job vắng mặt
+		// ở request này KHÔNG bị coi là thay đổi (không bao giờ xoá khỏi map/bảng ở đây).
+		// v3 (giữ nguyên): không log mỗi lần lệch; chỉ log khi INSERT thất bại, có back-off 1h.
+		$stored = get_option( self::REGISTRY_FP_OPTION, array() );
+		if ( ! is_array( $stored ) ) { $stored = array(); } // định dạng cũ (1 chuỗi md5) → seed lại 1 lần.
 
-		$ok = $this->upsert_registry_batch( array_values( $rows_sorted ) );
-		if ( $ok ) {
-			// autoload=true vì được đọc mỗi request để so sánh.
-			update_option( self::REGISTRY_FP_OPTION, $fp_new, true );
+		$changed = array();
+		foreach ( $this->pending_rows as $job_id => $row ) {
+			$row['owner']       = self::ascii_text( (string) $row['owner'] );
+			$row['description'] = self::ascii_text( (string) $row['description'] );
+			$fp = md5( serialize( $row ) );
+			if ( ! isset( $stored[ $job_id ] ) || $stored[ $job_id ] !== $fp ) {
+				$changed[ $job_id ] = array( 'row' => $row, 'fp' => $fp );
+			}
 		}
-		// Nếu $ok=false (bảng chưa tồn tại), không cache fp → request sau sẽ retry.
+		if ( empty( $changed ) ) { return; } // không job nào đổi → 0 queries.
+		ksort( $changed );
+
+		$fp_changed = md5( serialize( array_map( static function ( $c ) { return $c['fp']; }, $changed ) ) );
+		$fail_key   = 'bizcity_cron_registry_fail_fp';
+		if ( get_transient( $fail_key ) === $fp_changed ) { return; } // đã thất bại gần đây với đúng bộ thay đổi này → chờ back-off.
+
+		$rows = array_values( array_map( static function ( $c ) { return $c['row']; }, $changed ) );
+		$ok   = $this->upsert_registry_batch( $rows );
+		$heal = 'not_needed';
+		if ( ! $ok ) {
+			// Tự chữa 1 lần: tạo/heal bảng qua pipeline installer rồi thử lại. Xoá cache "bảng tồn tại" trước —
+			// giá trị cũ (có thể sai do probe information_schema chạy nhầm shard, xem BizCity_Table_Metadata::route_hint)
+			// sống tới 1h và khiến Auto_Create bỏ qua bước CREATE.
+			global $wpdb;
+			if ( $wpdb && function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $wpdb->prefix . self::TABLE_REGISTRY );
+			}
+			if ( class_exists( 'BizCity_Diagnostics_Auto_Create' ) ) {
+				$heal = 'auto_create';
+				self::maybe_install();
+			} else {
+				// [2026-09-18] Auto_Create không nạp trong ngữ cảnh này (điển hình: DOING_CRON — xem
+				// comment ở ensure_registry_table_minimal() phía trên). Tự tạo đúng bảng registry, không
+				// đợi request admin/CLI kế tiếp.
+				$heal = self::ensure_registry_table_minimal() ? 'self_create' : 'self_create_failed';
+			}
+			$stored = array(); // bảng vừa được tạo/heal — không merge fingerprint cũ vào bản này.
+			$ok     = $this->upsert_registry_batch( $rows );
+		}
+		if ( $ok ) {
+			foreach ( $changed as $job_id => $c ) {
+				$stored[ $job_id ] = $c['fp'];
+			}
+			ksort( $stored );
+			// autoload=true vì được đọc mỗi request để so sánh.
+			update_option( self::REGISTRY_FP_OPTION, $stored, true );
+			return;
+		}
+
+		global $wpdb;
+		set_transient( $fail_key, $fp_changed, HOUR_IN_SECONDS );
+		error_log( sprintf(
+			'[bizcity-cron] registry upsert failed (retry in 1h) — blog_id=%d table=%s heal=%s changed_jobs=%s error=%s',
+			get_current_blog_id(),
+			$wpdb ? $wpdb->prefix . self::TABLE_REGISTRY : '(no wpdb)',
+			$heal,
+			implode( ',', array_keys( $changed ) ),
+			$wpdb && $wpdb->last_error !== '' ? $wpdb->last_error : '(none)'
+		) );
+	}
+
+	/**
+	 * Registry text is internal English; some tenant tables are latin1, where a single UTF-8 char
+	 * (e.g. "→") makes wpdb reject the whole batch ("contains invalid data" — seen on blog 396).
+	 */
+	private static function ascii_text( string $text ): string {
+		$text = strtr( $text, array( '→' => '->', '←' => '<-', '—' => '-', '–' => '-', '…' => '...', '“' => '"', '”' => '"', '‘' => "'", '’' => "'" ) );
+		return (string) preg_replace( '/[^\x09\x0A\x0D\x20-\x7E]/', '?', $text );
+	}
+
+	/**
+	 * True for a REST API or admin-ajax request, checked at `init` (before WordPress itself
+	 * defines `REST_REQUEST`/`DOING_AJAX` for every case — `DOING_AJAX` is set early enough to
+	 * trust, but a REST call is only confirmed later in `rest_api_loaded()`, so this also checks
+	 * the URL shape both pretty permalinks (`/wp-json/`) and the `?rest_route=` fallback use).
+	 *
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE-FOLLOWUP.
+	 */
+	private static function is_latency_sensitive_request(): bool {
+		if ( wp_doing_ajax() ) { return true; }
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) { return true; }
+		$uri = (string) ( $_SERVER['REQUEST_URI'] ?? '' );
+		if ( $uri === '' ) { return false; }
+		return false !== strpos( $uri, '/wp-json/' ) || false !== strpos( $uri, 'rest_route=' );
 	}
 
 	/**
@@ -434,8 +574,8 @@ class BizCity_Cron_Manager {
 			$row['job_id'],
 			$row['hook'],
 			$row['interval_key'],
-			$row['owner'],
-			$row['description'],
+			self::ascii_text( (string) $row['owner'] ),
+			self::ascii_text( (string) $row['description'] ),
 			(int) $row['singleton'],
 			(int) $row['enabled'],
 			(int) $row['retention_days']

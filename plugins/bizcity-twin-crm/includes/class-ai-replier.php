@@ -163,6 +163,62 @@ class BizCity_CRM_AI_Replier {
 			throw new \RuntimeException( 'no_user_message' );
 		}
 
+		// [2026-09-19 02:40 PM Johnny Chu] PHASE-0.59-CRM-AI-ASSISTANT-RELEVANCE-RELIABILITY — a bound astrology Guru/notebook must not hijack an ordinary CRM customer-care turn. Keep explicit astrology prompts available for a later product decision, but make the default CRM path neutral: no notebook RAG and no character system prompt from the bound Guru.
+		$crm_relevance_guard = self::is_crm_customer_channel( $platform_type_hint )
+			&& ! self::is_explicit_astro_prompt( $prompt );
+		$crm_guard_character_id = $character_id;
+		$crm_guard_notebook_id  = $notebook_id;
+		if ( $crm_relevance_guard ) {
+			$character_id = 0;
+			$notebook_id  = 0;
+			self::log( sprintf( 'crm_relevance_guard active platform=%s original_character=%d original_notebook=%d', $platform_type_hint, $crm_guard_character_id, $crm_guard_notebook_id ) );
+		}
+
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7e — one AI reply per inbound message.
+		//
+		// The inbound event can be delivered more than once (provider retry, webhook
+		// replay, a second listener). Without a claim the customer receives the same
+		// answer twice and the CRM thread grows a duplicate outbound row. The claim is
+		// keyed by the exact inbound message (or the prompt when the caller supplied
+		// one directly), released on failure so a genuine retry can still answer.
+		$reply_claim_key = '';
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY D3 — a draft suggestion must not consume the one-reply-per-inbound claim.
+		$draft_only = ! empty( $opts['draft_only'] );
+		if ( ! $draft_only && class_exists( 'BizCity_Twin_Mutation_Store' ) ) {
+			$inbound_ref  = $message_id > 0 ? 'msg:' . $message_id : 'prompt:' . substr( sha1( $prompt ), 0, 24 );
+			$reply_hash   = md5( 'crm_ai_reply|' . $conv_id . '|' . $inbound_ref );
+			$reply_claim  = BizCity_Twin_Mutation_Store::begin(
+				array(
+					'action'          => 'crm.ai_reply',
+					'resource'        => array( 'scope' => 'conversation:' . $conv_id ),
+					'idempotency_key' => 'aireply_' . $reply_hash,
+					'trace_id'        => $trace_uuid,
+				),
+				array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => 0 ),
+				$reply_hash
+			);
+			$reply_claim_status = (string) ( $reply_claim['status'] ?? '' );
+			if ( 'new' !== $reply_claim_status ) {
+				self::log( sprintf( '↳ skip duplicate AI reply for conv#%d (%s, claim=%s)', $conv_id, $inbound_ref, $reply_claim_status ) );
+				// Keep the caller-visible shape identical to a normal reply so no
+				// consumer has to special-case the duplicate path.
+				return array(
+					'message_id'   => 0,
+					'trace_uuid'   => $trace_uuid,
+					'reply'        => '',
+					'sources'      => array(),
+					'steps'        => array(),
+					'dispatch'     => array( 'sent' => false, 'platform' => '', 'error' => '', 'skipped' => true ),
+					'notebook_id'  => $notebook_id,
+					'character_id' => $character_id ?: null,
+					'latency_ms'   => self::ms_since( $t0 ),
+					'skipped'      => true,
+					'reason'       => 'idempotency_' . ( 'replay' === $reply_claim_status ? 'replayed' : $reply_claim_status ),
+				);
+			}
+			$reply_claim_key = (string) ( $reply_claim['key'] ?? '' );
+		}
+
 		$nb_source = $explicit_notebook_id > 0 ? 'override'
 			: ( ! empty( $guru_notebooks ) ? 'guru_attached'
 			: ( $binding_found ? 'guru_character_only'
@@ -171,7 +227,9 @@ class BizCity_CRM_AI_Replier {
 
 		// Resolve service template (role + persona + style + length budget).
 		$svc = class_exists( 'BizCity_CRM_Service_Templates' )
-			? BizCity_CRM_Service_Templates::resolve_for_character( $character_id, (string) ( $inbox['channel_type'] ?? '' ) )
+			? ( $crm_relevance_guard
+				? array( 'slug' => 'customer_service', 'template' => BizCity_CRM_Service_Templates::get( 'customer_service' ) ?: array(), 'source' => 'crm_relevance_guard', 'char_role' => 'external' )
+				: BizCity_CRM_Service_Templates::resolve_for_character( $character_id, (string) ( $inbox['channel_type'] ?? '' ) ) )
 			: array( 'slug' => 'none', 'template' => array(), 'source' => 'unavailable', 'char_role' => 'both' );
 
 		$steps[] = array(
@@ -187,6 +245,9 @@ class BizCity_CRM_AI_Replier {
 				),
 				'notebook_id'        => $notebook_id,
 				'character_id'       => $character_id ?: null,
+				'original_character_id' => $crm_relevance_guard ? $crm_guard_character_id : null,
+				'original_notebook_id'  => $crm_relevance_guard ? $crm_guard_notebook_id : null,
+				'relevance_guard'      => $crm_relevance_guard ? 'crm_customer_care_neutral' : '',
 				'prompt_chars'       => mb_strlen( $prompt ),
 				'guru_on_duty'       => $guru_ctx['trace'],
 				'notebook_source'    => $nb_source,
@@ -587,6 +648,22 @@ class BizCity_CRM_AI_Replier {
 		);
 		self::log( sprintf( '→ llm_generate model=%s reply=%d chars note=%s', $model, mb_strlen( $reply ), $llm_note ) );
 
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY D3 — draft-only ("Gợi ý") returns text for the agent to edit; no CRM row, no dispatch.
+		if ( $draft_only ) {
+			return array(
+				'message_id'   => 0,
+				'trace_uuid'   => $trace_uuid,
+				'reply'        => $reply,
+				'sources'      => $sources,
+				'steps'        => $steps,
+				'dispatch'     => array( 'sent' => false, 'platform' => '', 'error' => '', 'skipped' => true ),
+				'notebook_id'  => $notebook_id,
+				'character_id' => $character_id ?: null,
+				'latency_ms'   => self::ms_since( $t0 ),
+				'draft_only'   => true,
+			);
+		}
+
 		// ── Step 4: insert CRM outgoing row + dispatch ────────────────
 		$s4 = microtime( true );
 		$dispatch = array( 'sent' => false, 'platform' => '', 'error' => 'not-dispatched' );
@@ -626,6 +703,8 @@ class BizCity_CRM_AI_Replier {
 			) );
 		}
 
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7e — initialise before the try so the claim release in `finally` is always well defined.
+		$msg_id = 0;
 		try {
 			$msg_id = BizCity_CRM_Repository::insert_message( array(
 				'conversation_id'   => $conv_id,
@@ -647,16 +726,51 @@ class BizCity_CRM_AI_Replier {
 				// [2026-07-07 Johnny Chu] HOTFIX — propagate trace_uuid into outbound sender path.
 				$dispatch = self::dispatch_via_adapter( $conv, $reply, $tpl_chunk_max, $trace_uuid );
 
-				global $wpdb;
-				$wpdb->update(
-					BizCity_CRM_DB_Installer_V2::tbl_messages(),
-					array( 'status' => $dispatch['sent'] ? 'sent' : 'failed' ),
-					array( 'id' => $msg_id )
-				);
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7e — use the canonical delivery writer instead of a raw status UPDATE.
+				//
+				// This path intentionally does NOT go through
+				// `BizCity_CRM_Outbound_Dispatcher::dispatch()`: the AI reply keeps ONE
+				// CRM row carrying its full answer and `ai_metadata` while the provider
+				// receives N chunks, and it owns mirror-suppression for the FB ingestor.
+				// What it must share is the delivery vocabulary, so the same rule applies
+				// here: a provider message id means `sent`, an accepted-but-unconfirmed
+				// send stays `queued`, and only a failure is `failed`.
+				$provider_ref = (string) ( $dispatch['mid'] ?? '' );
+				$outcome = ! empty( $dispatch['sent'] )
+					? ( '' !== $provider_ref ? 'sent' : 'queued' )
+					: 'failed';
+				if ( method_exists( 'BizCity_CRM_Repository', 'update_message_delivery' ) ) {
+					BizCity_CRM_Repository::update_message_delivery( $msg_id, array(
+						'outcome'  => $outcome,
+						'platform' => (string) ( $dispatch['platform'] ?? '' ),
+						'error'    => (string) ( $dispatch['error'] ?? '' ),
+					) );
+					if ( '' !== $provider_ref && method_exists( 'BizCity_CRM_Repository', 'set_message_external_source_id' ) ) {
+						BizCity_CRM_Repository::set_message_external_source_id( $msg_id, $provider_ref );
+					}
+				} else {
+					global $wpdb;
+					$wpdb->update(
+						BizCity_CRM_DB_Installer_V2::tbl_messages(),
+						array( 'status' => $dispatch['sent'] ? 'sent' : 'failed' ),
+						array( 'id' => $msg_id )
+					);
+				}
 			}
 		} finally {
 			if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
 				BizCity_Responder_Stamper::pop();
+			}
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7e — keep the claim only when an answer actually exists; release it so a failed turn can be retried.
+			if ( '' !== $reply_claim_key && class_exists( 'BizCity_Twin_Mutation_Store' ) ) {
+				if ( $msg_id > 0 ) {
+					BizCity_Twin_Mutation_Store::complete( $reply_claim_key, $reply_hash, array(
+						'message_id' => (int) $msg_id,
+						'outcome'    => isset( $outcome ) ? (string) $outcome : 'queued',
+					) );
+				} else {
+					BizCity_Twin_Mutation_Store::release( $reply_claim_key );
+				}
 			}
 		}
 
@@ -791,6 +905,27 @@ class BizCity_CRM_AI_Replier {
 			}
 		}
 		return '';
+	}
+
+	/**
+	 * CRM customer channels that must not inherit personal astrology context by default.
+	 *
+	 * @param string $platform_type Platform hint from conversation identity.
+	 * @return bool
+	 */
+	private static function is_crm_customer_channel( string $platform_type ): bool {
+		return in_array( strtoupper( $platform_type ), array( 'FB_MESS', 'ZALO_BOT', 'ZALO_OA', 'ZALO_PERSONAL', 'TELEGRAM' ), true );
+	}
+
+	/**
+	 * Allow an explicit astrology request to remain distinguishable from an ordinary CRM turn.
+	 * This is intentionally local to CRM; shared Focus Router topic detection is unchanged.
+	 *
+	 * @param string $prompt Current CRM prompt.
+	 * @return bool
+	 */
+	private static function is_explicit_astro_prompt( string $prompt ): bool {
+		return (bool) preg_match( '/chiêm tinh|tử vi|lá số|bản đồ sao|natal|transit|horoscope|thần số học|numerology|tarot|bói bài|phong thủy|cung hoàng đạo/ui', $prompt );
 	}
 
 	/**

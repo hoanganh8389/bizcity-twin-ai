@@ -1,0 +1,11 @@
+{
+  "contract":"approval-decision",
+  "version":"1.0.0",
+  "run_id":42,
+  "step_key":"manager_approval",
+  "decision":"approved",
+  "decided_by":7,
+  "decided_at":"2026-09-21T10:00:00Z",
+  "reason":"Đã kiểm tra",
+  "level":1
+}

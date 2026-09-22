@@ -1,0 +1,12 @@
+Running 5 probe(s)…
+
+Batch health started · run_id=diag_20260916064752_a592645e · resume_cursor=0/5
+[PASS] 1/5 core.helper.error_ux 36ms
+[PASS] 2/5 core.module-registry 0ms
+[PASS] 3/5 core.wp_hook.callback_integrity 11ms
+[PASS] 4/5 core.loader.ownership 0ms
+[PASS] 5/5 core.loader.registration_integrity 2853ms
+Batch health finished · run_id=diag_20260916064752_a592645e · checkpoint=complete
+
+Result: 5 pass · 0 fail · 0 skip · total 3337ms
+JUnit XML written to /home/vibeyeuc/huongnguyen.vibeyeu.com.vn/wp-content/plugins/bizcity-twin-ai/build/setting-panel-vps/20260916T064634Z/step6-health.xml

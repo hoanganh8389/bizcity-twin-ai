@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Report contradictions between the diagnostics table registry and active legacy-table callers.
 import fs from 'node:fs';
 import path from 'node:path';
 

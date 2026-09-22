@@ -56,7 +56,7 @@
         "validate": "php bin/twin validate",
         "lint": "phpcs --standard=phpcs.xml.dist",
         "lint:fix": "phpcbf --standard=phpcs.xml.dist",
-        "test": "phpunit --configuration phpunit.xml.dist",
+        "test": "php -d auto_prepend_file=tests/phpunit-prepend.php vendor/bin/phpunit --configuration phpunit.xml.dist",
         "diagnostics": "php bin/diagnostics-run.php",
         "diagnostics:junit": "php bin/diagnostics-run.php --junit=build/junit.xml",
         "compat:php74": "@php bin/validate-php74.php"

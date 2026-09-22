@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "id": "fixture.jsonl.invalid",
+  "name": "JSONL contract parity invalid fixture",
+  "version": "1.0.0",
+  "logging": {
+    "contracts": ["fixture.jsonl.missing_registration"]
+  }
+}

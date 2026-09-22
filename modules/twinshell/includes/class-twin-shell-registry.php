@@ -37,7 +37,7 @@ class BizCity_Twin_Shell_Registry {
 	const FILTER = 'bizcity_twin_register_plugins';
 
 	/** Reserved query keys never forwarded to the iframe URL. */
-	const RESERVED_KEYS = [ 'plugin', '_view', '_t', 'bizcity_iframe' ];
+	const RESERVED_KEYS = [ 'plugin', '_view', '_t', 'bizcity_iframe', 'r' ];
 
 	private static $instance = null;
 	private $cache = null;
@@ -102,6 +102,33 @@ class BizCity_Twin_Shell_Registry {
 				'plan_badge'  => '',
 				'has_plan_gate' => false,
 				'pro_package' => isset( $entry['pro_package'] ) ? sanitize_text_field( (string) $entry['pro_package'] ) : '',
+				// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — Twin Route
+				// Contract v1 (TRC). `route_mode` opts a plugin into the canonical `r`
+				// (plugin-relative route, e.g. '/inbox/13/conv/88') query param instead of the
+				// legacy physical `_iurl`. Unknown/unset ⇒ 'legacy', so every entry that hasn't
+				// opted in keeps its current, already-working behaviour with zero code change.
+				'route_mode'  => ( isset( $entry['route_mode'] ) && in_array( $entry['route_mode'], [ 'hash', 'path', 'query' ], true ) )
+					? $entry['route_mode']
+					: 'legacy',
+				// Absolute override for the iframe entry URL. Empty ⇒ derive from `public_slug`
+				// (embed) / `target_url` (link), same as the legacy iframe builder already does.
+				'route_entry' => isset( $entry['route_entry'] ) ? esc_url_raw( $entry['route_entry'] ) : '',
+				// `$_GET['page']` of an admin.php surface this plugin also serves, so the bridge
+				// injector can inject the route SDK there too, not only on `public_slug`.
+				'admin_page'  => isset( $entry['admin_page'] ) ? sanitize_key( (string) $entry['admin_page'] ) : '',
+				// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — one-time
+				// translation from an OLD bookmarked/shared link's generic query keys (e.g.
+				// `thread`, `contact_id`) into the canonical `r` route, so a link saved before
+				// this plugin opted into `route_mode` keeps opening the right place. Map shape:
+				// `{ query_key: 'route template' }`, checked in declaration order, first key
+				// present in the URL wins. Placeholder `{key}` alone substitutes `params[key]`;
+				// `{a|b|literal}` (2+ segments) tries query key `a`, falls back to `b`, falls back
+				// to the LAST segment as a literal string only if neither `a` nor `b` is present.
+				// Only consulted when `r` and a legacy-`_iurl` route are BOTH absent — see
+				// `routeFromLegacyParams()` in `twin-shell.js`.
+				'legacy_params' => ( isset( $entry['legacy_params'] ) && is_array( $entry['legacy_params'] ) )
+					? array_map( 'sanitize_text_field', $entry['legacy_params'] )
+					: [],
 			];
 		}
 
@@ -199,16 +226,17 @@ class BizCity_Twin_Shell_Registry {
 	}
 
 	/**
-	 * Get the default plugin id (first 'top' entry in registry, or 'twinchat'
-	 * if present).
+	 * Get the default plugin id. CRM is the default operating surface; TwinChat
+	 * remains available as an explicit ActivityBar/deep-link destination.
 	 *
 	 * @return string
 	 */
 	public function default_id() {
 		$plugins = $this->all();
 		foreach ( $plugins as $p ) {
-			if ( 'twinchat' === $p['id'] ) {
-				return 'twinchat';
+			// [2026-09-21 10:00 PM OpenAI GPT-5.6 Luna] PHASE-0.63B C-08 — open `/twin/` directly on CRM; keep TwinChat explicit, not implicit.
+			if ( 'crm' === $p['id'] ) {
+				return 'crm';
 			}
 		}
 		if ( ! empty( $plugins ) ) {
@@ -239,6 +267,30 @@ class BizCity_Twin_Shell_Registry {
 			$slug = '/' . $slug . '/';
 			// Match either exact slug or slug-prefix (so /tool-image/foo/ counts).
 			if ( $path === $slug || 0 === strpos( $path, $slug ) ) {
+				return $p;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Check whether a `$_GET['page']` value matches a registered plugin's `admin_page`.
+	 *
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — companion to
+	 * `match_request_uri()` for plugins whose real app lives on an `admin.php?page=…` screen
+	 * with no dedicated `public_slug` (e.g. `mode=link` entries like Channel Gateway). Used by
+	 * `BizCity_Twin_Shell_Bridge::maybe_enqueue()` to inject `window.TwinRoute` there too.
+	 *
+	 * @param string $page Raw `$_GET['page']` value.
+	 * @return array|null Matched plugin entry, or null.
+	 */
+	public function match_admin_page( $page ) {
+		$page = sanitize_key( (string) $page );
+		if ( '' === $page ) {
+			return null;
+		}
+		foreach ( $this->all() as $p ) {
+			if ( '' !== $p['admin_page'] && $p['admin_page'] === $page ) {
 				return $p;
 			}
 		}

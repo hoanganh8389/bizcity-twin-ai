@@ -1,0 +1,13 @@
+Running 1 probe(s)…
+
+[PASS         ] core.membership.woo_projection                     40519ms · Woo projector contract OK (idempotent apply + reject unpaid + capacity blocked fail-closed).
+  ↳ [PASS] Disk · projector file + hook + marker contract · markers found (hooks, projection status, capacity bucket)
+  ↳ [PASS] Loader · projector class + Woo hooks registered · class=ok woo_active=1 hooks(payment=30 processing=30 completed=30 refunded=30 cancelled=30)
+  ↳ [PASS] Runtime · prerequisite paid seat plan · Using plan_slug=pro
+  ↳ [PASS] Runtime · paid order applies once; second call idempotent · r1=applied r2=already_applied order_status=applied source_rows=1
+  ↳ [PASS] Runtime · refunded order reverses matching Woo grant · r=refunded cleared=1 order_status=refunded active_rows=0 current_offer_order=0
+  ↳ [PASS] Runtime · unpaid order is rejected and does not activate plan · r=pending reason=not_paid source_rows=0
+  ↳ [PASS] Runtime · capacity_blocked path does not activate plan · r=capacity_blocked reason=capacity_blocked order_status=capacity_blocked source_rows=0
+
+Result: 1 pass · 0 fail · 0 skip · total 40530ms
+JUnit XML written to /home/vibeyeuc/huongnguyen.vibeyeu.com.vn/wp-content/plugins/bizcity-twin-ai/build/setting-panel-vps/20260916T064634Z/step8-woo-projection.xml

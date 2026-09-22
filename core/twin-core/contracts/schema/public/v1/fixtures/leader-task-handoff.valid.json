@@ -1,0 +1,55 @@
+{
+  "contract": "leader-task-handoff",
+  "version": "1.1.0",
+  "surface": "B2_ADMIN_CRM",
+  "principal": { "blog_id": 1258, "actor_user_id": 10 },
+  "subject": { "user_id": 10, "display_name": "Trưởng nhóm Marketing", "team_role": "supervisor" },
+  "as_of": "2026-09-18T09:12:00+07:00",
+  "coverage": { "complete": true, "degraded_sources": [], "truncated": false },
+  "data": {
+    "counts": { "sent": 1, "accepted": 0, "in_progress": 1, "done": 0, "returned": 0, "cancelled": 0, "overdue": 1 },
+    "batch": { "key": "3f9a0c1d2e4b5a69", "playbook": "retouch", "total": 1, "done": 0 },
+    "tasks": [
+      {
+        "task_id": 501,
+        "title": "Tái chạm khách nguội",
+        "instructions": "Nhắn ưu đãi tháng 9, ghi lại ai quan tâm",
+        "priority": "high",
+        "due_at": "2026-09-20",
+        "status": "sent",
+        "overdue": false,
+        "assigned_by": { "user_id": 10, "display_name": "Trưởng nhóm Marketing" },
+        "assignee": { "user_id": 42, "display_name": "Nguyễn Hương", "team_role": "agent" },
+        "subjects": [
+          { "kind": "contact", "contact_id": 9001, "conversation_id": 88, "inbox_id": 13, "display_name": "Chị Lan", "touched": false }
+        ],
+        "progress": { "touched": 0, "total": 1 },
+        "batch_key": "3f9a0c1d2e4b5a69",
+        "timeline": [
+          { "at": "2026-09-18 09:12:00", "action": "sent", "actor": { "user_id": 10, "display_name": "Trưởng nhóm Marketing" }, "from": null, "to": "sent", "reason_code": null, "note": null }
+        ],
+        "result": null,
+        "created_at": "2026-09-18 09:12:00",
+        "updated_at": "2026-09-18 09:12:00",
+        "can": ["cancel", "reassign"]
+      },
+      {
+        "task_id": 502,
+        "title": "Gọi lại hỏi nhu cầu combo",
+        "instructions": "",
+        "priority": "medium",
+        "due_at": "2026-09-17",
+        "status": "in_progress",
+        "overdue": true,
+        "assigned_by": { "user_id": 10, "display_name": "Trưởng nhóm Marketing" },
+        "assignee": { "user_id": 57, "display_name": "Trần Minh", "team_role": "agent" },
+        "subjects": [],
+        "progress": { "touched": 0, "total": 0 },
+        "batch_key": null,
+        "created_at": "2026-09-16 08:00:00",
+        "updated_at": "2026-09-17 10:30:00",
+        "can": ["cancel", "reassign"]
+      }
+    ]
+  }
+}

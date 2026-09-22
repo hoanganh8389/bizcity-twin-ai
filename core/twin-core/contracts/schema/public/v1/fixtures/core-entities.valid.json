@@ -1,0 +1,16 @@
+{
+  "contract": "core-entities",
+  "version": "1.0.0",
+  "entities": [
+    {"key":"person","label":"Person","canonical_store":"bizcity_crm_contacts","identity_key":"contact_id","plugin_extensible":false},
+    {"key":"organization","label":"Organization","canonical_store":"bizcity_crm_accounts","identity_key":"account_id","plugin_extensible":false},
+    {"key":"conversation","label":"Conversation","canonical_store":"conversations","identity_key":"conversation_id","plugin_extensible":false},
+    {"key":"work","label":"Work","canonical_store":"bizcity_crm_tasks","identity_key":"task_id","plugin_extensible":false},
+    {"key":"request","label":"Request","canonical_store":"pipeline_run:request","identity_key":"run_id","plugin_extensible":false},
+    {"key":"flow","label":"Flow","canonical_store":"bzcrm_pipeline+opportunities","identity_key":"pipeline_def_id","plugin_extensible":false},
+    {"key":"document","label":"Document","canonical_store":"bizcity_crm_documents","identity_key":"document_id","plugin_extensible":false},
+    {"key":"appointment","label":"Appointment","canonical_store":"bizcity_crm_events","identity_key":"event_id","plugin_extensible":false},
+    {"key":"approval","label":"Approval","canonical_store":"crm_tasks+bizcity_crm_audit_log","identity_key":"run_id:step_key:level","plugin_extensible":false},
+    {"key":"context","label":"Context","canonical_store":"context_bank_pointer_ledger+context_app_registry","identity_key":"conversation_id","plugin_extensible":false}
+  ]
+}

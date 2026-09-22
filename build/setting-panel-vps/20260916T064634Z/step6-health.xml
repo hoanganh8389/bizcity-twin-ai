@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="5" failures="0" skipped="0" time="3.337">
+  <testsuite name="diagnostics" tests="5" failures="0" skipped="0" time="3.337">
+    <testcase classname="bizcity.diagnostics" name="0" time="0.036">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="1" time="0.000">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="2" time="0.011">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="3" time="0.000">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="4" time="2.853">
+    </testcase>
+  </testsuite>
+</testsuites>

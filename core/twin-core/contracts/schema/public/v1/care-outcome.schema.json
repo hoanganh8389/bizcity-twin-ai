@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/care-outcome.schema.json",
+  "title": "BizCity Care Outcome Vocabulary",
+  "description": "PHASE-0.52 R-PIPE §6: outcomes a staff member can log for a customer. `to` is the stage it moves to (\"\" keeps the stage); `next`/`days` are the SUGGESTED reminder (optional for the user). Adding a code is a minor bump; changing what a code does is major.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "outcomes",
+    "channels"
+  ],
+  "properties": {
+    "contract": {
+      "const": "care-outcome"
+    },
+    "version": {
+      "const": "1.0.0"
+    },
+    "outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "label",
+          "to",
+          "next",
+          "days"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "interested",
+              "quoted",
+              "ordered",
+              "callback",
+              "no_answer",
+              "lost"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "to": {
+            "enum": [
+              "",
+              "target",
+              "contacted",
+              "consult",
+              "quote",
+              "won",
+              "repeat",
+              "lost"
+            ]
+          },
+          "next": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 365
+          }
+        }
+      }
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "zalo",
+          "call",
+          "meeting",
+          "other"
+        ]
+      }
+    }
+  }
+}

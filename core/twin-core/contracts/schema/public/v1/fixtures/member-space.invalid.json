@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "contract": "member-space",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "as_of": "2026-09-18T09:20:00+07:00",
+  "customers": 10,
+  "counts": {},
+  "no_next": 0,
+  "assigned": {
+    "open": 0,
+    "overdue": 0,
+    "unseen": 0
+  },
+  "week": [],
+  "goal": null,
+  "won_month": 0,
+  "team_rank": 3
+}

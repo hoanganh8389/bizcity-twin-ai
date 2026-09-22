@@ -1,5 +1,13 @@
 # BizCity Twin CRM (Inbox Hub)
 
+> **Product priority:** CRM is currently built around **Zalo Cá nhân** as the
+> primary customer-care channel. The Inbox must therefore preserve Personal
+> session truth, owner/phone scope, captions/media, contact-card rendering and
+> outbound delivery. Zalo OA and Facebook/Fanpage are the next business-owned
+> expansion channels; Zalo Bot, Telegram and TwinChat are supporting/admin
+> surfaces. This is a sequencing priority, not a second channel architecture:
+> all channels still use the canonical Channel Gateway → CRM → Brain path.
+
 Unified multi-channel customer-care inbox (Facebook, Messenger, Zalo OA, Zalo
 Personal, WebChat, Email) with a Twin Brain trace — the admin/agent UI built
 on top of the `core/channel-gateway` omni-channel foundation.

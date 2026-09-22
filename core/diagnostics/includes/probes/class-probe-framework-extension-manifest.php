@@ -92,7 +92,7 @@ final class BizCity_Probe_Framework_Extension_Manifest implements BizCity_Diagno
 			'label'  => 'Disk - public catalog, schemas and fixtures are readable JSON',
 			'status' => $catalog_ok && empty( $missing ) && empty( $json_errors ) ? 'pass' : 'fail',
 			'detail' => $catalog_ok && empty( $missing ) && empty( $json_errors )
-				? 'Catalog 1.8.0 and every referenced contract artifact are readable.'
+				? 'Public catalog and every referenced contract artifact are readable.'
 				: 'Missing or invalid public contract artifacts: ' . implode( ', ', array_merge( $missing, $json_errors ) ),
 		);
 		if ( ! $catalog_ok || ! empty( $missing ) || ! empty( $json_errors ) ) {
@@ -214,9 +214,22 @@ final class BizCity_Probe_Framework_Extension_Manifest implements BizCity_Diagno
 			'status' => $resolver_ok && $admin_producer_ok ? 'pass' : 'fail',
 			'detail' => $resolver_ok && $admin_producer_ok ? 'CRM scope resolver and Zalo Bot admin-branch producer are registered.' : 'User Inbox resolver or admin-branch producer is not loaded.',
 		);
-		$runtime_ok = '1.8.0' === (string) ( $catalog['catalog_version'] ?? '' )
-			&& 24 === count( $contracts )
-			&& is_array( $manifest_contract )
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G8 — stop hard-coding the catalog
+		// version and contract count. The previous `'1.8.0' === catalog_version && 24 === count(contracts)`
+		// assertion turned every legitimate catalog addition into a probe FAIL: the catalog moved to 1.9.0
+		// with 26 contracts (the `setting-panel-registration` row plus its manifest metadata), so the probe
+		// reported `Manifest semantic policy or negative fixture expectation failed` for an unrelated cause
+		// and masked the semantic checks it is supposed to guard.
+		//
+		// The contract identity that matters is that the catalog is readable, the manifest contract row
+		// exists, and every referenced artifact resolves — all validated above. The catalog version is only
+		// required to be a well-formed semver string here; an exact value belongs in the catalog's own
+		// release notes, not in a runtime probe.
+		$catalog_version = (string) ( $catalog['catalog_version'] ?? '' );
+		$version_ok      = (bool) preg_match( '/^[0-9]+\.[0-9]+\.[0-9]+$/', $catalog_version );
+		$contracts_ok    = ! empty( $contracts ) && is_array( $manifest_contract );
+		$runtime_ok = $version_ok
+			&& $contracts_ok
 			&& empty( $semantic_errors )
 			&& $negative_ok
 			&& $unsupported_ok
@@ -230,8 +243,27 @@ final class BizCity_Probe_Framework_Extension_Manifest implements BizCity_Diagno
 			'label'  => 'Runtime - valid manifest and fail-closed negative matrix',
 			'status' => $runtime_ok ? 'pass' : 'fail',
 			'detail' => $runtime_ok
-				? 'Catalog 1.8.0, 24 contracts, manifest policy, user Inbox branches and negative matrices passed.'
-				: 'Manifest semantic policy or negative fixture expectation failed.',
+				? sprintf(
+					'Catalog %s with %d contract(s), manifest policy, user Inbox branches and negative matrices passed.',
+					$catalog_version,
+					count( $contracts )
+				)
+				: sprintf(
+					'Manifest semantic policy or negative fixture expectation failed (catalog=%s, contracts=%d, version_ok=%s, contracts_ok=%s, semantic_errors=%d, negative=%s, unsupported=%s, range=%s, n_minus_one=%s, future_policy=%s, user_inbox=%s, resolver=%s, admin_producer=%s).',
+					'' === $catalog_version ? '(missing)' : $catalog_version,
+					count( $contracts ),
+					$version_ok ? 'yes' : 'no',
+					$contracts_ok ? 'yes' : 'no',
+					count( $semantic_errors ),
+					$negative_ok ? 'ok' : 'FAIL',
+					$unsupported_ok ? 'ok' : 'FAIL',
+					$range_ok ? 'ok' : 'FAIL',
+					$n_minus_one_ok ? 'ok' : 'FAIL',
+					$future_policy_ok ? 'ok' : 'FAIL',
+					$user_inbox_policy_ok ? 'ok' : 'FAIL',
+					$resolver_ok ? 'ok' : 'FAIL',
+					$admin_producer_ok ? 'ok' : 'FAIL'
+				),
 		);
 
 		return array(

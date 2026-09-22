@@ -115,10 +115,12 @@ class BizCity_Admin_Menu {
 		);
 
 		// [2026-08-19 Johnny Chu] HOTFIX — provide one parent for Content Creator, Image, Video, CRM, Zalo and other plugin surfaces.
+		// [2026-09-19 Johnny Chu] HOTFIX — the parent itself must be reachable by a Network Super Admin who has no local blog role; child pages retain their own capability checks.
+		$plugins_menu_cap = 'read';
 		add_menu_page(
 			__( 'Twin Plugins', $td ),
 			__( 'Twin Plugins', $td ),
-			'manage_options',
+			$plugins_menu_cap,
 			self::SLUG_PLUGINS,
 			[ __CLASS__, 'render_plugins_page' ],
 			'dashicons-admin-plugins',
@@ -313,9 +315,11 @@ class BizCity_Admin_Menu {
 
 		// [2026-06-22 Johnny Chu] PHASE-TWINWEB — moved from TwinChat to SLUG_GATEWAY
 		if ( class_exists( 'BizCity_Gateway_Admin_SPA', false ) ) {
+			// [2026-09-21 09:35 AM Johnny Chu] HOTFIX-CHANNEL-SUPER-ADMIN — the SPA owner reconciles this existing submenu at priority 30, but WordPress checks the capability stored here before the callback runs. Keep Network Super Admin access aligned with the Gateway SPA owner instead of leaving the central registration at manage_options.
+			$channel_gateway_cap = function_exists( 'is_super_admin' ) && is_super_admin() ? 'manage_network' : 'manage_options';
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Channel Gateway', $td ), __( 'Channel Gateway', $td ),
-				'manage_options', 'bizchat-gateway-spa',
+				$channel_gateway_cap, 'bizchat-gateway-spa',
 				[ BizCity_Gateway_Admin_SPA::instance(), 'render_page' ] );
 		}
 
@@ -347,27 +351,13 @@ class BizCity_Admin_Menu {
 		);
 		if ( class_exists( 'BizCity_CRM_Admin_Menu', false ) ) {
 			$crm = BizCity_CRM_Admin_Menu::instance();
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'CRM Inbox', $td ), __( 'CRM Inbox', $td ),
-				'manage_options', 'bizcity-crm',
-				[ $crm, 'render_inbox_page' ] );
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'CRM Channels', $td ), __( 'CRM Channels', $td ),
-				'manage_options', 'bizcity-crm-channels',
-				[ $crm, 'render_channels_page' ] );
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'Add CRM Inbox', $td ), __( 'Add Inbox', $td ),
-				'manage_options', 'bizcity-crm-add-inbox',
-				[ $crm, 'render_add_inbox_wizard' ] );
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'CRM Settings', $td ), __( 'CRM Settings', $td ),
-				'manage_options', 'bizcity-crm-settings',
-				[ $crm, 'render_settings_page' ] );
-			if ( method_exists( $crm, 'render_identity_queue_page' ) ) {
-				add_submenu_page( self::SLUG_PLUGINS,
-					__( 'CRM Identity Queue', $td ), __( 'Identity Queue', $td ),
-					'bizcity_crm_manage_rules', 'bizcity-crm-identity-queue',
-					[ $crm, 'render_identity_queue_page' ] );
+			// [2026-09-19 Johnny Chu] PHASE-0.60 C5 — the central menu consumes CRM-owned descriptors; it never invents CRM slugs/capabilities.
+			foreach ( $crm->surfaces_for( 'twin_plugins' ) as $surface ) {
+				$action = (string) ( $surface['action'] ?? '' );
+				$cap = class_exists( 'BizCity_CRM_Authority' ) ? BizCity_CRM_Authority::menu_cap( $action ) : 'manage_options';
+				$callback = $surface['callback'] ?? null;
+				if ( ! is_callable( $callback ) ) { continue; }
+				add_submenu_page( self::SLUG_PLUGINS, (string) $surface['title'], (string) $surface['label'], $cap, (string) $surface['slug'], $callback );
 			}
 		}
 
@@ -960,13 +950,21 @@ class BizCity_Admin_Menu {
 		$shell_url = class_exists( 'BizCity_Twin_Shell_Page' )
 			? BizCity_Twin_Shell_Page::shell_url()
 			: '';
+		// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G5 — prefer the built Control Panel artifact when deployed; fall back to the plain-JS shell.
+		$panel_url = '';
+		if ( class_exists( 'BizCity_Twin_Shell_Page' ) && method_exists( 'BizCity_Twin_Shell_Page', 'panel_index_file' ) ) {
+			if ( '' !== BizCity_Twin_Shell_Page::panel_index_file() ) {
+				$panel_url = BizCity_Twin_Shell_Page::panel_url();
+			}
+		}
+		$embed_url = '' !== $panel_url ? $panel_url : $shell_url;
 		?>
 		<div class="wrap" style="margin:0 -20px 0 -2px;">
 			<h1 class="screen-reader-text"><?php esc_html_e( 'Control Panel', 'bizcity-twin-ai' ); ?></h1>
-			<?php if ( '' !== $shell_url ) : ?>
+			<?php if ( '' !== $embed_url ) : ?>
 				<iframe
 					title="<?php echo esc_attr__( 'Control Panel', 'bizcity-twin-ai' ); ?>"
-					src="<?php echo esc_url( $shell_url ); ?>"
+					src="<?php echo esc_url( $embed_url ); ?>"
 					style="display:block;width:100%;min-height:calc(100vh - 32px);border:0;background:#0f1115;"
 					loading="eager"
 				></iframe>

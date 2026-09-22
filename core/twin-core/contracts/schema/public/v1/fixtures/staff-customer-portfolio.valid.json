@@ -1,0 +1,30 @@
+{
+  "contract": "staff-customer-portfolio",
+  "version": "1.0.0",
+  "surface": "B2_ADMIN_CRM",
+  "principal": { "blog_id": 1258, "actor_user_id": 10 },
+  "subject": { "user_id": 42, "display_name": "Nguyễn Hương", "team_role": "agent" },
+  "as_of": "2026-09-18T09:30:00+07:00",
+  "coverage": { "complete": false, "degraded_sources": ["journey.stage_policy"], "truncated": false },
+  "data": {
+    "range": { "key": "30d", "days": 30 },
+    "phones": [
+      { "id": 3, "inbox_id": 13, "label": "Zalo Hương 1", "status": "connected", "customers": 64, "account_key": "154b8863a47ee6a9", "phone_masked": "09******11" },
+      { "id": 4, "inbox_id": 14, "label": "Zalo Hương 2", "status": "expired", "customers": 21 },
+      { "id": 5, "inbox_id": 15, "label": "Zalo Hương 3", "status": "connected", "customers": 3 }
+    ],
+    "customers_total": 88,
+    "buckets": [
+      { "key": "new", "label": "Mới", "value": 18, "drill_down": "#/contacts?owner=42&stage=new" },
+      { "key": "consulting", "label": "Đang tư vấn", "value": null },
+      { "key": "buyer", "label": "Đã mua", "value": 31 },
+      { "key": "repeat", "label": "Mua lại", "value": 9 },
+      { "key": "dormant", "label": "Nguội > 30 ngày", "value": 8, "warn": true, "drill_down": "#/contacts?owner=42&stage=dormant" }
+    ],
+    "sources": { "zalo_personal": 40, "facebook": 12, "cf7": 6, "unknown": 2 },
+    "funnel": { "touched": 58, "ordered": 14, "rate": 24.1, "rate_basis": { "num": 14, "den": 58 }, "repeat": 5 },
+    "revenue_attributed": 42500000,
+    "revenue_estimated": 3900000,
+    "notes": { "attribution": "Đơn tính theo người phụ trách lúc tạo đơn; đơn cũ trước khi có attribution không được tính." }
+  }
+}

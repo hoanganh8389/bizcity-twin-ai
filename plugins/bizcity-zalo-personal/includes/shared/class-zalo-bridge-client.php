@@ -260,6 +260,29 @@ class BizCity_Zalo_Bridge_Client {
 		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/group-members?groupId=' . rawurlencode( $group_id ) );
 	}
 
+	/**
+	 * Zalo user display name + avatar for one uid (bridge ≥ 0.39.10). Older bridges return 404 → degraded.
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-AVATAR.
+	 */
+	public function get_user_profile( string $account_id, string $user_id ): array {
+		if ( $account_id === '' || $user_id === '' ) {
+			return $this->error_payload( 'invalid_param', 'Thiếu tài khoản hoặc người dùng Zalo.', 'Chọn lại hội thoại rồi thử lại.', 'invalid_param_generic' );
+		}
+		if ( $this->is_managed_mode() ) {
+			return $this->managed_hub_available() && method_exists( 'BizCity_Zalo_Personal_Hub_Client', 'get_user_profile' ) ? BizCity_Zalo_Personal_Hub_Client::instance()->get_user_profile( $account_id, $user_id ) : $this->degraded( 'managed_client_missing' );
+		}
+		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/user-profile?userId=' . rawurlencode( $user_id ) );
+	}
+
+	/** Read the provider group label through the server-side bridge boundary. */
+	public function get_group_name( string $account_id, string $group_id ): array {
+		// [2026-09-17 11:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CX2 — resolve the group title server-side; never expose the raw group ID to the browser.
+		if ( $this->is_managed_mode() ) {
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->get_group_name( $account_id, $group_id ) : $this->degraded( 'managed_client_missing' );
+		}
+		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/group-info?groupId=' . rawurlencode( $group_id ) );
+	}
+
 	// ── Public: Zalo OA (OAuth) ────────────────────────────────────────────
 
 	/**

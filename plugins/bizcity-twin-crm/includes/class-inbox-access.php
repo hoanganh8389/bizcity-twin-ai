@@ -46,8 +46,8 @@ final class BizCity_CRM_Inbox_Access {
 				$inbox_id = (int) ( $row['id'] ?? 0 );
 				$channel = sanitize_key( (string) ( $row['channel_type'] ?? '' ) );
 				$account_ref = (string) ( $row['channel_ref_id'] ?? '' );
-				$allowed_customer_channels = array( 'facebook', 'messenger', 'zalo_oa', 'zalo_personal', 'webchat', 'email', 'cf7', 'instagram', 'whatsapp' );
-				if ( $inbox_id <= 0 || ! in_array( $channel, $allowed_customer_channels, true ) || $account_ref === '' ) { continue; }
+				$zone = class_exists( 'BizCity_CRM_Zone_Registry' ) ? BizCity_CRM_Zone_Registry::for_channel( $channel ) : array( 'zone' => 'customer' );
+				if ( $inbox_id <= 0 || 'customer' !== (string) ( $zone['zone'] ?? '' ) || $account_ref === '' ) { continue; }
 				$is_personal = 'zalo_personal' === $channel;
 				if ( $is_personal && ! in_array( $inbox_id, $owned_personal_ids, true ) ) { continue; }
 				$account_label = sanitize_text_field( (string) ( $row['name'] ?? '' ) );
@@ -156,8 +156,19 @@ final class BizCity_CRM_Inbox_Access {
 
 	public static function is_admin( int $user_id = 0 ): bool {
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — tenant-wide CRM admin gate.
+		// [2026-09-19] PHASE-0.60 C60-A06 — delegate to the canonical tenant-admin
+		// check (adds explicit Super Admin coverage per D56/§8-Q5, was previously
+		// only `manage_options` here vs. `is_super_admin() || manage_options`
+		// elsewhere — one of several duplicate "is admin" definitions §C2).
 		$user_id = $user_id > 0 ? $user_id : (int) get_current_user_id();
-		return $user_id > 0 && user_can( $user_id, 'manage_options' );
+		if ( $user_id <= 0 ) { return false; }
+		if ( class_exists( 'BizCity_CRM_Actor' ) ) {
+			return BizCity_CRM_Actor::is_tenant_admin( array(
+				'user_id'        => $user_id,
+				'is_super_admin' => function_exists( 'is_super_admin' ) && is_super_admin( $user_id ),
+			) );
+		}
+		return user_can( $user_id, 'manage_options' );
 	}
 
 	/**
@@ -201,7 +212,28 @@ final class BizCity_CRM_Inbox_Access {
 		$member_ids = self::inbox_member_ids( $user_id );
 		// [2026-09-08 01:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — never let C Inbox membership widen access to another user's Zalo Personal inbox.
 		$member_ids = self::filter_c_personal_inbox_membership( $member_ids, $personal_ids );
-		$ids = array_values( array_unique( array_merge( $personal_ids, $member_ids ) ) );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F F-UID-02 — a
+		// supervisor/lead additionally sees the inboxes owned/joined by their
+		// own team's lower-rank members, so the Inbox rail (§4B "Không gian
+		// làm việc") and team dashboard can show their team without a second
+		// scope resolver. `BizCity_CRM_Staff_Policy` already enforces the same
+		// rank+team boundary used everywhere else in F6 — this only ever runs
+		// for `surface='be'` (never 'c', same guard as the admin branch above)
+		// and never when the caller forced a single subject's own scope.
+		$team_member_ids = array();
+		if ( ! $force_user_scope && 'c' !== strtolower( $surface ) && class_exists( 'BizCity_CRM_Staff_Policy' ) ) {
+			$subordinate_ids = BizCity_CRM_Staff_Policy::manageable_user_ids( $user_id );
+			// null = admin, already returned above; empty array = agent/none, nothing to add.
+			if ( is_array( $subordinate_ids ) && ! empty( $subordinate_ids ) ) {
+				foreach ( $subordinate_ids as $subordinate_id ) {
+					$sub_personal = self::personal_owner_inbox_ids( $subordinate_id );
+					$sub_member   = self::filter_c_personal_inbox_membership( self::inbox_member_ids( $subordinate_id ), $sub_personal );
+					$team_member_ids = array_merge( $team_member_ids, $sub_personal, $sub_member );
+				}
+				$team_member_ids = array_values( array_unique( $team_member_ids ) );
+			}
+		}
+		$ids = array_values( array_unique( array_merge( $personal_ids, $member_ids, $team_member_ids ) ) );
 		if ( empty( $ids ) ) {
 			return self::empty_scope( $user_id, array( 'zalo_personal_owner' => false, 'inbox_member' => false ) );
 		}
@@ -214,11 +246,11 @@ final class BizCity_CRM_Inbox_Access {
 			$channel_types = array_values( array_unique( array_filter( array_map( 'sanitize_key', is_array( $rows ) ? $rows : array() ) ) ) );
 		}
 		return array(
-			'scope_type' => 'owner_or_member',
+			'scope_type' => ! empty( $team_member_ids ) ? 'team_manager' : 'owner_or_member',
 			'user_id' => $user_id,
 			'inbox_ids' => $ids,
 			'channel_types' => $channel_types,
-			'sources' => array( 'zalo_personal_owner' => ! empty( $personal_ids ), 'inbox_member' => ! empty( $member_ids ) ),
+			'sources' => array( 'zalo_personal_owner' => ! empty( $personal_ids ), 'inbox_member' => ! empty( $member_ids ), 'team_managed' => ! empty( $team_member_ids ) ),
 			'field_projection' => array( 'operator_safe' => false, 'message_content' => true, 'private_notes' => false, 'provider_identifiers' => false ),
 		);
 	}
@@ -282,16 +314,14 @@ final class BizCity_CRM_Inbox_Access {
 	private static function normalize_public_scope_item( $item, string $expected_branch ): array {
 		// [2026-09-08 01:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — prevent extension filters from leaking raw identifiers or invalid branch semantics.
 		if ( ! is_array( $item ) || ! in_array( $expected_branch, array( 'customer', 'admin' ), true ) ) { return array(); }
-		$customer_channels = array( 'facebook', 'messenger', 'zalo_oa', 'zalo_personal', 'webchat', 'email', 'cf7', 'instagram', 'whatsapp' );
-		$admin_channels = array( 'zalo_bot', 'telegram', 'twinchat_be' );
 		$channel = sanitize_key( (string) ( $item['channel'] ?? '' ) );
 		$account_key = strtolower( sanitize_text_field( (string) ( $item['account_key'] ?? '' ) ) );
 		$scope_id = sanitize_key( (string) ( $item['scope_id'] ?? '' ) );
-		$allowed_channels = 'customer' === $expected_branch ? $customer_channels : $admin_channels;
-		if ( ! in_array( $channel, $allowed_channels, true ) || ! preg_match( '/^[a-f0-9]{16,64}$/', $account_key ) || strlen( $scope_id ) < 3 ) { return array(); }
-		$access_mode = sanitize_key( (string) ( $item['access_mode'] ?? '' ) );
-		$crm_mode = sanitize_key( (string) ( $item['crm_mode'] ?? '' ) );
-		$context_policy = sanitize_key( (string) ( $item['context_policy'] ?? '' ) );
+		$zone = class_exists( 'BizCity_CRM_Zone_Registry' ) ? BizCity_CRM_Zone_Registry::for_channel( $channel ) : array();
+		if ( (string) ( $zone['zone'] ?? '' ) !== $expected_branch || ! preg_match( '/^[a-f0-9]{16,64}$/', $account_key ) || strlen( $scope_id ) < 3 ) { return array(); }
+		$access_mode = sanitize_key( (string) ( $item['access_mode'] ?? $zone['access_mode'] ?? '' ) );
+		$crm_mode = sanitize_key( (string) ( $item['crm_mode'] ?? $zone['crm_mode'] ?? '' ) );
+		$context_policy = sanitize_key( (string) ( $item['context_policy'] ?? $zone['context_policy'] ?? '' ) );
 		if ( 'customer' === $expected_branch ) {
 			if ( 'zalo_personal' === $channel && 'owner_only' !== $access_mode ) { return array(); }
 			if ( ! in_array( $access_mode, array( 'owner_only', 'owner_or_membership', 'membership' ), true ) || 'customer_inbox' !== $crm_mode || ! in_array( $context_policy, array( 'conversation_summary', 'none' ), true ) ) { return array(); }

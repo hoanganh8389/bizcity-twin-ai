@@ -1,0 +1,41 @@
+Running 4 probe(s)…
+
+[PASS         ] core.channel.zone_isolation                            1ms · Zone isolation OK: ZALO_BOT is CRM-enabled in Admin Operations, shared triggers are discriminator-routed, and Customer Care remains isolated.
+  ↳ [PASS] Disk: zone-routing and CRM Operations files exist · listener + guru-bridge + gateway-bridge + webhook-handler + CRM contract/adapter/listener
+  ↳ [PASS] Loader: R-ZONE-2 guard and CRM customer-AI skip are present · all guards confirmed
+  ↳ [PASS] Loader: ZaloBot group/private conversation contract present · UCL + gateway bridge + webhook handler preserve sender/target split.
+  ↳ [PASS] Runtime: shared Zalo action resolves by explicit platform/code · Generic Zalo action resolves Bot, Personal and OA independently; unknown payload is refused.
+  ↳ [PASS] Runtime: ZALO_BOT KHÔNG dispatch Customer Care flow · Generic Bot map is explicit and bridge_zalo bails before Customer Care dispatch; no hook was fired.
+  ↳ [PASS] Runtime: ZALO_BOT is accepted by CRM Admin Operations contract · zalo_bot is CRM-enabled, admin-zoned and Automation-owned; no SQL fixture was created.
+  ↳ [PASS] Runtime: zalo_oa has a dedicated Zone 1 CRM route · zalo_oa has an explicit ZALO_OA listener route; no synthetic hook was fired.
+  ↳ [PASS] Runtime: ZaloBot explicit group chat_id parses to group target · Parsed explicit group chat target zgr-healthtest.
+  ↳ [PASS] Runtime: CRM Bot parser normalizes private/group source IDs · private UID and group:<id> are normalized before CRM storage.
+[PASS         ] core.channel.identity_memory                         594ms · Channel identity and memory ownership contracts passed all W6 DDV layers.
+  ↳ [PASS] Disk: identity hub, linker, listener, runtime, and writer exist · All four W6 ownership surfaces are present.
+  ↳ [PASS] Loader: canonical identity and memory ownership guards present · Canonical linker, no-owner event, and subject authorization contract confirmed.
+  ↳ [PASS] Runtime (a): FB unlinked → link → canonical linked owner · Unlinked identity resolved to 0, then to the authenticated probe user after token consumption.
+  ↳ [PASS] Runtime (b): subject ID differs only with explicit authorization · Unauthorized target fell back to actor; authorized target was selected and Memory_Recall returned only the target sentinel.
+  ↳ [PASS] Runtime (c): Zalo Bot memory without a durable UUID is refused · Writer returned no_owner with persisted=0 and emitted bizcity_twinbrain_memory_no_owner; stable UUID identities are tested separately below.
+  ↳ [PASS] Runtime (d): durable UUID continuity and fail-closed identity boundaries · FB and Telegram share one UUID; stable external identity owns recallable memory without WP user; group and conflicting ownership were rejected.
+  ↳ [PASS] Runtime (e): canonical identity merge and rebuild event · Identity Hub atomically merged the source into the target, moved the source binding, emitted one post-commit event and resolved both identities to the target.
+  ↳ [PASS] Runtime (f): identity merge event tenant and UUID guards · Cross-tenant and UUID-less merge events were refused before rollup dirty handling.
+[PASS         ] core.channel.zone_ui                                   0ms
+  ↳ [UNKNOWN] Disk: PHP catalog has 'zone' field (customer + admin) · OK — 'zone' => 'customer' present in platform_catalog()
+  ↳ [UNKNOWN] Disk: PHP catalog has zalo_oa (Zone 1 customer) · OK — zalo_oa Zone 1 entry exists
+  ↳ [UNKNOWN] Disk: PHP catalog zalo_bot/telegram/hotline zone='admin' · OK — Zone 2 admin entries present
+  ↳ [UNKNOWN] Disk: navConfig.js exports ZONE_1_CODES + ZONE_2_CODES · React src không được deploy lên server (chỉ dist/). Bỏ qua.
+  ↳ [UNKNOWN] Disk: navConfig.js has ZALO_OA_TABS + ZALO_BOT_TABS · React src không được deploy lên server (chỉ dist/). Bỏ qua.
+  ↳ [UNKNOWN] Disk: SideNav.jsx uses cg-nav-zone-label · React src không được deploy lên server (chỉ dist/). Bỏ qua.
+  ↳ [UNKNOWN] Disk: PlatformWorkspace.jsx renders ZoneBadge · React src không được deploy lên server (chỉ dist/). Bỏ qua.
+  ↳ [UNKNOWN] Disk: AddChannelRoute.jsx groups by ZONE_GROUPS · React src không được deploy lên server (chỉ dist/). Bỏ qua.
+  ↳ [UNKNOWN] Disk: index.css has .cg-nav-zone-label--customer/--admin · React src không được deploy lên server (chỉ dist/). Bỏ qua.
+[PASS         ] core.channel.zalo_multi_account_isolation            864ms · Zalo multi-account, zone, group and compatibility isolation passed.
+  ↳ [PASS] Runtime - exact Bot/OA/Personal account writes · Six synthetic account rows were accepted with exact channel scope.
+  ↳ [PASS] Runtime - account A/B query isolation · Exact account queries never returned the paired account.
+  ↳ [PASS] Runtime - Zalo zone classification · zalo_bot=admin; zalo_oa/zalo_personal=customer.
+  ↳ [PASS] Runtime - unlisted account refusal · An account outside the server catalog returned the canonical permission payload.
+  ↳ [PASS] Runtime - /logs and /channel-logs parity · Both compatibility paths returned the same exact-account normalized rows.
+  ↳ [PASS] Runtime - group personal identity denial · Group chat received no personal Context Bank owner scope.
+
+Result: 4 pass · 0 fail · 0 skip · total 1497ms
+JUnit XML written to /home/vibeyeuc/huongnguyen.vibeyeu.com.vn/wp-content/plugins/bizcity-twin-ai/build/setting-panel-vps/20260916T064634Z/step4-channel-zone.xml

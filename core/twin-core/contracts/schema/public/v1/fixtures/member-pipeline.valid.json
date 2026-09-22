@@ -1,0 +1,47 @@
+{
+  "success": true,
+  "contract": "member-pipeline",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "as_of": "2026-09-18T09:20:00+07:00",
+  "columns": [
+    {
+      "stage": "quote",
+      "label": "Đã báo giá",
+      "count": 101,
+      "stuck": 12,
+      "no_next": 3,
+      "stuck_days": 3,
+      "cards": [
+        {
+          "contact_id": 9001,
+          "display_name": "Chị Lan",
+          "stage": "quote",
+          "days": 4,
+          "stuck": true,
+          "has_next": true,
+          "next_due": "2026-09-19",
+          "overdue_tasks": 0,
+          "source": "zalo_personal",
+          "manual_won_pending": false,
+          "paid_orders": 0,
+          "conversation_id": 88,
+          "inbox_id": 13,
+          "steps_done": 1,
+          "channel": "zalo_personal",
+          "ref": "154b8863a47ee6a9",
+          "task": null
+        }
+      ]
+    }
+  ],
+  "kpis": {
+    "customers": 10,
+    "no_next": 71,
+    "stuck": 96,
+    "overdue_tasks": 88,
+    "touch7_rate": 72.4,
+    "conversion": null
+  },
+  "capped": false
+}

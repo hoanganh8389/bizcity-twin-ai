@@ -247,7 +247,8 @@ class BizCity_Knowledge_Database {
         ) {$charset_collate};";
 
         // [2026-09-01 Johnny Chu] PHASE-CB4.5 — user-memory payloads belong to encrypted filestore plus Context Bank; never recreate the retired SQL table.
-        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::install_blocked( $table_memory ) ) {
+        // [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — a missing lifecycle policy must not recreate the retired user-memory table.
+        if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::install_blocked( $table_memory ) ) {
             dbDelta($sql_memory);
         }
 

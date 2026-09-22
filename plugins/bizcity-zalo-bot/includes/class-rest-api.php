@@ -782,12 +782,17 @@ class BizCity_Zalo_Bot_REST_API {
 			if ( ! empty( $r->wp_user_id ) ) {
 				$u = get_userdata( (int) $r->wp_user_id );
 				if ( $u ) {
+					// [2026-09-21 Johnny Chu] HOTFIX-ZALO-ROLE-DEMOTE — expose the protected state so the Channel Gateway UI never offers a demotion that would lock the account out of wp-admin.
+					$entry_is_super  = function_exists( 'is_super_admin' ) && is_super_admin( (int) $u->ID );
+					$entry_is_admin  = in_array( 'administrator', (array) $u->roles, true );
 					$entry['wp_user'] = array(
-						'id'           => $u->ID,
-						'user_login'   => $u->user_login,
-						'display_name' => $u->display_name,
-						'user_email'   => $u->user_email,
-						'roles'        => array_values( (array) $u->roles ),
+						'id'               => $u->ID,
+						'user_login'       => $u->user_login,
+						'display_name'     => $u->display_name,
+						'user_email'       => $u->user_email,
+						'roles'            => array_values( (array) $u->roles ),
+						'is_super_admin'   => $entry_is_super,
+						'protected_reason' => $entry_is_super ? 'super_admin' : ( $entry_is_admin ? 'administrator' : '' ),
 					);
 				}
 			}
@@ -1031,6 +1036,21 @@ class BizCity_Zalo_Bot_REST_API {
 		$user = get_userdata( (int) $row->wp_user_id );
 		if ( ! $user ) {
 			return new WP_Error( 'not_found', 'WP user not found', array( 'status' => 404 ) );
+		}
+		// [2026-09-21 Johnny Chu] HOTFIX-ZALO-ROLE-DEMOTE — `set_role()` REPLACES every role on the account. Calling it here could strip `administrator` from the blog admin, or strip the only `{prefix}{blog_id}_capabilities` membership row of a Network Super Admin; WordPress then routes every wp-admin page through _access_denied_splash() and returns 403. Refuse the demotion instead.
+		$is_super    = function_exists( 'is_super_admin' ) && is_super_admin( (int) $user->ID );
+		$is_blog_adm = in_array( 'administrator', (array) $user->roles, true );
+		if ( $is_super || $is_blog_adm ) {
+			return new WP_Error(
+				'role_protected',
+				'Tài khoản quản trị không thể đổi role từ đây.',
+				array(
+					'status'    => 403,
+					'hint'      => 'Gỡ liên kết Zalo nếu không dùng nữa; không hạ role của tài khoản quản trị.',
+					'help_code' => 'zalo_role_protected',
+					'reason'    => $is_super ? 'super_admin' : 'administrator',
+				)
+			);
 		}
 		$user->set_role( $role );
 		return rest_ensure_response( array( 'success' => true, 'wp_user_id' => (int) $row->wp_user_id, 'role' => $role ) );

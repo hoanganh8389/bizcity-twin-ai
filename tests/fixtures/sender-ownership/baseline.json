@@ -1,0 +1,143 @@
+{
+    "schema": "bizcity-sender-ownership-baseline-v1",
+    "generated_at": "2026-09-16T14:12:26Z",
+    "owner": "WP4 - Channel Zone and Identity Boundaries",
+    "contract": "R-CH-FILE-LOG + R-CH-UNI",
+    "note": "Reviewed legacy debt captured in report mode before --strict was enabled. All findings are canonical sender call sites that do not pass an idempotency_key, so a retry or double-fired hook can produce a duplicate customer-visible message. Provider posts are already 8/8 inside an approved transport owner. New bypasses fail immediately.",
+    "source_counts": {
+        "files_scanned": 1889,
+        "provider_post_sites": 8,
+        "provider_posts_in_owner": 8,
+        "sender_call_sites": 23,
+        "sender_calls_with_idempotency": 2,
+        "total_findings": 21
+    },
+    "known_findings": [
+        {
+            "fingerprint": "send_no_idem|core/automation/includes/class-automation-trigger-matcher.php|2240",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/automation/includes/class-automation-trigger-matcher.php",
+            "line": 2240
+        },
+        {
+            "fingerprint": "send_no_idem|core/automation/includes/class-automation-trigger-matcher.php|2524",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/automation/includes/class-automation-trigger-matcher.php",
+            "line": 2524
+        },
+        {
+            "fingerprint": "send_no_idem|core/channel-gateway/bootstrap.php|615",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/channel-gateway/bootstrap.php",
+            "line": 615
+        },
+        {
+            "fingerprint": "send_no_idem|core/channel-gateway/includes/adapters/class-zalo-oa-rest.php|261",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/channel-gateway/includes/adapters/class-zalo-oa-rest.php",
+            "line": 261
+        },
+        {
+            "fingerprint": "send_no_idem|core/channel-gateway/includes/class-channel-user-linker.php|329",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/channel-gateway/includes/class-channel-user-linker.php",
+            "line": 329
+        },
+        {
+            "fingerprint": "send_no_idem|core/channel-gateway/includes/class-inbox-send-rest.php|110",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/channel-gateway/includes/class-inbox-send-rest.php",
+            "line": 110
+        },
+        {
+            "fingerprint": "send_no_idem|core/channel-gateway/legacy/legacy-gateway-functions.php|196",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/channel-gateway/legacy/legacy-gateway-functions.php",
+            "line": 196
+        },
+        {
+            "fingerprint": "send_no_idem|core/content-ops/includes/class-scheduler.php|209",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/content-ops/includes/class-scheduler.php",
+            "line": 209
+        },
+        {
+            "fingerprint": "send_no_idem|core/knowledge/kg-hub/includes/class-kg-channel-notebook-generic-listener.php|279",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/knowledge/kg-hub/includes/class-kg-channel-notebook-generic-listener.php",
+            "line": 279
+        },
+        {
+            "fingerprint": "send_no_idem|core/knowledge/kg-hub/includes/class-kg-channel-progress-notifier.php|396",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/knowledge/kg-hub/includes/class-kg-channel-progress-notifier.php",
+            "line": 396
+        },
+        {
+            "fingerprint": "send_no_idem|core/scheduler/includes/class-reminder-personal-handler.php|212",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/scheduler/includes/class-reminder-personal-handler.php",
+            "line": 212
+        },
+        {
+            "fingerprint": "send_no_idem|core/scheduler/includes/class-scheduler-completion-notifier.php|239",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/scheduler/includes/class-scheduler-completion-notifier.php",
+            "line": 239
+        },
+        {
+            "fingerprint": "send_no_idem|core/scheduler/includes/class-scheduler-hil-router.php|372",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/scheduler/includes/class-scheduler-hil-router.php",
+            "line": 372
+        },
+        {
+            "fingerprint": "send_no_idem|core/twinbrain/includes/class-twinbrain-progress-notice-projector.php|454",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "core/twinbrain/includes/class-twinbrain-progress-notice-projector.php",
+            "line": 454
+        },
+        {
+            "fingerprint": "send_no_idem|plugins/bizcity-profile/includes/class-personal-reminder-notifier.php|98",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "plugins/bizcity-profile/includes/class-personal-reminder-notifier.php",
+            "line": 98
+        },
+        {
+            "fingerprint": "send_no_idem|plugins/bizcity-twin-crm/includes/class-ai-replier.php|1015",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "plugins/bizcity-twin-crm/includes/class-ai-replier.php",
+            "line": 1015
+        },
+        {
+            "fingerprint": "send_no_idem|plugins/bizcity-twin-crm/includes/inbox/adapters/class-adapter-webchat.php|155",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "plugins/bizcity-twin-crm/includes/inbox/adapters/class-adapter-webchat.php",
+            "line": 155
+        },
+        {
+            "fingerprint": "send_no_idem|plugins/bizcity-twin-crm/includes/inbox/adapters/class-adapter-zalo-bot.php|122",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "plugins/bizcity-twin-crm/includes/inbox/adapters/class-adapter-zalo-bot.php",
+            "line": 122
+        },
+        {
+            "fingerprint": "send_no_idem|plugins/bizcity-twin-crm/includes/inbox/adapters/class-adapter-zalo.php|112",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "plugins/bizcity-twin-crm/includes/inbox/adapters/class-adapter-zalo.php",
+            "line": 112
+        },
+        {
+            "fingerprint": "send_no_idem|plugins/bizcity-twin-crm/includes/woo/class-woo-order-recap-notifier.php|233",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "plugins/bizcity-twin-crm/includes/woo/class-woo-order-recap-notifier.php",
+            "line": 233
+        },
+        {
+            "fingerprint": "send_no_idem|plugins/bizcity-zalo-bizcity/includes/gateway-functions.php|215",
+            "rule": "R-CH-SENDER.send_without_idempotency_key",
+            "file": "plugins/bizcity-zalo-bizcity/includes/gateway-functions.php",
+            "line": 215
+        }
+    ]
+}

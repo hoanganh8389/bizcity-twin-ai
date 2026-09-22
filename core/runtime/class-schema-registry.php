@@ -107,7 +107,7 @@ final class BizCity_Schema_Registry {
 	 *     expected_version  string   Version declared in ::register()
 	 *     installed_version string   Version stored in wp_options (or '' if absent)
 	 *     table_exists      bool     True if SHOW TABLES returns the table
-	 *     status            string   'ok' | 'stale' | 'missing'
+	 *     status            string   'ok' | 'stale' | 'missing' | 'retired' (install-blocked legacy table)
 	 * }
 	 */
 	public static function get_diagnostic_status() {
@@ -117,6 +117,19 @@ final class BizCity_Schema_Registry {
 		foreach ( self::$tables as $entry ) {
 			$installed_ver = (string) get_option( $entry['version_option'], '' );
 			$full_name     = $wpdb->prefix . $entry['table_base'];
+
+			// [2026-09-18 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — a retired table that shares an owner registration is intentionally absent, not "missing".
+			if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::install_blocked( $entry['table_base'] ) ) {
+				$result[] = array(
+					'table_base'        => $entry['table_base'],
+					'module_id'         => $entry['module_id'],
+					'expected_version'  => $entry['version'],
+					'installed_version' => $installed_ver,
+					'table_exists'      => function_exists( 'bizcity_tbl_exists' ) ? (bool) bizcity_tbl_exists( $full_name ) : false,
+					'status'            => 'retired',
+				);
+				continue;
+			}
 
 			// [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$exists = bizcity_tbl_exists( $full_name );

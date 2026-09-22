@@ -79,7 +79,8 @@ $write_progress = static function ( $text ) use ( &$machine_output ) {
     }
 };
 if ( $machine_output ) {
-    ob_start();
+    // [2026-09-18 10:51 AM Johnny Chu - Chu Hoàng Anh] HOTFIX — protective buffer is cleanable/removable but NOT flushable: a probe or streaming helper calling ob_flush() can no longer push its output through to stdout and corrupt the single JSON document. Removable stays on, otherwise `while ( ob_get_level() ) ob_end_clean();` loops would spin forever.
+    ob_start( null, 0, PHP_OUTPUT_HANDLER_CLEANABLE | PHP_OUTPUT_HANDLER_REMOVABLE );
     register_shutdown_function( static function () use ( &$machine_output_emitted ) {
         if ( $machine_output_emitted ) {
             return;
@@ -235,7 +236,28 @@ if ( $opts['skip-network'] ) {
 require $wp_root . '/wp-load.php';
 
 /* Elevate to admin so probe permission_callbacks pass. */
-$admin = get_users( [ 'role' => 'administrator', 'number' => 1 ] );
+// [2026-09-21 03:35 PM Johnny Chu - Chu Hoàng Anh] R-MSDB/R-DDV — on multisite, prefer a Super Admin because a site administrator can lack manage_options on a mapped tenant blog; fall back to the existing administrator selection for single-site and legacy installs.
+$admin = array();
+if ( is_multisite() && function_exists( 'get_super_admins' ) ) {
+    $super_admin_logins = get_super_admins();
+    if ( ! empty( $super_admin_logins ) && function_exists( 'get_user_by' ) ) {
+        // [2026-09-21 04:05 PM Johnny Chu - Chu Hoàng Anh] R-MSDB/R-DDV — choose the first network administrator that actually exposes the trusted CLI capability in this mapped tenant, rather than assuming the first super-admin listing is usable.
+        foreach ( $super_admin_logins as $super_admin_login ) {
+            $super_admin = get_user_by( 'login', (string) $super_admin_login );
+            if ( ! $super_admin instanceof WP_User ) {
+                continue;
+            }
+            wp_set_current_user( (int) $super_admin->ID );
+            if ( function_exists( 'user_can' ) && user_can( (int) $super_admin->ID, 'manage_network_options' ) ) {
+                $admin = array( $super_admin );
+                break;
+            }
+        }
+    }
+}
+if ( empty( $admin ) ) {
+    $admin = get_users( [ 'role' => 'administrator', 'number' => 1 ] );
+}
 if ( ! empty( $admin ) ) {
     wp_set_current_user( (int) $admin[0]->ID );
 }
@@ -635,7 +657,24 @@ $write_progress( sprintf(
 ) );
 if ( isset( $run_meta['coverage'] ) && empty( $run_meta['coverage']['complete'] ) && ! empty( $run_meta['run_id'] ) ) {
     // [2026-08-29 Johnny Chu] PHASE-1.32-DIAGNOSTICS-STREAM — expose the exact checkpoint resume command when a bounded batch stops before completion.
-    $resume_command = 'php bin/diagnostics-run.php --batch=' . (string) ( $run_meta['batch'] ?? $requested_batch ) . ' --resume=' . (string) $run_meta['run_id'] . ' --skip-network --skip-provision';
+    // [2026-09-18 10:27 AM Johnny Chu - Chu Hoàng Anh] R-DDV / R-MSDB — the checkpoint lives on the original blog, so the resume command must carry the same --wp-root/--host; and it must mirror --skip-network instead of always adding it, otherwise resuming a real-network run silently turns into mock evidence.
+    $resume_parts = array( 'php bin/diagnostics-run.php' );
+    if ( $opts['wp-root'] !== '' ) {
+        $resume_parts[] = '--wp-root=' . escapeshellarg( (string) $opts['wp-root'] );
+    }
+    if ( $diagnostics_host !== '' ) {
+        $resume_parts[] = '--host=' . escapeshellarg( $diagnostics_host );
+    }
+    $resume_parts[] = '--batch=' . escapeshellarg( (string) ( $run_meta['batch'] ?? $requested_batch ) );
+    $resume_parts[] = '--resume=' . escapeshellarg( (string) $run_meta['run_id'] );
+    if ( ! empty( $opts['skip-network'] ) ) {
+        $resume_parts[] = '--skip-network';
+    }
+    $resume_parts[] = '--skip-provision';
+    if ( $machine_output ) {
+        $resume_parts[] = '--format=json';
+    }
+    $resume_command = implode( ' ', $resume_parts );
     $write_progress( "Resume command: {$resume_command}\n" );
 }
 if ( $total_fail > 0 ) {

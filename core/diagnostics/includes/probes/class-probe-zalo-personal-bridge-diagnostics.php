@@ -47,8 +47,12 @@ final class BizCity_Probe_Zalo_Personal_Bridge_Diagnostics implements BizCity_Di
 		$hub_file = $root . '../bizcity-llm-router/includes/class-router-zalo-personal-bridge-rest.php';
 		// [2026-09-05 11:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — read the deployed sidecar source from the canonical VPS runtime root; the plugin bundle is only a local fallback.
 		$runtime_bridge_root = getenv( 'BIZCITY_ZCA_BRIDGE_ROOT' );
+		// [2026-09-18 11:11 AM Johnny Chu - Chu Hoàng Anh] R-AGENT-PARITY / R-DDV — no operator path in shared code: BIZCITY_ZCA_BRIDGE_ROOT comes from the environment (bin/diagnostics-batch-until-complete.sh --zca-bridge-root=…) or a wp-config constant; the plugin bundle stays the local fallback.
+		if ( ( ! is_string( $runtime_bridge_root ) || trim( $runtime_bridge_root ) === '' ) && defined( 'BIZCITY_ZCA_BRIDGE_ROOT' ) ) {
+			$runtime_bridge_root = (string) BIZCITY_ZCA_BRIDGE_ROOT;
+		}
 		if ( ! is_string( $runtime_bridge_root ) || trim( $runtime_bridge_root ) === '' ) {
-			$runtime_bridge_root = is_dir( '/home/vibeyeuc/zca-bridge' ) ? '/home/vibeyeuc/zca-bridge' : '';
+			$runtime_bridge_root = '';
 		}
 		$sidecar_source_origin = $runtime_bridge_root !== '' ? 'runtime' : 'bundle';
 		$sidecar_file = $runtime_bridge_root !== ''

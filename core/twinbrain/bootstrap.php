@@ -132,11 +132,17 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-perspective-runne
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-source-file-deep-layer.php';
 // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — load Notebook Source Layer before runtime turn compose uses source maps.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-notebook-source-layer.php';
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C2 — read-only trace calculator; no
+// runtime dependency on it, loaded eagerly like every other side-effect-free TwinBrain class
+// so `wp bizcity brain trace` and any future diagnostics probe can reach it without a lazy gate.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-trace-calculator.php';
 // [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — subject-first customer profile layer for Notebook/vertical personalization.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-subject-profile-layer.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-synthesizer.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-rest.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-schema.php';
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D4 — one Brain retrieval facade shared by Twin GPT and MCP.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-brain-retrieval-facade.php';
 
 // [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — Conversation thread manager
 // + REST surface (/sessions CRUD). Spec:
@@ -155,7 +161,15 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-progress-notice-p
 BizCity_TwinBrain_Progress_Notice_Projector::init();
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-vertical-bridge-registry.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-guru-focus-validator.php';
-BizCity_TwinBrain_Goal_Loop_Scheduler::init();
+// [2026-09-21 PHASE-0.63A] Goal Loop stale scanning is disabled pending the replacement workflow.
+// BizCity_TwinBrain_Goal_Loop_Scheduler::init();
+add_action( 'init', static function () {
+	if ( ! function_exists( 'wp_clear_scheduled_hook' ) || get_option( 'bizcity_twinbrain_goal_loop_scheduler_disabled', false ) ) {
+		return;
+	}
+	wp_clear_scheduled_hook( BizCity_TwinBrain_Goal_Loop_Scheduler::HOOK );
+	update_option( 'bizcity_twinbrain_goal_loop_scheduler_disabled', 1, false );
+}, 20 );
 
 // Phase 0.36-UNIFIED TBR.W8 (2026-05-21) — Seed 2 global skills cho Web
 // Research Fallback Layer vào bizcity_skills (idempotent qua UNIQUE key).
@@ -396,27 +410,10 @@ add_action( 'init', static function () {
 // All UI lives inside TwinChat (mode='brain'). The legacy admin page
 // `bizcity-twinbrain` redirects to TwinChat with the brain mode flag so any
 // bookmarks / external links keep working.
-add_action( 'admin_menu', static function () {
-	add_submenu_page(
-		'bizcity-ai',
-		__( 'Twin Brain (Não tổng)', 'bizcity-twin-ai' ),
-		__( 'Twin Brain', 'bizcity-twin-ai' ),
-		'read',
-		'bizcity-twinbrain',
-		static function () {
-			echo '<div class="wrap"><p>' . esc_html__( 'Đang chuyển về TwinChat (Ask Brain mode)…', 'bizcity-twin-ai' ) . '</p></div>';
-		}
-	);
-}, 30 );
-
-add_action( 'admin_init', static function () {
-	if ( ! is_admin() || empty( $_GET['page'] ) || $_GET['page'] !== 'bizcity-twinbrain' ) {
-		return;
-	}
-	$target = add_query_arg(
-		[ 'page' => 'bizcity-twinchat', 'mode' => 'brain' ],
-		admin_url( 'admin.php' )
-	);
-	wp_safe_redirect( $target );
-	exit;
-} );
+//
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-HOTFIX3 — menu registration MOVED to
+// `core/twinbrain/includes/class-twinbrain-admin-menu.php`. This bootstrap is gated behind
+// `$_bizcity_admin_ctx && !$_bizcity_twinchat_admin_shell_request` in `bizcity-twin-ai.php`, so
+// registering the Twin Brain parent here made the entire menu vanish whenever the operator was
+// inside the TwinChat admin shell (`?page=bizcity-twinchat`). The lightweight menu owner is now
+// loaded on every wp-admin request; only the REST/schema/runtime wiring stays behind this gate.

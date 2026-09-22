@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "contract": "customer-pipeline-board",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "as_of": "2026-09-18T09:20:00+07:00",
+  "columns": [
+    {
+      "stage": "quote",
+      "label": "Đã báo giá",
+      "count": 1,
+      "stuck": 0,
+      "no_next": 0,
+      "cards": [
+        {
+          "contact_id": 9001,
+          "display_name": "Chị Lan",
+          "stage": "quote",
+          "days": 4,
+          "stuck": true,
+          "has_next": true,
+          "next_due": "2026-09-19",
+          "overdue_tasks": 0,
+          "source": "zalo_personal",
+          "manual_won_pending": false,
+          "paid_orders": 0,
+          "conversation_id": 88,
+          "inbox_id": 13,
+          "steps_done": 1,
+          "owner": {
+            "user_id": 42,
+            "display_name": "Nguyễn Hương"
+          },
+          "phone": "0901234111"
+        }
+      ]
+    }
+  ],
+  "kpis": {
+    "customers": 1842,
+    "no_next": 71,
+    "stuck": 96,
+    "overdue_tasks": 88,
+    "touch7_rate": 72.4,
+    "conversion": {
+      "num": 1,
+      "den": 3,
+      "value": 33.3
+    }
+  },
+  "matrix": []
+}

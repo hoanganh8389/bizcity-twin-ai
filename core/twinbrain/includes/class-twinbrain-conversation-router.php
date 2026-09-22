@@ -343,7 +343,9 @@ final class BizCity_TwinBrain_Conversation_Router {
 		}
 		global $wpdb;
 		$table = BizCity_KG_Database::instance()->tbl_notebooks();
-		$where = "((owner_id = %d AND owner_id <> 0) OR (owner_id = 0 AND notebook_scope IN ('business_kb','guru_kb')))";
+		$where = class_exists( 'BizCity_KG_Access' )
+			? BizCity_KG_Access::readable_where( $user_id )
+			: "((owner_id = %d AND owner_id <> 0) OR (owner_id = 0 AND notebook_scope IN ('business_kb','guru_kb')))";
 		$params = array( $user_id );
 		if ( $guru_id > 0 ) {
 			$where .= ' AND (character_id = %d OR character_id IS NULL)';

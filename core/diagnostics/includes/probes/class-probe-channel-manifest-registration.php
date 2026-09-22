@@ -34,7 +34,7 @@ final class BizCity_Probe_Channel_Manifest_Registration implements BizCity_Diagn
 
 	public function id(): string { return 'core.channel.manifest_registration'; }
 	public function label(): string { return 'Current channel manifest registration'; }
-	public function description(): string { return 'Kiểm tra bốn manifest CRM hiện tại khớp adapter code, zone, identity và CRM policy.'; }
+	public function description(): string { return 'Kiểm tra các manifest CRM hiện tại khớp adapter code, zone, identity và CRM policy.'; } // [2026-09-18 09:59 AM Johnny Chu - Chu Hoàng Anh] R-DDV — channel count no longer hard-coded in the label
 	public function severity(): string { return 'critical'; }
 	public function order(): int { return 22; }
 	public function icon(): string { return 'route'; }
@@ -47,7 +47,8 @@ final class BizCity_Probe_Channel_Manifest_Registration implements BizCity_Diagn
 		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( dirname( dirname( dirname( dirname( __FILE__ ) ) ) ) ) . '/';
 		$manifest_file = $root . 'plugins/bizcity-twin-crm/manifests/builtin-channel-manifests.json';
 		$manifests = $this->read_json( $manifest_file );
-		$expected = array( 'zalo_bot', 'zalo_oa', 'zalo_personal', 'facebook' );
+		// [2026-09-18 09:59 AM Johnny Chu - Chu Hoàng Anh] R-DDV — include mabel_wheel: the shipped manifest and core.channel.manifest_compat already declare five current channels; the stale four-slug list failed every run.
+		$expected = array( 'zalo_bot', 'zalo_oa', 'zalo_personal', 'facebook', 'mabel_wheel' );
 		$actual = array();
 		foreach ( (array) $manifests as $manifest ) {
 			foreach ( (array) ( $manifest['channels'] ?? array() ) as $channel ) {
@@ -63,13 +64,16 @@ final class BizCity_Probe_Channel_Manifest_Registration implements BizCity_Diagn
 		$steps[] = array(
 			'label'  => 'Disk - current channel manifest package is complete',
 			'status' => $disk_ok ? 'pass' : 'fail',
-			'detail' => $disk_ok ? 'Four exact current channel manifests are readable.' : 'Manifest package is missing or has an unexpected channel set.',
+			// [2026-09-18 09:59 AM Johnny Chu - Chu Hoàng Anh] R-DDV — report the exact expected/actual slug sets so a mismatch is actionable.
+			'detail' => $disk_ok
+				? sprintf( '%d exact current channel manifests are readable.', count( $expected ) )
+				: sprintf( 'Manifest package is missing or has an unexpected channel set. expected=[%s] actual=[%s]', implode( ',', $expected_sorted ), implode( ',', $actual ) ),
 		);
 		if ( ! $disk_ok ) {
-			return array( 'status' => 'fail', 'summary' => 'Current channel manifest package is incomplete.', 'fix_hint' => 'Restore the four exact channel manifests and rerun this focused probe.', 'steps' => $steps );
+			return array( 'status' => 'fail', 'summary' => 'Current channel manifest package is incomplete.', 'fix_hint' => 'Make plugins/bizcity-twin-crm/manifests/builtin-channel-manifests.json declare exactly: ' . implode( ', ', $expected_sorted ) . ' — then rerun this focused probe.', 'steps' => $steps );
 		}
 
-		$registry_ok = class_exists( 'BizCity_Framework_Manifest_Registry' ) && count( BizCity_Framework_Manifest_Registry::channels() ) >= 4;
+		$registry_ok = class_exists( 'BizCity_Framework_Manifest_Registry' ) && count( BizCity_Framework_Manifest_Registry::channels() ) >= count( $expected );
 		$steps[] = array(
 			'label'  => 'Loader - current manifests are registered in the framework catalog',
 			'status' => $registry_ok ? 'pass' : 'fail',
@@ -95,7 +99,7 @@ final class BizCity_Probe_Channel_Manifest_Registration implements BizCity_Diagn
 		$steps[] = array(
 			'label'  => 'Runtime - manifest slug matches adapter code and policy fields',
 			'status' => $parity_ok ? 'pass' : 'fail',
-			'detail' => $parity_ok ? 'zalo_bot, zalo_oa, zalo_personal and facebook match exact adapter and policy descriptors.' : wp_json_encode( $parity ),
+			'detail' => $parity_ok ? implode( ', ', $expected ) . ' match exact adapter and policy descriptors.' : wp_json_encode( $parity ), // [2026-09-18 09:59 AM Johnny Chu - Chu Hoàng Anh] R-DDV
 		);
 
 		return array(

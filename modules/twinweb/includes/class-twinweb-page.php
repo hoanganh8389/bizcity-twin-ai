@@ -67,6 +67,11 @@ class BizCity_TwinWeb_Page {
 			'myaccount'   => array( 'slug' => 'myaccount',   'path' => '/gpt/myaccount/',   'query_var' => self::QUERY_VAR, 'query' => 'myaccount' ),
 			'mychannels'  => array( 'slug' => 'mychannels',  'path' => '/gpt/mychannels/',  'query_var' => self::QUERY_VAR, 'query' => 'mychannels' ),
 			'crm'         => array( 'slug' => 'crm',         'path' => '/gpt/crm/',         'query_var' => self::QUERY_VAR, 'query' => 'crm' ),
+			// [2026-09-18] PHASE-0.50 §20 — member kanban "Việc của tôi".
+			'mytasks'     => array( 'slug' => 'mytasks',     'path' => '/gpt/mytasks/',     'query_var' => self::QUERY_VAR, 'query' => 'mytasks' ),
+			// [2026-09-18] PHASE-0.52 — "Không gian của tôi" + "Khách của tôi".
+			'myspace'     => array( 'slug' => 'myspace',     'path' => '/gpt/myspace/',     'query_var' => self::QUERY_VAR, 'query' => 'myspace' ),
+			'mycustomers' => array( 'slug' => 'mycustomers', 'path' => '/gpt/mycustomers/', 'query_var' => self::QUERY_VAR, 'query' => 'mycustomers' ),
 			'myworkflows' => array( 'slug' => 'myworkflows', 'path' => '/gpt/myworkflows/', 'query_var' => self::QUERY_VAR, 'query' => 'myworkflows' ),
 			'mycontent'   => array( 'slug' => 'mycontent',   'path' => '/gpt/mycontent/',   'query_var' => self::QUERY_VAR, 'query' => 'mycontent' ),
 			'myplan'      => array( 'slug' => 'myplan',      'path' => '/gpt/myplan/',      'query_var' => self::QUERY_VAR, 'query' => 'myplan' ),
@@ -201,6 +206,18 @@ class BizCity_TwinWeb_Page {
 		$site_name   = esc_html( $site_name_raw );
 		$logo_url    = has_custom_logo() ? (string) wp_get_attachment_image_url( get_theme_mod( 'custom_logo' ), 'full' ) : '';
 		$user_id     = (int) get_current_user_id();
+		// [2026-09-20 Johnny Chu] HOTFIX — this shell bakes a fresh wp_rest nonce into
+		// window.twinwebConfig on every render. If a page cache (WP Rocket / CDN in front
+		// of it) ever serves this HTML to a logged-in user from cache, the nonce belongs to
+		// a stale render and every REST call 403s with rest_cookie_invalid_nonce even though
+		// the user is genuinely logged in. Scoped to logged-in requests only — anonymous
+		// traffic (the vast majority, and the whole point of caching this shell) is untouched.
+		if ( $user_id > 0 ) {
+			if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+				define( 'DONOTCACHEPAGE', true );
+			}
+			nocache_headers();
+		}
 		$is_admin    = current_user_can( 'manage_options' );
 		$admin_url   = (string) admin_url();
 		$login_url   = (string) wp_login_url( $page_url );

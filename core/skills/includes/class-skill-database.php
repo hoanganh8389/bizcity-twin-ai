@@ -249,9 +249,16 @@ class BizCity_Skill_Database {
 			error_log( '[BizCity Skills] upsert() INSERT failed for skill_key=' . $skill_key . ' — ' . $wpdb->last_error );
 			return false;
 		}
+		// [2026-09-16 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — capture insert_id
+		// BEFORE the hook. `bizcity_skill_saved` fans out to the PHASE-CB4.5 Context Bank
+		// projection, which writes through the JSONL logger / log index; those issue their
+		// own statements and `wpdb::query()` re-assigns (or clears on failure)
+		// `$wpdb->insert_id` for any insert/replace. Reading it after the hook can return
+		// false for a row that was in fact written.
+		$skill_id = (int) $wpdb->insert_id;
 		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — emit the canonical Skill save event after an active-owner insert.
-		do_action( 'bizcity_skill_saved', (int) $wpdb->insert_id, (string) $data['content'], (string) ( $data['title'] ?? '' ) );
-		return $wpdb->insert_id ?: false;
+		do_action( 'bizcity_skill_saved', $skill_id, (string) $data['content'], (string) ( $data['title'] ?? '' ) );
+		return $skill_id > 0 ? $skill_id : false;
 	}
 
 	/**

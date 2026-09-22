@@ -1,0 +1,54 @@
+{
+  "contract": "care-outcome",
+  "version": "1.0.0",
+  "outcomes": [
+    {
+      "code": "interested",
+      "label": "Đã tư vấn · quan tâm",
+      "to": "consult",
+      "next": "Gửi thêm thông tin",
+      "days": 1
+    },
+    {
+      "code": "quoted",
+      "label": "Đã gửi báo giá",
+      "to": "quote",
+      "next": "Gọi lại chốt báo giá",
+      "days": 2
+    },
+    {
+      "code": "ordered",
+      "label": "Khách chốt đơn",
+      "to": "won",
+      "next": "Chăm sau mua D+3",
+      "days": 3
+    },
+    {
+      "code": "callback",
+      "label": "Hẹn gọi lại",
+      "to": "",
+      "next": "Gọi lại theo hẹn",
+      "days": 1
+    },
+    {
+      "code": "no_answer",
+      "label": "Không nghe máy / chưa trả lời",
+      "to": "",
+      "next": "Thử liên hệ lại",
+      "days": 1
+    },
+    {
+      "code": "lost",
+      "label": "Không có nhu cầu",
+      "to": "lost",
+      "next": "",
+      "days": 0
+    }
+  ],
+  "channels": [
+    "zalo",
+    "call",
+    "meeting",
+    "other"
+  ]
+}

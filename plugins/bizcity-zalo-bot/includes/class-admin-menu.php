@@ -10,6 +10,60 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BizCity_Zalo_Bot_Admin_Menu {
 	
 	private static $instance = null;
+
+	/**
+	 * Register the bundled Zalo Bot surface as Zone 2 (admin/command) metadata.
+	 *
+	 * [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G7 — Zalo Bot
+	 * is an admin/command channel, so it must never be registered as a customer
+	 * Zone 1 surface.
+	 *
+	 * @return void
+	 */
+	public static function register_setting_panel_metadata() {
+		if ( defined( 'BIZCITY_ZALO_BOT_SETTING_PANEL_REGISTERED' ) ) {
+			return;
+		}
+		if ( ! class_exists( 'BizCity_Twin_Plugin_SDK' ) || ! class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+			if ( function_exists( 'add_action' ) ) {
+				add_action( 'plugins_loaded', array( __CLASS__, 'register_setting_panel_metadata' ), 1 );
+				add_action( 'init', array( __CLASS__, 'register_setting_panel_metadata' ), 1 );
+			}
+			return;
+		}
+
+		BizCity_Twin_Plugin_SDK::register_ui( array(
+			'setting_panel' => array(
+				array(
+					'contract'        => 'setting-panel-registration',
+					'version'         => '1.0.0',
+					'id'              => 'bundle.zalo-bot.channels',
+					'owner'           => 'plugins/bizcity-zalo-bot',
+					'origin'          => 'bundle',
+					'destination'     => 'channel-settings',
+					'group'           => 'channels.admin',
+					'zone'            => 'admin',
+					'label_key'       => 'settings.zalo_bot.label',
+					'description_key' => 'settings.zalo_bot.description',
+					'icon'            => 'cil-transfer',
+					'capability'      => 'manage_options',
+					'scope'           => 'site',
+					'surface'         => 'admin_shell',
+					'renderer'        => array(
+						'type'           => 'deep_link',
+						'id'             => 'bundle.zalo-bot.channels',
+						'canonical_slug' => 'bizcity-zalo-bots',
+					),
+					'availability'    => array(
+						'policy'         => 'registered-owner',
+						'dependency_ids' => array( 'plugins.bizcity-zalo-bot' ),
+					),
+					'position'        => 430,
+				),
+			),
+		) );
+		define( 'BIZCITY_ZALO_BOT_SETTING_PANEL_REGISTERED', true );
+	}
 	
 	public static function instance() {
 		if ( is_null( self::$instance ) ) {

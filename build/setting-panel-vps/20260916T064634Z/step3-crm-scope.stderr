@@ -1,0 +1,17 @@
+Running 1 probe(s)…
+
+[PASS         ] core.crm.user_inbox_scope                             35ms · CRM B2/C scope and CX1 projection runtime passed; CX2 Context Bank admission/canary remains explicitly pending.
+  ↳ [PASS] Disk - canonical CRM user-inbox scope owner · CRM owner exposes the versioned envelope and forwards normalized B2/C policy.
+  ↳ [PASS] Loader - CRM scope resolver · BizCity_CRM_Inbox_Access::resolve_user_inbox_scope() is loaded.
+  ↳ [PASS] Runtime - B2/C envelope forwarding · C and B2 envelopes preserve one principal and distinct surface policy keys.
+  ↳ [PASS] Runtime - B2 selected user differs from admin operator · Admin operator resolved a distinct selected principal through the B2 envelope without collapsing to operator user scope.
+  ↳ [SKIP] Runtime - one user multi-Page/OA scope union · Multi-Page/OA union is deferred because the current tenant has fewer than two distinct business account fixtures.
+  ↳ [SKIP] Runtime - CRM to Context Bank scope handoff · Context Bank scope/access owners and the guarded CX2 CRM scope adapter are loaded; Runtime admission and two-user canary evidence remain pending.
+  ↳ [PASS] Disk - CX2 CRM to Context Bank bridge · The bridge consumes user-inbox-scope and preserves the canonical grant account key.
+  ↳ [PASS] Loader - CX2 CRM scope bridge · The CRM scope bridge is loaded through the Context Bank bootstrap.
+  ↳ [PASS] Runtime - CX1 unified Contacts source memberships · B2/C share the CRM-owned Contacts DTO; source memberships are bounded and provider identifiers are redacted.
+  ↳ [SKIP] Runtime - two-user foreign Personal Context Bank canary · Two-user/foreign-Personal canary is deferred because the diagnostics tenant has no current and foreign Personal fixtures.
+  ↳ [SKIP] Runtime - CRM scope to archive receipt/pointer admission · No supported CRM customer Inbox fixture is available for a disposable archive receipt.
+
+Result: 1 pass · 0 fail · 0 skip · total 47ms
+JUnit XML written to /home/vibeyeuc/huongnguyen.vibeyeu.com.vn/wp-content/plugins/bizcity-twin-ai/build/setting-panel-vps/20260916T064634Z/step3-crm-scope.xml

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Generate the closed-loop readiness scorecard from the plugin contract registry.
 import fs from 'node:fs';
 import path from 'node:path';
 

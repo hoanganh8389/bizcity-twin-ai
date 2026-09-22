@@ -94,3 +94,11 @@ vendor/
 /core/knowledge/kg-hub/includes/adapters/class-liteparse-adapter.php
 /core/knowledge/kg-hub/includes/adapters/liteparse-sidecar.py
 /core/diagnostics/includes/probes/class-probe-liteparse.php
+
+# R-AGENT-PARITY — private agent instructions and generated local indexes.
+# Public counterparts: .github/copilot-instructions.md, .github/instructions/
+# agent-environment.instructions.md, docs/AGENT-DOC-CATALOG.md, AGENTS.md.
+/.github/copilot-instructions.local.md
+/.github/instructions/*.local.instructions.md
+/docs/AGENT-DOC-CATALOG.local.md
+/CLAUDE.local.md

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "id": "fixture.parity.valid",
+  "name": "Manifest capability parity valid fixture",
+  "version": "1.0.0",
+  "capabilities": {
+    "tools": [
+      {
+        "id": "fixture.parity.tool",
+        "label": "Fixture parity tool",
+        "class": "Fixture_Parity_Tool",
+        "primary": true
+      }
+    ]
+  }
+}

@@ -1,5 +1,13 @@
 # BizCity Zalo Personal & OA Gateway
 
+> **Primary implementation focus:** Zalo Personal is the first-class channel
+> for the current product cycle. QR/session ownership, cross-site reconciliation,
+> reliable inbound normalization, media/caption fidelity and CRM sending are
+> the acceptance baseline. Zalo OA and Facebook/Fanpage are business-owned
+> channels that follow; Zalo Bot, Telegram and TwinChat remain supporting/admin
+> integrations. Do not weaken the shared channel contracts or create a private
+> Personal-only brain while prioritizing this channel.
+
 Connects a personal Zalo account (QR login via the `zca-bridge` sidecar) and a
 Zalo Official Account (OAuth v4 + webhook MAC signature) into
 `core/channel-gateway` and the `bizcity-twin-crm` Inbox.

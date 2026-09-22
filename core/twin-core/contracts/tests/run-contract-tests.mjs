@@ -258,6 +258,35 @@ function validateExtensionManifestSemantics(manifest, label) {
   }
 }
 
+// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-01 — cross-field invariants the structural validator
+// cannot express (LEADER-MEMBER-WORKSPACE-CONTRACT-v1 §0.2): on C the subject is always the actor, and the C
+// task DTO never carries leader-only fields.
+const leaderMemberContracts = new Set(['leader-task-handoff', 'customer-360-team-view', 'member-customer-360', 'staff-customer-portfolio']);
+
+function validateLeaderMemberSemantics(fixture, label) {
+  if (fixture.surface === 'C_PUBLIC_TWINGPT') {
+    assert.equal(fixture.subject.user_id, fixture.principal.actor_user_id,
+      `${label}: on C_PUBLIC_TWINGPT subject.user_id must equal principal.actor_user_id`);
+  }
+  if (fixture.contract !== 'leader-task-handoff') {
+    return;
+  }
+  const memberActions = new Set(['accept', 'start', 'complete', 'return']);
+  const leaderActions = new Set(['cancel', 'reassign', 'reopen']);
+  for (const task of fixture.data.tasks) {
+    const taskLabel = `${label} task ${task.task_id}`;
+    if (fixture.surface === 'C_PUBLIC_TWINGPT') {
+      for (const key of ['assignee', 'timeline', 'result', 'batch_key', 'updated_at']) {
+        assert.ok(!Object.prototype.hasOwnProperty.call(task, key), `${taskLabel}: '${key}' must be absent on C`);
+      }
+      assert.ok(!Object.prototype.hasOwnProperty.call(task.assigned_by, 'user_id'), `${taskLabel}: leader user_id must be absent on C`);
+      assert.ok(task.can.every((action) => memberActions.has(action)), `${taskLabel}: C may only offer member transitions`);
+    } else {
+      assert.ok(task.can.every((action) => leaderActions.has(action)), `${taskLabel}: B2 may only offer leader actions`);
+    }
+  }
+}
+
 function run() {
   const catalog = readJson(catalogPath);
 
@@ -295,6 +324,10 @@ function run() {
     if (contract.id === 'extension-manifest') {
       validateExtensionManifestSemantics(validFixture, `${contract.id} valid fixture`);
     }
+    const semanticValidator = leaderMemberContracts.has(contract.id) ? validateLeaderMemberSemantics : validateExtensionManifestSemantics;
+    if (leaderMemberContracts.has(contract.id)) {
+      validateLeaderMemberSemantics(validFixture, `${contract.id} valid fixture`);
+    }
 
     const additionalValidFixtures = contract.fixtures.additional_valid ?? [];
     for (const fixtureRef of additionalValidFixtures) {
@@ -307,6 +340,9 @@ function run() {
       if (contract.id === 'extension-manifest') {
         validateExtensionManifestSemantics(fixture, `${contract.id} ${fixtureRef}`);
       }
+      if (leaderMemberContracts.has(contract.id)) {
+        validateLeaderMemberSemantics(fixture, `${contract.id} ${fixtureRef}`);
+      }
     }
 
     const additionalInvalidFixtures = contract.fixtures.additional_invalid ?? [];
@@ -315,8 +351,10 @@ function run() {
       const fixture = readJson(fixturePath);
       const fixtureErrors = validate(schema, fixture, '$', schema);
       if (fixtureErrors.length === 0) {
+        // Only a semantic assertion counts: a TypeError from a validator meant for another contract must not pass.
         assert.throws(
-          () => validateExtensionManifestSemantics(fixture, `${contract.id} ${fixtureRef}`),
+          () => semanticValidator(fixture, `${contract.id} ${fixtureRef}`),
+          assert.AssertionError,
           `${contract.id}: additional fixture ${fixtureRef} should fail semantic validation`
         );
       }

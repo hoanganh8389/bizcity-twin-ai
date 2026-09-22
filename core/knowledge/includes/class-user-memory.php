@@ -138,7 +138,8 @@ class BizCity_User_Memory {
         // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-MEMORY-FILESTORE — fail closed before any legacy SQL metadata/DDL; filestore is the sole runtime owner.
         return;
 		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — retired user-memory SQL is never installed or repaired by fallback loaders.
-		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::install_blocked( self::table() ) ) {
+		// [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — keep the defensive guard fail-closed if the early return above is ever removed.
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || BizCity_Legacy_Table_Policy::install_blocked( self::table() ) ) {
 			return;
 		}
 

@@ -1,0 +1,32 @@
+{
+  "contract": "customer-360-team-view",
+  "version": "1.1.0",
+  "surface": "B2_ADMIN_CRM",
+  "principal": { "blog_id": 1258, "actor_user_id": 10 },
+  "subject": { "user_id": 42, "display_name": "Nguyễn Hương", "team_role": "agent" },
+  "as_of": "2026-09-18T09:20:00+07:00",
+  "coverage": { "complete": false, "degraded_sources": ["journey.assignment_history"], "truncated": false },
+  "data": {
+    "contact": { "contact_id": 9001, "display_name": "Chị Lan", "phone_masked": "09******11", "created_at": "2026-05-02 14:00:00" },
+    "owner": { "user_id": 42, "display_name": "Nguyễn Hương", "conversation_id": 88, "inbox_id": 13 },
+    "conversations": [
+      { "conversation_id": 88, "inbox_id": 13, "inbox_name": "Zalo Hương 1", "channel_type": "zalo_personal", "status": "open", "assignee": { "user_id": 42, "display_name": "Nguyễn Hương" }, "last_activity_at": "2026-09-16 10:05:00", "created_at": "2026-05-02 14:00:00", "session_state": "connected", "phone_owner": { "user_id": 42, "display_name": "Nguyễn Hương" }, "account_key": "154b8863a47ee6a9" }
+    ],
+    "touched_by": [
+      { "user_id": 42, "display_name": "Nguyễn Hương", "replies": 37, "first_at": "2026-05-02 14:03:00", "last_at": "2026-09-16 10:05:00", "inbox_ids": [13] },
+      { "user_id": null, "display_name": "Nhân viên khác", "replies": 2, "first_at": "2026-06-10 08:00:00", "last_at": "2026-06-10 08:05:00" }
+    ],
+    "automated_replies": 5,
+    "orders": {
+      "available": true,
+      "items": [
+        { "order_id": 7001, "number": "7001", "status": "completed", "total": 1890000, "currency": "VND", "paid": true, "created_at": "2026-09-01 11:00:00", "assignee": { "user_id": 42, "display_name": "Nguyễn Hương" }, "attribution": "assignee_at_create", "conversation_id": 88 },
+        { "order_id": 6120, "number": "6120", "status": "completed", "total": 890000, "currency": "VND", "paid": true, "created_at": "2026-06-11 09:00:00", "assignee": null, "attribution": null, "conversation_id": null }
+      ]
+    },
+    "marketing": { "acquisition_source": "facebook:lead_form", "first_seen_at": "2026-05-02 14:00:00", "labels": ["Mua lại"] },
+    "open_tasks": 1,
+    "identity_conflicts": { "open": 0 },
+    "can": { "view_owner_workspace": true, "assign_task": true }
+  }
+}

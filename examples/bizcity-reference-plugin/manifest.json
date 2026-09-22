@@ -96,6 +96,36 @@
       "legacy_parents": ["bizcity-twinchat"]
     }
   ],
+  "setting_panel": [
+    {
+      "contract": "setting-panel-registration",
+      "version": "1.0.0",
+      "id": "extension.reference.settings",
+      "owner": "examples/bizcity-reference-plugin",
+      "origin": "extension",
+      "destination": "control-panel",
+      "group": "extensions",
+      "label_key": "reference.settings.label",
+      "description_key": "reference.settings.description",
+      "icon": "cil-puzzle",
+      "capability": "manage_options",
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": {
+        "type": "deep_link",
+        "id": "extension.reference.settings",
+        "canonical_slug": "bizcity-reference"
+      },
+      "availability": {
+        "policy": "registered-owner",
+        "dependency_ids": ["bizcity.reference"]
+      },
+      "position": 900,
+      "keywords": ["reference", "fixture", "contract"],
+      "badge": "beta",
+      "zone": "system"
+    }
+  ],
   "capabilities": {
     "tools": [
       {
@@ -104,6 +134,10 @@
         "description": "Returns a sanitized input for contract testing.",
         "class": "BizCity_Reference_Echo_Tool",
         "primary": true,
+        "owner": "examples/bizcity-reference-plugin",
+        "scope": "tenant",
+        "contract_id": "tool-io-envelope",
+        "contract_version": "1.0.0",
         "schema": {
           "description": "Echo input",
           "input_fields": {
@@ -116,25 +150,83 @@
       }
     ],
     "skills": [
-      { "id": "reference.skill", "label": "Reference skill", "class": "BizCity_Reference_Skill" }
+      {
+        "id": "reference.skill",
+        "label": "Reference skill",
+        "class": "BizCity_Reference_Skill",
+        "owner": "examples/bizcity-reference-plugin",
+        "scope": "tenant",
+        "contract_id": "tool-io-envelope",
+        "contract_version": "1.0.0"
+      }
     ],
     "agents": [
-      { "id": "reference.agent", "label": "Reference agent", "class": "BizCity_Reference_Agent" }
+      {
+        "id": "reference.agent",
+        "label": "Reference agent",
+        "class": "BizCity_Reference_Agent",
+        "owner": "examples/bizcity-reference-plugin",
+        "scope": "user",
+        "contract_id": "runtime-execution-policy",
+        "contract_version": "1.0.0"
+      }
     ],
     "channels": [
-      { "id": "reference.channel", "label": "Reference channel", "class": "BizCity_Reference_Channel", "zone": "admin" }
+      {
+        "id": "reference.channel",
+        "label": "Reference channel",
+        "class": "BizCity_Reference_Channel",
+        "zone": "admin",
+        "owner": "examples/bizcity-reference-plugin",
+        "scope": "tenant",
+        "contract_id": "channel-payload",
+        "contract_version": "1.1.0"
+      }
     ],
     "kg_source_adapters": [
-      { "id": "reference.source", "label": "Reference source", "class": "BizCity_Reference_Source_Adapter" }
+      {
+        "id": "reference.source",
+        "label": "Reference source",
+        "class": "BizCity_Reference_Source_Adapter",
+        "owner": "examples/bizcity-reference-plugin",
+        "scope": "tenant",
+        "contract_id": "kg-adapter-payload",
+        "contract_version": "1.0.0"
+      }
     ],
     "workflow_blocks": [
-      { "id": "reference.echo", "label": "Reference workflow block", "class": "BizCity_Reference_Workflow_Block" }
+      {
+        "id": "reference.echo",
+        "label": "Reference workflow block",
+        "class": "BizCity_Reference_Workflow_Block",
+        "owner": "examples/bizcity-reference-plugin",
+        "scope": "tenant",
+        "contract_id": "workflow-json",
+        "contract_version": "1.0.0"
+      }
     ],
     "personas": [
-      { "id": "reference.persona", "label": "Reference persona", "class": "BizCity_Reference_Persona" }
+      {
+        "id": "reference.persona",
+        "label": "Reference persona",
+        "class": "BizCity_Reference_Persona",
+        "owner": "examples/bizcity-reference-plugin",
+        "scope": "user",
+        "contract_id": "runtime-execution-policy",
+        "contract_version": "1.0.0"
+      }
     ],
     "output_renderers": [
-      { "id": "reference.text", "label": "Reference text renderer", "class": "BizCity_Reference_Text_Renderer", "artifact_type": "text" }
+      {
+        "id": "reference.text",
+        "label": "Reference text renderer",
+        "class": "BizCity_Reference_Text_Renderer",
+        "artifact_type": "text",
+        "owner": "examples/bizcity-reference-plugin",
+        "scope": "user",
+        "contract_id": "tool-io-envelope",
+        "contract_version": "1.0.0"
+      }
     ]
   }
 }

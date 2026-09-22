@@ -1,0 +1,310 @@
+{
+    "contract": "diagnostics-verdict",
+    "version": "1",
+    "command": "diagnostics",
+    "batch": "all",
+    "run_id": "",
+    "environment": {
+        "php": "7.4.33",
+        "wordpress": "6.9",
+        "blog_id": 1258
+    },
+    "catalog_hash": "1c9afde080def30fbc7107513126102f8f71a359823bdcab783af2b8d66f10c9",
+    "batch_hash": "7035f53617e212398753dddc607e85d5ef91c1d63619cb4ce28436733c373b44",
+    "evidence_audit": {
+        "total": 5,
+        "actionable_total": 0,
+        "with_fix_hint": 0,
+        "missing_fix_hint": 0,
+        "coverage_percent": 100,
+        "missing_probe_ids": []
+    },
+    "counts": {
+        "pass": 5,
+        "warn": 0,
+        "fail": 0,
+        "skip": 0
+    },
+    "verdict": "pass",
+    "duration_ms": 7792,
+    "coverage": {
+        "catalog_total": 265,
+        "selected_total": 5,
+        "executed": 5,
+        "allowed_skipped": 0,
+        "deferred": 0,
+        "complete": false
+    },
+    "results": {
+        "core.membership.entitlement": {
+            "status": "pass",
+            "summary": "3 plan \u00b7 tier=paid \u00b7 plan=free \u00b7 clamp ok",
+            "steps": [
+                {
+                    "label": "disk \u00b7 classes",
+                    "status": "pass",
+                    "detail": "Manager + Registry + Entitlement + Usage loaded"
+                },
+                {
+                    "label": "loader \u00b7 plan registry",
+                    "status": "pass",
+                    "detail": "3 plan \u00b7 free=yes"
+                },
+                {
+                    "label": "loader \u00b7 tables",
+                    "status": "pass",
+                    "detail": "subscriptions=ok \u00b7 usage=ok \u00b7 payments=ok"
+                },
+                {
+                    "label": "loader \u00b7 expiry cron",
+                    "status": "pass",
+                    "detail": "membership.expiry scheduled (daily)"
+                },
+                {
+                    "label": "loader \u00b7 recurring (subscriptions v2)",
+                    "status": "pass",
+                    "detail": "gateway provision/create/activate/renew + Manager.extend + Registry.set_paypal_plan_id"
+                },
+                {
+                    "label": "runtime \u00b7 recurring provisioned",
+                    "status": "skip",
+                    "detail": "0/2 recurring plan c\u00f3 paypal_plan_id \u2014 b\u1ea5m \"Provision PayPal plans\" \u1edf Settings"
+                },
+                {
+                    "label": "runtime \u00b7 for_user()",
+                    "status": "pass",
+                    "detail": "uid=317 \u00b7 site_tier=paid \u00b7 user_plan=free"
+                },
+                {
+                    "label": "runtime \u00b7 min(plan, ceiling)",
+                    "status": "pass",
+                    "detail": "no ceiling for tier (unlimited)"
+                }
+            ],
+            "id": "core.membership.entitlement",
+            "duration_ms": 2340,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.membership.entitlement --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.membership.entitlement --format=json"
+            }
+        },
+        "core.membership.rest": {
+            "status": "pass",
+            "summary": "Membership REST parity PASS \u00b7 /me* + checkout/capture contract + self-scope guard ok (uid=317, profile_keys=8)",
+            "steps": [
+                {
+                    "label": "Layer 1 \u00b7 Disk \u2014 classes",
+                    "status": "pass",
+                    "detail": "BizCity_Membership_REST \u00b7 BizCity_Membership_Enforcer \u00b7 BizCity_Membership_Usage \u2014 all loaded"
+                },
+                {
+                    "label": "Layer 1 \u00b7 Disk \u2014 optional BizCity_Auth_Ajax class",
+                    "status": "warn",
+                    "detail": "Class missing (optional); runtime still validated via AJAX action hooks."
+                },
+                {
+                    "label": "Layer 1 \u00b7 Disk \u2014 invoice ownership guard",
+                    "status": "pass",
+                    "detail": "me_invoice() has explicit owner check payment.user_id === current uid"
+                },
+                {
+                    "label": "Layer 1 \u00b7 Disk \u2014 Membership plan template endpoints + JSON template",
+                    "status": "pass",
+                    "detail": "REST handlers present; builtin-twin-gpt-c-plans.json readable"
+                },
+                {
+                    "label": "Layer 2 \u00b7 REST route-method parity (/me*, /checkout, /capture)",
+                    "status": "pass",
+                    "detail": "all expected routes + methods are registered"
+                },
+                {
+                    "label": "Layer 2 \u00b7 AJAX handlers",
+                    "status": "pass",
+                    "detail": "update_profile=hooked \u00b7 change_password=hooked"
+                },
+                {
+                    "label": "Layer 2 \u00b7 payments CSV export action",
+                    "status": "pass",
+                    "detail": "Hook defined in admin class; not attached in REST runtime context (expected). \u00b7 diag(rest=1,file=class-membership-admin-page.php,marker=1,class=1,method=1)"
+                },
+                {
+                    "label": "Layer 2 \u00b7 Enforcer hooks",
+                    "status": "pass",
+                    "detail": "can_send_msg=hooked \u00b7 msg_sent=hooked \u00b7 kg_quota=hooked"
+                },
+                {
+                    "label": "Layer 3 \u00b7 /me profile fields (uid=317)",
+                    "status": "pass",
+                    "detail": "display=\"Qu\u1ea3n tr\u1ecb vi\u00ean m\u1eabu\" \u00b7 first=\"\" \u00b7 last=\"Qu\u1ea3n tr\u1ecb vi\u00ean m\u1eabu\" \u00b7 phone=\"\" \u00b7 bio=0 chars"
+                },
+                {
+                    "label": "Layer 3 \u00b7 usage.chat_msgs_per_day",
+                    "status": "pass",
+                    "detail": "used=0 \u00b7 limit=30 \u00b7 remaining=30"
+                },
+                {
+                    "label": "Layer 3 \u00b7 quota gate (uid=317)",
+                    "status": "pass",
+                    "detail": "remaining=30 \u2192 allowed"
+                },
+                {
+                    "label": "Layer 3 \u00b7 /admin/plan-templates preview contract",
+                    "status": "pass",
+                    "detail": "templates=2; importable=1; read-only preview ok"
+                },
+                {
+                    "label": "Layer 3 \u00b7 /me/payments contract (uid=317)",
+                    "status": "pass",
+                    "detail": "success + payments keys present"
+                },
+                {
+                    "label": "Layer 3 \u00b7 /me/invoice/{id} own-payment access",
+                    "status": "pass",
+                    "detail": "invoice html returned for own transaction (synthetic)"
+                },
+                {
+                    "label": "Layer 3 \u00b7 /checkout invalid-input parse contract",
+                    "status": "pass",
+                    "detail": "invalid input still returns parseable success/message contract"
+                },
+                {
+                    "label": "Layer 3 \u00b7 /capture invalid-input parse contract",
+                    "status": "pass",
+                    "detail": "invalid input still returns parseable success/message contract"
+                }
+            ],
+            "id": "core.membership.rest",
+            "duration_ms": 2617,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.membership.rest --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.membership.rest --format=json"
+            }
+        },
+        "core.membership.plan_rank": {
+            "status": "pass",
+            "summary": "Plan Registry rank/seat contract OK \u2014 3 plans",
+            "steps": [
+                {
+                    "label": "Disk \u00b7 registry file + rank/consumes_seat fields",
+                    "status": "pass",
+                    "detail": "File readable; rank=ok consumes_seat=ok audience=ok"
+                },
+                {
+                    "label": "Loader \u00b7 all() returns plans with rank (int) + consumes_seat (bool)",
+                    "status": "pass",
+                    "detail": "3 plans loaded; rank_typed=ok; seat_typed=ok"
+                },
+                {
+                    "label": "Runtime \u00b7 free plan rank=0, consumes_seat=false",
+                    "status": "pass",
+                    "detail": "rank=0 (expect 0); consumes_seat=false (expect false)"
+                },
+                {
+                    "label": "Runtime \u00b7 at least one paid plan with rank>=100, consumes_seat=true",
+                    "status": "pass",
+                    "detail": "Plan 'pro' rank=100 consumes_seat=true"
+                },
+                {
+                    "label": "Runtime \u00b7 all non-free plans have rank > free.rank",
+                    "status": "pass",
+                    "detail": "Rank ordering correct"
+                }
+            ],
+            "id": "core.membership.plan_rank",
+            "duration_ms": 0,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.membership.plan_rank --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.membership.plan_rank --format=json"
+            }
+        },
+        "core.membership.hub_seat_admission": {
+            "status": "pass",
+            "summary": "Hub seat admission contract OK (counter + seat-limit sync + fail-closed gate).",
+            "steps": [
+                {
+                    "label": "Disk - seat counter + seat-limit marker contracts",
+                    "status": "pass",
+                    "detail": "manager=ok projector=ok seat_limit_owner=projector"
+                },
+                {
+                    "label": "Loader - manager/projector methods loaded",
+                    "status": "pass",
+                    "detail": "manager.count_seat_used=ok projector.get_capacity_snapshot=ok projector.evaluate_capacity=ok"
+                },
+                {
+                    "label": "Runtime - count_seat_used returns non-negative int",
+                    "status": "pass",
+                    "detail": "baseline=0"
+                },
+                {
+                    "label": "Runtime - seat counter excludes admin role",
+                    "status": "pass",
+                    "detail": "baseline=0 after_member=1 after_promote_admin=0"
+                },
+                {
+                    "label": "Runtime - net-new seat blocked when used=1 and limit=1",
+                    "status": "pass",
+                    "detail": "available=0 bucket=capacity_blocked limit=1 used=1"
+                }
+            ],
+            "id": "core.membership.hub_seat_admission",
+            "duration_ms": 561,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.membership.hub_seat_admission --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.membership.hub_seat_admission --format=json"
+            }
+        },
+        "modules.twinweb.me_plan_catalog": {
+            "status": "pass",
+            "summary": "/me plan_catalog + subscription contract PASS",
+            "steps": [
+                {
+                    "label": "Disk \u00b7 class-twinweb-rest.php + build_plan_catalog_for_me() + build_subscription_for_me()",
+                    "status": "pass",
+                    "detail": "File readable; catalog_method=ok; subscription_method=ok"
+                },
+                {
+                    "label": "Loader \u00b7 REST route /bizcity-twinweb/v1/me registered",
+                    "status": "pass",
+                    "detail": "Route registered in rest_api_init"
+                },
+                {
+                    "label": "Loader \u00b7 BizCity_TwinWeb_REST methods callable",
+                    "status": "pass",
+                    "detail": "build_plan_catalog_for_me=ok; build_subscription_for_me=ok"
+                },
+                {
+                    "label": "Runtime \u00b7 /me plan_catalog non-empty, has slug/rank/checkout_url",
+                    "status": "pass",
+                    "detail": "3 plans; slug=ok; rank=ok; checkout_url_key=ok"
+                },
+                {
+                    "label": "Runtime \u00b7 plan_catalog sorted by rank ascending",
+                    "status": "pass",
+                    "detail": "Rank order ok"
+                },
+                {
+                    "label": "Runtime \u00b7 plan_catalog does NOT contain hardcoded VND/\u0111 prices",
+                    "status": "pass",
+                    "detail": "No VND/\u0111 strings found in plan_catalog \u2014 server-owned pricing ok"
+                },
+                {
+                    "label": "Runtime \u00b7 /me subscription block has plan_slug + days_remaining",
+                    "status": "pass",
+                    "detail": "plan_slug=free; days_remaining=NULL"
+                }
+            ],
+            "id": "modules.twinweb.me_plan_catalog",
+            "duration_ms": 2228,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=modules.twinweb.me_plan_catalog --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=twinweb --format=json",
+                "wp_cli": "wp bizcity probe --id=modules.twinweb.me_plan_catalog --format=json"
+            }
+        }
+    }
+}

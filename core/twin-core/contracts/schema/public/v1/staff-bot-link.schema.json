@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/staff-bot-link.schema.json",
+  "title": "BizCity CRM Staff Zalo Bot Link",
+  "description": "PHASE-0.56 A-3: response of `POST /crm-staff/{id}/zalo-bot-link` and `GET .../zalo-bot-link/status`. `command`/`deep_link` are returned only to the actor who created the link (R-SPINE-12, guardrail #4 — never chat_id).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "state", "expires_at"],
+  "properties": {
+    "contract": { "const": "staff-bot-link" },
+    "version": { "const": "1.0.0" },
+    "state": { "enum": ["pending", "linked", "expired"] },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "command": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "deep_link": { "type": "string", "minLength": 1, "maxLength": 500 }
+  }
+}

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Validate TypeScript SDK release metadata (version, tag and build parity) before publishing.
 import fs from 'node:fs';
 import path from 'node:path';
 

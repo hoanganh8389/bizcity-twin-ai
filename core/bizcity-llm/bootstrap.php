@@ -39,10 +39,15 @@ if ( ! defined( 'BIZCITY_LLM_URL' ) ) {
 }
 
 // [2026-09-13 10:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — register LLM-owned Setting Panel metadata without moving option or entitlement ownership.
-if ( ! defined( 'BIZCITY_LLM_SETTING_PANEL_REGISTERED' )
-    && class_exists( 'BizCity_Twin_Plugin_SDK' )
-    && class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
-    BizCity_Twin_Plugin_SDK::register_ui( array(
+// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-FIX — defer to a hook so the registration still runs when this bootstrap is included before the registry/SDK exist (compat loader path).
+if ( ! function_exists( 'bizcity_llm_register_setting_panel' ) ) {
+    function bizcity_llm_register_setting_panel() {
+        if ( defined( 'BIZCITY_LLM_SETTING_PANEL_REGISTERED' )
+            || ! class_exists( 'BizCity_Twin_Plugin_SDK' )
+            || ! class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+            return;
+        }
+        BizCity_Twin_Plugin_SDK::register_ui( array(
         'setting_panel' => array(
             array(
                 'contract'     => 'setting-panel-registration',
@@ -59,8 +64,10 @@ if ( ! defined( 'BIZCITY_LLM_SETTING_PANEL_REGISTERED' )
                 'scope'        => 'site',
                 'surface'      => 'admin_shell',
                 'renderer'     => array(
-                    'type'  => 'deep_link',
+                    // [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-02 — rendered in-panel (contract fixture shape: route /settings/api-gateway) through BizCity_LLM_Gateway_Panel_REST; the owner keeps storage and validation.
+                    'type'  => 'route',
                     'id'    => 'core.bizcity-llm.api-gateway',
+                    'route' => '/settings/api-gateway',
                     'canonical_slug' => 'bizcity-twinchat-settings',
                 ),
                 'availability' => array(
@@ -97,7 +104,29 @@ if ( ! defined( 'BIZCITY_LLM_SETTING_PANEL_REGISTERED' )
             ),
         ),
     ) );
-    define( 'BIZCITY_LLM_SETTING_PANEL_REGISTERED', true );
+        define( 'BIZCITY_LLM_SETTING_PANEL_REGISTERED', true );
+    }
+}
+
+// Run immediately when the registry is already available, otherwise retry on the
+// earliest hook that guarantees the framework contracts have loaded.
+if ( class_exists( 'BizCity_Twin_Plugin_SDK' ) && class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+    bizcity_llm_register_setting_panel();
+} elseif ( function_exists( 'add_action' ) ) {
+    add_action( 'plugins_loaded', 'bizcity_llm_register_setting_panel', 1 );
+    add_action( 'init', 'bizcity_llm_register_setting_panel', 1 );
+}
+
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-02 — owner-side REST for the in-panel API Gateway
+// form. Registered before the legacy-loader guard below so the Control Panel form never disappears
+// just because another loader already defined BizCity_LLM_Client.
+require_once BIZCITY_LLM_DIR . '/includes/class-llm-gateway-panel-rest.php';
+if ( function_exists( 'add_action' ) ) {
+    add_action( 'rest_api_init', function () {
+        if ( class_exists( 'BizCity_LLM_Gateway_Panel_REST' ) && class_exists( 'BizCity_LLM_Client' ) ) {
+            BizCity_LLM_Gateway_Panel_REST::register_routes();
+        }
+    } );
 }
 
 /* ── Load sub-classes (skip if already loaded by legacy mu-plugin) ── */

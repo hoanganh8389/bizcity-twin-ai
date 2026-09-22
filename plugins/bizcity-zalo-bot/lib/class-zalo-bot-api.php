@@ -577,20 +577,16 @@ class BizCity_Zalo_Bot_API {
 		);
 
 		// [2026-07-07 Johnny Chu] HOTFIX — outbound trace stamp for Zalo API debugging.
-		// Avoid logging access token; log message hash + trace source only.
+		// Avoid logging access token; keep trace id/source for the FAIL line below.
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-LOG-NOISE — the pre-send "trace=…" and post-send "OK"
+		// lines fired on every single successful send (52/52 in a 1.5h production sample, 0 failures) with
+		// no error to report; confirmed stable, so both are removed. The FAIL branch a few lines down keeps
+		// logging (that's the only case worth a PHP error-log line), and still has $_trace_id/$_source here.
 		$_trace = ( isset( $GLOBALS['_bizcity_channel_send_trace'] ) && is_array( $GLOBALS['_bizcity_channel_send_trace'] ) )
 			? (array) $GLOBALS['_bizcity_channel_send_trace']
 			: array();
 		$_trace_id = (string) ( $_trace['trace_id'] ?? '' );
 		$_source   = (string) ( $_trace['source'] ?? 'unknown' );
-		error_log( sprintf(
-			'[Zalo Bot API TRACE] send_message trace=%s source=%s chat_id=%s len=%d hash=%s',
-			$_trace_id !== '' ? $_trace_id : '-',
-			$_source !== '' ? $_source : 'unknown',
-			(string) $chat_id,
-			(int) mb_strlen( (string) $text, 'UTF-8' ),
-			substr( sha1( (string) $text ), 0, 12 )
-		) );
 		$data = json_encode( $payload );
 		
 		$ch = curl_init( $url );
@@ -655,13 +651,6 @@ class BizCity_Zalo_Bot_API {
 			);
 		}
 
-		error_log( sprintf(
-			'[Zalo Bot API TRACE] send_message OK trace=%s source=%s chat_id=%s',
-			$_trace_id !== '' ? $_trace_id : '-',
-			$_source !== '' ? $_source : 'unknown',
-			(string) $chat_id
-		) );
-		
 		return $result;
 	}
 	

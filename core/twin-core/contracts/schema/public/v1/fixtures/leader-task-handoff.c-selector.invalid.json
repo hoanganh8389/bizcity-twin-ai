@@ -1,0 +1,29 @@
+{
+  "contract": "leader-task-handoff",
+  "version": "1.1.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "principal": { "blog_id": 1258, "actor_user_id": 57 },
+  "subject": { "user_id": 42, "display_name": "Nguyễn Hương", "team_role": "agent" },
+  "as_of": "2026-09-18T09:15:00+07:00",
+  "coverage": { "complete": true, "degraded_sources": [], "truncated": false },
+  "data": {
+    "tasks": [
+      {
+        "task_id": 501,
+        "title": "Tái chạm khách nguội",
+        "instructions": "",
+        "priority": "high",
+        "due_at": "2026-09-20",
+        "status": "sent",
+        "overdue": false,
+        "assigned_by": { "user_id": 10, "display_name": "Trưởng nhóm Marketing" },
+        "assignee": { "user_id": 42, "display_name": "Nguyễn Hương", "team_role": "agent" },
+        "subjects": [],
+        "progress": { "touched": 0, "total": 0 },
+        "seen": false,
+        "created_at": "2026-09-18 09:12:00",
+        "can": ["accept"]
+      }
+    ]
+  }
+}

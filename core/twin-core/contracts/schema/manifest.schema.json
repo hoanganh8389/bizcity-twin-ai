@@ -310,7 +310,8 @@
         "mpr_layers": { "type": "array", "items": { "type": "integer", "enum": [2, 5] }, "minItems": 1, "uniqueItems": true },
         "automation_mode": { "type": "string", "enum": ["built_in_mpr", "user_workflow", "hybrid_declared"] },
         "channel_entry": { "type": "string" },
-        "admin_surface": { "type": "string" }
+        "admin_surface": { "type": "string" },
+        "allowed_tools": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" }, "uniqueItems": true }
       }
     },
     "navigationItem": {

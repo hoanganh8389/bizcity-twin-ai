@@ -100,7 +100,17 @@ final class BizCity_Context_Bank_Access {
 
 	private static function is_admin() {
 		// [2026-09-01 Johnny Chu] PHASE-CB-MVP — resolve administrative authority from the authenticated capability set.
-		return function_exists( 'current_user_can' ) && current_user_can( 'manage_options' );
+		if ( function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+		$trusted_cli_context = ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
+			|| ( defined( 'WP_CLI' ) && WP_CLI );
+		if ( $trusted_cli_context ) {
+			// [2026-09-21 03:50 PM Johnny Chu - Chu Hoàng Anh] R-MSDB/R-DDV — permit explicit network administration authority for disposable pointer follow in trusted CLI runs when the mapped tenant omits site-scoped manage_options; web permission callbacks remain unchanged.
+			return ( function_exists( 'current_user_can' ) && current_user_can( 'manage_network_options' ) )
+				|| ( function_exists( 'is_super_admin' ) && is_super_admin() );
+		}
+		return false;
 	}
 
 	private static function channel_scope_from_filters( array $filters, $user_id ) {

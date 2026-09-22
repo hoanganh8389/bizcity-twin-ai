@@ -26,7 +26,7 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function permission() {
-		return current_user_can( 'manage_options' );
+		return is_user_logged_in();
 	}
 
 	public function register_routes() {
@@ -45,6 +45,32 @@ class BizCity_KG_Rest_Controller {
 		register_rest_route( $ns, '/workspaces', [
 			[ 'methods' => 'GET', 'callback' => [ $this, 'list_workspaces' ], 'permission_callback' => $perm ],
 			[ 'methods' => 'PUT', 'callback' => [ $this, 'save_workspaces' ], 'permission_callback' => $perm ],
+		] );
+		register_rest_route( $ns, '/workspaces/tree', [
+			'methods' => 'GET', 'callback' => [ $this, 'list_workspace_tree' ], 'permission_callback' => $perm,
+		] );
+		register_rest_route( $ns, '/workspaces/(?P<id>\d+)/visibility', [
+			'methods' => 'POST', 'callback' => [ $this, 'set_workspace_visibility' ], 'permission_callback' => $perm,
+		] );
+		register_rest_route( $ns, '/acl/(?P<object_type>workspace|notebook)/(?P<object_id>\d+)/grants', [
+			[ 'methods' => 'GET', 'callback' => [ $this, 'list_acl_grants' ], 'permission_callback' => $perm ],
+			[ 'methods' => 'POST', 'callback' => [ $this, 'create_acl_grant' ], 'permission_callback' => $perm ],
+		] );
+		register_rest_route( $ns, '/acl/grants/(?P<id>\d+)', [
+			'methods' => 'DELETE', 'callback' => [ $this, 'revoke_acl_grant' ], 'permission_callback' => $perm,
+		] );
+		register_rest_route( $ns, '/settings/default-notebook', [
+			[ 'methods' => 'GET', 'callback' => [ $this, 'get_default_notebook' ], 'permission_callback' => $perm ],
+			[ 'methods' => 'POST', 'callback' => [ $this, 'set_default_notebook' ], 'permission_callback' => $perm ],
+		] );
+		register_rest_route( $ns, '/acl/generation', [
+			'methods' => 'GET', 'callback' => [ $this, 'acl_generation' ], 'permission_callback' => $perm,
+		] );
+		register_rest_route( $ns, '/public-links', [
+			'methods' => 'POST', 'callback' => [ $this, 'create_public_link' ], 'permission_callback' => $perm,
+		] );
+		register_rest_route( $ns, '/public-links/revoke', [
+			'methods' => 'POST', 'callback' => [ $this, 'revoke_public_link' ], 'permission_callback' => $perm,
 		] );
 		register_rest_route( $ns, '/notebooks/(?P<id>\d+)', [
 			[ 'methods' => 'GET',    'callback' => [ $this, 'get_notebook' ],    'permission_callback' => $perm ],
@@ -226,12 +252,57 @@ class BizCity_KG_Rest_Controller {
 			$args['scope'] = $scope;
 		}
 		// [2026-07-27 Johnny Chu] PHASE-0.51 — public rows require an explicit administrator opt-in.
-		if ( current_user_can( 'manage_options' ) && $req->get_param( 'include_public' ) ) {
+		if ( $req->get_param( 'include_public' ) ) {
 			$args['include_public'] = true;
 		}
 		return rest_ensure_response(
 			BizCity_KG_Notebook_Service::instance()->list_for_user( get_current_user_id(), $args )
 		);
+	}
+
+	public function list_workspace_tree( WP_REST_Request $req ) {
+		return rest_ensure_response( class_exists( 'BizCity_KG_Access' ) ? BizCity_KG_Access::list_workspaces( get_current_user_id() ) : array() );
+	}
+
+	public function set_workspace_visibility( WP_REST_Request $req ) {
+		$data = $req->get_json_params() ?: $req->get_params();
+		$res = class_exists( 'BizCity_KG_Access' ) ? BizCity_KG_Access::set_workspace_visibility( (int) $req['id'], get_current_user_id(), $data['visibility'] ?? 'private' ) : new WP_Error( 'kg_acl_unavailable', 'ACL chưa được nạp.' );
+		return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'ok' => true ) );
+	}
+
+	public function list_acl_grants( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_KG_Access' ) || ! BizCity_KG_Access::can_manage( $req['object_type'], (int) $req['object_id'], get_current_user_id() ) ) {
+			return new WP_Error( 'kg_acl_forbidden', 'Không có quyền xem cấu hình chia sẻ.', array( 'status' => 403 ) );
+		}
+		return rest_ensure_response( BizCity_KG_Access::list_grants( $req['object_type'], (int) $req['object_id'] ) );
+	}
+
+	public function create_acl_grant( WP_REST_Request $req ) {
+		$data = $req->get_json_params() ?: $req->get_params();
+		$res = class_exists( 'BizCity_KG_Access' ) ? BizCity_KG_Access::grant_view( $req['object_type'], (int) $req['object_id'], $data['grantee_type'] ?? '', $data['grantee_ref'] ?? '', get_current_user_id() ) : new WP_Error( 'kg_acl_unavailable', 'ACL chưa được nạp.' );
+		return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'id' => $res, 'permission' => 'view' ) );
+	}
+
+	public function revoke_acl_grant( WP_REST_Request $req ) {
+		$res = BizCity_KG_Access::revoke_grant( (int) $req['id'], get_current_user_id() );
+		return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'revoked' => true ) );
+	}
+
+	public function get_default_notebook( WP_REST_Request $req ) {
+		return rest_ensure_response( array( 'notebook_id' => (int) get_option( BizCity_KG_Access::OPTION_DEFAULT_NOTEBOOK, 0 ) ) );
+	}
+
+	public function set_default_notebook( WP_REST_Request $req ) {
+		$data = $req->get_json_params() ?: $req->get_params();
+		$id = absint( $data['notebook_id'] ?? 0 );
+		if ( $id > 0 && ( ! class_exists( 'BizCity_KG_Access' ) || ! BizCity_KG_Access::can_read_notebook( $id, get_current_user_id(), 'twin' ) ) ) {
+			return new WP_Error( 'kg_default_notebook_forbidden', 'Notebook không thuộc phạm vi đọc của bạn.', array( 'status' => 403 ) );
+		}
+		if ( ! current_user_can( 'manage_options' ) && ( ! class_exists( 'BizCity_CRM_Staff_Policy' ) || BizCity_CRM_Staff_Policy::role( get_current_user_id() ) !== 'supervisor' ) ) {
+			return new WP_Error( 'kg_default_notebook_forbidden', 'Chỉ admin hoặc supervisor được đổi notebook mặc định.', array( 'status' => 403 ) );
+		}
+		update_option( BizCity_KG_Access::OPTION_DEFAULT_NOTEBOOK, $id, false );
+		return rest_ensure_response( array( 'notebook_id' => $id ) );
 	}
 
 	public function create_notebook( WP_REST_Request $req ) {
@@ -261,8 +332,35 @@ class BizCity_KG_Rest_Controller {
 		return $nb;
 	}
 
+	private function assert_notebook_readable( $nb_id ) {
+		$nb = BizCity_KG_Notebook_Service::instance()->get( (int) $nb_id );
+		if ( ! $nb ) {
+			return new WP_Error( 'not_found', 'Notebook not found', array( 'status' => 404 ) );
+		}
+		if ( class_exists( 'BizCity_KG_Access' ) && BizCity_KG_Access::can_read_notebook( (int) $nb_id, get_current_user_id(), 'kg_read' ) ) {
+			return $nb;
+		}
+		return new WP_Error( 'forbidden', 'Access denied: notebook is not readable for this account', array( 'status' => 403 ) );
+	}
+
+	public function acl_generation() {
+		return rest_ensure_response( array( 'generation' => BizCity_KG_Access::generation() ) );
+	}
+
+	public function create_public_link( WP_REST_Request $req ) {
+		$data = $req->get_json_params() ?: $req->get_params();
+		$res = BizCity_KG_Public_Link_Service::create( $data['object_type'] ?? '', (int) ( $data['object_id'] ?? 0 ), (array) ( $data['doors'] ?? array( 'graph' ) ), get_current_user_id(), (int) ( $data['ttl'] ?? BizCity_KG_Public_Link_Service::DEFAULT_TTL ) );
+		return is_wp_error( $res ) ? $res : rest_ensure_response( $res );
+	}
+
+	public function revoke_public_link( WP_REST_Request $req ) {
+		$data = $req->get_json_params() ?: $req->get_params();
+		$res = BizCity_KG_Public_Link_Service::revoke( $data['object_type'] ?? '', (int) ( $data['object_id'] ?? 0 ), get_current_user_id() );
+		return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'revoked' => true ) );
+	}
+
 	public function get_notebook( WP_REST_Request $req ) {
-		$nb = $this->assert_notebook_owner( (int) $req['id'] );
+		$nb = $this->assert_notebook_readable( (int) $req['id'] );
 		return is_wp_error( $nb ) ? $nb : rest_ensure_response( $nb );
 	}
 
@@ -278,14 +376,17 @@ class BizCity_KG_Rest_Controller {
 	public function delete_notebook( WP_REST_Request $req ) {
 		$nb = $this->assert_notebook_owner( (int) $req['id'] );
 		if ( is_wp_error( $nb ) ) return $nb;
+		if ( class_exists( 'BizCity_KG_Access' ) ) {
+			$res = BizCity_KG_Access::soft_delete_notebook( (int) $req['id'], get_current_user_id() );
+			return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'deleted' => true, 'soft' => true ) );
+		}
 		BizCity_KG_Notebook_Service::instance()->delete( (int) $req['id'] );
-		return rest_ensure_response( [ 'deleted' => true ] );
+		return rest_ensure_response( array( 'deleted' => true ) );
 	}
 
-	// ─── Workspace handlers (Wave 0.18.1c) ─────────────────────────────────
-	// Workspaces are per-user folder labels stored in user_meta as a JSON array.
-	// They are NOT a separate DB table — keeps schema light while syncing across
-	// devices/sessions. Default workspace `ws_default` is auto-seeded.
+	// ─── Workspace handlers (PHASE-0.57A) ───────────────────────────────────
+	// New shared/public workspace rows are owned by BizCity_KG_Access. The old
+	// user_meta endpoints remain as a compatibility fallback during migration.
 
 	const USER_META_WORKSPACES = 'bizcity_kg_workspaces';
 
@@ -375,6 +476,8 @@ class BizCity_KG_Rest_Controller {
 	// ─── Source / Passage handlers ─────────────────────────────────────────
 
 	public function attach_source( WP_REST_Request $req ) {
+		$owner = $this->assert_notebook_owner( (int) $req['id'] );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$data = $req->get_json_params() ?: $req->get_params();
 		$source_id = (int) ( $data['source_id'] ?? 0 );
 		if ( ! $source_id ) {
@@ -386,6 +489,8 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function list_available_sources( WP_REST_Request $req ) {
+		$access = $this->assert_notebook_readable( (int) $req['id'] );
+		if ( is_wp_error( $access ) ) { return $access; }
 		return rest_ensure_response(
 			BizCity_KG_Source_Service::instance()->list_available_sources( [
 				'limit'      => (int) $req->get_param( 'limit' ) ?: 50,
@@ -397,6 +502,8 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function add_passage( WP_REST_Request $req ) {
+		$owner = $this->assert_notebook_owner( (int) $req['id'] );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$data    = $req->get_json_params() ?: $req->get_params();
 		$content = (string) ( $data['content'] ?? '' );
 		$origin  = (string) ( $data['origin']  ?? 'manual' );
@@ -408,6 +515,8 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function list_passages( WP_REST_Request $req ) {
+		$access = $this->assert_notebook_readable( (int) $req['id'] );
+		if ( is_wp_error( $access ) ) { return $access; }
 		return rest_ensure_response(
 			BizCity_KG_Source_Service::instance()->list_passages( (int) $req['id'], [
 				'limit'  => (int) $req->get_param( 'limit' ) ?: 50,
@@ -417,6 +526,8 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function extract_pending( WP_REST_Request $req ) {
+		$owner = $this->assert_notebook_owner( (int) $req['id'] );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$data          = $req->get_json_params() ?: [];
 		// [2026-06-08 Johnny Chu] HOTFIX — use hub-synced batch_size (via BizCity_KG_Cost_Guard) as default
 		// instead of hardcoded 5 so the client respects hub admin setting (e.g. 20).
@@ -431,6 +542,8 @@ class BizCity_KG_Rest_Controller {
 	// ─── Triplet queue handlers ────────────────────────────────────────────
 
 	public function list_queue( WP_REST_Request $req ) {
+		$access = $this->assert_notebook_readable( (int) $req['id'] );
+		if ( is_wp_error( $access ) ) { return $access; }
 		$status = sanitize_key( $req->get_param( 'status' ) ?: 'pending' );
 		return rest_ensure_response(
 			BizCity_KG_Graph_Service::instance()->list_queue( (int) $req['id'], $status, 200 )
@@ -438,6 +551,9 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function approve_triplet( WP_REST_Request $req ) {
+		$queue = $this->get_triplet_notebook_id( (int) $req['id'] );
+		$owner = $queue > 0 ? $this->assert_notebook_owner( $queue ) : new WP_Error( 'not_found', 'Triplet not found', array( 'status' => 404 ) );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$res = BizCity_KG_Graph_Service::instance()->approve_triplet( (int) $req['id'], get_current_user_id() );
 		if ( is_wp_error( $res ) ) {
 			return $res;
@@ -446,11 +562,16 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function approve_all_triplets( WP_REST_Request $req ) {
+		$owner = $this->assert_notebook_owner( (int) $req['id'] );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$result = BizCity_KG_Graph_Service::instance()->approve_all_pending( (int) $req['id'], get_current_user_id() );
 		return rest_ensure_response( $result );
 	}
 
 	public function reject_triplet( WP_REST_Request $req ) {
+		$queue = $this->get_triplet_notebook_id( (int) $req['id'] );
+		$owner = $queue > 0 ? $this->assert_notebook_owner( $queue ) : new WP_Error( 'not_found', 'Triplet not found', array( 'status' => 404 ) );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		BizCity_KG_Graph_Service::instance()->reject_triplet( (int) $req['id'], get_current_user_id() );
 		return rest_ensure_response( [ 'rejected' => true ] );
 	}
@@ -458,6 +579,8 @@ class BizCity_KG_Rest_Controller {
 	// ─── Graph + Query ─────────────────────────────────────────────────────
 
 	public function get_graph( WP_REST_Request $req ) {
+		$access = $this->assert_notebook_readable( (int) $req['id'] );
+		if ( is_wp_error( $access ) ) { return $access; }
 		$limit = (int) ( $req->get_param( 'limit' ) ?: 200 );
 		return rest_ensure_response(
 			BizCity_KG_Graph_Service::instance()->get_full_graph( (int) $req['id'], $limit )
@@ -500,6 +623,8 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function query( WP_REST_Request $req ) {
+		$access = $this->assert_notebook_readable( (int) $req['id'] );
+		if ( is_wp_error( $access ) ) { return $access; }
 		$data     = $req->get_json_params() ?: $req->get_params();
 		$question = trim( (string) ( $data['question'] ?? '' ) );
 		if ( $question === '' ) {
@@ -523,6 +648,9 @@ class BizCity_KG_Rest_Controller {
 		if ( ! $canonical_id || empty( $other_ids ) ) {
 			return new WP_Error( 'bad_request', 'canonical_id + other_ids required', [ 'status' => 400 ] );
 		}
+		$notebook_id = $this->get_entity_notebook_id( $canonical_id );
+		$owner = $notebook_id > 0 ? $this->assert_notebook_owner( $notebook_id ) : new WP_Error( 'not_found', 'Entity not found', array( 'status' => 404 ) );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$count = BizCity_KG_Graph_Service::instance()->merge_entities( $canonical_id, $other_ids );
 		return rest_ensure_response( [ 'merged' => $count ] );
 	}
@@ -530,14 +658,41 @@ class BizCity_KG_Rest_Controller {
 	// ─── Phase 0.5 Sprint 3: editable graph ────────────────────────────────
 
 	public function update_entity( WP_REST_Request $req ) {
+		$notebook_id = $this->get_entity_notebook_id( (int) $req['id'] );
+		$owner = $notebook_id > 0 ? $this->assert_notebook_owner( $notebook_id ) : new WP_Error( 'not_found', 'Entity not found', array( 'status' => 404 ) );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$data = $req->get_json_params() ?: $req->get_params();
 		$res  = BizCity_KG_Graph_Service::instance()->update_entity( (int) $req['id'], (array) $data );
 		return is_wp_error( $res ) ? $res : rest_ensure_response( $res );
 	}
 
 	public function delete_entity( WP_REST_Request $req ) {
+		$notebook_id = $this->get_entity_notebook_id( (int) $req['id'] );
+		$owner = $notebook_id > 0 ? $this->assert_notebook_owner( $notebook_id ) : new WP_Error( 'not_found', 'Entity not found', array( 'status' => 404 ) );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		BizCity_KG_Graph_Service::instance()->soft_delete_entity( (int) $req['id'] );
 		return rest_ensure_response( [ 'deleted' => true, 'soft' => true ] );
+	}
+
+	private function get_triplet_notebook_id( $triplet_id ) {
+		global $wpdb;
+		if ( ! class_exists( 'BizCity_KG_Database' ) ) { return 0; }
+		$table = BizCity_KG_Database::instance()->tbl_triplet_queue();
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT notebook_id FROM {$table} WHERE id = %d LIMIT 1", (int) $triplet_id ) );
+	}
+
+	private function get_entity_notebook_id( $entity_id ) {
+		global $wpdb;
+		if ( ! class_exists( 'BizCity_KG_Database' ) ) { return 0; }
+		$table = BizCity_KG_Database::instance()->tbl_entities();
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT notebook_id FROM {$table} WHERE id = %d LIMIT 1", (int) $entity_id ) );
+	}
+
+	private function get_relation_notebook_id( $relation_id ) {
+		global $wpdb;
+		if ( ! class_exists( 'BizCity_KG_Database' ) ) { return 0; }
+		$table = BizCity_KG_Database::instance()->tbl_relations();
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT notebook_id FROM {$table} WHERE id = %d LIMIT 1", (int) $relation_id ) );
 	}
 
 	/**
@@ -763,18 +918,27 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function update_relation( WP_REST_Request $req ) {
+		$notebook_id = $this->get_relation_notebook_id( (int) $req['id'] );
+		$owner = $notebook_id > 0 ? $this->assert_notebook_owner( $notebook_id ) : new WP_Error( 'not_found', 'Relation not found', array( 'status' => 404 ) );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$data = $req->get_json_params() ?: $req->get_params();
 		$res  = BizCity_KG_Graph_Service::instance()->update_relation( (int) $req['id'], (array) $data );
 		return is_wp_error( $res ) ? $res : rest_ensure_response( $res );
 	}
 
 	public function delete_relation( WP_REST_Request $req ) {
+		$notebook_id = $this->get_relation_notebook_id( (int) $req['id'] );
+		$owner = $notebook_id > 0 ? $this->assert_notebook_owner( $notebook_id ) : new WP_Error( 'not_found', 'Relation not found', array( 'status' => 404 ) );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		BizCity_KG_Graph_Service::instance()->soft_delete_relation( (int) $req['id'] );
 		return rest_ensure_response( [ 'deleted' => true, 'soft' => true ] );
 	}
 
 	public function create_manual_relation( WP_REST_Request $req ) {
 		$data = $req->get_json_params() ?: $req->get_params();
+		$notebook_id = absint( $data['notebook_id'] ?? 0 );
+		$owner = $notebook_id > 0 ? $this->assert_notebook_owner( $notebook_id ) : new WP_Error( 'bad_request', 'notebook_id required', array( 'status' => 400 ) );
+		if ( is_wp_error( $owner ) ) { return $owner; }
 		$res  = BizCity_KG_Graph_Service::instance()->create_manual_relation( (array) $data );
 		return is_wp_error( $res ) ? $res : rest_ensure_response( $res );
 	}
@@ -798,6 +962,8 @@ class BizCity_KG_Rest_Controller {
 	// ─── PHASE-0.13 Wave 10c: per-source learning evidence trail ───────────
 
 	public function source_progress_log( WP_REST_Request $req ) {
+		$access = $this->assert_notebook_readable( (int) $req->get_param( 'notebook_id' ) );
+		if ( is_wp_error( $access ) ) { return $access; }
 		if ( ! class_exists( 'BizCity_KG_Source_Progress_Log' ) ) {
 			return new WP_Error( 'not_available', 'Progress log unavailable.', [ 'status' => 503 ] );
 		}
@@ -812,6 +978,8 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function notebook_progress_log( WP_REST_Request $req ) {
+		$access = $this->assert_notebook_readable( (int) $req['id'] );
+		if ( is_wp_error( $access ) ) { return $access; }
 		if ( ! class_exists( 'BizCity_KG_Source_Progress_Log' ) ) {
 			return new WP_Error( 'not_available', 'Progress log unavailable.', [ 'status' => 503 ] );
 		}

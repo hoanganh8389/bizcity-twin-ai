@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "contract": "pipeline-stage-change",
+  "version": "1.0.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "contact_id": 9001,
+  "from": "proposal",
+  "to": "closed_won",
+  "stage": "closed_won",
+  "moved": true,
+  "phone": "0901234111"
+}

@@ -81,6 +81,54 @@ final class BizCity_CRM_Reporting_Rollup {
 		}
 	}
 
+	/**
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-04 — record one additive, content-free fact that does not
+	 * come from a CRM event (paid order, task transition). Idempotent on `$dedupe_seed` + metric, so replays and
+	 * backfills never double count. Rolls up to `tenant` and, when given, `user`.
+	 *
+	 * @return bool true when a new fact was recorded, false when it already existed or could not be written.
+	 */
+	public static function record_fact( string $metric, int $user_id, string $occurred_at_gmt, float $value, string $dedupe_seed, int $conversation_id = 0 ): bool {
+		$metric = sanitize_key( $metric );
+		if ( '' === $metric || '' === $dedupe_seed || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			return false;
+		}
+		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $occurred_at_gmt ) ) {
+			$occurred_at_gmt = gmdate( 'Y-m-d H:i:s' );
+		}
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_reporting_events();
+		$dedupe_key = hash( 'sha256', $dedupe_seed . '|' . $metric );
+		// Replays/backfills hit this path often; a SELECT keeps duplicate-key errors out of the DB log.
+		if ( $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$table}` WHERE dedupe_key = %s LIMIT 1", $dedupe_key ) ) ) {
+			return false;
+		}
+		$inserted = $wpdb->insert( $table, array(
+			'event_uuid'           => substr( hash( 'sha256', 'fact|' . $dedupe_seed ), 0, 36 ),
+			'metric'               => $metric,
+			'occurred_at'          => $occurred_at_gmt,
+			'event_date'           => substr( $occurred_at_gmt, 0, 10 ),
+			'inbox_id'             => null,
+			'team_id'              => null,
+			'user_id'              => $user_id > 0 ? $user_id : null,
+			'conversation_id'      => $conversation_id > 0 ? $conversation_id : null,
+			'channel_type'         => '',
+			'value'                => $value,
+			'business_hours_value' => null,
+			'dedupe_key'           => $dedupe_key,
+			'created_at'           => current_time( 'mysql' ),
+		), array( '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%f', '%f', '%s', '%s' ) );
+		if ( false === $inserted ) {
+			return false; // Duplicate dedupe_key (already recorded) or write failure.
+		}
+		if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::CACHE_GROUP ); }
+		self::upsert_rollup( $occurred_at_gmt, 'tenant', 0, '', $metric, $value );
+		if ( $user_id > 0 ) {
+			self::upsert_rollup( $occurred_at_gmt, 'user', $user_id, '', $metric, $value );
+		}
+		return true;
+	}
+
 	public static function get_rollups( array $args = array() ): array {
 		$cache_key = 'rollups_' . md5( serialize( $args ) );
 		if ( class_exists( 'BizCity_Cache' ) ) {
@@ -132,6 +180,8 @@ final class BizCity_CRM_Reporting_Rollup {
 			'crm_conversation_resolved'  => 'conversations_resolved',
 			'crm_conversation_assigned'  => 'assignment_count',
 			'crm_message_delivery_updated' => 'delivery_updated',
+			'crm_sla_breached'          => 'sla_breached',
+			'crm_sla_met'               => 'sla_met',
 		);
 		return $map[ $event_type ] ?? '';
 	}

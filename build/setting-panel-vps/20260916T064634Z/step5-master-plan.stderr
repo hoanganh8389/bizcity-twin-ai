@@ -1,0 +1,51 @@
+Running 5 probe(s)…
+
+[PASS         ] core.membership.entitlement                         2340ms · 3 plan · tier=paid · plan=free · clamp ok
+  ↳ [PASS] disk · classes · Manager + Registry + Entitlement + Usage loaded
+  ↳ [PASS] loader · plan registry · 3 plan · free=yes
+  ↳ [PASS] loader · tables · subscriptions=ok · usage=ok · payments=ok
+  ↳ [PASS] loader · expiry cron · membership.expiry scheduled (daily)
+  ↳ [PASS] loader · recurring (subscriptions v2) · gateway provision/create/activate/renew + Manager.extend + Registry.set_paypal_plan_id
+  ↳ [SKIP] runtime · recurring provisioned · 0/2 recurring plan có paypal_plan_id — bấm "Provision PayPal plans" ở Settings
+  ↳ [PASS] runtime · for_user() · uid=317 · site_tier=paid · user_plan=free
+  ↳ [PASS] runtime · min(plan, ceiling) · no ceiling for tier (unlimited)
+[PASS         ] core.membership.rest                                2617ms · Membership REST parity PASS · /me* + checkout/capture contract + self-scope guard ok (uid=317, profile_keys=8)
+  ↳ [PASS] Layer 1 · Disk — classes · BizCity_Membership_REST · BizCity_Membership_Enforcer · BizCity_Membership_Usage — all loaded
+  ↳ [WARN] Layer 1 · Disk — optional BizCity_Auth_Ajax class · Class missing (optional); runtime still validated via AJAX action hooks.
+  ↳ [PASS] Layer 1 · Disk — invoice ownership guard · me_invoice() has explicit owner check payment.user_id === current uid
+  ↳ [PASS] Layer 1 · Disk — Membership plan template endpoints + JSON template · REST handlers present; builtin-twin-gpt-c-plans.json readable
+  ↳ [PASS] Layer 2 · REST route-method parity (/me*, /checkout, /capture) · all expected routes + methods are registered
+  ↳ [PASS] Layer 2 · AJAX handlers · update_profile=hooked · change_password=hooked
+  ↳ [PASS] Layer 2 · payments CSV export action · Hook defined in admin class; not attached in REST runtime context (expected). · diag(rest=1,file=class-membership-admin-page.php,marker=1,class=1,method=1)
+  ↳ [PASS] Layer 2 · Enforcer hooks · can_send_msg=hooked · msg_sent=hooked · kg_quota=hooked
+  ↳ [PASS] Layer 3 · /me profile fields (uid=317) · display="Quản trị viên mẫu" · first="" · last="Quản trị viên mẫu" · phone="" · bio=0 chars
+  ↳ [PASS] Layer 3 · usage.chat_msgs_per_day · used=0 · limit=30 · remaining=30
+  ↳ [PASS] Layer 3 · quota gate (uid=317) · remaining=30 → allowed
+  ↳ [PASS] Layer 3 · /admin/plan-templates preview contract · templates=2; importable=1; read-only preview ok
+  ↳ [PASS] Layer 3 · /me/payments contract (uid=317) · success + payments keys present
+  ↳ [PASS] Layer 3 · /me/invoice/{id} own-payment access · invoice html returned for own transaction (synthetic)
+  ↳ [PASS] Layer 3 · /checkout invalid-input parse contract · invalid input still returns parseable success/message contract
+  ↳ [PASS] Layer 3 · /capture invalid-input parse contract · invalid input still returns parseable success/message contract
+[PASS         ] core.membership.plan_rank                              0ms · Plan Registry rank/seat contract OK — 3 plans
+  ↳ [PASS] Disk · registry file + rank/consumes_seat fields · File readable; rank=ok consumes_seat=ok audience=ok
+  ↳ [PASS] Loader · all() returns plans with rank (int) + consumes_seat (bool) · 3 plans loaded; rank_typed=ok; seat_typed=ok
+  ↳ [PASS] Runtime · free plan rank=0, consumes_seat=false · rank=0 (expect 0); consumes_seat=false (expect false)
+  ↳ [PASS] Runtime · at least one paid plan with rank>=100, consumes_seat=true · Plan 'pro' rank=100 consumes_seat=true
+  ↳ [PASS] Runtime · all non-free plans have rank > free.rank · Rank ordering correct
+[PASS         ] core.membership.hub_seat_admission                   561ms · Hub seat admission contract OK (counter + seat-limit sync + fail-closed gate).
+  ↳ [PASS] Disk - seat counter + seat-limit marker contracts · manager=ok projector=ok seat_limit_owner=projector
+  ↳ [PASS] Loader - manager/projector methods loaded · manager.count_seat_used=ok projector.get_capacity_snapshot=ok projector.evaluate_capacity=ok
+  ↳ [PASS] Runtime - count_seat_used returns non-negative int · baseline=0
+  ↳ [PASS] Runtime - seat counter excludes admin role · baseline=0 after_member=1 after_promote_admin=0
+  ↳ [PASS] Runtime - net-new seat blocked when used=1 and limit=1 · available=0 bucket=capacity_blocked limit=1 used=1
+[PASS         ] modules.twinweb.me_plan_catalog                     2228ms · /me plan_catalog + subscription contract PASS
+  ↳ [PASS] Disk · class-twinweb-rest.php + build_plan_catalog_for_me() + build_subscription_for_me() · File readable; catalog_method=ok; subscription_method=ok
+  ↳ [PASS] Loader · REST route /bizcity-twinweb/v1/me registered · Route registered in rest_api_init
+  ↳ [PASS] Loader · BizCity_TwinWeb_REST methods callable · build_plan_catalog_for_me=ok; build_subscription_for_me=ok
+  ↳ [PASS] Runtime · /me plan_catalog non-empty, has slug/rank/checkout_url · 3 plans; slug=ok; rank=ok; checkout_url_key=ok
+  ↳ [PASS] Runtime · plan_catalog sorted by rank ascending · Rank order ok
+  ↳ [PASS] Runtime · plan_catalog does NOT contain hardcoded VND/đ prices · No VND/đ strings found in plan_catalog — server-owned pricing ok
+  ↳ [PASS] Runtime · /me subscription block has plan_slug + days_remaining · plan_slug=free; days_remaining=NULL
+
+Result: 5 pass · 0 fail · 0 skip · total 7792ms
+JUnit XML written to /home/vibeyeuc/huongnguyen.vibeyeu.com.vn/wp-content/plugins/bizcity-twin-ai/build/setting-panel-vps/20260916T064634Z/step5-master-plan.xml

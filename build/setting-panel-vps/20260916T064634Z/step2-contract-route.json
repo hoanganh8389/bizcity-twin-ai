@@ -1,0 +1,348 @@
+{
+    "contract": "diagnostics-verdict",
+    "version": "1",
+    "command": "diagnostics",
+    "batch": "all",
+    "run_id": "",
+    "environment": {
+        "php": "7.4.33",
+        "wordpress": "6.9",
+        "blog_id": 1258
+    },
+    "catalog_hash": "1c9afde080def30fbc7107513126102f8f71a359823bdcab783af2b8d66f10c9",
+    "batch_hash": "7035f53617e212398753dddc607e85d5ef91c1d63619cb4ce28436733c373b44",
+    "evidence_audit": {
+        "total": 6,
+        "actionable_total": 2,
+        "with_fix_hint": 2,
+        "missing_fix_hint": 0,
+        "coverage_percent": 100,
+        "missing_probe_ids": []
+    },
+    "counts": {
+        "pass": 4,
+        "warn": 0,
+        "fail": 2,
+        "skip": 0
+    },
+    "verdict": "fail",
+    "duration_ms": 2860,
+    "coverage": {
+        "catalog_total": 265,
+        "selected_total": 6,
+        "executed": 6,
+        "allowed_skipped": 0,
+        "deferred": 0,
+        "complete": false
+    },
+    "results": {
+        "core.loader.trace_completeness": {
+            "status": "pass",
+            "summary": "Loader schema v2 is structurally complete for the captured phases; unknown causal parents are explicit.",
+            "fix_hint": "",
+            "steps": [
+                {
+                    "label": "Runtime \u00b7 loader schema v2 and request context",
+                    "status": "pass",
+                    "detail": "{\"phases\":2,\"invalid_schema\":0,\"missing_context\":0}"
+                },
+                {
+                    "label": "Runtime \u00b7 callback provenance and file anchors",
+                    "status": "pass",
+                    "detail": "{\"callback_rows\":600,\"callback_locations\":582,\"file_anchor_phases\":1,\"parent_status_errors\":0}"
+                },
+                {
+                    "label": "Runtime \u00b7 registration delta is present",
+                    "status": "pass",
+                    "detail": "{\"phases\":2,\"registration_rows\":2}"
+                },
+                {
+                    "label": "Runtime \u00b7 canonical boot ownership is observe-only",
+                    "status": "pass",
+                    "detail": "{\"boot_state_rows\":8,\"boot_observe_only\":2,\"invalid_records\":0,\"conflicts\":0}"
+                }
+            ],
+            "id": "core.loader.trace_completeness",
+            "duration_ms": 0,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.loader.trace_completeness --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.loader.trace_completeness --format=json"
+            }
+        },
+        "core.framework.plugin_sdk": {
+            "status": "pass",
+            "summary": "Twin Plugin SDK registration boundary passed.",
+            "fix_hint": "Load the SDK facade before extensions and keep event/tool registration on canonical registries.",
+            "steps": [
+                {
+                    "label": "Disk \u2014 SDK registry artifacts exist",
+                    "status": "pass",
+                    "detail": "core/twin-core/contracts/class-twin-plugin-sdk.php, core/twin-core/event-stream/class-twin-event-registry.php, core/twin-core/includes/class-twin-content-registry.php, core/twin-core/includes/class-twin-tool-registry.php"
+                },
+                {
+                    "label": "Loader \u2014 SDK facade and registries loaded",
+                    "status": "pass",
+                    "detail": "BizCity_Twin_Plugin_SDK, BizCity_Event_Registry, BizCity_Twin_Content_Registry, BizCity_Twin_Tool_Registry, BizCity_Typed_Tool_Adapter"
+                },
+                {
+                    "label": "Runtime \u2014 seven SDK registration verbs are exposed",
+                    "status": "pass",
+                    "detail": "register_plugin, register_tool, register_skill, register_source, register_event, register_diagnostic, register_ui"
+                },
+                {
+                    "label": "Runtime \u2014 event registry accepts canonical and rejects unknown types",
+                    "status": "pass",
+                    "detail": "tool_call accepted; sdk_probe_unknown rejected."
+                },
+                {
+                    "label": "Runtime \u2014 built-in memory/ingest tools implement typed contract",
+                    "status": "pass",
+                    "detail": "memory_remember, memory_forget, memory_recall, ingest_document"
+                }
+            ],
+            "id": "core.framework.plugin_sdk",
+            "duration_ms": 3,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.framework.plugin_sdk --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.framework.plugin_sdk --format=json"
+            }
+        },
+        "core.framework.extension_manifest": {
+            "status": "fail",
+            "summary": "Extension manifest contract has validation failures.",
+            "fix_hint": "Keep extension-manifest additive, reject unsupported capabilities/ranges, and rerun the focused contract probe.",
+            "steps": [
+                {
+                    "label": "Disk - public catalog, schemas and fixtures are readable JSON",
+                    "status": "pass",
+                    "detail": "Catalog 1.8.0 and every referenced contract artifact are readable."
+                },
+                {
+                    "label": "Loader - extension manifest probe contract is loaded",
+                    "status": "pass",
+                    "detail": "Probe interface and named probe class are loaded."
+                },
+                {
+                    "label": "Runtime - N-1 optional fields and future channel policy matrix",
+                    "status": "pass",
+                    "detail": "N-1 manifest remains valid on the current contract and Slack/TikTok/Shopee policies keep identity, zone and commerce boundaries."
+                },
+                {
+                    "label": "Runtime - user-centric Inbox branches and Personal owner isolation",
+                    "status": "pass",
+                    "detail": "Customer and admin branches remain separate; Personal is owner-only and raw phone/membership negative fixture is present."
+                },
+                {
+                    "label": "Loader - user Inbox resolver and admin-branch producer",
+                    "status": "pass",
+                    "detail": "CRM scope resolver and Zalo Bot admin-branch producer are registered."
+                },
+                {
+                    "label": "Runtime - valid manifest and fail-closed negative matrix",
+                    "status": "fail",
+                    "detail": "Manifest semantic policy or negative fixture expectation failed."
+                }
+            ],
+            "id": "core.framework.extension_manifest",
+            "duration_ms": 33,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.framework.extension_manifest --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.framework.extension_manifest --format=json"
+            }
+        },
+        "core.framework.manifest_registry": {
+            "status": "pass",
+            "summary": "Framework manifest registry passed.",
+            "fix_hint": "",
+            "steps": [
+                {
+                    "label": "Disk - manifest registry, SDK and valid fixture are readable",
+                    "status": "pass",
+                    "detail": "Registry classes, extension-manifest JSON and public-SDK sample fixture are available."
+                },
+                {
+                    "label": "Loader - bounded SDK and registry API are loaded",
+                    "status": "pass",
+                    "detail": "BizCity_Framework_SDK::register() and registry catalog APIs are available."
+                },
+                {
+                    "label": "Loader - sample extension uses the public SDK artifact boundary",
+                    "status": "pass",
+                    "detail": "Named sample extension loaded without provider, database or internal runtime dependencies."
+                },
+                {
+                    "label": "Runtime - register returns exactly five bounded services",
+                    "status": "pass",
+                    "detail": "contracts, channels, context, brain, actions"
+                },
+                {
+                    "label": "Runtime - five service handles expose contract-only descriptors",
+                    "status": "pass",
+                    "detail": "Each bounded service has a public descriptor and no storage, path or credential field."
+                },
+                {
+                    "label": "Runtime - exact manifest derives channel policy descriptors",
+                    "status": "pass",
+                    "detail": "Zone, CRM, Brain, surface and operational log policy came from the registered manifest."
+                },
+                {
+                    "label": "Runtime - identical manifest registration is idempotent",
+                    "status": "pass",
+                    "detail": "One extension remains registered after identical replay."
+                },
+                {
+                    "label": "Runtime - sample extension registers without a core allowlist edit",
+                    "status": "pass",
+                    "detail": "The sample channel manifest was discovered and registered through the public SDK only."
+                },
+                {
+                    "label": "Runtime - extension/channel/capability conflicts fail closed",
+                    "status": "pass",
+                    "detail": "Different extension ownership, channel collision and unsupported capability were rejected."
+                }
+            ],
+            "id": "core.framework.manifest_registry",
+            "duration_ms": 1,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.framework.manifest_registry --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.framework.manifest_registry --format=json"
+            }
+        },
+        "core.framework.package_adoption": {
+            "status": "fail",
+            "summary": "Phase 1.24 package adoption contract has pending failures.",
+            "fix_hint": "Review PageBuilder upload/submission envelope, Video client transport, and provider-key quarantine steps.",
+            "steps": [
+                {
+                    "label": "Disk \u2014 PageBuilder adoption files exist",
+                    "status": "pass",
+                    "detail": "Framework-facing PageBuilder files are readable."
+                },
+                {
+                    "label": "Disk \u2014 PageBuilder development transport source",
+                    "status": "skip",
+                    "detail": "Development source is absent; built PageBuilder dist is authoritative: plugins/bizcity-pagebuilder/app/src/api.ts"
+                },
+                {
+                    "label": "Disk \u2014 PageBuilder boundary markers and optional Video provider quarantine",
+                    "status": "fail",
+                    "detail": "{\"pagebuilder_error_boundary\":true,\"pagebuilder_mutation_transport\":false,\"video_provider_quarantine\":\"skip_optional_absent\"}"
+                },
+                {
+                    "label": "Loader \u2014 PageBuilder boundary, mutation, and optional video client classes loaded",
+                    "status": "pass",
+                    "detail": "Required classes and methods are loaded."
+                },
+                {
+                    "label": "Runtime \u2014 PageBuilder mutation allow/deny and error contract",
+                    "status": "pass",
+                    "detail": "{\"error_contract\":true,\"mutation_allowed\":true,\"mutation_denied_before_side_effect\":true,\"rest_error_boundary\":true,\"mutation_error_mapping\":true,\"missing_upload_envelope\":true,\"invalid_mime_envelope\":true,\"attachment_failure_envelope\":true,\"mutation_store_replay_conflict\":true}"
+                },
+                {
+                    "label": "Runtime \u2014 optional Video client mock submit/poll",
+                    "status": "skip",
+                    "detail": "Video Kling is not deployed; optional feature probe skipped."
+                }
+            ],
+            "id": "core.framework.package_adoption",
+            "duration_ms": 135,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.framework.package_adoption --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.framework.package_adoption --format=json"
+            }
+        },
+        "core.twinshell.boundary": {
+            "status": "pass",
+            "summary": "TwinShell boundary stack PASS: disk+loader+runtime contract \u1ed5n \u0111\u1ecbnh.",
+            "steps": [
+                {
+                    "label": "Layer 1 \u00b7 Disk \u00b7 bootstrap.php",
+                    "status": "pass",
+                    "detail": "exists + no BOM + markers ok"
+                },
+                {
+                    "label": "Layer 1 \u00b7 Disk \u00b7 class-twin-shell-page.php",
+                    "status": "pass",
+                    "detail": "exists + no BOM + markers ok"
+                },
+                {
+                    "label": "Layer 1 \u00b7 Disk \u00b7 class-twin-shell-registry.php",
+                    "status": "pass",
+                    "detail": "exists + no BOM + markers ok"
+                },
+                {
+                    "label": "Layer 1 \u00b7 Disk \u00b7 class-twin-shell-rest.php",
+                    "status": "pass",
+                    "detail": "exists + no BOM + markers ok"
+                },
+                {
+                    "label": "Layer 1 \u00b7 Disk \u00b7 class-twin-shell-bridge.php",
+                    "status": "pass",
+                    "detail": "exists + no BOM + markers ok"
+                },
+                {
+                    "label": "Layer 2 \u00b7 Loader \u00b7 TwinShell classes",
+                    "status": "pass",
+                    "detail": "all core classes loaded"
+                },
+                {
+                    "label": "Layer 2 \u00b7 Hook \u00b7 template_redirect::maybe_render",
+                    "status": "pass",
+                    "detail": "priority=10"
+                },
+                {
+                    "label": "Layer 2 \u00b7 Hook \u00b7 rest_api_init::register_routes",
+                    "status": "pass",
+                    "detail": "priority=10"
+                },
+                {
+                    "label": "Layer 2 \u00b7 Hook \u00b7 wp_enqueue_scripts::bridge",
+                    "status": "pass",
+                    "detail": "priority=5"
+                },
+                {
+                    "label": "Layer 3 \u00b7 REST \u00b7 /bizcity-twinchat/v1/shell/plugins",
+                    "status": "pass",
+                    "detail": "methods=GET"
+                },
+                {
+                    "label": "Layer 3 \u00b7 REST \u00b7 /bizcity-twinchat/v1/shell/self",
+                    "status": "pass",
+                    "detail": "methods=GET \u00b7 perm_cb=permission_logged_in"
+                },
+                {
+                    "label": "Layer 3 \u00b7 Registry payload schema",
+                    "status": "pass",
+                    "detail": "plugins=18 \u00b7 required keys present"
+                },
+                {
+                    "label": "Layer 3 \u00b7 Registry Pro badge/package contract",
+                    "status": "pass",
+                    "detail": "Astro/Doc/Image/Video entries expose PRO badge and package owner."
+                },
+                {
+                    "label": "Layer 3 \u00b7 iframe URL guard param",
+                    "status": "pass",
+                    "detail": "default=twinchat \u00b7 bizcity_iframe=1 present"
+                },
+                {
+                    "label": "Layer 3 \u00b7 /shell/self current-user scope",
+                    "status": "pass",
+                    "detail": "user.id=317"
+                }
+            ],
+            "id": "core.twinshell.boundary",
+            "duration_ms": 2616,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.twinshell.boundary --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.twinshell.boundary --format=json"
+            }
+        }
+    }
+}

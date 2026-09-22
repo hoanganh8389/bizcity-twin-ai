@@ -1,0 +1,21 @@
+{
+  "contract": "customer-360-team-view",
+  "version": "1.1.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "principal": { "blog_id": 1258, "actor_user_id": 42 },
+  "subject": { "user_id": 42, "display_name": "Nguyễn Hương", "team_role": "agent" },
+  "as_of": "2026-09-18T09:20:00+07:00",
+  "coverage": { "complete": true, "degraded_sources": [], "truncated": false },
+  "data": {
+    "contact": { "contact_id": 9001, "display_name": "Chị Lan", "phone": "0901234111", "zalo_uid": "8452301199887766" },
+    "owner": null,
+    "conversations": [],
+    "touched_by": [],
+    "automated_replies": 0,
+    "orders": { "available": false, "items": [] },
+    "marketing": { "acquisition_source": null, "first_seen_at": null },
+    "open_tasks": 0,
+    "identity_conflicts": { "open": 0 },
+    "can": { "view_owner_workspace": false, "assign_task": false }
+  }
+}

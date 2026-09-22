@@ -225,13 +225,25 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 			'content'    => 'DDV probe token content A — private capture.',
 		) );
 		$a_ok = ! is_wp_error( $res_a ) && ! empty( $res_a['notebook_id'] );
+		// [2026-09-18 11:11 AM Johnny Chu - Chu Hoàng Anh] R-DDV / R-CLI-ASYNC — capture steps refused by CLI isolation are SKIP with the rerun path; the isolation itself is asserted once below.
+		$isolated_note = 'Isolated by design in the diagnostics CLI (R-CLI-ASYNC); run this probe from the Diagnostics admin page or POST /smoke/run for capture evidence.';
 		$steps[] = array(
 			'label'  => 'Runtime · (a) private text capture',
-			'status' => $a_ok ? 'PASS' : 'FAIL',
+			'status' => $a_ok ? 'PASS' : ( $this->isolated_in_cli( $res_a ) ? 'SKIP' : 'FAIL' ),
 			'detail' => $a_ok
 				? sprintf( 'notebook_id=%d source_id=%d created=%s', (int) $res_a['notebook_id'], (int) $res_a['source_id'], ! empty( $res_a['notebook_created'] ) ? 'yes' : 'no' )
-				: ( is_wp_error( $res_a ) ? $res_a->get_error_message() : 'capture() returned no notebook_id.' ),
+				: ( $this->isolated_in_cli( $res_a ) ? $isolated_note : ( is_wp_error( $res_a ) ? $res_a->get_error_message() : 'capture() returned no notebook_id.' ) ),
 		);
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			$isolation_holds = $this->isolated_in_cli( $res_a );
+			$steps[] = array(
+				'label'  => 'Runtime · diagnostics CLI isolation holds (R-CLI-ASYNC)',
+				'status' => $isolation_holds ? 'PASS' : 'FAIL',
+				'detail' => $isolation_holds
+					? 'capture() returned diagnostics_async_isolated: no notebook, source or ingest job was created from the CLI.'
+					: 'capture() was not isolated in the diagnostics CLI — a production capture ran from a diagnostics process.',
+			);
+		}
 		if ( $a_ok ) { $this->created_notebook_ids[] = (int) $res_a['notebook_id']; }
 
 		// [2026-07-26 Johnny Chu] PHASE-0.46 W5 R3 — source-scoped share links must expose nb_slug for copyable tracking.
@@ -305,10 +317,10 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 			&& ( ! $a_ok || (int) $res_c['notebook_id'] !== (int) $res_a['notebook_id'] );
 		$steps[] = array(
 			'label'  => 'Runtime · (c) group vs private scope isolation',
-			'status' => $c_ok ? 'PASS' : 'FAIL',
+			'status' => $c_ok ? 'PASS' : ( $this->isolated_in_cli( $res_c ) ? 'SKIP' : 'FAIL' ),
 			'detail' => $c_ok
 				? sprintf( 'group notebook_id=%d differs from private notebook_id=%d.', (int) ( $res_c['notebook_id'] ?? 0 ), (int) ( $res_a['notebook_id'] ?? 0 ) )
-				: ( is_wp_error( $res_c ) ? $res_c->get_error_message() : 'Group capture merged into the private notebook — scope isolation regressed.' ),
+				: ( $this->isolated_in_cli( $res_c ) ? $isolated_note : ( is_wp_error( $res_c ) ? $res_c->get_error_message() : 'Group capture merged into the private notebook — scope isolation regressed.' ) ),
 		);
 		if ( $c_ok ) { $this->created_notebook_ids[] = (int) $res_c['notebook_id']; }
 
@@ -344,12 +356,12 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 			&& (int) ( $res_d2['source_id'] ?? -1 ) === (int) ( $res_d1['source_id'] ?? -2 );
 		$steps[] = array(
 			'label'  => 'Runtime · (d) message_id retry idempotency',
-			'status' => $d_ok ? 'PASS' : 'FAIL',
+			'status' => $d_ok ? 'PASS' : ( $this->isolated_in_cli( $res_d1 ) ? 'SKIP' : 'FAIL' ),
 			'detail' => $d_ok
 				? 'Second capture with the same inbound.message_id returned duplicate=true, same source_id.'
-				: ( ! $d1_ok
+				: ( $this->isolated_in_cli( $res_d1 ) ? $isolated_note : ( ! $d1_ok
 					? ( is_wp_error( $res_d1 ) ? 'First capture failed: ' . $res_d1->get_error_message() : 'First capture returned no notebook_id.' )
-					: ( is_wp_error( $res_d2 ) ? $res_d2->get_error_message() : 'Expected duplicate:true + same source_id on retry, got: ' . wp_json_encode( $res_d2 ) ) ),
+					: ( is_wp_error( $res_d2 ) ? $res_d2->get_error_message() : 'Expected duplicate:true + same source_id on retry, got: ' . wp_json_encode( $res_d2 ) ) ) ),
 		);
 
 		// (e) PHASE-0.46 Wave 3 S3.1 — image capture via an EXISTING Media
@@ -646,10 +658,10 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 				&& (int) ( $res_j['captured_succeeded'] ?? 0 ) >= 1;
 			$steps[] = array(
 				'label'  => 'Runtime · (j) action.capture_to_notebook executes direct bridge capture',
-				'status' => $j_ok ? 'PASS' : 'FAIL',
+				'status' => $j_ok ? 'PASS' : ( $this->isolated_in_cli( $res_j ) ? 'SKIP' : 'FAIL' ),
 				'detail' => $j_ok
 					? sprintf( 'block execute() succeeded: notebook_id=%d, captured_succeeded=%d.', (int) $res_j['notebook_id'], (int) $res_j['captured_succeeded'] )
-					: ( is_wp_error( $res_j ) ? $res_j->get_error_message() : 'Unexpected action output: ' . wp_json_encode( $res_j ) ),
+					: ( $this->isolated_in_cli( $res_j ) ? $isolated_note : ( is_wp_error( $res_j ) ? $res_j->get_error_message() : 'Unexpected action output: ' . wp_json_encode( $res_j ) ) ),
 			);
 			if ( $j_ok ) {
 				$this->created_notebook_ids[] = (int) $res_j['notebook_id'];
@@ -679,10 +691,10 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 				&& ! empty( $k_data['notebook_id'] );
 			$steps[] = array(
 				'label'  => 'Runtime · (k) twinchat quick-capture REST entrypoint',
-				'status' => $k_ok ? 'PASS' : 'FAIL',
+				'status' => $k_ok ? 'PASS' : ( $this->isolated_in_cli( $res_k ) ? 'SKIP' : 'FAIL' ),
 				'detail' => $k_ok
 					? sprintf( 'quick-capture succeeded: notebook_id=%d.', (int) $k_data['notebook_id'] )
-					: ( is_wp_error( $res_k ) ? $res_k->get_error_message() : 'Unexpected quick-capture output: ' . wp_json_encode( $res_k ) ),
+					: ( $this->isolated_in_cli( $res_k ) ? $isolated_note : ( is_wp_error( $res_k ) ? $res_k->get_error_message() : 'Unexpected quick-capture output: ' . wp_json_encode( $res_k ) ) ),
 			);
 			if ( $k_ok ) {
 				$this->created_notebook_ids[] = (int) $k_data['notebook_id'];
@@ -758,7 +770,12 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 		$n_blueprint_found = false;
 		$n_action_node_found = false;
 		$n_db_row_found = false;
-		if ( class_exists( 'BizCity_Automation_Templates_Seeder', false ) ) {
+		// [2026-09-18 02:43 PM Johnny Chu - Chu Hoàng Anh] R-DDV — the seeder is an optional module loaded on demand (same loader the Automation REST reseed uses); without it the probe misreported an unloaded class as a missing blueprint.
+		if ( ! class_exists( 'BizCity_Automation_Templates_Seeder', false ) && function_exists( 'bizcity_automation_load_templates_seeder' ) ) {
+			bizcity_automation_load_templates_seeder();
+		}
+		$n_seeder_loaded = class_exists( 'BizCity_Automation_Templates_Seeder', false );
+		if ( $n_seeder_loaded ) {
 			$bps = BizCity_Automation_Templates_Seeder::blueprints();
 			if ( is_array( $bps ) ) {
 				foreach ( $bps as $bp ) {
@@ -797,7 +814,11 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 				? 'Blueprint + action node + active DB row found for tpl_zalo_capture_to_notebook_v1.'
 				: ( $n_seed_pending
 					? 'Blueprint exists but DB row not found yet. Run reseed (or open Automation page) to materialize template rows.'
-					: 'Missing blueprint/action node for tpl_zalo_capture_to_notebook_v1 in current seeder output.' ),
+					: ( ! $n_seeder_loaded
+						? 'BizCity_Automation_Templates_Seeder could not be loaded (bizcity_automation_load_templates_seeder() unavailable or failed); the blueprint was not checked.'
+						: ( $n_blueprint_found
+							? 'Blueprint tpl_zalo_capture_to_notebook_v1 found, but its graph has no action.capture_to_notebook node.'
+							: 'Blueprint tpl_zalo_capture_to_notebook_v1 is not in the loaded seeder output.' ) ) ),
 		);
 
 		// [2026-07-26 Johnny Chu] PHASE-0.46 W6 — runtime gate mapped to
@@ -875,17 +896,24 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 			'detail' => (string) ( $final_open['detail'] ?? '' ),
 		);
 
-		$has_fail = false;
+		// [2026-09-18 11:11 AM Johnny Chu - Chu Hoàng Anh] R-DDV — every fail must carry an actionable fix_hint naming the failing steps (evidence_audit flagged this probe).
+		$failed_labels = array();
 		foreach ( $steps as $step ) {
-			if ( ( $step['status'] ?? '' ) === 'FAIL' ) { $has_fail = true; break; }
+			if ( ( $step['status'] ?? '' ) === 'FAIL' ) {
+				$failed_labels[] = (string) ( $step['label'] ?? '' );
+			}
 		}
+		$has_fail = ! empty( $failed_labels );
 
 		return array(
-			'status'  => $has_fail ? 'fail' : 'pass',
-			'summary' => $has_fail
+			'status'   => $has_fail ? 'fail' : 'pass',
+			'summary'  => $has_fail
 				? 'Channel notebook bridge có vấn đề — xem các dòng FAIL bên dưới.'
 				: 'Channel notebook bridge OK · scope isolation + dedup + direct automation action + quick-capture entrypoint verified end-to-end; live-evidence/6-surface readiness reported separately.',
-			'steps'   => $steps,
+			'fix_hint' => $has_fail
+				? 'Fix: ' . implode( ' · ', $failed_labels ) . '. A missing (n) blueprint means core/automation/templates/builtin-notebook-bridge.json is absent or unreadable on this host. Capture steps need a non-CLI run (Diagnostics admin page or POST /smoke/run). Rerun: php bin/diagnostics-run.php --filter=core.knowledge.channel_notebook_bridge --format=json'
+				: '',
+			'steps'    => $steps,
 		);
 	}
 
@@ -893,6 +921,31 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 	 * [2026-07-25 Johnny Chu] PHASE-0.46 W4 — pick a REAL image attachment
 	 * with readable physical file to keep runtime checks deterministic.
 	 */
+	/**
+	 * True when a capture call was refused because the diagnostics CLI isolates
+	 * the notebook bridge (R-CLI-ASYNC). Recognises a WP_Error and the degraded
+	 * REST payload returned by the TwinChat quick-capture entrypoint.
+	 *
+	 * @param mixed $result Capture/execute/REST result.
+	 */
+	private function isolated_in_cli( $result ): bool {
+		// [2026-09-18 11:11 AM Johnny Chu - Chu Hoàng Anh] R-DDV / R-CLI-ASYNC — mirror class-probe-automation.php: in the diagnostics CLI, isolation is the expected outcome, not a capture failure.
+		if ( ! ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) ) {
+			return false;
+		}
+		if ( is_wp_error( $result ) ) {
+			return 'diagnostics_async_isolated' === $result->get_error_code();
+		}
+		$data = ( class_exists( 'WP_REST_Response', false ) && $result instanceof WP_REST_Response ) ? $result->get_data() : $result;
+		if ( ! is_array( $data ) ) {
+			return false;
+		}
+		if ( 'diagnostics_async_isolated' === (string) ( $data['code'] ?? '' ) ) {
+			return true;
+		}
+		return is_array( $data['data'] ?? null ) && 'diagnostics_async_isolated' === (string) ( $data['data']['code'] ?? '' );
+	}
+
 	private function find_usable_image_attachment_id(): int {
 		$image_ids = get_posts( array(
 			'post_type'      => 'attachment',

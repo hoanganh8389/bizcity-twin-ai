@@ -90,7 +90,8 @@ class BizCity_Episodic_Memory {
         if ( isset( $checked[ $cache_key ] ) ) return;
         $checked[ $cache_key ] = true;
 		// [2026-09-01 Johnny Chu] PHASE-CB4.5 — retired episodic SQL is never installed or migrated by fallback loaders.
-		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::install_blocked( $wpdb->prefix . 'bizcity_memory_episodic' ) ) {
+		// [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — a missing lifecycle policy blocks the retired episodic-memory installer too.
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || BizCity_Legacy_Table_Policy::install_blocked( $wpdb->prefix . 'bizcity_memory_episodic' ) ) {
 			return;
 		}
 

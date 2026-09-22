@@ -62,6 +62,7 @@
     notebook:  '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
     tools:     '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
     skills:    '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    settings:  '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.41 1.41-.06-.06A1.7 1.7 0 0 0 16.45 18a1.7 1.7 0 0 0-1 .99V19a1.7 1.7 0 0 0-1.7 1.7v.08h-2v-.08A1.7 1.7 0 0 0 10 19a1.7 1.7 0 0 0-1-.99 1.7 1.7 0 0 0-1.88.34l-.06.06-1.41-1.41.06-.06A1.7 1.7 0 0 0 6 15a1.7 1.7 0 0 0-.99-1H5a1.7 1.7 0 0 0-1.7-1.7h-.08v-2h.08A1.7 1.7 0 0 0 5 9a1.7 1.7 0 0 0-.34-1.88L4.6 7.06l1.41-1.41.06.06A1.7 1.7 0 0 0 8 6a1.7 1.7 0 0 0 1-.99V5a1.7 1.7 0 0 0 1.7-1.7v-.08h2v.08A1.7 1.7 0 0 0 14 5a1.7 1.7 0 0 0 1 .99 1.7 1.7 0 0 0 1.88-.34l.06-.06 1.41 1.41-.06.06A1.7 1.7 0 0 0 18 9a1.7 1.7 0 0 0 .99 1h.01a1.7 1.7 0 0 0 1.7 1.7h.08v2h-.08A1.7 1.7 0 0 0 19.4 15Z"/>',
     scheduler: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
     automation:'<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
     gateway:   '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
@@ -375,11 +376,103 @@
     var sp = new URLSearchParams(window.location.search);
     var pluginId = sp.get('plugin') || cfg.defaultPlugin || cfg.plugins[0].id;
     var iurl = sp.get('_iurl') || '';
+    // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — `r` is the canonical
+    // plugin-relative route (TRC v1). It replaces `_iurl` for any plugin that has opted into
+    // `route_mode`; both are read here so a plugin mid-migration (or an old bookmarked `_iurl`
+    // link to a plugin that has since opted in) still resolves.
+    var route = sp.get('r') || '';
     var params = {};
     sp.forEach(function (v, k) {
-      if (k !== 'plugin' && k !== '_view' && k !== '_t' && k !== '_iurl') params[k] = v;
+      if (k !== 'plugin' && k !== '_view' && k !== '_t' && k !== '_iurl' && k !== 'r') params[k] = v;
     });
-    return { pluginId: pluginId, params: params, iurl: iurl };
+    return { pluginId: pluginId, params: params, iurl: iurl, route: route };
+  }
+
+  // [PHASE-0-RULE-URL-ROUTE P1] — declared route contract mode for a plugin ('hash'|'path'|
+  // 'query'), or 'legacy' for any entry that has not opted in (the default for everything
+  // registered before this rule existed, and for anything not yet migrated).
+  function pluginRouteMode(pluginId) {
+    var p = findPlugin(pluginId);
+    return (p && p.route_mode) || 'legacy';
+  }
+
+  // Entry URL a route is joined to — `route_entry` override, else derived from `public_slug`
+  // exactly like the legacy `buildIframeUrl()` already does for embed-mode plugins.
+  function routeEntryBase(p) {
+    if (p.route_entry) return p.route_entry;
+    if (p.public_slug) return window.location.origin + '/' + p.public_slug.replace(/^\/+|\/+$/g, '') + '/';
+    return '';
+  }
+
+  // Build the iframe `src` for a plugin with `route_mode !== 'legacy'`. `route` is
+  // PLUGIN-RELATIVE (e.g. '/inbox/13/conv/88?rail=channel') — NEVER a full URL; it is always
+  // joined to the registry's own entry for the plugin, per R-ROUTE-2/R-ROUTE-7.
+  function buildIframeUrlForRoute(pluginId, route) {
+    var p = findPlugin(pluginId);
+    if (!p) return '';
+    var base = routeEntryBase(p);
+    if (!base) return '';
+    var sep = base.indexOf('?') === -1 ? '?' : '&';
+    if (p.route_mode === 'path') {
+      // TRC §4.3: origin + public_slug + route (+ bizcity_iframe=1). Not exercised by any
+      // registered plugin yet (only `crm` has opted in, at 'hash') — kept faithful to the
+      // contract table for the next plugin that migrates.
+      var qIdx = (route || '').indexOf('?');
+      var pathPart = qIdx === -1 ? (route || '') : route.slice(0, qIdx);
+      var queryPart = qIdx === -1 ? '' : route.slice(qIdx + 1);
+      var pathUrl = base.replace(/\/$/, '') + pathPart;
+      var pathSep = pathUrl.indexOf('?') === -1 ? '?' : '&';
+      return pathUrl + pathSep + 'bizcity_iframe=1' + (queryPart ? '&' + queryPart : '');
+    }
+    if (p.route_mode === 'query') {
+      // TRC §4.3: entry + bizcity_iframe=1 + route's own query. Not exercised yet either.
+      var qs = route && route.charAt(0) === '?' ? route.slice(1) : route;
+      return base + sep + 'bizcity_iframe=1' + (qs ? '&' + qs : '');
+    }
+    // 'hash' (the only mode any registered plugin — `crm` — currently declares).
+    var url = base + sep + 'bizcity_iframe=1';
+    if (route) { url += '#' + (route.charAt(0) === '#' ? route.slice(1) : route); }
+    return url;
+  }
+
+  // Best-effort route extraction from a legacy `_iurl` bookmark, so an old saved/shared link to
+  // a plugin that has since opted into `route_mode` still opens at the right place instead of
+  // the plugin's default screen.
+  function routeFromLegacyIurl(iurl) {
+    if (!iurl) return '';
+    var hashIdx = iurl.indexOf('#');
+    return hashIdx === -1 ? '' : iurl.slice(hashIdx + 1);
+  }
+
+  // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — translate a plugin's
+  // registered `legacy_params` (e.g. `{ thread: '/inbox/{id|inbox|0}/conv/{thread}' }`) using the
+  // GENERIC query params on a link, so a link saved before the plugin opted into `route_mode`
+  // still opens the right place. Only consulted once, at boot, when neither `r` nor a legacy
+  // `_iurl` supplied a route — see the boot sequence at the bottom of this file.
+  //
+  // Template placeholder syntax: `{key}` (no `|`) is a plain lookup — substitutes `params[key]`,
+  // or '' if absent. `{key1|key2|...|literal}` (2+ segments) tries each `keyN` against `params`
+  // in order, encodes the first non-empty match, and falls back to the final segment as a
+  // LITERAL string (not a key) only if none of the keys matched.
+  function routeFromLegacyParams(p, params) {
+    if (!p || !p.legacy_params || !params) return '';
+    for (var key in p.legacy_params) {
+      if (!Object.prototype.hasOwnProperty.call(p.legacy_params, key)) continue;
+      if (!params[key]) continue;
+      var template = p.legacy_params[key];
+      return template.replace(/\{([^}]+)\}/g, function (m, spec) {
+        var parts = spec.split('|');
+        if (parts.length === 1) {
+          return params[parts[0]] ? encodeURIComponent(params[parts[0]]) : '';
+        }
+        var literal = parts.pop();
+        for (var i = 0; i < parts.length; i++) {
+          if (params[parts[i]]) return encodeURIComponent(params[parts[i]]);
+        }
+        return literal;
+      });
+    }
+    return '';
   }
 
   // [2026-06-29 Johnny Chu] HOTFIX — debounce writeShellUrl to prevent rapid-fire
@@ -391,7 +484,7 @@
   var _writeShellUrlTimer = null;
   var _writeShellUrlPending = null;
 
-  function _doWriteShellUrl(pluginId, paramsObj, iframeUrl) {
+  function _doWriteShellUrl(pluginId, paramsObj, iframeUrl, route) {
     var sp = new URLSearchParams();
     sp.set('plugin', pluginId);
     if (paramsObj) {
@@ -400,8 +493,22 @@
         sp.set(k, paramsObj[k]);
       }
     }
-    // Persist the exact child URL so F5 restores the deep link.
-    if (iframeUrl) {
+    // [2026-09-16 02:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX — preserve the embed and loop-breaker markers across replaceState. Dropping them made the next load look like a top-level visit, which redirected back into wp-admin and looped (Apache 500).
+    try {
+      var curSp = new URLSearchParams(window.location.search);
+      if (curSp.get('bizcity_embed') === '1') { sp.set('bizcity_embed', '1'); }
+      if (curSp.get('bizcity_admin_wrapper') === '1') { sp.set('bizcity_admin_wrapper', '1'); }
+    } catch (e) {}
+    // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — `route` (4th arg) is
+    // the canonical path for any plugin with `route_mode !== 'legacy'`: `r` is PLUGIN-RELATIVE
+    // (never a physical URL), so a plugin that later changes how it is hosted never breaks a
+    // link anyone already shared. `route` and `iframeUrl` are mutually exclusive per call site
+    // (see `navigate()`/`syncAddressBarFromIframe()`) — writing one always clears the other, so
+    // a plugin can never end up with both `r` and a stale `_iurl` on the URL at once.
+    if (route !== undefined) {
+      if (route) { sp.set('r', route); } else { sp.delete('r'); }
+    } else if (iframeUrl) {
+      // Persist the exact child URL so F5 restores the deep link (legacy `_iurl` path).
       try {
         var iu = new URL(iframeUrl, window.location.origin);
         if (iu.origin === window.location.origin) {
@@ -416,7 +523,7 @@
       } catch (e) {}
     }
     var newUrl = window.location.pathname + '?' + sp.toString();
-    console.log('[twin-shell][writeShellUrl]', { pluginId: pluginId, params: paramsObj, iframeUrl: iframeUrl, newUrl: newUrl });
+    console.log('[twin-shell][writeShellUrl]', { pluginId: pluginId, params: paramsObj, iframeUrl: iframeUrl, route: route, newUrl: newUrl });
     window.history.replaceState({ pluginId: pluginId }, '', newUrl);
 
     // ── Broadcast to ancestor (e.g. WP admin page hosting /twin/ in an iframe)
@@ -431,6 +538,7 @@
           pluginId: pluginId,
           params:   paramsObj || {},
           iurl:     sp.get('_iurl') || '',
+          route:    sp.get('r') || '',
           shellUrl: newUrl
         };
         console.log('[twin-shell][postMessage->parent]', payload);
@@ -440,14 +548,14 @@
   }
 
   // Debounced public wrapper — coalesces rapid calls into 1 per 80 ms.
-  function writeShellUrl(pluginId, paramsObj, iframeUrl) {
-    _writeShellUrlPending = { pluginId: pluginId, paramsObj: paramsObj, iframeUrl: iframeUrl };
+  function writeShellUrl(pluginId, paramsObj, iframeUrl, route) {
+    _writeShellUrlPending = { pluginId: pluginId, paramsObj: paramsObj, iframeUrl: iframeUrl, route: route };
     if (_writeShellUrlTimer) { clearTimeout(_writeShellUrlTimer); }
     _writeShellUrlTimer = setTimeout(function () {
       _writeShellUrlTimer = null;
       var p = _writeShellUrlPending;
       _writeShellUrlPending = null;
-      if (p) { _doWriteShellUrl(p.pluginId, p.paramsObj, p.iframeUrl); }
+      if (p) { _doWriteShellUrl(p.pluginId, p.paramsObj, p.iframeUrl, p.route); }
     }, 80);
   }
 
@@ -492,7 +600,18 @@
       if (!href) return;
       if (!force && iframe.__lastSyncedHref === href) return;
       iframe.__lastSyncedHref = href;
-      writeShellUrl(pid, paramsFromIframeUrl(href), href);
+      // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — for a plugin with
+      // `route_mode !== 'legacy'`, `loc` IS the plugin's own canonical location (for `crm` this
+      // is the `/crm/` wrapper, whose hash the P0 hotfix already mirrors from its child's real
+      // route). Only the hash fragment is the plugin-relative route — write it as `r`, never as
+      // a physical `_iurl`, so a later change to how the plugin is hosted cannot break the link.
+      var mode = pluginRouteMode(pid);
+      if (mode !== 'legacy') {
+        var route = loc.hash ? loc.hash.replace(/^#/, '') : '';
+        writeShellUrl(pid, paramsFromIframeUrl(href), undefined, route);
+      } else {
+        writeShellUrl(pid, paramsFromIframeUrl(href), href);
+      }
     } catch (e) {}
   }
 
@@ -765,11 +884,47 @@
     return btn;
   }
 
+  // [2026-09-20 Johnny Chu] PHASE-TWINSHELL-NAV — keep the five primary
+  // work surfaces predictable even when extensions append registrations to
+  // the shared registry. Remaining entries retain their registration order.
+  // `qr` is the primary QR Studio button; the separate public-profile QR
+  // surface stays after the requested primary group when it is available.
+  var ACTIVITY_PRIORITY = {
+    crm: 10,
+    personal: 20,
+    gateway: 30,
+    qr: 40,
+    web: 50,
+    'profile-public': 60,
+    skills: 900,
+    settings: 910,
+  };
+
+  function orderedActivityPlugins(section) {
+    var items = [];
+    cfg.plugins.forEach(function (plugin, index) {
+      if ((plugin.section === 'bottom' ? 'bottom' : 'top') !== section) return;
+      items.push({ plugin: plugin, index: index });
+    });
+
+    items.sort(function (a, b) {
+      var aPriority = Object.prototype.hasOwnProperty.call(ACTIVITY_PRIORITY, a.plugin.id)
+        ? ACTIVITY_PRIORITY[a.plugin.id]
+        : 1000;
+      var bPriority = Object.prototype.hasOwnProperty.call(ACTIVITY_PRIORITY, b.plugin.id)
+        ? ACTIVITY_PRIORITY[b.plugin.id]
+        : 1000;
+      return aPriority === bPriority ? a.index - b.index : aPriority - bPriority;
+    });
+
+    return items.map(function (item) { return item.plugin; });
+  }
+
   function renderActivityBar() {
     var top = root.querySelector('.ts-ab-top');
     var bottom = root.querySelector('.ts-ab-bottom');
 
-    cfg.plugins.forEach(function (p) {
+    orderedActivityPlugins('top').concat(orderedActivityPlugins('bottom')).forEach(function (p) {
       var item = buildItem(p);
       if (p.section === 'bottom') bottom.appendChild(item);
       else top.appendChild(item);
@@ -808,12 +963,14 @@
       var pluginId = current.pluginId || cfg.defaultPlugin || (cfg.plugins[0] && cfg.plugins[0].id) || '';
       if (inAdmin) {
         // Pop out: navigate the TOP window to standalone /twin/.
-        var url = '/twin/' + (pluginId ? '?plugin=' + encodeURIComponent(pluginId) : '');
+        // [2026-09-16 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX2 — keep both markers: embedded rendering plus the loop-breaker, so this deliberate pop-out cannot bounce back into wp-admin.
+        var url = '/twin/?bizcity_embed=1&bizcity_admin_wrapper=1' + (pluginId ? '&plugin=' + encodeURIComponent(pluginId) : '');
         try { window.top.location.href = url; }
         catch (e) { window.location.href = url; }
       } else {
         // Enter wp-admin TwinChat page (which itself iframes /twin/).
-        var adminUrl = '/wp-admin/admin.php?page=bizcity-twinchat'
+        // [2026-09-16 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX2 — carry the loop-breaker so the wrapper it opens is never handed back out.
+        var adminUrl = '/wp-admin/admin.php?page=bizcity-twinchat&bizcity_admin_wrapper=1'
                      + (pluginId ? '&plugin=' + encodeURIComponent(pluginId) : '');
         window.location.href = adminUrl;
       }
@@ -849,22 +1006,13 @@
   }
 
   function redirectLegacyAdminWrapper() {
-    var adminWin = getAdminParentWindow();
-    if (!adminWin) return false;
-
-    try {
-      var adminUrl = new URL(adminWin.location.href);
-      if (adminUrl.searchParams.get('page') !== 'bizcity-twinchat') return false;
-
-      // [2026-08-27 Johnny Chu] PHASE-TWINSHELL-SINGLE-FRAME — deployed
-      // shells can escape an old admin iframe wrapper before rendering frames.
-      var shellUrl = new URL(window.location.href);
-      shellUrl.searchParams.delete('bizcity_iframe');
-      adminWin.location.replace(shellUrl.href);
-      return true;
-    } catch (e) {
-      return false;
-    }
+    // [2026-09-16 02:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX — DISABLED.
+    // This escape was written when the wp-admin wrapper was considered legacy.
+    // The wrapper is now the intended outer document (it is what renders the
+    // WordPress admin bar and sidebar), so escaping it fought the PHP guard in
+    // class-twin-shell-page.php and produced an admin.php <-> /twin/ redirect
+    // loop (Apache 500). Keep the function for reference; never escape.
+    return false;
   }
 
   function syncFoldAdminBtnState(btn) {
@@ -941,28 +1089,55 @@
     if (el) el.hidden = !on;
   }
 
-  function ensureIframe(pluginId, paramsObj, iurl) {
+  function ensureIframe(pluginId, paramsObj, iurl, route) {
     var stack = root.querySelector('.ts-frame-stack');
-    // iurl: stored deep-link path (e.g. '/twinchat/?bizcity_iframe=1&notebook_id=1').
-    var url = (iurl && iurl.charAt(0) === '/') ? (window.location.origin + iurl) : buildIframeUrl(pluginId, paramsObj);
-    if (!url) return null;
+    var mode = pluginRouteMode(pluginId);
+    // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — a plugin that has
+    // opted into `route_mode` may still be reached via an OLD bookmarked `_iurl` link (from
+    // before it migrated, or from a client that hasn't refreshed its saved link) — fall back to
+    // extracting a route from it so the plugin opens at the right place instead of its default.
+    var effectiveRoute = (mode !== 'legacy' && !route && iurl) ? routeFromLegacyIurl(iurl) : route;
+    // An EXPLICIT deep link (popstate restoring a specific `_iurl`/`r`, or a cross-plugin link
+    // that names a route) is the only thing allowed to force-navigate an already-cached iframe.
+    // A plain re-click never carries one.
+    var hasExplicitDeepLink = mode !== 'legacy' ? !!effectiveRoute : !!(iurl && iurl.charAt(0) === '/');
 
     // Reuse cached iframe if present.
     if (iframeCache[pluginId]) {
       var existing = iframeCache[pluginId];
-      // If params changed, navigate the iframe.
-      try {
-        var cur = new URL(existing.src, window.location.origin);
-        var next = new URL(url, window.location.origin);
-        if (cur.pathname !== next.pathname || cur.search !== next.search || cur.hash !== next.hash) {
-          existing.src = url;
+      if (hasExplicitDeepLink) {
+        var explicitUrl = mode !== 'legacy'
+          ? buildIframeUrlForRoute(pluginId, effectiveRoute)
+          : (window.location.origin + iurl);
+        if (explicitUrl) {
+          try {
+            var cur = new URL(existing.src, window.location.origin);
+            var next = new URL(explicitUrl, window.location.origin);
+            if (cur.pathname !== next.pathname || cur.search !== next.search || cur.hash !== next.hash) {
+              existing.src = explicitUrl;
+            }
+          } catch (e) {
+            existing.src = explicitUrl;
+          }
         }
-      } catch (e) {
-        existing.src = url;
       }
+      // No explicit deep link ⇒ "just show me this plugin again": the cached iframe's `.src`
+      // ATTRIBUTE only ever reflects the URL TwinShell last explicitly navigated it to — the
+      // plugin's OWN client-side routing (hash/pushState) never touches `.src`, so the iframe
+      // already shows whatever the user was last doing inside it. Recomputing a bare default URL
+      // here and comparing it against a `.src` that was last explicitly set to a DIFFERENT deep
+      // link (e.g. the entry route of a link the user arrived on) used to "mismatch" and
+      // force-reload the iframe back to its landing screen on the very next plain re-click —
+      // discarding whatever the user had since navigated to. Never touch `.src` in this branch.
       lruBump(pluginId);
       return existing;
     }
+
+    var url = mode !== 'legacy'
+      ? buildIframeUrlForRoute(pluginId, effectiveRoute || '')
+      // iurl: stored deep-link path (e.g. '/twinchat/?bizcity_iframe=1&notebook_id=1').
+      : ((iurl && iurl.charAt(0) === '/') ? (window.location.origin + iurl) : buildIframeUrl(pluginId, paramsObj));
+    if (!url) return null;
 
     var iframe = document.createElement('iframe');
     iframe.className = 'ts-frame';
@@ -1034,7 +1209,8 @@
     var p = findPlugin(pluginId);
     if (!p) return;
 
-    var iframe = ensureIframe(pluginId, paramsObj, opts.iurl || '');
+    var wasCached = !!iframeCache[pluginId];
+    var iframe = ensureIframe(pluginId, paramsObj, opts.iurl || '', opts.route || '');
     if (!iframe) return;
 
     current.pluginId = pluginId;
@@ -1050,8 +1226,62 @@
       }, 250);
     }
 
-    if (!opts.skipUrlWrite) {
-      writeShellUrl(pluginId, paramsObj);
+    if (opts.skipUrlWrite) return;
+
+    var mode = pluginRouteMode(pluginId);
+    if (mode !== 'legacy') {
+      // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — canonical `r` path.
+      // Same fix as the legacy branch below, generalised: switching away from a plugin and back
+      // WITHOUT an explicit `opts.route` (a plain re-click) must read whatever route the cached
+      // iframe is ALREADY showing, not wipe `r` — `ensureIframe()` never touched the iframe's
+      // `.src` for this case (see its own comment), so its current internal hash is still the
+      // real, current route.
+      var currentRoute = opts.route || '';
+      if (wasCached && !currentRoute) {
+        try {
+          var reusedLoc = iframe.contentWindow && iframe.contentWindow.location;
+          if (reusedLoc && reusedLoc.origin === window.location.origin) {
+            currentRoute = reusedLoc.hash ? reusedLoc.hash.replace(/^#/, '') : '';
+          }
+        } catch (e) {}
+      }
+      writeShellUrl(pluginId, paramsObj, undefined, currentRoute);
+      if (wasCached) {
+        try {
+          var syncedLoc = iframe.contentWindow && iframe.contentWindow.location;
+          if (syncedLoc && syncedLoc.origin === window.location.origin) {
+            // Keep the poll's dedupe guard aligned so a later real navigation inside the
+            // iframe is still detected as a change.
+            iframe.__lastSyncedHref = syncedLoc.href;
+          }
+        } catch (e) {}
+      }
+      return;
+    }
+
+    // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P0 — switching
+    // AWAY from a plugin and back reused the cached iframe untouched (correct: the
+    // deep link inside it is preserved), but this call used to run
+    // `writeShellUrl(pluginId, paramsObj)` with NO `iframeUrl`, which wipes `_iurl`
+    // from the shell's own URL. The 300 ms poll that would otherwise fix it
+    // (`syncAddressBarFromIframe`) skips the resync because `iframe.__lastSyncedHref`
+    // still equals the iframe's href — nothing changed INSIDE the iframe, only the
+    // outer URL is now wrong. Read the cached iframe's current href (if same-origin)
+    // and pass it through so `_iurl` is rewritten instead of dropped.
+    var currentIframeHref = '';
+    if (wasCached) {
+      try {
+        var reusedLoc2 = iframe.contentWindow && iframe.contentWindow.location;
+        if (reusedLoc2 && reusedLoc2.origin === window.location.origin) {
+          currentIframeHref = reusedLoc2.href;
+        }
+      } catch (e) {}
+    }
+    writeShellUrl(pluginId, paramsObj, currentIframeHref || undefined);
+    if (currentIframeHref) {
+      // Keep the poll's dedupe guard aligned so a later real navigation inside the
+      // iframe is still detected as a change.
+      iframe.__lastSyncedHref = currentIframeHref;
     }
   }
 
@@ -1067,7 +1297,23 @@
       // Child tells us its URL changed — update parent shell URL + persist deep link.
       if (!senderPluginId) return;
       var params = paramsFromIframeUrl(data.url);
-      writeShellUrl(senderPluginId, params, data.url);
+      // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — a plugin with
+      // `route_mode !== 'legacy'` that posts this message directly (no wrapper in between —
+      // not exercised by any currently-registered plugin yet, since `crm`'s bridge is not
+      // injected onto its `/crm/` wrapper; kept here so the SDK's `report()`/auto-hash mode
+      // works correctly for the next plugin that migrates without a wrapper) reports its
+      // route as the hash portion of `data.url`, same as the poll-based path above.
+      var navMode = pluginRouteMode(senderPluginId);
+      if (navMode !== 'legacy') {
+        var navRoute = '';
+        try {
+          var navU = new URL(data.url, window.location.origin);
+          navRoute = navU.hash ? navU.hash.replace(/^#/, '') : '';
+        } catch (e) {}
+        writeShellUrl(senderPluginId, params, undefined, navRoute);
+      } else {
+        writeShellUrl(senderPluginId, params, data.url);
+      }
       if (data.title && typeof data.title === 'string') {
         document.title = data.title + ' — Twin';
       }
@@ -1221,7 +1467,12 @@
   // Browser back/forward.
   window.addEventListener('popstate', function () {
     var s = parseShellUrl();
-    navigate(s.pluginId, s.params, { skipUrlWrite: true });
+    // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P0/P1 — `s.iurl`/`s.route`
+    // were parsed off the restored URL but never passed through. Without them, `ensureIframe()`
+    // falls back to the plugin's DEFAULT URL, silently resetting the iframe to its landing page
+    // on every Back/Forward instead of restoring the deep link the address bar itself just
+    // switched to.
+    navigate(s.pluginId, s.params, { skipUrlWrite: true, iurl: s.iurl, route: s.route });
   });
 
   // ── Boot ───────────────────────────────────────────────────────────────
@@ -1229,8 +1480,39 @@
   buildLayout();
   renderActivityBar();
   var initial = parseShellUrl();
-  navigate(initial.pluginId, initial.params, { skipUrlWrite: true, iurl: initial.iurl });
-  // Make sure URL has ?plugin= for predictable refresh — preserve _iurl if present.
-  var initIurlFull = initial.iurl ? (window.location.origin + initial.iurl) : '';
-  writeShellUrl(initial.pluginId, initial.params, initIurlFull);
+  var initMode = pluginRouteMode(initial.pluginId);
+  if (initMode !== 'legacy' && !initial.route && !initial.iurl) {
+    // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — no canonical `r` and no
+    // legacy `_iurl` either: this may be an even OLDER link using the plugin's own generic query
+    // params (e.g. `&thread=88&id=13`, from before it had ANY deep-link mechanism). Resolve it
+    // once, at boot, so both the iframe AND the URL open at the right place, not just the URL.
+    var legacyPlugin = findPlugin(initial.pluginId);
+    initial.route = routeFromLegacyParams(legacyPlugin, initial.params);
+    if (initial.route) {
+      // The route now carries whatever those generic keys meant — strip the plugin's OWN
+      // registry `params` allowlist (the exact set the legacy deep-link format used) out of
+      // `initial.params`, or they leak back onto the URL via the postMessage payload's
+      // `data.params` (`class-twinchat-admin-menu.php`'s relay re-attaches any key it recognises)
+      // and the address bar ends up with BOTH the old query AND the new `r` at once.
+      var keepParams = {};
+      var legacyKeys = (legacyPlugin && legacyPlugin.params) || [];
+      for (var pk in initial.params) {
+        if (!Object.prototype.hasOwnProperty.call(initial.params, pk)) continue;
+        if (legacyKeys.indexOf(pk) !== -1) continue;
+        keepParams[pk] = initial.params[pk];
+      }
+      initial.params = keepParams;
+    }
+  }
+  navigate(initial.pluginId, initial.params, { skipUrlWrite: true, iurl: initial.iurl, route: initial.route });
+  // Make sure URL has ?plugin= for predictable refresh — preserve _iurl/r if present.
+  if (initMode !== 'legacy') {
+    // [PHASE-0-RULE-URL-ROUTE P1] — best-effort compat: an old bookmarked `_iurl` link to a
+    // plugin that has since opted into `route_mode` still opens at the right route; the URL is
+    // then rewritten to the canonical `r` form.
+    writeShellUrl(initial.pluginId, initial.params, undefined, initial.route || routeFromLegacyIurl(initial.iurl));
+  } else {
+    var initIurlFull = initial.iurl ? (window.location.origin + initial.iurl) : '';
+    writeShellUrl(initial.pluginId, initial.params, initIurlFull);
+  }
 })();

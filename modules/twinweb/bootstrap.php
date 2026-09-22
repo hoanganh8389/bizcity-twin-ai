@@ -31,7 +31,7 @@ define( 'BIZCITY_TWINWEB_VERSION', '1.0.0' );
 // [2026-06-18 Johnny Chu] PHASE-TWINWEB — bumped to 1.0.1 to flush old ^twin(?:/.*)? rule
 // that was hijacking /twin/ (twinshell's URL). Version bump triggers one-time flush via
 // BizCity_Rewrite_Flush_Registry on next admin_init. (NEVER use time() here)
-define( 'BIZCITY_TWINWEB_REWRITE_VERSION', '1.0.7' ); // [2026-09-07 03:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — catalog all static Twin GPT public subpaths in one route contract.
+define( 'BIZCITY_TWINWEB_REWRITE_VERSION', '1.0.9' ); // [2026-09-18] PHASE-0.52 — add /gpt/myspace/ + /gpt/mycustomers/ (1.0.8: /gpt/mytasks/). Previously: [2026-09-07 03:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — catalog all static Twin GPT public subpaths in one route contract.
 
 // ── Includes ──────────────────────────────────────────────────────────────────
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-installer.php';
@@ -67,12 +67,20 @@ require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-prompt-automation-bri
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-rest.php';
 // [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — load the member-safe CRM projection contract before TwinWeb REST handlers.
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-projection.php';
+// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 M4-02 — member-customer-360 serializer (C Customer 360).
+require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-member-customer-360.php';
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-profile-grounding.php';
 // [2026-07-31 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — persist MPR web citations into the canonical notebook source ledger through a deferred queue.
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-citation-source-persistence.php';
 BizCity_TwinWeb_Citation_Source_Persistence::init();
 // [2026-06-22 Johnny Chu] PHASE-TWINWEB — projects REST (port from webchat, clean prefix)
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-projects-rest.php';
+// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 W5 — member "Việc được giao" REST (C surface, current user only).
+require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-tasks-rest.php';
+// [2026-09-18] PHASE-0.52 — member customer pipeline REST (Hôm nay, Khách của tôi, Inbox stage, Không gian của tôi).
+require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-pipeline-rest.php';
+// [2026-09-19] PHASE-0.55 A2 — Brain Chat "work.*" retriever tools (member's own tasks/pipeline/space, no colleague data).
+require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-work-tools.php';
 // [2026-07-14 Johnny Chu] PHASE-TWINWEB-SEARCH W1 — channel binding bootstrap (TWINWEB -> Guru)
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-binding-bootstrap.php';
 
@@ -120,6 +128,14 @@ add_action( 'rest_api_init', function () {
 	// [2026-06-22 Johnny Chu] PHASE-TWINWEB — projects REST
 	if ( class_exists( 'BizCity_TwinWeb_Projects_REST', false ) ) {
 		BizCity_TwinWeb_Projects_REST::instance()->register_routes();
+	}
+	// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 W5 — leader-task-handoff member projection.
+	if ( class_exists( 'BizCity_TwinWeb_CRM_Tasks_REST', false ) ) {
+		BizCity_TwinWeb_CRM_Tasks_REST::instance()->register_routes();
+	}
+	// [2026-09-18] PHASE-0.52 — R-PIPE member projection (current user only).
+	if ( class_exists( 'BizCity_TwinWeb_CRM_Pipeline_REST', false ) ) {
+		BizCity_TwinWeb_CRM_Pipeline_REST::instance()->register_routes();
 	}
 } );
 

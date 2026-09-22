@@ -1,0 +1,38 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.0.0",
+  "kind": "Production Line",
+  "label": "Sản xuất",
+  "clock": "office_hours",
+  "stages": [
+    {
+      "key": "B13",
+      "label": "QC",
+      "sla": {
+        "finish_within": {
+          "from": "when_convenient",
+          "within": "45 minutes"
+        }
+      },
+      "sub_steps": [
+        {
+          "key": "B13.1",
+          "label": "Đo mẫu",
+          "mode": "checklist"
+        }
+      ]
+    }
+  ],
+  "process_sla": {
+    "anchor": "whenever_someone_notices",
+    "offset": "+18h",
+    "target": "stage_done(B36)",
+    "on_miss": [
+      {
+        "at": "soon",
+        "do": "change_stage(B36)"
+      }
+    ]
+  },
+  "sla_engine": "legacy"
+}

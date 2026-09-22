@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Validate plugin adoption role fixtures against the allowed role vocabulary.
 import fs from 'node:fs';
 import path from 'node:path';
 

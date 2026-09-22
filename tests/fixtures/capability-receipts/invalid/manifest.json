@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "id": "fixture.receipts.invalid",
+  "package_role": "reference_only",
+  "name": "Capability Receipt Invalid Fixture",
+  "version": "1.0.0",
+  "capabilities": {
+    "tools": [
+      {
+        "id": "fixture.receipts.incomplete",
+        "label": "Incomplete receipt",
+        "class": "Fixture_Receipts_Incomplete_Tool",
+        "primary": true
+      }
+    ],
+    "channels": [
+      {
+        "id": "fixture.shared",
+        "label": "Shared id claimed by two extensions",
+        "class": "Fixture_Receipts_Untyped_Channel",
+        "zone": "admin"
+      }
+    ],
+    "workflow_blocks": [
+      {
+        "id": "fixture.receipts.missing_class",
+        "label": "Declared class does not exist",
+        "class": "Fixture_Receipts_Class_That_Does_Not_Exist"
+      }
+    ],
+    "agents": [
+      {
+        "id": "fixture.receipts.untyped_agent",
+        "label": "Declared class implements no interface",
+        "class": "Fixture_Receipts_Untyped_Channel"
+      }
+    ],
+    "skills": [
+      {
+        "id": "fixture.receipts.no_class",
+        "label": "No class declared and not classified as legacy adapter"
+      }
+    ],
+    "output_renderers": [
+      {
+        "id": "fixture.receipts.bad_contract",
+        "label": "Receipt names a contract that is not in the catalog",
+        "class": "Fixture_Receipts_Renderer",
+        "owner": "tests/fixtures/capability-receipts",
+        "scope": "tenant",
+        "contract_id": "contract-that-does-not-exist",
+        "contract_version": "9.9.9"
+      }
+    ]
+  }
+}

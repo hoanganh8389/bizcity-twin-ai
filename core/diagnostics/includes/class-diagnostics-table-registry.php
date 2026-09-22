@@ -58,6 +58,9 @@ final class BizCity_Diagnostics_Table_Registry {
 			[ 'name' => 'bizcity_kg_passage_identities', 'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Database' ],
 			// [2026-08-21 Johnny Chu] KG-GURU-SCHEMA-INVENTORY — canonical notebook↔Guru attachment map used by attach_guru()/virtual merge.
 			[ 'name' => 'bizcity_notebook_character_attachments', 'owner' => 'core/knowledge/kg-hub', 'group' => 'knowledge', 'critical' => true, 'class' => 'BizCity_KG_Database' ],
+			[ 'name' => 'bizcity_kg_workspaces',            'owner' => 'core/knowledge/kg-hub', 'group' => 'knowledge', 'critical' => true, 'class' => 'BizCity_KG_Database' ],
+			[ 'name' => 'bizcity_kg_grants',               'owner' => 'core/knowledge/kg-hub', 'group' => 'knowledge', 'critical' => true, 'class' => 'BizCity_KG_Database' ],
+			[ 'name' => 'bizcity_kg_acl_log',              'owner' => 'core/knowledge/kg-hub', 'group' => 'knowledge', 'critical' => false, 'class' => 'BizCity_KG_Database' ],
 			// [2026-07-27 Johnny Chu] PHASE-0.53-MCP Wave A — core/mcp (Twin Client Brain MCP gateway).
 			[ 'name' => 'bizcity_mcp_api_keys',             'owner' => 'core/mcp', 'group' => 'mcp', 'critical' => true, 'class' => 'BizCity_MCP_Installer' ],
 			[ 'name' => 'bizcity_mcp_retrieval_snapshots',  'owner' => 'core/mcp', 'group' => 'mcp', 'critical' => true, 'class' => 'BizCity_MCP_Installer' ],

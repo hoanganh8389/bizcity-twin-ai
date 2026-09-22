@@ -1,0 +1,12 @@
+{
+  "contract":"approval-decision",
+  "version":"1.0.0",
+  "run_id":0,
+  "step_key":"manager_approval",
+  "decision":"maybe",
+  "decided_by":0,
+  "decided_at":"not-a-date",
+  "reason":"",
+  "level":100,
+  "unreviewed":true
+}

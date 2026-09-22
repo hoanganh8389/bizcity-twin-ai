@@ -54,6 +54,13 @@ class BizCity_Twin_Shell_Bridge {
 
 		$registry = BizCity_Twin_Shell_Registry::instance();
 		$matched  = $registry->match_request_uri( $req );
+		if ( ! $matched && is_admin() && isset( $_GET['page'] ) ) {
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — a `mode=link`
+			// entry (e.g. Channel Gateway) has no `public_slug`; its real app lives directly on
+			// an `admin.php?page=…` screen that `match_request_uri()` can never match. Nothing
+			// currently declares `admin_page`, so this branch is inert today — additive only.
+			$matched = $registry->match_admin_page( wp_unslash( $_GET['page'] ) );
+		}
 		if ( ! $matched ) {
 			return;
 		}

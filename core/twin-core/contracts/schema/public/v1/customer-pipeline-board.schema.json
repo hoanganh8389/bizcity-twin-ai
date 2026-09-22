@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/customer-pipeline-board.schema.json",
+  "title": "BizCity Customer Pipeline Board (leader)",
+  "description": "PHASE-0.52 L1 (B2 only): customers by stage inside the actor inbox scope, exceptions first, plus a per-staff matrix. Counts and names only — no phone, email or provider id. Staff outside the actor roster collapse into \"Nhân viên khác\" (user_id null). Rates only with basis and den >= 10.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "surface",
+    "as_of",
+    "columns",
+    "kpis",
+    "matrix"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "contract": {
+      "const": "customer-pipeline-board"
+    },
+    "version": {
+      "const": "1.0.0"
+    },
+    "surface": {
+      "const": "B2_ADMIN_CRM"
+    },
+    "as_of": {
+      "type": "string",
+      "minLength": 10
+    },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "days"
+      ],
+      "properties": {
+        "key": {
+          "enum": [
+            "7d",
+            "30d",
+            "90d"
+          ]
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        }
+      }
+    },
+    "columns": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage",
+          "label",
+          "count",
+          "stuck",
+          "no_next",
+          "cards"
+        ],
+        "properties": {
+          "stage": {
+            "enum": [
+              "target",
+              "contacted",
+              "consult",
+              "quote",
+              "won",
+              "repeat",
+              "dormant",
+              "lost"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stuck": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "no_next": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stuck_days": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cards": {
+            "type": "array",
+            "maxItems": 60,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "contact_id",
+                "display_name",
+                "stage",
+                "days",
+                "stuck",
+                "has_next"
+              ],
+              "properties": {
+                "contact_id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "display_name": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "stage": {
+                  "enum": [
+                    "target",
+                    "contacted",
+                    "consult",
+                    "quote",
+                    "won",
+                    "repeat",
+                    "dormant",
+                    "lost"
+                  ]
+                },
+                "days": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "stuck": {
+                  "type": "boolean"
+                },
+                "has_next": {
+                  "type": "boolean"
+                },
+                "next_due": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "overdue_tasks": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "source": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "manual_won_pending": {
+                  "type": "boolean"
+                },
+                "paid_orders": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "conversation_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "inbox_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "steps_done": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "owner": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": false,
+                  "required": [
+                    "user_id",
+                    "display_name"
+                  ],
+                  "properties": {
+                    "user_id": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "display_name": {
+                      "type": "string",
+                      "maxLength": 120
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "kpis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "customers",
+        "no_next",
+        "stuck",
+        "overdue_tasks",
+        "touch7_rate",
+        "conversion"
+      ],
+      "properties": {
+        "customers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_next": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stuck": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "overdue_tasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "touch7_rate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "conversion": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "num",
+            "den",
+            "value"
+          ],
+          "properties": {
+            "num": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "den": {
+              "type": "integer",
+              "minimum": 10
+            },
+            "value": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      }
+    },
+    "matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user_id",
+          "display_name",
+          "counts",
+          "stuck",
+          "no_next",
+          "overdue_tasks"
+        ],
+        "properties": {
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "team_name": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "counts": {
+            "type": "object"
+          },
+          "stuck": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "no_next": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overdue_tasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "open": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "touched7": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "touched": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ordered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "touch7_rate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "conversion": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "num",
+              "den",
+              "value"
+            ],
+            "properties": {
+              "num": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "den": {
+                "type": "integer",
+                "minimum": 10
+              },
+              "value": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          },
+          "risk": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": "object"
+    },
+    "capped": {
+      "type": "boolean"
+    }
+  }
+}

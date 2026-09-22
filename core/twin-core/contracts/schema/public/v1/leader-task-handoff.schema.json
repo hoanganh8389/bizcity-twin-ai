@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/leader-task-handoff.schema.json",
+  "title": "BizCity Leader Task Handoff",
+  "description": "PHASE-0.50 W4/W5: work a leader assigns from B2 (/crm/, /twin/) and a member receives in C (/gpt/crm/). Stored on bizcity_crm_tasks; history in the CRM audit log. On C_PUBLIC_TWINGPT subject.user_id must equal principal.actor_user_id and B2-only task fields (assignee, timeline, result, batch_key, updated_at) are absent — enforced by the contract test semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "surface", "principal", "subject", "as_of", "coverage", "data"],
+  "properties": {
+    "contract": { "const": "leader-task-handoff" },
+    "version": { "const": "1.1.0" },
+    "surface": { "enum": ["B2_ADMIN_CRM", "C_PUBLIC_TWINGPT"] },
+    "principal": { "$ref": "#/$defs/principal" },
+    "subject": { "$ref": "#/$defs/subject" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tasks"],
+      "properties": {
+        "tasks": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/task" } },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sent": { "type": "integer", "minimum": 0 },
+            "accepted": { "type": "integer", "minimum": 0 },
+            "in_progress": { "type": "integer", "minimum": 0 },
+            "done": { "type": "integer", "minimum": 0 },
+            "returned": { "type": "integer", "minimum": 0 },
+            "cancelled": { "type": "integer", "minimum": 0 },
+            "overdue": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "unseen": { "type": "integer", "minimum": 0 },
+        "batch_key": { "type": "string", "pattern": "^[a-z0-9_-]{8,64}$" },
+        "batch": {
+          "description": "1.1.0 — present on a POST /crm-tasks/handoff response when it created more than one task (L2 batch plan).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "total", "done"],
+          "properties": {
+            "key": { "type": "string", "pattern": "^[a-z0-9_-]{8,64}$" },
+            "playbook": { "type": ["string", "null"] },
+            "total": { "type": "integer", "minimum": 0 },
+            "done": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "created": { "type": "array", "maxItems": 200, "items": { "type": "integer", "minimum": 1 } },
+        "stripped": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["contact_id", "reason"],
+            "properties": {
+              "contact_id": { "type": "integer", "minimum": 1 },
+              "reason": { "enum": ["task_subject_out_of_scope", "contact_not_in_scope"] }
+            }
+          }
+        }
+      }
+    },
+    "denied": { "$ref": "#/$defs/denied" }
+  },
+  "$defs": {
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blog_id", "actor_user_id"],
+      "properties": {
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "actor_user_id": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "display_name", "team_role"],
+      "properties": {
+        "user_id": { "type": "integer", "minimum": 1 },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "team_role": { "enum": ["admin", "supervisor", "lead", "agent", "none"] }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "degraded_sources", "truncated"],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "degraded_sources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$" } },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "denied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "reason"],
+        "properties": {
+          "scope": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "reason": { "enum": ["member_not_manageable", "task_subject_out_of_scope", "task_transition_invalid", "task_not_found", "contact_not_in_scope"] }
+        }
+      }
+    },
+    "user_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display_name"],
+      "properties": {
+        "user_id": { "type": "integer", "minimum": 1 },
+        "display_name": { "type": "string", "maxLength": 120 },
+        "team_role": { "enum": ["admin", "supervisor", "lead", "agent", "none"] }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "title", "instructions", "priority", "due_at", "status", "overdue", "assigned_by", "subjects", "progress", "created_at", "can"],
+      "properties": {
+        "task_id": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 190 },
+        "instructions": { "type": "string", "maxLength": 2000 },
+        "priority": { "enum": ["low", "medium", "high", "urgent"] },
+        "due_at": { "type": ["string", "null"], "description": "Date (YYYY-MM-DD) in 1.0.0 — stored in due_date DATE; time of day is not persisted." },
+        "status": { "enum": ["sent", "accepted", "in_progress", "done", "returned", "cancelled"] },
+        "overdue": { "type": "boolean" },
+        "assigned_by": { "$ref": "#/$defs/user_ref" },
+        "assignee": { "$ref": "#/$defs/user_ref" },
+        "template_code": { "enum": ["callback", "reactivate", "send_quote", "post_purchase_care", "custom"] },
+        "subjects": { "type": "array", "maxItems": 1, "items": { "$ref": "#/$defs/task_subject" } },
+        "progress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["touched", "total"],
+          "properties": {
+            "touched": { "type": "integer", "minimum": 0 },
+            "total": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "batch_key": { "type": ["string", "null"] },
+        "timeline": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["at", "action"],
+            "properties": {
+              "at": { "type": "string", "minLength": 10 },
+              "action": { "enum": ["sent", "seen", "accepted", "in_progress", "done", "returned", "cancel", "reassign", "reopen"] },
+              "actor": { "type": ["object", "null"] },
+              "from": { "type": ["string", "integer", "null"] },
+              "to": { "type": ["string", "integer", "null"] },
+              "reason_code": { "type": ["string", "null"] },
+              "note": { "type": ["string", "null"], "maxLength": 2000 }
+            }
+          }
+        },
+        "result": { "type": ["object", "null"] },
+        "seen": { "type": "boolean" },
+        "created_at": { "type": "string", "minLength": 10 },
+        "updated_at": { "type": "string", "minLength": 10 },
+        "can": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["cancel", "reassign", "reopen", "accept", "start", "complete", "return"] }
+        }
+      }
+    },
+    "task_subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "contact_id", "conversation_id", "inbox_id", "display_name", "touched"],
+      "properties": {
+        "kind": { "enum": ["contact", "conversation"] },
+        "contact_id": { "type": ["integer", "null"] },
+        "conversation_id": { "type": ["integer", "null"] },
+        "inbox_id": { "type": ["integer", "null"] },
+        "display_name": { "type": "string", "maxLength": 190 },
+        "touched": { "type": "boolean" },
+        "stage": { "type": ["string", "null"] },
+        "can_open_thread": { "type": "boolean" },
+        "phone_masked": { "type": ["string", "null"], "pattern": "^[0-9]{0,2}\\*+[0-9]{0,2}$" },
+        "channel": { "type": ["string", "null"] },
+        "ref": { "type": ["string", "null"], "maxLength": 190 }
+      }
+    }
+  }
+}

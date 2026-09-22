@@ -35,7 +35,14 @@ require_once $_shared . 'class-zalo-personal-hub-client.php';
 require_once $_shared . 'class-zalo-bridge-client.php';
 require_once $_shared . 'class-zalo-hook-log.php';
 require_once $_shared . 'class-zalo-inbound-emitter.php';
+// [2026-09-18] PHASE-0.48F U10 — one phone / one Zalo login = one Personal account per site (R-ZP-DUP).
+require_once $_shared . 'class-zalo-duplicate-guard.php';
+// [2026-09-18] R-ZP-ERR — canonical session-state + error catalog (contract zalo-personal-session-errors@1).
+require_once $_shared . 'class-zalo-session-errors.php';
 require_once $_shared . 'class-zalo-bridge-rest.php';
+// [2026-09-19] PHASE-0.60 — periodic reconciliation backstop for cross-site session takeovers
+// the best-effort webhook missed; off by default (see class doc for why).
+require_once $_shared . 'class-zalo-personal-reconciler.php';
 
 // ── 2. Personal module ────────────────────────────────────────────────────
 require_once $_personal . 'class-zalo-personal-integration.php';
@@ -43,6 +50,10 @@ require_once $_personal . 'class-zalo-personal-integration.php';
 require_once $_personal . 'class-zalo-personal-adapter.php';
 
 unset( $_shared, $_personal );
+
+// [2026-09-19] PHASE-0.60 — register cron at file-load time (matches Broadcast Dispatcher's R-CR.1
+// convention); no-ops (unschedules) unless `bizcity_zp_reconcile_enabled` is turned on per site.
+BizCity_Zalo_Personal_Reconciler::init_cron();
 
 // [2026-08-21 Johnny Chu] PHASE-0.39B — provision mapping schema on activation and REST maintenance context.
 register_activation_hook( BIZCITY_ZALO_PERSONAL_DIR . 'bizcity-zalo-personal.php', array( 'BizCity_Zalo_Mapping_Repo', 'maybe_install' ) );

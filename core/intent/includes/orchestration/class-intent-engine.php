@@ -5513,8 +5513,9 @@ PROMPT;
         global $wpdb;
         $projects_table = $wpdb->prefix . 'bizcity_webchat_projects';
         // [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not inspect the retired project projection during fallback provisioning.
-        $projects_retired = class_exists( 'BizCity_Legacy_Table_Policy' )
-            && BizCity_Legacy_Table_Policy::install_blocked( $projects_table );
+        // [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — treat the projection as retired when the lifecycle policy is unavailable.
+        $projects_retired = ! class_exists( 'BizCity_Legacy_Table_Policy' )
+            || BizCity_Legacy_Table_Policy::install_blocked( $projects_table );
 
         // Quick check — if either V3 table doesn't exist, run create_tables()
         // [2026-06-22 Johnny Chu] R-SHOW-TABLES — use information_schema + dual cache

@@ -230,6 +230,10 @@ if ( isset( $security['upload_policy'] ) && is_array( $security['upload_policy']
 $capabilities = isset( $manifest['capabilities'] ) && is_array( $manifest['capabilities'] )
 	? $manifest['capabilities']
 	: array();
+// [2026-09-14] PHASE-1.22A-WP2 — a capability with a declared side effect must
+// declare idempotency=true; the package's spine.action must then also declare
+// the side effect so the existing mutation_contract/runtime_policy gate fires.
+$has_side_effect_capability = false;
 foreach ( $capabilities as $kind => $items ) {
 	if ( ! is_array( $items ) ) {
 		$errors[] = "capabilities.{$kind} must be an array";
@@ -249,9 +253,22 @@ foreach ( $capabilities as $kind => $items ) {
 		if ( ! empty( $item['primary'] ) ) {
 			$primary_count++;
 		}
+		$capability_side_effects = isset( $item['side_effects'] ) && is_array( $item['side_effects'] ) ? $item['side_effects'] : array();
+		if ( ! empty( $capability_side_effects ) ) {
+			$has_side_effect_capability = true;
+			if ( true !== ( $item['idempotency'] ?? null ) ) {
+				$errors[] = "capabilities.{$kind}[{$index}] declares side_effects without idempotency=true";
+			}
+		}
 	}
 	if ( 'tools' === $kind && count( $items ) > 0 && 1 !== $primary_count ) {
 		$errors[] = 'capabilities.tools must contain exactly one primary tool';
+	}
+}
+if ( $has_side_effect_capability ) {
+	$spine_action_side_effects = isset( $spine['action']['side_effects'] ) && is_array( $spine['action']['side_effects'] ) ? $spine['action']['side_effects'] : array();
+	if ( empty( $spine_action_side_effects ) ) {
+		$errors[] = 'a capability declares side_effects but spine.action.side_effects is empty';
 	}
 }
 

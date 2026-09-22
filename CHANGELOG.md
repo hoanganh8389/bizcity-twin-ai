@@ -18,6 +18,710 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### HOTFIX — non-stream TwinBrain leaked SSE `event: debug` into later output - 2026-09-18
+
+- **Symptom:** with the Twin debug gate on, the diagnostics CLI's `--format=json`
+  stdout started with `event: web_research_started` / `event: debug …` lines
+  before the JSON document (58 KB `run-1.json` that no parser could read). The
+  same mechanism can inject SSE text into the body of any later response in a
+  non-stream request (REST/webhook/automation) that runs web research.
+- **Root cause:** `BizCity_TwinBrain_Runtime` non-stream path built
+  `new BizCity_Twin_SSE_Writer( false )` inside its own `ob_start()` /
+  `ob_end_clean()`. That constructor attaches a global
+  `bizcity_intent_pipeline_log` debug listener that is never removed, so it kept
+  echoing after the capture ended; and `emit()` always calls `ob_flush()`, which
+  pushed that output through the caller's buffers.
+- **Fix:** `core/twin-core/includes/class-twin-sse-writer.php` gains an explicit
+  capture-only mode (`BizCity_Twin_SSE_Writer::capture()`): no debug listener,
+  no `ob_flush()`/`flush()`, no heartbeat. `new BizCity_Twin_SSE_Writer( false )`
+  is unchanged because TwinWeb uses it as a real stream after `open_sse()`.
+  `core/twinbrain/includes/class-twinbrain-runtime.php` non-stream web research
+  uses `capture()` (guarded by `method_exists`). `bin/diagnostics-run.php`
+  machine-output buffer is now cleanable/removable but not flushable, so no
+  future `ob_flush()` can reach stdout.
+- **Validation:** standalone harness reproducing the runner/runtime buffer layout
+  with the debug gate on: old writer + old buffer → stdout not valid JSON
+  (205 bytes of SSE + JSON); old writer + guarded buffer → valid JSON, 171 bytes
+  of chatter kept for stderr; capture writer + guarded buffer → valid JSON,
+  0 listeners. `php -l` clean on the three files; `bin/validate-php74.php` PASS.
+  Runtime evidence on the target is deferred until the channel batch is rerun.
+
+### PHASE-0.48C-CRM-CONTEXT — C `/gpt/crm/` content parity with B2 `/crm/` - 2026-09-17
+
+Closed the six content gaps found when comparing the master C surface
+`/gpt/crm/` against the B2 admin surface `/crm/`. Every change keeps the C
+scope identity-first and reuses the canonical CRM/bridge owners; no new table,
+no provider call from the browser and no ACL widening.
+
+**W1 — inbound sender name**
+
+- `modules/twinweb/ui/src/pages/CrmInboxPage.tsx`: `messageSenderLabel( message, conversation )`
+  now resolves the real identity instead of the hardcoded `Khách hàng`:
+  message `sender_name` → group title → contact name. Outbound keeps `Bạn` /
+  `Trợ lý`.
+- The reply-preview bar passes the selected conversation so `Trả lời …` shows
+  the same resolved name.
+
+**W2 — per-message group member name**
+
+- `modules/twinweb/includes/class-twinweb-rest.php`: `shape_mychannels_zalo_personal_message()`
+  now exposes `thread_kind` and `sender_name` read from the canonical
+  `ai_metadata_json` already written by the Zalo Personal/Bot adapters. It also
+  un-nests the real delivery state from `payload_json` when the row has no
+  `delivery` column value.
+- `modules/twinweb/ui/src/api/myChannels.ts`: `CrmInboxMessage` declares
+  `thread_kind`, `sender_name`, `attachments` and `reply_to`, and a new
+  `CrmInboxAttachment` type replaces the previous untyped catch-all.
+
+**W3 — group title**
+
+- New bridge route `GET /wp/accounts/:id/group-info` in
+  `plugins/bizcity-zalo-personal/_library/zca-bridge-main/src/wp/wpRoutes.ts`,
+  backed by `ZcaAdapter.getGroupName()` and `SessionManager.getGroupName()`
+  (both reuse the same `getGroupInfo` call the roster already makes).
+  `BRIDGE_VERSION` bumped `0.39.8` → `0.39.9` so this image is distinguishable
+  from the C8 build on the VPS.
+- `ZaloApi` type and `test/wp/wpRoutes.test.ts` extended; 3 new tests cover the
+  happy path, provider failure degradation and the no-session guard.
+- PHP: `BizCity_Zalo_Bridge_Client::get_group_name()` +
+  `BizCity_Zalo_Personal_Hub_Client::get_group_name()` (managed-mode parity).
+- `class-twinweb-rest.php`: `resolve_mychannels_group_name()` reads the provider
+  label server-side and persists it onto the canonical contact
+  `additional_attributes` (same field the FB/Zalo ingestors already merge), then
+  `shape_mychannels_zalo_personal_conversation( $row, true )` returns it as the
+  C conversation title. The flag defaults to `false` so the Inbox list never
+  fans out to the provider per row.
+- `CrmInboxPage.tsx` merges the resolved conversation back into the list row, so
+  the C header and row title match `/crm/`.
+
+**W4 — inbound media**
+
+- C message DTO gains a bounded `attachments[]` (`id`, `file_type`, `url`,
+  `thumb_url`, `name`) built from the canonical `bizcity_crm_attachments` rows;
+  the raw `data_url` / `meta_json` storage columns are never forwarded.
+- Renderer draws images as `<img>` (with `thumb_url` fallback and lazy loading)
+  and other files as download links. A message whose content is only media no
+  longer prints the `—` placeholder.
+
+**W5 — document list**
+
+- `get_crm_member_documents()` now returns the CRM `crm_documents` rows **plus**
+  the Zalo message-attachment inventory for the exact conversation, mirroring
+  the `/crm/` `ContactDrawer` behaviour. Zalo items keep the admin label
+  `Tệp từ Zalo · tin #<id>` when the provider sent no filename.
+- `CrmMemberDocumentsResponse` declares `url` and `source`; the C rail renders
+  an `Mở file ↗` action when a URL exists.
+
+**W6 — composer styling**
+
+- Composer textarea raised to `min-h-[5.75rem] max-h-[11.25rem]` with
+  `text-[13px] leading-relaxed`, matching the B2 `bzc-composer-textarea`
+  (`min-height:92px; max-height:180px`), and the placeholder now documents the
+  Ctrl/⌘+Enter shortcut.
+
+**Validation**
+
+- PHP `php -l` PASS: `modules/twinweb/includes/class-twinweb-rest.php`,
+  `plugins/bizcity-zalo-personal/includes/shared/class-zalo-bridge-client.php`,
+  `plugins/bizcity-zalo-personal/includes/shared/class-zalo-personal-hub-client.php`.
+- Bridge `npx tsc --noEmit` exit 0; `vitest run` → **454 passed / 20 skipped /
+  0 failed** (3 new `group-info` route tests).
+- `modules/twinweb/ui` `npx tsc --noEmit`: no error in either edited file (the
+  remaining diagnostics are pre-existing in `ComposerPopover`,
+  `GoalSessionDetail`, `InboxConnectHub`, `SearchModeBar`).
+- `modules/twinweb/ui` `npm run build` PASS — `1944 modules transformed`,
+  `dist/assets/index-DTjOwnC6.js`.
+- New DDV probe `modules.twin_gpt.crm_inbox_parity`
+  (`core/diagnostics/includes/probes/class-probe-twinweb-crm-inbox-parity.php`,
+  order 72, queued in `core/diagnostics/bootstrap.php`). Focused run
+  `--filter=modules.twin_gpt.crm_member_scope,modules.twin_gpt.crm_inbox_console,modules.twin_gpt.crm_inbox_parity`
+  → `verdict=pass`, `counts={pass:3,warn:0,fail:0,skip:0}`. Renderer/Dev-source
+  steps degrade to `skip` on servers that ship only the built bundle (R-DDV-FE).
+
+**Not claimed**: authenticated browser parity, VPS WordPress deploy, and a live
+provider group-label read are still pending. No B2 admin Inbox behaviour changed.
+
+### PHASE-0.39C-C8 — Zalo Personal session retention/recovery hardening (source + local runtime) - 2026-09-17
+
+Implements the C8 wave of
+[PHASE-0.39C](core/channel-gateway/docs/PHASE-0.39C-ZALO-PERSONAL-PRODUCTION-CLOSURE-ROADMAP.md).
+Root cause: the sidecar marked a session `expired` on ANY boot-time restore
+failure, including transient transport errors, and the CRM Inbox showed one
+combined banner telling every operator to re-scan a QR even when the cookie was
+still valid.
+
+**Task 1 — restore-on-boot classification + retry**
+
+- New `plugins/bizcity-zalo-personal/_library/zca-bridge-main/src/zalo/sessionRestore.ts`
+  exporting `isZaloAuthRejection()` and `restoreAccountSession()` with
+  `RESTORE_RETRY_DELAYS_MS = [0, 5000, 20000]`. Extracted from `main.ts` (a script
+  with module-level side effects that exports nothing) so the logic is unit
+  testable; `main.ts` imports and calls it.
+- Only a real zca-js rejection (`err.name === "ZcaApiError"`) marks `expired`
+  (`zalo_rejected_cookie`), and it does so on the first attempt without waiting out
+  the retries. A transport-only failure after all retries leaves the DB status
+  UNCHANGED so readiness can report `session_disconnected` instead of forcing a
+  needless QR re-scan. Verified against the real package:
+  `node_modules/zca-js/dist/cjs/Errors/ZaloApiError.cjs` sets
+  `this.name = "ZcaApiError"`.
+
+**Task 2 — session lifecycle telemetry**
+
+- New migration `src/store/migrations/012_session_lifecycle.sql` adds
+  `last_status_reason` + `last_status_changed_at`.
+- `AccountRepo.updateStatus()` gained an optional `reason` (COALESCEd, so a caller
+  with nothing meaningful to say does not wipe the previous explanation).
+- Call sites widened: `main.ts` SessionManager `onExpired` persists the zca-js
+  close reason verbatim; `qrLoginService.ts::expire()` persists
+  `qr_expired`/`qr_declined`/`qr_failed`.
+
+**Task 3 — settings restart policy: restart KEPT, with documented reason**
+
+- The spec required verifying first whether the Chatwoot/OA clients re-read
+  settings per call. Verified they do NOT: `resolveSettings()` runs once at boot
+  and the clients are constructed from the resolved `cfg` (`main.ts:123/125/134`
+  Chatwoot trio, `main.ts:378` `OaOAuthClient`). These fields are boot-cached, so a
+  restart is genuinely required for a saved value to take effect; removing
+  `onApply()` would silently make the Settings screen a no-op. The spec explicitly
+  permits this outcome. Restart kept, reason documented inline under the
+  `BOOT-CACHED-RESTART-REQUIRED` marker.
+
+**Task 4a — readiness split**
+
+- `readiness_envelope()` (`includes/shared/class-zalo-bridge-rest.php`) now reads
+  `session_live`; when `session_live === false` while the DB status is still
+  `connected` it reports `session_status = 'session_disconnected'`. New
+  `session_live` field added; no existing field changed.
+
+**Task 4b — UI message split**
+
+- `modules/twinweb/ui/src/pages/CrmInboxPage.tsx` derives `sessionExpired` /
+  `sessionDisconnected` / `bridgeUnavailable` separately. `sessionNeedsLogin` is
+  narrowed to `sessionExpired` only, so the QR flow and `autoStartPersonalQr` no
+  longer fire for a possibly-still-valid cookie; a new `sessionNeedsAttention`
+  drives button/banner display. The old combined sentence is gone, replaced by
+  three correctly-scoped banners (red expired / amber disconnected / amber bridge).
+
+**Task 5 — self-diagnostics probe**
+
+- New `core/diagnostics/includes/probes/class-probe-zalo-personal-session-retention.php`
+  (`modules.zalo-personal.session_retention`, order 47), registered from
+  `core/diagnostics/bootstrap.php`. Five Disk rows, emits `error` + `fix_hint` on
+  failure. The restart-policy row accepts EITHER the "no restart" implementation OR
+  the documented boot-cached reason, because the spec allowed both.
+
+**Evidence (local runtime — NOT production):**
+
+- `npx vitest run test/zalo/sessionRestore.test.ts` → `6 passed (6)`.
+- `npx vitest run` (full sidecar suite) → `451 passed | 20 skipped`, `0 failed`.
+  One pre-existing assertion in `test/zalo/qrLoginService.test.ts` was updated to
+  expect the new `qr_expired` reason (intended Task 2 behaviour).
+- `npx tsc --noEmit` → exit 0.
+- Diagnostics DoD run
+  `--filter=modules.zalo-personal,modules.zalo-personal.bridge_diagnostics,modules.zalo-personal.session_retention`
+  → `verdict=pass`, `counts={pass:3, warn:0, fail:0, skip:0}` (PHP 7.4.4, blog 1533).
+- FE build `npm run build` in `modules/twinweb/ui` → exit 0.
+- PHP lint PASS on the probe, `class-zalo-bridge-rest.php`, `core/diagnostics/bootstrap.php`.
+
+**Version bump for deploy verification:** `BRIDGE_VERSION` raised `0.39.7` →
+`0.39.8` (`src/main.ts` + `wpRoutes.test.ts` fixture). Without a bump the
+runbook's source grep would pass against the old checkout, so a deploy could not
+be proven to run the new image. The runbook source-to-image block now greps
+`0.39.8` plus the C8 markers (`restoreAccountSession`, `isZaloAuthRejection`,
+`012_session_lifecycle.sql`) and lists `/app/dist/store/migrations/` to prove the
+migration was packaged.
+
+**VPS deploy — 2026-09-16 (production runtime evidence):**
+
+- Source markers verified on `/home/vibeyeuc/zca-bridge/src/` before build
+  (`BRIDGE_VERSION = "0.39.8"`, `restoreAccountSession`, `isZaloAuthRejection`,
+  `012_session_lifecycle.sql`).
+- Image built: `sha256:eb1b058d1afe7afb4c1e15fbbfc044f32cdd02aed14c833474c5510b868e0ede`.
+- **overlay2 incident (runbook precedent 2026-09-03):** the first
+  `up -d --force-recreate --no-build` failed with
+  `driver "overlay2" failed to remove root filesystem: ... device or resource busy`
+  and SSH dropped. `docker ps -a` showed two stale bridge containers
+  (`302e5f3cd778…` Dead, `e3d58f6e3654…` Created) while `bridge-db` stayed
+  `Up (healthy)`. Recovered via the runbook post-reboot block: reboot, remove only
+  those two stale bridge containers, start `bridge-db`, `pg_isready` →
+  `accepting connections`, `up -d --no-build zca-bridge` → `Started`. **No table,
+  volume, `bridge_pg` or credential was deleted.**
+- Compiled image marker: `/app/dist/main.js:67` → `const BRIDGE_VERSION = "0.39.8";`.
+  `012_session_lifecycle.sql` present in `/app/dist/store/migrations/`.
+- Migration applied at boot: container log `applied 012_session_lifecycle.sql`;
+  `schema_migrations` lists it at `2026-09-16 14:02:14.982921+00`.
+- Schema live: `zalo_accounts` now has `last_status_reason` +
+  `last_status_changed_at`.
+- Health: `curl -i http://127.0.0.1:4000/healthz` → `HTTP/1.1 200 OK {"ok":true}`.
+  Container log shows WordPress CRM mode, `endpointRole=managed_hub_relay`,
+  `tokenConfigured=true`, listening on 4000, and an external caller receiving
+  `statusCode: 200` on `/wp/health`.
+- **`ok:false` on the host-side `/wp/health` check was a shell artefact, not a
+  bridge fault:** `BIZCITY_INBOUND_TOKEN` is a container env var and is empty in
+  the host shell, so the request hit the 401 guard (`wpRoutes.ts:239`). The
+  container log proves a real caller got `statusCode: 200` on the same route.
+
+**Still open (not claimed done):** the plugin half of C8
+(`class-zalo-bridge-rest.php` readiness split, `CrmInboxPage.tsx` banner split,
+the new probe) is still local-only and must be deployed to the WordPress site
+before the UI split is observable. No real account has yet been observed
+transitioning to `session_disconnected`, and `last_status_reason` is still NULL
+for existing rows (it only populates on the next status change), so the telemetry
+acceptance is not yet demonstrated on live data. `coverage.complete=false` — the
+diagnostics runs are focused probe sets, not a release gate.
+
+### PHASE-0.41D-D1/D2/D3 — CRM One Brain identity + evidence-pack closure - 2026-09-16
+
+Closed the first three evidence gaps of
+[PHASE-0.41D](core/channel-gateway/docs/PHASE-0.41D-CRM-ONE-BRAIN-CLOSURE-PLAN.md).
+
+**D1 — positive authorization.** New diagnostics-only fixture factory
+`core/diagnostics/includes/fixtures/class-crm-inbox-fixture-factory.php`
+(marker-scoped, repository-owned writes, marker-guarded teardown) plus probe
+`modules.twin_gpt.crm_inbox_positive_projection`. Proves the exact-account C
+route returns a bounded projection for an *assigned* Zone 1 inbox instead of
+only proving denials. A missing fixture is a FAIL, never a SKIP.
+
+**D2 — two-user/two-account isolation.** The factory gained
+`personal_per_user`, `cross_membership` and `with_group_conversation` so a full
+A/B topology can be built. Probe `core.crm.two_user_isolation` runs one 18-step
+matrix over user × account × zone: business union, Personal owner-only guard,
+cross-membership cannot widen Personal, foreign business/Personal/care denial,
+owner Personal allowed, Context Bank same-envelope-different-verdict, B2
+selected-user scope not tenant-wide, `manage_options` on the C surface not
+tenant-wide, group thread carries no member phone, phone correlation
+deterministic.
+
+**D3 — Context Retrieval Pack.** New canonical builder
+`core/context-bank/includes/class-context-bank-retrieval-pack.php` composing
+scope resolver → bounded search → per-pointer authorization → rollup registry →
+KG candidate policy into a schema-valid `context-retrieval-pack@1.x`. It never
+throws: fail-closed means a valid empty pack with `degraded=true`. Budgets read
+from the resolved scope and can only be narrowed by a request. New public v1
+fixture `context-retrieval-pack.context-bank.degraded.json`. Probe
+`core.context_bank.retrieval_pack`.
+
+**Finding (determinism):** ledger search is bounded by a wall-clock budget, so a
+cold-cache build returns fewer rows than a warm-cache build. `query_id` is
+always stable, but the evidence set is only comparable when both builds
+completed. The determinism check now flags an incomplete build explicitly rather
+than allowing a silent divergence; D4 must only compare parity on complete packs.
+
+**Evidence:** D1 `1 pass / 9 steps`, D2 `1 pass / 18 steps`, D3 `1 pass /
+10 steps`, all PHP 7.4.4 `--skip-provision --skip-network`. Regression batch
+across the Context Bank owners plus menu/CRM probes: `10 pass · 0 fail · 0 skip`.
+Public contract suite: `CONTRACT TEST PASS (26 contracts)`.
+
+**Also in this window:** `PHASE-0-SETTING-PANEL-G6-HOTFIX3` — the Twin Brain
+wp-admin menu no longer disappears while inside the TwinChat admin shell; menu
+registration moved out of the shell-gated runtime bootstrap into
+`core/twinbrain/includes/class-twinbrain-admin-menu.php`, guarded by
+`core.admin_menu.twin_brain_owner`.
+
+### PHASE-0.41D-D4 — One Brain / KG-MCP parity facade - 2026-09-16
+
+Added `core/twinbrain/includes/class-brain-retrieval-facade.php` as the shared
+server-authorized read boundary for Twin GPT and MCP. It delegates to the D3
+Context Retrieval Pack builder and never reads Context Bank ledger/JSONL, CRM or
+Woo directly. Added read-only `brain.context.search`,
+`brain.context.evidence` and `brain.order.summary` MCP tools; all three default
+OFF until parity/canary evidence passes. Added probe
+`core.brain.kg_mcp_parity`.
+
+Local evidence: D4 `1 pass · 0 fail · 0 skip`, 8/8 steps; D1-D4 + Context Bank
+regression `11 pass · 0 fail · 0 skip`; public contract suite `26 contracts`
+PASS. VPS SSH evidence is `DEFERRED` because `libedemo.bizcity.vn:22` timed out
+from the current environment. No production readiness claim is made.
+
+### PHASE-0-SETTING-PANEL-G6-HOTFIX3 — Twin Brain menu vanished inside the TwinChat shell - 2026-09-16
+
+Reported: opening `admin.php?page=bizcity-twinchat#/setting-panel/workspace`
+made the whole **Twin Brain** wp-admin menu disappear.
+
+**Root cause (not lazy-load of the panel):**
+
+- The Twin Brain parent + submenus were registered inside
+  `core/twinbrain/bootstrap.php` (`admin_menu` @30).
+- `bizcity-twin-ai.php` gates that bootstrap behind
+  `$_bizcity_admin_ctx && !$_bizcity_twinchat_admin_shell_request`.
+- `$_bizcity_twinchat_admin_shell_request` is true exactly when
+  `?page=bizcity-twinchat` is open — i.e. the one page the operator was on.
+- So the bootstrap never loaded, `admin_menu` never saw the registration, and
+  the menu disappeared. The panel route itself was never involved.
+
+**Fix:**
+
+- New lightweight owner `core/twinbrain/includes/class-twinbrain-admin-menu.php`
+  (`BizCity_TwinBrain_Admin_Menu`) owns *only* menu registration: parent
+  `bizcity-twin-brain`, the six Control Panel deep-links, the Twin GPT entry and
+  the legacy `bizcity-twinbrain` → TwinChat redirect. No REST, schema or
+  provider behaviour.
+- `bizcity-twin-ai.php` now loads that owner on **every** `is_admin()` request,
+  outside the TwinChat shell gate. The heavy TwinBrain runtime stays behind the
+  existing gate.
+- `core/twinbrain/bootstrap.php` no longer registers any admin menu.
+- `register()` is idempotent (`has_action()` guard) so a double load cannot
+  duplicate the hook.
+
+**Evidence:**
+
+- New probe `core.admin_menu.twin_brain_owner` (Disk/Loader/Runtime, CLI-safe):
+  `1 pass · 0 fail · 0 skip`, 7/7 steps. It asserts the bootstrap no longer owns
+  the menu, the entrypoint loads the owner outside the shell gate, exactly one
+  canonical parent registration exists, and `register()` is idempotent.
+- Regression run with `core.crm.two_user_isolation` and
+  `modules.twin_gpt.crm_inbox_positive_projection`: `3 pass · 0 fail`.
+- Browser visibility on the deployed site remains a separate acceptance step.
+
+### PHASE-TWINSHELL-NAV-GROUP — ActivityBar: non-must-load entries moved below QR - 2026-09-16
+
+Requested: move the Pro/non-must-load plugin menus below the QR entry so every
+plugin that is not part of the must-load contract sits in the lower group.
+
+**Change** (`modules/twinshell/includes/default-plugins.php`):
+
+- `section` changed `top` → `bottom` for the five plan-gated entries:
+  `astro`, `doc`, `image`, `video`, `profile` (Portrait Studio).
+- `qr` (QR Studio) moved to be the **last** entry of the `top` group, so it is
+  the visible boundary between must-load and non-must-load entries.
+- `creator` (Brain Factory) stays in `top`: it is not plan-gated, so it is out of
+  scope for this rule.
+
+Resulting top group (8): `twinchat`, `gateway`, `crm`, `web`, `creator`,
+`personal`, `profile-public`, `qr`.
+Resulting bottom group: `astro`, `doc`, `image`, `video`, `profile`, then the
+existing utilities `marketplace`, `scheduler`, `workflow`, `skills`, `settings`.
+
+**Evidence** (`core/diagnostics/includes/probes/class-probe-twinshell-boundary.php`):
+
+- New Layer 3 step `ActivityBar grouping boundary` asserts (a) every entry with
+  `has_plan_gate` is in the `bottom` section and (b) the last `top` entry is `qr`.
+- Focused run: `php bin/diagnostics-run.php --filter=core.twinshell.boundary
+  --skip-provision --skip-network --format=json` → `verdict=pass`,
+  `counts={pass:1, fail:0, skip:0}`, step detail
+  `plan-gated entries are bottom · top group ends with qr (top=8)`.
+- `coverage.complete=false` — this is a focused single-probe run, not a
+  full-batch/release PASS.
+
+**Validation:** PHP 7.4.4 `php -l` PASS on `default-plugins.php` and the probe;
+editor diagnostics PASS.
+
+### PHASE-TWINSHELL-CHROME-HOTFIX2 — /twin/ redirect loop hardening (runtime still open) - 2026-09-16
+
+Reported: `admin.php?page=bizcity-twinchat` renders fine, but opening `/twin/`
+directly returns HTTP 500.
+
+**Diagnosis (evidence-based):**
+
+- `bps_php_error.log` (VPS canonical, 137 lines, window 08:23–08:29 UTC) contains
+  **zero** `Fatal error` entries, so this is not a PHP crash.
+- The Apache error page states `a 302 Found error was encountered while trying to
+  use an ErrorDocument`, which is the signature of an internal redirect loop
+  (`AH00124`) — Apache refuses further hops and emits a 500 for the *original*
+  request. Under a passive `ErrorDocument` (no internal redirect) the browser
+  would simply show "too many redirects" instead.
+- `twin-shell.js::redirectLegacyAdminWrapper()` pulled the TOP window out of
+  wp-admin and `adminWin.location.replace()`-d it back to `/twin/`, while
+  `_doWriteShellUrl()` rebuilt the shell URL and dropped `bizcity_embed`. Paired
+  with the guard added earlier the same day, that formed
+  `/twin/` → `admin.php` → `/twin/` → …
+
+**Changes:**
+
+- `modules/twinshell/includes/class-twin-shell-page.php` — the operator
+  hand-off to the wp-admin wrapper is now strictly one-way. It is skipped when
+  the request is framed (`Sec-Fetch-Dest: iframe`), when `bizcity_admin_wrapper=1`
+  is present, or when the referer is the wrapper itself. New
+  `embedded_args()` helper mints `bizcity_embed=1` + `bizcity_admin_wrapper=1`
+  for every shell URL the wrapper can reach, making a loop impossible by
+  construction. Previously a one-flag check (`bizcity_embed`) was used, which the
+  JS URL rewrite silently dropped.
+- `modules/twinshell/assets/twin-shell.js` — `redirectLegacyAdminWrapper()`
+  disabled (kept for reference); `_doWriteShellUrl()` preserves both markers
+  across `replaceState`; the pop-out button and the "enter wp-admin" button carry
+  the loop-breaker.
+- `modules/twinchat/includes/class-twinchat-admin-menu.php` — the wrapper iframe
+  now requests `bizcity_embed=1&bizcity_admin_wrapper=1`.
+
+**Status: RUNTIME FAIL (open).** Source/build gates pass, but direct `/twin/`
+still 500s on the target install. Remaining cause is outside these files and
+needs VPS-side tracing (Apache error log + `Location:` headers from
+`curl -I`). Not claimed as fixed.
+
+**Validation:** PHP 7.4.4 `php -l` PASS (`class-twin-shell-page.php`,
+`class-twinchat-admin-menu.php`); `node --check` PASS on `twin-shell.js`; BOM
+check PASS; editor diagnostics PASS; VPS log read (no PHP fatal).
+
+### PHASE-0.48D-USER-RAIL + PHASE-0-SETTING-PANEL-G6-HOTFIX2 — CRM rail grouped by WP user + Twin Brain menu fix - 2026-09-16
+
+The management tier (`/twin/?plugin=crm`) manages Inbox per WordPress `user_id`
+instead of per channel; each member logs in and uses the public frontend at
+`/gpt/`. Also fixes a Twin Brain admin-menu regression.
+
+**B2 per-user Inbox rail** (`plugins/bizcity-twin-crm`):
+
+- New `GET /crm-settings/inbox-user-groups` (`class-rest-controller.php`,
+  `get_crm_inbox_user_groups()`), `can_manage_rules()` only. Groups active
+  inboxes by owner resolution order: `bizcity_zalo_accounts.owner_user_id` →
+  `crm_inbox_id` (exact Personal owner), then `bizcity_crm_inbox_members`
+  membership. Inboxes with no eligible owner are returned under `unassigned`.
+  Only safe labels leave the server — no raw provider IDs, phones or tokens.
+- `ChannelSidebar.jsx` gains a `Theo kênh` / `Theo người dùng` switch plus a
+  per-user group header; selecting a user drives the existing server-authorized
+  `scope_user_id` contract instead of a new authorization path.
+- `InboxPanel.jsx` wires `onSelectUser` → `scopeUserId`, reusing the existing
+  `crm-settings/user-inbox-scope` projection for `allowedInboxIds`.
+- `crmApi.js` adds `getCrmInboxUserGroups` / `useGetCrmInboxUserGroupsQuery`.
+- `styles.css` adds the grouping-switch and user-group-header styles.
+
+Contract boundary preserved: C `/gpt/` stays current-user-only; this grouping is
+a B2 `twin/?plugin=crm` surface and a posted user ID remains a selector input,
+never an ACL. The all-channel view stays an explicit `Legacy` admin/diagnostic
+mode.
+
+**Twin Brain menu** (`core/twinbrain/bootstrap.php`):
+
+- The new top-level parent slug was `bizcity-twinbrain`, which collided with the
+  pre-existing `admin_init` compatibility redirect for that legacy page slug —
+  clicking the new menu bounced straight to TwinChat. Parent slug is now
+  `bizcity-twin-brain`; the legacy `bizcity-twinbrain` bookmark keeps redirecting.
+- The parent page callback now routes to the Brain workspace destination instead
+  of printing a dead notice.
+
+**Validation:** PHP 7.4.4 `php -l` PASS on `class-rest-controller.php`,
+`core/twinbrain/bootstrap.php`, `class-twin-shell-page.php`,
+`class-twinchat-admin-menu.php`; editor diagnostics PASS on all changed files;
+CRM Vite build PASS (`inbox-app.js` 2,910.24 kB / `inbox-app.css` 104.44 kB).
+Browser/deployed Runtime evidence for the menu, the WP chrome and the per-user
+rail remains pending until deploy.
+
+### PHASE-0-SETTING-PANEL — VPS evidence runner + 3 probe defects found and fixed - 2026-09-16
+
+Added `bin/setting-panel-vps-evidence.sh` — a one-command VPS MVP evidence
+runner for the verified probe set, and fixed three defects it exposed.
+
+**New runner** (`bin/setting-panel-vps-evidence.sh`):
+
+- `--print` (preview every command), `--list` (verified inventory + real batch),
+  `--only=<n>` (subset), `--out=<dir>`, `--provision`, `--network`.
+- Passes `-d max_execution_time=0 -d memory_limit=512M`.
+- Writes JSON + JUnit + stderr per step into `build/setting-panel-vps/<stamp>/`.
+- Reads the envelope `counts` object instead of grepping `status`: a raw grep
+  counts step-level statuses inside a probe that itself passed, which reported
+  false non-pass counts for a PASSING probe.
+- Detects an HTML error page (unmapped host → DB router fail-closed) and reports
+  `verdict=NON_JSON` with the cause instead of `verdict=unknown`.
+- `--host` is now optional-but-recommended rather than mandatory: probes run
+  host-agnostically, and a host this install does not map makes the router fail
+  closed. Both cases are labelled so the run is not overclaimed.
+- `--only` runs report `RESULT=SUBSET_PASS` and state how many steps were
+  excluded, so a partial run is never mistaken for full coverage.
+
+**Defect 1 — `core.framework.extension_manifest` hard-coded catalog identity.**
+The runtime assertion was `'1.8.0' === catalog_version && 24 === count(contracts)`.
+The catalog legitimately moved to `1.9.0` with `26` contracts (including the
+`setting-panel-registration` row), so the probe failed with
+*"Manifest semantic policy or negative fixture expectation failed"* for an
+unrelated reason and masked the semantic checks it exists to guard. Replaced
+with a well-formed-semver check plus non-empty catalog and a resolved manifest
+row, and the failure detail now prints every sub-flag so the next failure is
+diagnosable from the probe output alone.
+
+**Defect 2 — `core.membership.woo_projection` trips the 120s limit.** Measured
+`121s` on a single-probe run, aborting the combined step with
+`diagnostics_bootstrap_fatal` / *"Maximum execution time of 120 seconds
+exceeded"* and destroying the evidence of the five fast probes beside it. The
+code path calls `set_time_limit(120)` at runtime, which overrides
+`-d max_execution_time=0`. It is now isolated as runner step 8 so one slow
+probe cannot mask others. The root cause inside the membership/Woo projection
+path is **not** fixed.
+
+**Defect 3 — `core.channel.zalo_multi_account_isolation` fails functionally.**
+`Exact Zalo account writes failed` / `At least one synthetic account row was not
+accepted`, fix hint *"Register each exact Zalo channel contract and preserve
+account.account_id at the writer boundary."* Pre-existing, outside Setting Panel
+scope, recorded in the playbook so a Step 4 FAIL is not read as a panel or
+registry regression.
+
+Verification: bash `-n` PASS; runner executed end-to-end on the local install
+(steps 1, 2, 3, 5, 6 → `SUBSET_PASS`, exit 0); extension-manifest probe now
+`verdict=pass`; primary probe unchanged at `21/21 step pass · 14 registry
+item(s) · 0 rejection(s) · resolve PASS · isolation PASS`; unit suite
+`OK (47 tests, 246 assertions)`; contract runner `CONTRACT TESTS PASS (26
+contracts)`.
+
+Playbook updated with a "One-command runner" section, the Step 8 isolation
+rationale, and the records for defects 2 and 3.
+
+### PHASE-0-SETTING-PANEL — probe-registration regressions fixed, VPS evidence playbook - 2026-09-16
+
+While building the VPS evidence plan, two registration regressions were found in
+`core/diagnostics/bootstrap.php`. Both were silent — nothing errored, the
+surfaces simply disappeared.
+
+- **Setting Panel probe was not in the catalog.** The queue entry for
+  `class-probe-setting-panel.php` was missing. The probe file self-registers
+  through the `bizcity_diagnostics_register_probes` filter, but that filter only
+  runs once the file is included, so with no queue entry the probe never loaded:
+  catalog was `266` and `batch_for_probe('modules.twinshell.setting_panel')`
+  resolved to `core` for an ID that did not exist (`exists=NO`). Every planned
+  VPS command would have failed with *"No probes match filter"*. Queue entry
+  restored; catalog is `267`, probe `exists=YES`.
+- **`core.diagnostics.control_panel` registration was missing.** The
+  diagnostics Setting Panel registration had been dropped, silently reducing the
+  registry from **14 → 13 items** while the probe still reported `verdict=pass`.
+  Restored with the guarded-function + `plugins_loaded`/`init` retry pattern
+  documented in the Setting Panel author guide.
+- Both files are untracked in git, so no history was available; the missing
+  content was reconstructed from the contract schema and the documented
+  registration pattern.
+
+Verification after the fix: probe `21/21 step pass · 14 registry item(s) ·
+0 rejection(s) · resolve PASS · isolation PASS`; PHP lint PASS; unit suite
+`OK (47 tests, 246 assertions)`.
+
+New document `modules/twinshell/docs/PHASE-0-SETTING-PANEL-VPS-EVIDENCE-PLAYBOOK.md`
+is the owner for MVP runtime evidence collection:
+
+- **25 probe IDs with verified batch membership** — `batch_for_probe()` was
+  called for every ID against the live catalog, so the batch column is a real
+  return value, not an inference. `modules.twinshell.setting_panel` is batch
+  `core`. `core.framework.cli_verdict_parity` is `direct` (explicit-only,
+  never aggregate coverage).
+- Seven-step execution order: preconditions → focused probe → contract/route →
+  CRM scope → `channel` batch → Master Plan read-only → `health` batch →
+  wp-admin menu snapshot.
+- PASS shape per layer, the full SKIP taxonomy (`skip`, `precondition_skip`,
+  `network_skip`, `admin_required_skip`, `direct_only_skip`, `budget_deferred`
+  are **not** PASS), the evidence record to capture, and a failure-triage table.
+- An explicit table of which `M1`–`M15` criteria a probe run **cannot** prove:
+  `M4` (role matrix), `M5` (second shard), `M9` (real plugin activation
+  toggling) and `M13` (rollback drill) are manual by nature and must not be
+  claimed from a probe verdict.
+
+Wired into the checklist, phase plan and docs README.
+
+### PHASE-0-SETTING-PANEL — two-phase packaging, MVP scope frozen - 2026-09-15
+
+Split the phase into **Phase 1 (MVP)** and **Phase 2 (Commerce & Store)** and
+froze the MVP boundary in a new owner document,
+`modules/twinshell/docs/PHASE-0-SETTING-PANEL-MVP-PHASE-PLAN.md`.
+
+- **Phase 1 (MVP):** one visible `Control Panel`, six destinations, the
+  registration contract, server-side resolution, built-in owner adoption,
+  Channel Settings zones, one canonical CRM Inbox, the Diagnostics deep-link and
+  a **read-only** Master Plan exact-key projection. All Phase-1 **code** is
+  complete; the remaining work is runtime/permission/tenant evidence plus the
+  release process.
+- **Phase 2 (deferred):** Plugins Store install/activate/update lifecycle, B1
+  Master Plan manage/compare/purchase/upgrade/renew/history, and retirement of
+  the legacy top-level menus. Deferred because they depend on decisions that do
+  not exist yet (lifecycle API ownership, B1 `master/config.actions`) or on
+  Phase-1 runtime proof.
+- The plan assigns **every** unfinished checklist item to a phase (Phase 1: 40
+  evidence/release items · Phase 2: 13 deferred items), defines MVP exit criteria
+  `M1`–`M15`, and records the seven residual risks MVP accepts (empty
+  translation catalog, registry-level-only availability, idle legacy bridge,
+  legacy roots still materializing, no network-admin entry, empty
+  `plugins-store`, runtime evidence absent).
+- `SKIP`, `deferred` and `blocked` are explicitly not PASS; MVP is declared
+  shipped only when `M1`–`M15` all pass.
+- Canon, roadmap, docs README and the implementation checklist now link the phase
+  plan and carry the matching status line; the checklist gains a Phase Plan
+  section that states which item belongs to which phase and why.
+- No runtime code changed in this pass. Latest code evidence still stands: probe
+  `21/21 step pass · 14 registry item(s) · 0 rejection(s) · resolve PASS ·
+  isolation PASS`; unit suite `OK (47 tests, 246 assertions)`; contract runner
+  `CONTRACT TESTS PASS (26 contracts)`.
+
+### PHASE-0-SETTING-PANEL G3-05 — server-side resolution for labels, URLs and availability - 2026-09-15
+
+Closed `G3-05` (translation/URL resolution) and completed the failure matrix in
+`G8-10`; advanced `G8-09`.
+
+- `BizCity_Setting_Panel_Registry::resolve()` / `resolved_all()` now return a
+  render-ready row per admitted item: `label`/`description` through `__()` with
+  a deterministic fallback from the last key segment, `url` per renderer type
+  (`route` → relative route, `deep_link` → `admin_url('admin.php?page=…')`,
+  `external` → `esc_url_raw` of a validated https target), and
+  `availability_state`. Resolution stays metadata-only: no option read,
+  renderer load, provider call or schema work.
+- `BizCity_Twin_Shell_REST::list_setting_panel()` returns the resolved rows, and
+  `SettingPanel.jsx` consumes `item.label`/`item.description`/`item.url` instead
+  of deriving labels client-side (`registryLabel()` is now a fallback only).
+- New `resolve_availability()` evaluates `availability.policy`,
+  `dependency_ids` and `min_framework`/`min_php`/`min_wp` floors into
+  `available` / `unavailable` / `incompatible` / `update_required`. This is the
+  mechanism behind `G8-09` and the "unavailable renderer" half of `G8-10`.
+- **Dependency-detection defect found and fixed:** the first implementation
+  resolved `plugins.x` by probing an exact `/slug/slug.php` path and core
+  packages by a class-name map. Both were wrong — `bizcity-profile` ships
+  `bizcity-personal.php`, and core packages publish varying class names — so
+  **4 of 14** real surfaces were reported `unavailable`. Detection now matches
+  the declared owner directory (`/core/<x>/`, `/modules/<x>/`, `/plugins/<x>/`)
+  against the request include list plus the WordPress activation list, and all
+  14 registrations resolve `available`.
+- Probe gained a fourth layer (`resolve.*`: `resolve.api`, `resolve.labels`,
+  `resolve.urls`, `resolve.availability`, `resolve.read_only`); the run summary
+  now reports each layer separately.
+
+Evidence: probe `21/21 step pass · 14 registry item(s) · 0 rejection(s) ·
+resolve PASS · isolation PASS` with `Every one of 14 item(s) resolved a non-empty
+label`, `Every item resolved a safe target URL across 14 renderer(s)`,
+`Availability resolved for every item (available=14)` (`blog_id=1533`,
+PHP 8.1.34, WP 6.9); unit suite `OK (47 tests, 246 assertions)` with 4 new
+resolver tests; `CONTRACT TESTS PASS (26 contracts)`; `npx eslint` exit 0;
+`npm run build` PASS. Remaining: the `.po`/`.mo` catalog for the registration
+`label_key` values is still empty, so the fallback label renders today; `G8-09`
+still lacks a live plugin-activation matrix.
+
+### PHASE-0-SETTING-PANEL G7 — author guide, isolation proof and PHPUnit false-green fix - 2026-09-15
+
+Closed `G7-02` (extension authoring path) and `G7-07` (registration isolation)
+in `modules/twinshell/docs/PHASE-0-SETTING-PANEL-IMPLEMENTATION-CHECKLIST.md`.
+
+- `docs/contracts/SETTING-PANEL-REGISTRATION-CONTRACT-v1.md` §2.1 is now the
+  canonical author guide: SDK registration sample, load-order survival pattern
+  with an explicit warning against `is_admin()` guards, destination/zone table,
+  enforced rules, verification command and an 8-row reference implementations
+  table. `README.md` documents the `setting_panel` verb and its caveats.
+- `examples/bizcity-reference-plugin` is now a working fixture for both paths:
+  `manifest.json` declares `extension.reference.settings` and
+  `bizcity-reference-plugin.php` registers the same metadata at runtime through
+  `BizCity_Twin_Plugin_SDK::register_ui()` with `plugins_loaded`/`init` retry.
+- Probe `modules.twinshell.setting_panel` gained a fourth layer (`isolation.*`):
+  15 malformed fixtures must be rejected before admission with a recorded reason,
+  the admitted owner set must stay identical, and the registry must roll back to
+  its pre-isolation snapshot. Added diagnostics-only
+  `BizCity_Setting_Panel_Registry::diagnostics_snapshot()` /
+  `diagnostics_restore()` for that rollback; `diagnostics_restore()` ignores
+  malformed state so a bad argument cannot clear the registry.
+- `G3-04` enum enforcement closed. `BizCity_Setting_Panel_Registry::normalize()`
+  previously checked only presence for `renderer`/`availability`; it now rejects
+  invalid `renderer.type`, `renderer.id`, `availability.policy`, `capability`,
+  `zone`, renderer shape violations (`coreui`/`route` without `route`,
+  `deep_link` without `canonical_slug`, malformed `route`), and
+  `legacy_adapter` entries missing `native_contract`/`migration_owner`/
+  `sunset_after` — matching the v1 schema. Verified against the real registry:
+  14 items still register with `0 rejection(s)`.
+- **Test-harness defect fixed:** `composer test` was exiting with code 0 and no
+  output at all. `composer.json` autoloads
+  `core/bizcity-llm/includes/helpers-deprecation.php` under `autoload.files`, and
+  PHPUnit's launcher requires the Composer autoloader before `tests/bootstrap.php`,
+  so that helper's `defined( 'ABSPATH' ) || exit;` killed the process before any
+  test loaded. Added `tests/phpunit-prepend.php` and changed the `test` script to
+  `php -d auto_prepend_file=tests/phpunit-prepend.php vendor/bin/phpunit ...`.
+  CI calls `composer test`, so it inherits the fix. Any earlier PHPUnit PASS
+  claim made without this preload was a silent no-op.
+
+Evidence: probe `16/16 step pass · 14 registry item(s) · 0 rejection(s) ·
+isolation PASS` (`blog_id=1533`, PHP 8.1.34, WP 6.9); `SettingPanelRegistryTest`
+6/6 PASS (36 assertions); full unit suite `OK (43 tests, 199 assertions)`;
+`node core/twin-core/contracts/tests/run-contract-tests.mjs` →
+`CONTRACT TESTS PASS (26 contracts)`; PHP lint PASS on every changed file.
+Runtime menu/tenant evidence and the reference fixture's local activation remain
+open.
+
 ### PHASE-0.41-C10/W7-C Diagnostics - 2026-09-10
 
 Added a fail-open boundary around Scheduler Google create/update/delete hooks

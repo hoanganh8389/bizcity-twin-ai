@@ -1,0 +1,98 @@
+{
+    "audit_id":  "manifest-capability-parity-baseline-2026-09-15",
+    "reviewed_on":  "2026-09-15",
+    "purpose":  "Reviewed legacy capability-declaration debt. New capability declarations must reconcile with real registration symbols.",
+    "known_findings":  [
+                           {
+                               "fingerprint":  "plugins/bizcity-content-creator/manifest.json|tools|0|content-creator.generate||id",
+                               "manifest":  "plugins/bizcity-content-creator/manifest.json",
+                               "kind":  "tools",
+                               "capability_id":  "content-creator.generate",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-doc/manifest.json|tools|0|doc.generate||id",
+                               "manifest":  "plugins/bizcity-doc/manifest.json",
+                               "kind":  "tools",
+                               "capability_id":  "doc.generate",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-facebook-bot/manifest.json|channels|0|facebook-bot.messenger||id",
+                               "manifest":  "plugins/bizcity-facebook-bot/manifest.json",
+                               "kind":  "channels",
+                               "capability_id":  "facebook-bot.messenger",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-pagebuilder/manifest.json|tools|0|pagebuilder.generate||id",
+                               "manifest":  "plugins/bizcity-pagebuilder/manifest.json",
+                               "kind":  "tools",
+                               "capability_id":  "pagebuilder.generate",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-profile/manifest.json|tools|0|profile.assistant||id",
+                               "manifest":  "plugins/bizcity-profile/manifest.json",
+                               "kind":  "tools",
+                               "capability_id":  "profile.assistant",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-twin-crm/manifest.json|channels|0|twin-crm.inbox||id",
+                               "manifest":  "plugins/bizcity-twin-crm/manifest.json",
+                               "kind":  "channels",
+                               "capability_id":  "twin-crm.inbox",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-twin-crm/manifest.json|channels|1|twin-crm.operations||id",
+                               "manifest":  "plugins/bizcity-twin-crm/manifest.json",
+                               "kind":  "channels",
+                               "capability_id":  "twin-crm.operations",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-video-kling/manifest.json|tools|0|video-kling.generate||id",
+                               "manifest":  "plugins/bizcity-video-kling/manifest.json",
+                               "kind":  "tools",
+                               "capability_id":  "video-kling.generate",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-zalo-bizcity/manifest.json|channels|0|zalo-bizcity.hotline||id",
+                               "manifest":  "plugins/bizcity-zalo-bizcity/manifest.json",
+                               "kind":  "channels",
+                               "capability_id":  "zalo-bizcity.hotline",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-zalo-bot/manifest.json|channels|0|zalo-bot.oa||id",
+                               "manifest":  "plugins/bizcity-zalo-bot/manifest.json",
+                               "kind":  "channels",
+                               "capability_id":  "zalo-bot.oa",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcity-zalo-personal/manifest.json|channels|0|zalo-personal.bridge||id",
+                               "manifest":  "plugins/bizcity-zalo-personal/manifest.json",
+                               "kind":  "channels",
+                               "capability_id":  "zalo-personal.bridge",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizcoach-pro/manifest.json|personas|0|bizcoach-pro.coach||id",
+                               "manifest":  "plugins/bizcoach-pro/manifest.json",
+                               "kind":  "personas",
+                               "capability_id":  "bizcoach-pro.coach",
+                               "missing":  "id"
+                           },
+                           {
+                               "fingerprint":  "plugins/bizgpt-tool-google/manifest.json|tools|0|tool-google.connect||id",
+                               "manifest":  "plugins/bizgpt-tool-google/manifest.json",
+                               "kind":  "tools",
+                               "capability_id":  "tool-google.connect",
+                               "missing":  "id"
+                           }
+                       ]
+}

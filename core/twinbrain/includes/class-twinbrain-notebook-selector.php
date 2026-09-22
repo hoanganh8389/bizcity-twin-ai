@@ -439,7 +439,30 @@ class BizCity_TwinBrain_Notebook_Selector {
 		return $dot / ( sqrt( $na ) * sqrt( $nb ) );
 	}
 
+	/**
+	 * Prompt embedding memoized per prompt within one request.
+	 *
+	 * [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — the cosine tier and
+	 * the passage-density tier both need the same prompt vector. Without memoization
+	 * `select()` issued two full gateway embedding round trips for one turn when the
+	 * cosine tier returned nothing, which is a measurable part of the pre-MPR cost
+	 * reported in the thinking timeline. Embedding has no cache in
+	 * `BizCity_LLM_Client::embeddings()`.
+	 *
+	 * @param string $prompt
+	 * @return array
+	 */
 	private function embed_prompt( string $prompt ): array {
+		static $memo = array();
+		$key = md5( $prompt );
+		if ( array_key_exists( $key, $memo ) ) {
+			return (array) $memo[ $key ];
+		}
+		$memo[ $key ] = $this->embed_prompt_uncached( $prompt );
+		return (array) $memo[ $key ];
+	}
+
+	private function embed_prompt_uncached( string $prompt ): array {
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) return [];
 		try {
 			$client = BizCity_LLM_Client::instance();
@@ -680,6 +703,9 @@ class BizCity_TwinBrain_Notebook_Selector {
 	 * owner_id=0 is public only after an explicit business_kb/guru_kb scope.
 	 */
 	private function owner_scope_where( string $alias = '' ): string {
+		if ( class_exists( 'BizCity_KG_Access' ) ) {
+			return BizCity_KG_Access::readable_where( 0, $alias );
+		}
 		// [2026-07-27 Johnny Chu] PHASE-0.51 — owner_id=0 is public only with an explicit public notebook scope.
 		$owner = $alias . 'owner_id';
 		$scope = $alias . 'notebook_scope';

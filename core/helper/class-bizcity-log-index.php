@@ -270,6 +270,15 @@ final class BizCity_Log_Index {
 
 	public static function search( array $args = array() ) {
 		// [2026-08-27 Johnny Chu] R-LOG-HYBRID — bounded current-tenant pointer search; full content is fetched from JSONL on demand.
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-LOG-HYBRID — same `is_available()` guard the write path
+		// (record(), above) already has, just missing here. Without it, a tenant whose pointer table was
+		// never provisioned had every `reconcile()` tick (retention cron) run a SELECT against a table that
+		// doesn't exist — a WordPress DB error logged every run, forever, with no self-heal (this class's own
+		// `ensure()` is never called from anywhere). `is_available()` is memoized per request and backed by
+		// `bizcity_tbl_exists()`'s own object-cache TTL, so this adds no extra query on the common case.
+		if ( ! self::is_available() ) {
+			return array();
+		}
 		try {
 			global $wpdb;
 			$cache_key = 'search_' . md5( (string) wp_json_encode( array( 'blog_id' => get_current_blog_id(), 'db' => (string) ( $wpdb->dbname ?? '' ), 'args' => $args ) ) );

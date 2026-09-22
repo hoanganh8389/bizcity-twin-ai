@@ -395,6 +395,9 @@ class BizCity_TwinBrain_Runtime {
 	 * @return array { ok, trace_id, sse_url, candidates, tool_candidates }
 	 */
 	public function start_turn( string $prompt, array $opts = [] ): array {
+		// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — collect real server stage timings so the MPR timeline can attribute pre-MPR cost instead of showing an empty row.
+		$stage_t0 = microtime( true );
+		$stage_timings = array();
 		// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — continue the inbound
 		// channel trace when the current request already has a pending root;
 		// standalone TwinBrain turns still get a fresh trace as before.
@@ -747,6 +750,8 @@ class BizCity_TwinBrain_Runtime {
 		if ( $direct_vertical_mode === 'woo_bizops' ) {
 			$candidates = array();
 		} else {
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — measure Stage 1A alone; it may issue prompt embeddings for cosine then density tiers.
+			$selector_t0 = microtime( true );
 			// Stage 1A — notebook selector (parallel-conceptually; sequential in PHP).
 			$selector   = BizCity_TwinBrain_Notebook_Selector::instance();
 			$candidates = $selector->select( $prompt_eff, $user_id, $k, [
@@ -759,6 +764,7 @@ class BizCity_TwinBrain_Runtime {
 				// can interpret Tarot".
 				'guru_id'   => $guru_id,
 			] );
+			$stage_timings['candidate_selection'] = (int) round( ( microtime( true ) - $selector_t0 ) * 1000 );
 		}
 		$this->emit_event( 'brain_perspective_selected', [
 			'trace_id'              => $trace_id,
@@ -845,6 +851,8 @@ class BizCity_TwinBrain_Runtime {
 		$subject_key     = sanitize_text_field( (string) ( $opts['subject_key'] ?? $goal_loop_state['subject_key'] ?? '' ) );
 		$goal_id         = sanitize_text_field( (string) ( $opts['goal_id'] ?? $goal_loop_state['goal_id'] ?? '' ) );
 		if ( class_exists( 'BizCity_TwinBrain_Memory_Recall' ) ) {
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — measure Layer 0.5 so the timeline reports its own cost.
+			$memory_t0 = microtime( true );
 			try {
 				$mem_res = BizCity_TwinBrain_Memory_Recall::instance()->collect( $subject_id, $prompt_eff, [
 					'keyword_tokens' => $keyword_tokens,
@@ -891,6 +899,7 @@ class BizCity_TwinBrain_Runtime {
 					'exception_class' => get_class( $e ),
 				) );
 			}
+			$stage_timings['memory_recall'] = (int) round( ( microtime( true ) - $memory_t0 ) * 1000 );
 		}
 
 		if ( class_exists( 'BizCity_TwinBrain_Intent_Compat_Adapter' ) ) {
@@ -955,6 +964,8 @@ class BizCity_TwinBrain_Runtime {
 			'temporal_context'      => (array) ( $opts['temporal_context'] ?? array() ),
 			'answer_depth'          => (string) ( $answer_depth_cfg['depth'] ?? self::ANSWER_DEPTH_DEFAULT ), // [2026-08-06 Johnny Chu] V4-DEPTH — echo resolved depth tier so REST/stream callers forward the same value into complete_turn_stream().
 			'pre_mpr_triage'        => (array) ( $opts['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve the pre-MPR branch decision for completion callers.
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — expose start-stage timings and total so REST/live timeline can attribute pre-MPR cost.
+			'stage_timings'         => array_merge( $stage_timings, array( 'start_turn_total' => (int) round( ( microtime( true ) - $stage_t0 ) * 1000 ) ) ),
 			'ambiguous_no_goal'     => ! empty( $opts['ambiguous_no_goal'] ),
 			'goal_loop_pre_turn_completed' => ! $answer_depth_cfg['skip_goal_parser'], // [2026-08-07 Johnny Chu] V4-DEPTH — prevent synchronous completion from parsing the same turn twice.
 			'memory_scope'          => $memory_scope,
@@ -1022,11 +1033,13 @@ class BizCity_TwinBrain_Runtime {
 			try {
 				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT W0.9 — pass user prompt into Notebook Source Layer so Search Core can enrich LLM context.
 				$opts['notebook_search_context_query'] = $prompt;
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D3 — resolve the vertical binding first so a bound vertical can request hybrid before the mode default is applied.
+				$opts = $this->resolve_vertical_binding( $opts );
+				// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — resolve the canonical Context Bank MPR flag before the source layer runs; no caller previously set this option, so Context Bank never executed.
+				$opts = $this->resolve_context_bank_opts( $opts );
 				$notebook_source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $candidates, $answers, $opts );
 				$opts['notebook_source_map']      = (array) ( $notebook_source_payload['notebook_source_map'] ?? array() );
 				$opts['context_bank_source_refs'] = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_source_refs'] ?? array() );
-				// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — keep streamed and non-stream source-layer payloads shape-compatible.
-				$opts['context_bank']             = (array) ( $notebook_source_payload['context_bank'] ?? array() );
 				// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — forward bounded nested Context Bank metadata to non-stream MPR consumers.
 				$opts['context_bank']             = (array) ( $notebook_source_payload['context_bank'] ?? array() );
 				// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — keep authorized Skill owner records on the internal Synthesizer path.
@@ -1058,7 +1071,7 @@ class BizCity_TwinBrain_Runtime {
 				$source_counts = (array) $opts['notebook_source_counts'];
 				$source_file_counts = (array) $opts['source_file_counts'];
 				$search_context = (array) $opts['search_context'];
-				if ( (int) ( $source_counts['notebook_count'] ?? 0 ) > 0 ) {
+				if ( (int) ( $source_counts['notebook_count'] ?? 0 ) > 0 || ! empty( $opts['context_bank'] ) ) {
 					$this->emit_event( 'notebook_source_layer_ready', array(
 						'trace_id'                 => $trace_id,
 						'surface'                  => self::SURFACE,
@@ -1074,6 +1087,8 @@ class BizCity_TwinBrain_Runtime {
 						'search_context_scope'     => (string) ( $search_context['scope'] ?? '' ),
 						'search_context_tokens'    => (array) ( $search_context['tokens'] ?? array() ),
 						'search_context_results'   => (array) ( $search_context['results'] ?? $opts['search_context_results'] ?? array() ),
+						// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — emit the bounded Context Bank status on the non-stream path so the timeline can show a footlog.
+						'context_bank'             => (array) ( $opts['context_bank'] ?? array() ),
 						'notebook_source_map'      => (array) $opts['notebook_source_map'],
 						'source_file_briefs'       => (array) $opts['source_file_briefs'],
 						'notebook_source_block_md' => (string) $opts['notebook_source_block_md'],
@@ -1095,6 +1110,8 @@ class BizCity_TwinBrain_Runtime {
 					'exception_class' => get_class( $e ),
 				) );
 			}
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — same phase boundary on the non-stream path so both surfaces agree.
+			$this->emit_context_bank_phase_events( $trace_id, (array) ( $opts['context_bank'] ?? array() ) );
 		}
 		// [2026-09-01 Johnny Chu] PHASE-0.45-W5 — keep non-stream automation on the same deep-research engine as the stream path.
 		$web_row  = array();
@@ -1107,7 +1124,10 @@ class BizCity_TwinBrain_Runtime {
 			'requested_mode' => $web_mode,
 		) );
 		if ( in_array( $web_mode, array( 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products', 'woo_bizops' ), true ) && class_exists( 'BizCity_Twin_SSE_Writer' ) ) {
-			$web_sse = new BizCity_Twin_SSE_Writer( false );
+			// [2026-09-18 10:51 AM Johnny Chu - Chu Hoàng Anh] HOTFIX — non-stream path uses a capture-only writer: no global debug listener outliving this call, no ob_flush() into the caller's buffers (leaked SSE into REST/webhook bodies and diagnostics stdout).
+			$web_sse = method_exists( 'BizCity_Twin_SSE_Writer', 'capture' )
+				? BizCity_Twin_SSE_Writer::capture()
+				: new BizCity_Twin_SSE_Writer( false );
 			ob_start();
 			try {
 				$web_row = $this->dispatch_web_research( $trace_id, $prompt, $web_mode, $web_sse, $opts );
@@ -1280,6 +1300,10 @@ class BizCity_TwinBrain_Runtime {
 			'cited_entity_count' => count( $cited_entity_ids ),
 			'cited_passage_count'=> count( $cited_passages ),
 			'fallback'           => (string) ( $synthesis['fallback'] ?? '' ),
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — carry the gateway route/reason footlog so the MPR timeline can explain a degraded synthesis.
+			'synthesis_reason_bucket' => (string) ( $synthesis['reason_bucket'] ?? '' ),
+			'synthesis_route_path'    => (string) ( $synthesis['route_path'] ?? '' ),
+			'synthesis_http_code'     => (int) ( $synthesis['http_code'] ?? 0 ),
 			'answers_in'         => count( $answers ),
 		] );
 
@@ -1550,9 +1574,15 @@ class BizCity_TwinBrain_Runtime {
 			try {
 				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT W0.9 — pass user prompt into Notebook Source Layer so Search Core can enrich LLM context.
 				$opts['notebook_search_context_query'] = $prompt_for_reasoning;
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D3 — resolve the vertical binding first so a bound vertical can request hybrid before the mode default is applied.
+				$opts = $this->resolve_vertical_binding( $opts );
+				// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — resolve the canonical Context Bank MPR flag before the streamed source layer runs.
+				$opts = $this->resolve_context_bank_opts( $opts );
 				$notebook_source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $candidates, $persp_snapshot, $opts );
 				$opts['notebook_source_map']      = (array) ( $notebook_source_payload['notebook_source_map'] ?? array() );
 				$opts['context_bank_source_refs'] = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_source_refs'] ?? array() );
+				// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — keep streamed source-layer payload shape-compatible.
+				$opts['context_bank']             = (array) ( $notebook_source_payload['context_bank'] ?? array() );
 				// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — preserve stream parity for internal canonical Skill owner records.
 				$opts['context_bank_owner_records'] = (array) ( $notebook_source_payload['context_bank_owner_records'] ?? array() );
 				$opts['context_bank_retrieval']   = (array) ( $notebook_source_payload['graph_vector_rerank_pack']['context_bank_retrieval'] ?? array() );
@@ -1614,11 +1644,8 @@ class BizCity_TwinBrain_Runtime {
 					'search_context_results'   => (array) ( $search_context['results'] ?? $opts['search_context_results'] ?? array() ),
 					'product_entity_count'     => (int) $opts['product_entity_count'],
 					'product_name_entity_count' => (int) $opts['product_name_entity_count'],
-					// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — expose nested Context Bank metadata to TwinChat/Twin GPT consumers.
 					'context_bank'             => (array) ( $opts['context_bank'] ?? array() ),
 					'product_entities'         => (array) $opts['product_entities'],
-					// [2026-09-13 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-1.33B — emit nested Context Bank mode/status metadata without ledger payloads.
-					'context_bank'             => (array) ( $opts['context_bank'] ?? array() ),
 					'notebook_source_map'      => (array) $opts['notebook_source_map'],
 					'source_file_briefs'       => (array) $opts['source_file_briefs'],
 					'notebook_source_block_md' => (string) $opts['notebook_source_block_md'],
@@ -1649,6 +1676,8 @@ class BizCity_TwinBrain_Runtime {
 				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.17 — always stream TwinSearch/source-layer evidence, including zero-result searches, before final conclusion.
 				$sse->emit( 'notebook_source_layer_ready', $source_event );
 				$this->emit_event( 'notebook_source_layer_ready', array_merge( array( 'surface' => self::SURFACE ), $source_event ) );
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — emit the Context Bank phase boundary pair on the existing twin_event channel only. Without it the phase cannot be subtracted from unattributed_ms and a slow Context Bank turn is indistinguishable from a slow Source Layer turn.
+				$this->emit_context_bank_phase_events( $trace_id, (array) $opts['context_bank'] );
 				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — expose Graph/retrieval rerank checkpoint after multimodal query enrichment.
 				$rerank_event = array(
 					'trace_id'        => $trace_id,
@@ -1804,6 +1833,10 @@ class BizCity_TwinBrain_Runtime {
 			'tokens'          => (int)    ( $synthesis['tokens']         ?? 0 ),
 			'ms'              => $synth_ms,
 			'fallback'        => (string) ( $synthesis['fallback']       ?? '' ),
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — stream the gateway route/reason footlog for the synthesis row.
+			'reason_bucket'   => (string) ( $synthesis['reason_bucket'] ?? '' ),
+			'route_path'      => (string) ( $synthesis['route_path'] ?? '' ),
+			'http_code'       => (int) ( $synthesis['http_code'] ?? 0 ),
 		] );
 
 		// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — create and reflect on the
@@ -2017,6 +2050,16 @@ class BizCity_TwinBrain_Runtime {
 			'chunks'    => $final_seq,
 			'fallback'  => (string) ( $final['fallback'] ?? '' ),
 			'success'   => ! empty( $final['success'] ),
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C3 — forward the Layer
+			// 4.5 duration breakdown computed in BizCity_TwinBrain_Final_Composer::
+			// compose_stream(). Bounded durations only, no prompt/payload — same rule as
+			// every other timeline field. This closes the exact "computed then discarded"
+			// anti-pattern already found and fixed for Context Bank's duration_ms.
+			'prompt_prep_ms'     => $final['prompt_prep_ms']     ?? null,
+			'provider_ttfb_ms'   => $final['provider_ttfb_ms']   ?? null,
+			'provider_stream_ms' => $final['provider_stream_ms'] ?? null,
+			'post_process_ms'    => $final['post_process_ms']    ?? null,
+			'client_paint_ms'    => null,
 			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — expose Notebook answer-depth profile to timeline/FE diagnostics.
 			'notebook_depth_profile' => (string) ( $final['notebook_depth_profile'] ?? '' ),
 			'notebook_depth_budget'  => (array) ( $final['notebook_depth_budget'] ?? array() ),
@@ -2428,6 +2471,239 @@ class BizCity_TwinBrain_Runtime {
 		return (array) apply_filters( 'bizcity_twinbrain_answer_depth_config', $cfg, $depth, $opts );
 	}
 
+	/**
+	 * Emit the Context Bank phase boundary pair on the existing Event Stream.
+	 *
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — contract
+	 * CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1 §3. The pair carries counts,
+	 * durations and stable reason buckets only. Query text, prompt, ledger rows,
+	 * owner bodies, file paths, offsets, hashes, account keys, bearer tokens and
+	 * raw provider IDs are never included.
+	 *
+	 * The taxonomy declares both types (TAXONOMY_VERSION 14); dispatching an
+	 * undeclared type throws and the event is lost silently, which is the exact
+	 * defect that made `memory_recall` unattributable.
+	 *
+	 * @param string              $trace_id
+	 * @param array<string,mixed> $context_bank Bounded timeline payload.
+	 * @return void
+	 */
+	private function emit_context_bank_phase_events( string $trace_id, array $context_bank ): void {
+		if ( empty( $context_bank ) || ! class_exists( 'BizCity_Twin_Event_Taxonomy' ) ) {
+			return;
+		}
+		if ( ! defined( 'BizCity_Twin_Event_Taxonomy::CONTEXT_BANK_STARTED' ) ) {
+			return;
+		}
+		$completed_epoch_ms = (int) round( microtime( true ) * 1000 );
+		$duration_ms        = (int) ( $context_bank['duration_ms'] ?? 0 );
+		$started_epoch_ms   = max( 0, $completed_epoch_ms - $duration_ms );
+		$status             = (string) ( $context_bank['status'] ?? ( ! empty( $context_bank['enabled'] ) ? 'ran' : 'skipped' ) );
+		$mode               = (string) ( $context_bank['mode'] ?? 'context_bank' );
+		$vertical_id        = (string) ( $context_bank['vertical_id'] ?? '' );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C2 — mint the `started`
+		// event UUID once so `done` can carry it as `parent_event_uuid`. The JSON schema
+		// already declared this optional field (event-stream/schemas/events/context_bank_done.json)
+		// but no caller ever populated it, so the pair had no linkage a trace calculator
+		// could follow — event ordering was implicit (call order) rather than provable.
+		$started_event_uuid = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'cb_', true );
+		try {
+			// The pair is emitted together at the measured boundary. `started` is derived from the
+			// measured duration so both events describe the same server-measured, monotonic span:
+			// started_epoch_ms <= completed_epoch_ms always holds because duration_ms >= 0.
+			$this->emit_event( BizCity_Twin_Event_Taxonomy::CONTEXT_BANK_STARTED, array(
+				'trace_id'         => $trace_id,
+				'event_uuid'       => $started_event_uuid,
+				'phase'            => 'context_bank',
+				'started_epoch_ms' => $started_epoch_ms,
+				'mode'             => $mode,
+				'vertical_id'      => $vertical_id,
+			) );
+			$this->emit_event( BizCity_Twin_Event_Taxonomy::CONTEXT_BANK_DONE, array(
+				'trace_id'           => $trace_id,
+				'event_uuid'         => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'cb_', true ),
+				'parent_event_uuid'  => $started_event_uuid,
+				'phase'              => 'context_bank',
+				'started_epoch_ms'   => $started_epoch_ms,
+				'completed_epoch_ms' => $completed_epoch_ms,
+				'duration_ms'        => $duration_ms,
+				'status'             => $status,
+				// §4 — empty when status=ran; otherwise a stable token the UI may translate but logs must match.
+				'reason_bucket'      => $status === 'ran' ? '' : (string) ( $context_bank['reason_bucket'] ?? '' ),
+				'mode'               => $mode,
+				'vertical_id'        => $vertical_id,
+				'contract_count'     => (int) ( $context_bank['contract_count'] ?? 0 ),
+				'source_ref_count'   => (int) ( $context_bank['source_ref_count'] ?? 0 ),
+				'pointer_follows'    => (int) ( $context_bank['pointer_follows'] ?? 0 ),
+			) );
+		} catch ( \Throwable $e ) {
+			self::write_runtime_log( 'error', 'context_bank_phase_event_exception', $e->getMessage(), array(
+				'trace_id'        => $trace_id,
+				'surface'         => self::SURFACE,
+				'exception_class' => get_class( $e ),
+			) );
+		}
+	}
+
+	/**
+	 * Resolve the vertical binding for this turn and let it set the effective
+	 * Context Bank mode, before resolve_context_bank_opts() applies its default.
+	 *
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D3 — MVP closure for two
+	 * documented fail conditions:
+	 *   FAIL 2 - `context_bank_mode` was hardcoded to `context_bank` before any
+	 *            vertical had a chance to request `hybrid`, so the resolver's
+	 *            `hybrid` branch was dead code on real runtime.
+	 *   FAIL 1 - `vertical_id` had readers but no writer, so the vertical axis had
+	 *            zero influence on Context Bank retrieval.
+	 *
+	 * The browser still never selects a Context Bank mode: `web_mode` is resolved
+	 * through the canonical Vertical Bridge Registry server-side, and an
+	 * unregistered mode leaves every key untouched (today's behavior).
+	 *
+	 * @param array<string,mixed> $opts
+	 * @return array<string,mixed>
+	 */
+	private function resolve_vertical_binding( array $opts ): array {
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D3 — derive vertical_id and the mode hint from the canonical registry only.
+		$web_mode = strtolower( (string) ( $opts['web_mode'] ?? 'off' ) );
+		if ( $web_mode === '' || $web_mode === 'off' || ! class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) ) {
+			return $opts;
+		}
+		$vertical = BizCity_TwinBrain_Vertical_Bridge_Registry::get( $web_mode );
+		if ( ! is_array( $vertical ) ) {
+			// Unregistered vertical: leave opts untouched so behavior is identical to today.
+			return $opts;
+		}
+		// [2026-09-17] WP7 §mode/plan/guest policy — the registry's own min_plan/
+		// guest_allowed were declared but never re-checked at the point a vertical
+		// actually runs; only modules/twinweb's mode-LISTING endpoint
+		// (get_effective_config()) enforced them, which just hides the menu entry
+		// and does not stop a client sending web_mode directly. Reset to 'off' on
+		// denial (same as an unregistered mode) so this single resolution point
+		// also gates the Stage 2.5 web-research dispatch further down this file,
+		// which reads $opts['web_mode'] independently.
+		if ( ! $this->vertical_policy_allows( $vertical, $opts ) ) {
+			$opts['web_mode'] = 'off';
+			return $opts;
+		}
+		$opts['vertical_id'] = (string) ( $vertical['id'] ?? $web_mode );
+		$binding = isset( $vertical['context_bank'] ) && is_array( $vertical['context_bank'] ) ? $vertical['context_bank'] : array();
+		$mode_hint = (string) ( $binding['mode_hint'] ?? 'inherit' );
+		if ( $mode_hint === 'hybrid' ) {
+			$opts['context_bank_mode'] = 'hybrid';
+		} elseif ( $mode_hint === 'skip' ) {
+			$opts['context_bank_enabled'] = false;
+		}
+		// 'inherit' (the default for every unbound row): leave both keys untouched.
+		$opts['_vertical_binding']      = $binding; // Internal only; consumed by the source layer, never sent to the client.
+		$opts['_vertical_binding_hint'] = $mode_hint;
+		$opts['_vertical_binding_source'] = 'web_mode';
+		// [2026-09-17] WP7 §declared Brain mode, allowed tools/actions — a
+		// vertical may declare `allowed_tools[]` (manifest.schema.json
+		// `verticalMode.allowed_tools`); when present, thread it into
+		// `$opts['allowed_tools']` for `mode=agent`'s ReAct tool whitelist
+		// (`BizCity_TwinBrain_Agent_Runner::run()` already honours
+		// `$opts['allowed_tools']` when it is a non-empty array — see the
+		// `$agent_opts` build further down this file). Undeclared (the
+		// default for every current row) leaves the key unset, preserving
+		// today's `self::DEFAULT_ALLOWED` fallback exactly.
+		if ( isset( $vertical['allowed_tools'] ) && is_array( $vertical['allowed_tools'] ) && ! empty( $vertical['allowed_tools'] ) ) {
+			$opts['allowed_tools'] = array_values( array_unique( array_map( 'strval', $vertical['allowed_tools'] ) ) );
+		}
+		return $opts;
+	}
+
+	/**
+	 * Server-authorized mode/plan/guest check for a resolved vertical row.
+	 *
+	 * Mirrors the exact tier resolver and rank table
+	 * `modules/twinweb/includes/class-twinweb-rest.php::get_effective_config()`
+	 * already uses for its mode-LISTING check (`bizcity_twinweb_user_tier`
+	 * filter, `free < plus < pro`) and the identity resolver
+	 * `core/twinbrain/includes/class-twinbrain-goal-loop-rest.php::identity()`
+	 * already uses to read `BizCity_TwinWeb_Identity::current()` from
+	 * `core/twinbrain` without a hard dependency on `modules/twinweb` (guarded
+	 * by `class_exists()`, degrading to `user_id <= 0` when TwinWeb is not
+	 * loaded). Does not replace `woo_bizops`'s own independent capability
+	 * check in `class-twinbrain-woo-bizops-resolver-service.php`.
+	 *
+	 * @param array<string,mixed> $vertical Registry row (id, min_plan, guest_allowed, ...).
+	 * @param array<string,mixed> $opts
+	 */
+	private function vertical_policy_allows( array $vertical, array $opts ): bool {
+		$user_id  = (int) ( $opts['user_id'] ?? get_current_user_id() );
+		$is_guest = $user_id <= 0;
+		if ( class_exists( 'BizCity_TwinWeb_Identity' ) ) {
+			$identity = BizCity_TwinWeb_Identity::current();
+			if ( isset( $identity['is_guest'] ) ) {
+				$is_guest = (bool) $identity['is_guest'];
+			}
+			if ( $user_id <= 0 && ! empty( $identity['user_id'] ) ) {
+				$user_id = (int) $identity['user_id'];
+			}
+		}
+		if ( $is_guest && empty( $vertical['guest_allowed'] ) ) {
+			return false;
+		}
+		$plan_rank = array( 'free' => 0, 'plus' => 1, 'pro' => 2 );
+		$min_plan  = isset( $vertical['min_plan'] ) ? sanitize_key( (string) $vertical['min_plan'] ) : 'free';
+		$tier      = function_exists( 'apply_filters' )
+			? sanitize_key( (string) apply_filters( 'bizcity_twinweb_user_tier', 'free', $user_id ) )
+			: 'free';
+		$user_rank     = $plan_rank[ $tier ] ?? 0;
+		$required_rank = $plan_rank[ $min_plan ] ?? 0;
+		return $user_rank >= $required_rank;
+	}
+
+	/**
+	 * Resolve the canonical Context Bank MPR options before the Notebook Source Layer runs.
+	 *
+	 * [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — the source layer only
+	 * queries Context Bank when `context_bank_enabled` is set or the site option
+	 * `bizcity_context_bank_mpr_enabled` is true. No TwinBrain caller previously
+	 * set either, so Context Bank never executed even when rollups existed.
+	 * The canonical default now lives in `BizCity_Context_Bank_Mode_Policy` and is
+	 * ON by default; only an explicit stored `0` disables the layer.
+	 * This resolver keeps the mode/account scope server-owned and never accepts
+	 * browser-supplied tenant, owner or contract hints.
+	 *
+	 * @param array<string,mixed> $opts
+	 * @return array<string,mixed>
+	 */
+	private function resolve_context_bank_opts( array $opts ): array {
+		if ( array_key_exists( 'context_bank_enabled', $opts ) ) {
+			return $opts;
+		}
+		// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — read the flag from its canonical owner; fall back to the same default when the owner is not loaded.
+		if ( class_exists( 'BizCity_Context_Bank_Mode_Policy' ) && method_exists( 'BizCity_Context_Bank_Mode_Policy', 'is_enabled' ) ) {
+			$enabled = (bool) BizCity_Context_Bank_Mode_Policy::is_enabled();
+		} elseif ( function_exists( 'get_option' ) ) {
+			$stored  = get_option( 'bizcity_context_bank_mpr_enabled', null );
+			$enabled = ( null === $stored || '' === $stored ) ? true : (bool) $stored;
+		} else {
+			$enabled = true;
+		}
+		/**
+		 * Filter: bizcity_twinbrain_context_bank_enabled
+		 *
+		 * Allows an approved canary to enable or disable Context Bank for a
+		 * bounded surface without changing the site-wide option.
+		 *
+		 * @param bool                $enabled
+		 * @param array<string,mixed> $opts
+		 */
+		$enabled = (bool) apply_filters( 'bizcity_twinbrain_context_bank_enabled', $enabled, $opts );
+		$opts['context_bank_enabled'] = $enabled;
+		if ( ! $enabled ) {
+			return $opts;
+		}
+		if ( empty( $opts['context_bank_mode'] ) ) {
+			$opts['context_bank_mode'] = 'context_bank';
+		}
+		return $opts;
+	}
+
 	private function has_retrieve_route( array $final_gate ): bool {
 		foreach ( (array) ( $final_gate['scoreboard']['rows'] ?? array() ) as $row ) {
 			if ( is_array( $row ) && strtoupper( (string) ( $row['route'] ?? '' ) ) === 'RETRIEVE' ) {
@@ -2515,13 +2791,16 @@ class BizCity_TwinBrain_Runtime {
 
 		$round_opts = $opts;
 		$round_opts['retrieve_round'] = $round_number;
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-C11 — expose the round number so the memoized Context Bank phase reports how many rounds reused it instead of silently re-querying per round.
+		$round_opts['_context_bank_round'] = $round_number;
 		$round_opts['notebook_search_context_query'] = $retrieve_prompt;
 		$round_answers = BizCity_TwinBrain_Perspective_Runner::instance()->run( $trace_id, $retrieve_prompt, $round_candidates, $round_opts );
 		if ( class_exists( 'BizCity_TwinBrain_Notebook_Source_Layer' ) ) {
 			try {
 				$source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $round_candidates, $round_answers, $round_opts );
 				// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — preserve internal Skill owner records across bounded retrieval rounds.
-				foreach ( array( 'notebook_source_map', 'notebook_source_block_md', 'notebook_source_counts', 'source_file_briefs', 'source_file_counts', 'search_context', 'search_context_results', 'search_context_total', 'cross_notebook_links', 'graph_vector_rerank_pack', 'graph_entities', 'retrieval_candidates', 'final_context_chunks', 'retrieval_candidate_count', 'final_context_count', 'rerank_method', 'rerank_degraded', 'rerank_error', 'vector_status', 'vector_candidate_count', 'vector_degraded_reason', 'graph_candidate_count', 'selector_hardening_applied', 'selector_hardening_reason', 'selector_hardening_count', 'selector_hardening_scope', 'training_gap_report', 'product_entities', 'product_entity_count', 'product_name_entity_count', 'context_bank_source_refs', 'context_bank_source_count', 'context_bank_owner_records', 'context_bank_retrieval' ) as $key ) {
+				// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — also preserve the bounded Context Bank timeline payload across retrieve rounds.
+				foreach ( array( 'notebook_source_map', 'notebook_source_block_md', 'notebook_source_counts', 'source_file_briefs', 'source_file_counts', 'search_context', 'search_context_results', 'search_context_total', 'cross_notebook_links', 'graph_vector_rerank_pack', 'graph_entities', 'retrieval_candidates', 'final_context_chunks', 'retrieval_candidate_count', 'final_context_count', 'rerank_method', 'rerank_degraded', 'rerank_error', 'vector_status', 'vector_candidate_count', 'vector_degraded_reason', 'graph_candidate_count', 'selector_hardening_applied', 'selector_hardening_reason', 'selector_hardening_count', 'selector_hardening_scope', 'training_gap_report', 'product_entities', 'product_entity_count', 'product_name_entity_count', 'context_bank', 'context_bank_source_refs', 'context_bank_source_count', 'context_bank_owner_records', 'context_bank_retrieval' ) as $key ) {
 					if ( array_key_exists( $key, $source_payload ) ) {
 						$round_opts[ $key ] = $source_payload[ $key ];
 					}
@@ -2836,6 +3115,12 @@ class BizCity_TwinBrain_Runtime {
 			'notebook_id'  => (int)    ( $opts['notebook_id']  ?? 0 ),
 			'max_iterations' => (int)  ( $opts['max_iterations'] ?? 0 ),
 			'scope'        => isset( $opts['scope'] ) && is_array( $opts['scope'] ) ? $opts['scope'] : null,
+			// [2026-09-17] WP7 §declared Brain mode, allowed tools/actions — forward
+			// the bound vertical's declared allowed_tools (resolve_vertical_binding())
+			// so a vertical can restrict the ReAct tool whitelist; unset when no
+			// vertical declared one, which Agent_Runner::run() already treats as
+			// "use self::DEFAULT_ALLOWED" (its existing, unchanged behavior).
+			'allowed_tools' => isset( $opts['allowed_tools'] ) && is_array( $opts['allowed_tools'] ) ? $opts['allowed_tools'] : null,
 		];
 		$agent_res = $agent->run( $trace_id, $prompt, $agent_opts, $relay );
 
@@ -7062,6 +7347,8 @@ class BizCity_TwinBrain_Runtime {
 						'required_role' => (string) ( $opts['required_role'] ?? '' ),
 						'required_plan' => (string) ( $opts['required_plan'] ?? '' ),
 						'target_resource' => isset( $opts['target_resource'] ) && is_array( $opts['target_resource'] ) ? $opts['target_resource'] : array(),
+						// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D §5A.3 Direction B — the vertical now sees the same Context Bank owner excerpts the notebook pack already received, instead of running blind to a layer that executed earlier in this same turn. One additive key; the engine tolerates unknown opts.
+						'context_bank_owner_records' => (array) ( $opts['context_bank_owner_records'] ?? array() ),
 					) );
 				}
 			}
@@ -7639,7 +7926,9 @@ class BizCity_TwinBrain_Runtime {
 		$base['ok']           = (bool) ( $ret['ok'] ?? false );
 		$base['summary']      = (string) ( $ret['summary'] ?? '' );
 		$base['error']        = (string) ( $ret['error']   ?? '' );
+		// [2026-09-19 Johnny Chu] PHASE-0.55-A3 — forward confirmation-only CRM action cards to the chat surface.
 		$base['result']       = isset( $ret['result'] ) ? $ret['result'] : null;
+		$base['action_card']  = isset( $ret['action_card'] ) && is_array( $ret['action_card'] ) ? $ret['action_card'] : null;
 		$base['sources']      = isset( $ret['sources'] )      && is_array( $ret['sources'] )      ? $ret['sources']      : array();
 		$base['citation_ids'] = isset( $ret['citation_ids'] ) && is_array( $ret['citation_ids'] ) ? $ret['citation_ids'] : array();
 		if ( isset( $ret['job'] ) && is_array( $ret['job'] ) ) {
@@ -8119,6 +8408,7 @@ class BizCity_TwinBrain_Runtime {
 			'artifact_created'=> $dispatch['artifact_created'],
 			'artifact_ready'  => $dispatch['artifact_ready'],
 			'artifacts'       => isset( $dispatch['artifacts'] ) && is_array( $dispatch['artifacts'] ) ? $dispatch['artifacts'] : array(), // [2026-07-31 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — expose multi-output collection to SSE/history.
+			'action_card'     => isset( $dispatch['action_card'] ) && is_array( $dispatch['action_card'] ) ? $dispatch['action_card'] : null,
 			'args_status'     => (string) ( $dispatch['args_status'] ?? '' ),
 			'decision_reason' => (string) ( $decision['reason'] ?? '' ),
 		);
@@ -8184,6 +8474,48 @@ class BizCity_TwinBrain_Runtime {
 					return;
 				} catch ( \Throwable $e ) {
 					error_log( '[TwinBrain] canonical event dispatch failed: ' . $event_key . ' — ' . $e->getMessage() );
+				}
+			}
+			if ( ( $event_key === 'context_bank_started' || $event_key === 'context_bank_done' )
+				&& class_exists( 'BizCity_Twin_Event_Taxonomy' )
+				&& method_exists( 'BizCity_Twin_Event_Bus', 'dispatch_v2' ) ) {
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C2 — the generic
+				// fall-through below calls dispatch() (V1: do_action only, no INSERT), so
+				// this pair previously reached the browser SSE stream but never became a
+				// durable, trace-queryable row in `bizcity_twin_event_stream`. A read-only
+				// trace calculator reading BizCity_Twin_Event_Store::fetch_for_trace()
+				// would see every other durably-persisted event but not this phase pair.
+				// dispatch_v2() also writes `created_epoch_ms` and `parent_event_uuid` as
+				// native indexed columns (class-twin-event-stream-schema.php), which is a
+				// stronger monotonic-ordering guarantee than a payload field alone.
+				try {
+					$type_const = $event_key === 'context_bank_started'
+						? BizCity_Twin_Event_Taxonomy::CONTEXT_BANK_STARTED
+						: BizCity_Twin_Event_Taxonomy::CONTEXT_BANK_DONE;
+					BizCity_Twin_Event_Bus::dispatch_v2(
+						$type_const,
+						$payload,
+						array(
+							'event_source'      => 'twinbrain',
+							'session_id'        => $this->current_session_id,
+							'user_id'           => (int) ( $payload['user_id'] ?? get_current_user_id() ),
+							'trace_id'          => (string) ( $payload['trace_id'] ?? '' ),
+							'event_uuid'        => (string) ( $payload['event_uuid'] ?? '' ),
+							'parent_event_uuid' => (string) ( $payload['parent_event_uuid'] ?? '' ),
+							'created_epoch_ms'  => (int) ( $payload['completed_epoch_ms'] ?? $payload['started_epoch_ms'] ?? 0 ) ?: null,
+						)
+					);
+					return;
+				} catch ( \Throwable $e ) {
+					error_log( '[TwinBrain] context bank phase event dispatch failed: ' . $event_key . ' — ' . $e->getMessage() );
+					self::write_runtime_log( 'error', 'context_bank_phase_event_persist_exception', $e->getMessage(), array(
+						'trace_id'        => (string) ( $payload['trace_id'] ?? '' ),
+						'surface'         => self::SURFACE,
+						'event_key'       => (string) $event_key,
+						'exception_class' => get_class( $e ),
+					) );
+					// Fall through to the V1 telemetry-only path below so the browser SSE
+					// stream still receives the event even if durable persistence failed.
 				}
 			}
 			try {

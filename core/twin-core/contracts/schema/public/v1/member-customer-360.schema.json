@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/member-customer-360.schema.json",
+  "title": "BizCity Member Customer 360",
+  "description": "PHASE-0.50 W6: member-safe customer rail on /gpt/crm/ (C only). subject.user_id must equal principal.actor_user_id (contract test semantics). Absent by design: ownership, staff_touches, attribution, team campaigns, lifetime revenue, other people's notes, identity conflicts. previously_cared is a boolean only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "surface", "principal", "subject", "as_of", "coverage", "data"],
+  "properties": {
+    "contract": { "const": "member-customer-360" },
+    "version": { "const": "1.0.0" },
+    "surface": { "const": "C_PUBLIC_TWINGPT" },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blog_id", "actor_user_id"],
+      "properties": {
+        "blog_id": { "type": "integer", "minimum": 1 },
+        "actor_user_id": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "display_name", "team_role"],
+      "properties": {
+        "user_id": { "type": "integer", "minimum": 1 },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "team_role": { "enum": ["admin", "supervisor", "lead", "agent", "none"] }
+      }
+    },
+    "as_of": { "type": "string", "format": "date-time" },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "degraded_sources", "truncated"],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "degraded_sources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$" } },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contact", "journey", "tasks", "orders"],
+      "properties": {
+        "contact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contact_id", "conversation_id", "display_name"],
+          "properties": {
+            "contact_id": { "type": "integer", "minimum": 1 },
+            "conversation_id": { "type": "integer", "minimum": 1 },
+            "display_name": { "type": "string", "maxLength": 190 },
+            "phone": { "type": "string", "maxLength": 32, "description": "Contact facts the member may edit in their own conversation (0.48C §3.15); never another member's customer." },
+            "email": { "type": "string", "maxLength": 190 }
+          }
+        },
+        "journey": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "paid_order_count", "last_touch_at", "previously_cared", "milestones"],
+          "properties": {
+            "stage": { "enum": ["buyer", "repeat", null] },
+            "paid_order_count": { "type": "integer", "minimum": 0 },
+            "last_touch_at": { "type": ["string", "null"] },
+            "previously_cared": { "type": "boolean" },
+            "milestones": {
+              "type": "array",
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "at", "ref", "status", "evidence_state"],
+                "properties": {
+                  "kind": { "enum": ["profile", "conversation_started", "last_activity", "order"] },
+                  "at": { "type": "string", "minLength": 10 },
+                  "ref": { "type": ["integer", "null"] },
+                  "status": { "type": ["string", "null"] },
+                  "evidence_state": { "enum": ["confirmed", "projected"] }
+                }
+              }
+            }
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "leader-task-handoff C task DTO, current member only, about this customer.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["task_id", "title", "status", "overdue", "due_at", "assigned_by", "seen", "can"],
+            "properties": {
+              "task_id": { "type": "integer", "minimum": 1 },
+              "title": { "type": "string", "minLength": 1, "maxLength": 190 },
+              "instructions": { "type": "string", "maxLength": 2000 },
+              "priority": { "enum": ["low", "medium", "high", "urgent"] },
+              "status": { "enum": ["sent", "accepted", "in_progress", "done", "returned", "cancelled"] },
+              "overdue": { "type": "boolean" },
+              "due_at": { "type": ["string", "null"] },
+              "assigned_by": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["display_name"],
+                "properties": { "display_name": { "type": "string", "maxLength": 120 } }
+              },
+              "seen": { "type": "boolean" },
+              "can": { "type": "array", "uniqueItems": true, "items": { "enum": ["accept", "start", "complete", "return"] } }
+            }
+          }
+        },
+        "orders": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["order_id", "status", "total"],
+            "properties": {
+              "order_id": { "type": "integer", "minimum": 1 },
+              "status": { "type": "string", "pattern": "^[a-z0-9_-]{2,32}$" },
+              "total": { "type": ["number", "string"] },
+              "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+              "created_at": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "care": { "type": "object", "description": "contact-care projection (0.48C §3.15): notes/tasks/labels in the member's own inboxes." }
+      }
+    },
+    "denied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "reason"],
+        "properties": {
+          "scope": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "reason": { "enum": ["contact_not_in_scope", "task_not_found"] }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+    "contract": "diagnostics-verdict",
+    "version": "1",
+    "command": "diagnostics",
+    "batch": "all",
+    "run_id": "",
+    "environment": {
+        "php": "7.4.33",
+        "wordpress": "6.9",
+        "blog_id": 1258
+    },
+    "catalog_hash": "1c9afde080def30fbc7107513126102f8f71a359823bdcab783af2b8d66f10c9",
+    "batch_hash": "7035f53617e212398753dddc607e85d5ef91c1d63619cb4ce28436733c373b44",
+    "evidence_audit": {
+        "total": 1,
+        "actionable_total": 0,
+        "with_fix_hint": 0,
+        "missing_fix_hint": 0,
+        "coverage_percent": 100,
+        "missing_probe_ids": []
+    },
+    "counts": {
+        "pass": 1,
+        "warn": 0,
+        "fail": 0,
+        "skip": 0
+    },
+    "verdict": "pass",
+    "duration_ms": 40530,
+    "coverage": {
+        "catalog_total": 265,
+        "selected_total": 1,
+        "executed": 1,
+        "allowed_skipped": 0,
+        "deferred": 0,
+        "complete": false
+    },
+    "results": {
+        "core.membership.woo_projection": {
+            "status": "pass",
+            "summary": "Woo projector contract OK (idempotent apply + reject unpaid + capacity blocked fail-closed).",
+            "steps": [
+                {
+                    "label": "Disk \u00b7 projector file + hook + marker contract",
+                    "status": "pass",
+                    "detail": "markers found (hooks, projection status, capacity bucket)"
+                },
+                {
+                    "label": "Loader \u00b7 projector class + Woo hooks registered",
+                    "status": "pass",
+                    "detail": "class=ok woo_active=1 hooks(payment=30 processing=30 completed=30 refunded=30 cancelled=30)"
+                },
+                {
+                    "label": "Runtime \u00b7 prerequisite paid seat plan",
+                    "status": "pass",
+                    "detail": "Using plan_slug=pro"
+                },
+                {
+                    "label": "Runtime \u00b7 paid order applies once; second call idempotent",
+                    "status": "pass",
+                    "detail": "r1=applied r2=already_applied order_status=applied source_rows=1"
+                },
+                {
+                    "label": "Runtime \u00b7 refunded order reverses matching Woo grant",
+                    "status": "pass",
+                    "detail": "r=refunded cleared=1 order_status=refunded active_rows=0 current_offer_order=0"
+                },
+                {
+                    "label": "Runtime \u00b7 unpaid order is rejected and does not activate plan",
+                    "status": "pass",
+                    "detail": "r=pending reason=not_paid source_rows=0"
+                },
+                {
+                    "label": "Runtime \u00b7 capacity_blocked path does not activate plan",
+                    "status": "pass",
+                    "detail": "r=capacity_blocked reason=capacity_blocked order_status=capacity_blocked source_rows=0"
+                }
+            ],
+            "id": "core.membership.woo_projection",
+            "duration_ms": 40519,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.membership.woo_projection --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.membership.woo_projection --format=json"
+            }
+        }
+    }
+}

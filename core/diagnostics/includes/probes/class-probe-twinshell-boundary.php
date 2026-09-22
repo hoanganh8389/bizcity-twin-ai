@@ -11,6 +11,13 @@
  *   Layer 3 (Runtime)— REST routes /shell/plugins + /shell/self registered (GET),
  *                      registry payload shape stable, iframe URL carries bizcity_iframe=1.
  *
+ * [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE — Layer 3 also carries the
+ * R-ROUTE contract (TRC v1 §4.10): every `route_mode != 'legacy'` entry must resolve to a
+ * non-empty iframe entry (`route_entry` or `public_slug` — mirrors `routeEntryBase()` in
+ * twin-shell.js), and every declared `legacy_params` template must be a non-empty path starting
+ * with '/'. Both FAIL (not warn) on violation — a plugin silently unreachable through its own
+ * ActivityBar button is a real regression, not a "not migrated yet" state.
+ *
  * Read-only probe — no user data mutation.
  *
  * @package    Bizcity_Twin_AI
@@ -33,7 +40,7 @@ final class BizCity_Probe_TwinShell_Boundary implements BizCity_Diagnostics_Prob
 	public function id(): string          { return 'core.twinshell.boundary'; }
 	public function label(): string       { return 'TwinShell · Boundary Stack (bootstrap/page/registry/rest/bridge)'; }
 	public function description(): string {
-		return 'R-DDV cho TwinShell boundary: file guards, class/hook load, REST /shell/plugins + /shell/self, registry contract và iframe gate.';
+		return 'R-DDV cho TwinShell boundary: file guards, class/hook load, REST /shell/plugins + /shell/self, registry contract, iframe gate và R-ROUTE contract (route_mode entries có iframe entry hợp lệ, legacy_params template hợp lệ).';
 	}
 	public function severity(): string    { return 'warning'; }
 	public function order(): int          { return 62; }
@@ -288,6 +295,41 @@ final class BizCity_Probe_TwinShell_Boundary implements BizCity_Diagnostics_Prob
 			'detail' => $pro_contract_ok ? 'Astro/Doc/Image/Video entries expose PRO badge and package owner.' : 'missing=' . implode( ', ', $pro_missing ),
 		) );
 
+		// [2026-09-16 04:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-NAV-GROUP — prove the ActivityBar grouping contract: every plan-gated (non-must-load) entry sits in the bottom group, and QR Studio is the last entry of the top group so it is the visible boundary.
+		$group_contract_ok = true;
+		$group_problems    = array();
+		$top_ids           = array();
+		$last_top_id       = '';
+		foreach ( $plugins as $plugin_row ) {
+			if ( ! is_array( $plugin_row ) ) {
+				continue;
+			}
+			$row_id      = (string) ( $plugin_row['id'] ?? '' );
+			$row_section = (string) ( $plugin_row['section'] ?? '' );
+			if ( 'top' === $row_section ) {
+				$top_ids[]     = $row_id;
+				$last_top_id   = $row_id;
+			}
+			if ( ! empty( $plugin_row['has_plan_gate'] ) && 'bottom' !== $row_section ) {
+				$group_contract_ok = false;
+				$group_problems[]  = $row_id . '.section=' . $row_section . ' (expected bottom)';
+			}
+		}
+		if ( 'qr' !== $last_top_id ) {
+			$group_contract_ok = false;
+			$group_problems[]  = 'last_top=' . ( $last_top_id !== '' ? $last_top_id : 'none' ) . ' (expected qr)';
+		}
+		if ( ! $group_contract_ok ) {
+			$failed = true;
+		}
+		$ctx->emit_step( array(
+			'label'  => 'Layer 3 · ActivityBar grouping boundary',
+			'status' => $group_contract_ok ? 'pass' : 'fail',
+			'detail' => $group_contract_ok
+				? 'plan-gated entries are bottom · top group ends with qr (top=' . count( $top_ids ) . ')'
+				: implode( ', ', array_slice( $group_problems, 0, 8 ) ),
+		) );
+
 		$default_id = (string) $registry->default_id();
 		$iframe_url = $default_id !== '' ? (string) $registry->build_iframe_url( $default_id, array() ) : '';
 		$iframe_ok  = $iframe_url !== '' && strpos( $iframe_url, 'bizcity_iframe=1' ) !== false;
@@ -300,6 +342,69 @@ final class BizCity_Probe_TwinShell_Boundary implements BizCity_Diagnostics_Prob
 			'detail' => $iframe_ok
 				? 'default=' . $default_id . ' · bizcity_iframe=1 present'
 				: 'default=' . $default_id . ' · invalid iframe url',
+		) );
+
+		/* ------------------------------------------------------------
+		 * [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE — R-ROUTE contract
+		 * checks (TRC v1 §4.10). Mirrors the JS `routeEntryBase()` resolution logic
+		 * (twin-shell.js): a `route_mode != 'legacy'` entry with NEITHER `route_entry` NOR
+		 * `public_slug` set would make `buildIframeUrlForRoute()` return '' client-side,
+		 * silently breaking that entry's iframe entirely (`ensureIframe()` returns null,
+		 * nothing renders, no console error visible to an operator). This must FAIL, not warn
+		 * — it is a genuine misconfiguration, not "not migrated yet".
+		 * ------------------------------------------------------------ */
+		$route_mode_ids   = array();
+		$route_entry_ok   = true;
+		$route_entry_bad  = array();
+		$legacy_params_ok = true;
+		$legacy_params_bad = array();
+		foreach ( $plugins as $plugin_row ) {
+			if ( ! is_array( $plugin_row ) ) {
+				continue;
+			}
+			$row_id   = (string) ( $plugin_row['id'] ?? '' );
+			$row_mode = (string) ( $plugin_row['route_mode'] ?? 'legacy' );
+			if ( 'legacy' !== $row_mode ) {
+				$route_mode_ids[] = $row_id . '(' . $row_mode . ')';
+				$has_entry = '' !== trim( (string) ( $plugin_row['route_entry'] ?? '' ) )
+					|| '' !== trim( (string) ( $plugin_row['public_slug'] ?? '' ) );
+				if ( ! $has_entry ) {
+					$route_entry_ok  = false;
+					$route_entry_bad[] = $row_id . ' (no route_entry/public_slug — buildIframeUrlForRoute() would return empty)';
+				}
+			}
+
+			$legacy_params = is_array( $plugin_row['legacy_params'] ?? null ) ? $plugin_row['legacy_params'] : array();
+			foreach ( $legacy_params as $query_key => $template ) {
+				$template_str = (string) $template;
+				if ( '' === $template_str || '/' !== substr( $template_str, 0, 1 ) ) {
+					$legacy_params_ok = false;
+					$legacy_params_bad[] = $row_id . '.legacy_params.' . (string) $query_key . '="' . $template_str . '" (must be non-empty and start with /)';
+				}
+			}
+		}
+		if ( ! $route_entry_ok ) {
+			$failed = true;
+		}
+		$ctx->emit_step( array(
+			'label'  => 'Layer 3 · R-ROUTE · route_mode entries have a resolvable iframe entry',
+			'status' => $route_entry_ok ? 'pass' : 'fail',
+			'detail' => empty( $route_mode_ids )
+				? 'no entry has opted into route_mode yet (all legacy) — nothing to check'
+				: ( $route_entry_ok
+					? 'route_mode entries: ' . implode( ', ', $route_mode_ids ) . ' — all have route_entry or public_slug'
+					: implode( '; ', $route_entry_bad ) ),
+		) );
+
+		if ( ! $legacy_params_ok ) {
+			$failed = true;
+		}
+		$ctx->emit_step( array(
+			'label'  => 'Layer 3 · R-ROUTE · legacy_params template shape',
+			'status' => $legacy_params_ok ? 'pass' : 'fail',
+			'detail' => $legacy_params_ok
+				? 'every declared legacy_params template is a non-empty path starting with /'
+				: implode( '; ', $legacy_params_bad ),
 		) );
 
 		$uid = (int) get_current_user_id();

@@ -806,6 +806,10 @@ class BizCity_WebChat_Bot {
      * Enqueue frontend assets
      */
     public function enqueue_assets() {
+        // [2026-09-22 12:30 AM OpenAI GPT-5.6 Luna] CRM-BACKEND-SURFACE — never load public WebChat assets on the backend CRM route.
+        if ( function_exists( 'get_query_var' ) && 'crm' === get_query_var( 'bizcity_agent_page' ) ) {
+            return;
+        }
         // Chatbot shortcode CSS - luôn enqueue để sẵn sàng cho shortcode
         wp_enqueue_style(
             'bizcity-webchat-chatbot',
@@ -889,6 +893,10 @@ class BizCity_WebChat_Bot {
      * Render chat widget on frontend
      */
     public function render_chat_widget() {
+        // [2026-09-22 12:30 AM OpenAI GPT-5.6 Luna] CRM-BACKEND-SURFACE — /crm/ is an authenticated backend, not a customer chat page.
+        if ( function_exists( 'get_query_var' ) && 'crm' === get_query_var( 'bizcity_agent_page' ) ) {
+            return;
+        }
         if (!$this->is_widget_enabled()) return;
         
         // AI Agent blogs use their own full-page chat — hide the float widget

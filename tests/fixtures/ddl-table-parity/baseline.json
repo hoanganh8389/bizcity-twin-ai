@@ -1,0 +1,1147 @@
+{
+    "schema":  "bizcity-ddl-table-parity-baseline-v1",
+    "generated_at":  "2026-09-15T03:27:06Z",
+    "owner":  "WP2 — Deterministic Extension Adoption Gate",
+    "contract":  "R-DCL changelog tables must agree with diagnostics table registry and BizCity_Schema_Registry::register()",
+    "note":  "Reviewed legacy debt captured in report mode before --strict was enabled. New tables with the same fingerprint fail immediately.",
+    "source_counts":  {
+                          "changelog_tables":  142,
+                          "diagnostics_registry_tables":  100,
+                          "schema_registrations":  27,
+                          "total_findings":  133
+                      },
+    "known_findings":  [
+                           {
+                               "fingerprint":  "bccm_astro|diagnostics_registry+schema_registry",
+                               "table":  "bccm_astro",
+                               "module_id":  "bizcoach.astro",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bccm_astro_relations|diagnostics_registry+schema_registry",
+                               "table":  "bccm_astro_relations",
+                               "module_id":  "bizcoach.astro",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bccm_coachees|diagnostics_registry+schema_registry",
+                               "table":  "bccm_coachees",
+                               "module_id":  "bizcoach.astro",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bccm_transit_snapshots|diagnostics_registry+schema_registry",
+                               "table":  "bccm_transit_snapshots",
+                               "module_id":  "bizcoach.astro",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_ai_jobs|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_ai_jobs",
+                               "module_id":  "core.content-ops",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_automation_config_packs|diagnostics_registry",
+                               "table":  "bizcity_automation_config_packs",
+                               "module_id":  "core.automation",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_automation_config_rows|diagnostics_registry",
+                               "table":  "bizcity_automation_config_rows",
+                               "module_id":  "core.automation",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_automation_logs|schema_registry",
+                               "table":  "bizcity_automation_logs",
+                               "module_id":  "core.automation",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_automation_runs|schema_registry",
+                               "table":  "bizcity_automation_runs",
+                               "module_id":  "core.automation",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_automation_templates|schema_registry",
+                               "table":  "bizcity_automation_templates",
+                               "module_id":  "core.automation",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_automation_workflows|schema_registry",
+                               "table":  "bizcity_automation_workflows",
+                               "module_id":  "core.automation",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_brand_assets|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_brand_assets",
+                               "module_id":  "core.content-ops",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_cf7_submissions|diagnostics_registry",
+                               "table":  "bizcity_cf7_submissions",
+                               "module_id":  "modules.cf7-channel",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_channel_bindings|schema_registry",
+                               "table":  "bizcity_channel_bindings",
+                               "module_id":  "core.channel-gateway",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_channel_messages|schema_registry",
+                               "table":  "bizcity_channel_messages",
+                               "module_id":  "core.channel-gateway",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_channel_user_links|diagnostics_registry",
+                               "table":  "bizcity_channel_user_links",
+                               "module_id":  "core.channel-gateway",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_character_providers|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_character_providers",
+                               "module_id":  "core.persona",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_character_skills|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_character_skills",
+                               "module_id":  "core.persona",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_context_bank|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_context_bank",
+                               "module_id":  "core.context-bank",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_context_bank_rollup_state|schema_registry",
+                               "table":  "bizcity_context_bank_rollup_state",
+                               "module_id":  "core.context-bank",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_creator_categories|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_creator_categories",
+                               "module_id":  "modules.bzcc",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_creator_files|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_creator_files",
+                               "module_id":  "modules.bzcc",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_creator_templates|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_creator_templates",
+                               "module_id":  "modules.bzcc",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_accounts|schema_registry",
+                               "table":  "bizcity_crm_accounts",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_admin_chat_audit|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_admin_chat_audit",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_archive_receipts|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_archive_receipts",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_assignment_policies|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_assignment_policies",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_audit_log|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_audit_log",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_automation_rules|schema_registry",
+                               "table":  "bizcity_crm_automation_rules",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_broadcast_recipients|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_broadcast_recipients",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_broadcasts|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_broadcasts",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_campaign_visits|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_campaign_visits",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_campaigns|schema_registry",
+                               "table":  "bizcity_crm_campaigns",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_contacts|schema_registry",
+                               "table":  "bizcity_crm_contacts",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_contracts|schema_registry",
+                               "table":  "bizcity_crm_contracts",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_conversation_labels|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_conversation_labels",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_conversations|schema_registry",
+                               "table":  "bizcity_crm_conversations",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_custom_attribute_definitions|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_custom_attribute_definitions",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_events|schema_registry",
+                               "table":  "bizcity_crm_events",
+                               "module_id":  "core.scheduler",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_flows|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_flows",
+                               "module_id":  "modules.flows",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_identity_conflict_audit|diagnostics_registry",
+                               "table":  "bizcity_crm_identity_conflict_audit",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_identity_conflicts|diagnostics_registry",
+                               "table":  "bizcity_crm_identity_conflicts",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_inbox_assignment_policies|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_inbox_assignment_policies",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_inbox_members|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_inbox_members",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_inboxes|schema_registry",
+                               "table":  "bizcity_crm_inboxes",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_invoice_lines|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_invoice_lines",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_invoice_payments|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_invoice_payments",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_invoices|schema_registry",
+                               "table":  "bizcity_crm_invoices",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_labels|schema_registry",
+                               "table":  "bizcity_crm_labels",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_leads|schema_registry",
+                               "table":  "bizcity_crm_leads",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_macros|schema_registry",
+                               "table":  "bizcity_crm_macros",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_messages|schema_registry",
+                               "table":  "bizcity_crm_messages",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_notes_doc|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_notes_doc",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_opportunities|schema_registry",
+                               "table":  "bizcity_crm_opportunities",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_order_csat|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_order_csat",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_order_recap_log|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_order_recap_log",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_reporting_event_rollups|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_reporting_event_rollups",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_reporting_events|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_reporting_events",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_shipment_status_log|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_shipment_status_log",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_sla_policies|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_sla_policies",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_tasks|schema_registry",
+                               "table":  "bizcity_crm_tasks",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_team_members|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_team_members",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_teams|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_teams",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_crm_working_hours|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_crm_working_hours",
+                               "module_id":  "modules.twin-crm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_cron_locks|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_cron_locks",
+                               "module_id":  "core.cron",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_cron_registry|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_cron_registry",
+                               "module_id":  "core.cron",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_cron_retries|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_cron_retries",
+                               "module_id":  "core.cron",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_cron_runs|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_cron_runs",
+                               "module_id":  "core.cron",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_home_finance_categories|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_home_finance_categories",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_home_finance_entries|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_home_finance_entries",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_home_journal|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_home_journal",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_identity_bindings|diagnostics_registry",
+                               "table":  "bizcity_identity_bindings",
+                               "module_id":  "core.channel-gateway",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_identity_contacts|diagnostics_registry",
+                               "table":  "bizcity_identity_contacts",
+                               "module_id":  "core.channel-gateway",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_journal_entries|diagnostics_registry",
+                               "table":  "bizcity_journal_entries",
+                               "module_id":  "core.skills",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_kg_learning_batches|schema_registry",
+                               "table":  "bizcity_kg_learning_batches",
+                               "module_id":  "modules.twinchat.learning",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_kg_learning_events|schema_registry",
+                               "table":  "bizcity_kg_learning_events",
+                               "module_id":  "modules.twinchat.learning",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_kg_learning_jobs|schema_registry",
+                               "table":  "bizcity_kg_learning_jobs",
+                               "module_id":  "modules.twinchat.learning",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_kg_notebooks|schema_registry",
+                               "table":  "bizcity_kg_notebooks",
+                               "module_id":  "core.knowledge.kg-hub",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_kg_passages|schema_registry",
+                               "table":  "bizcity_kg_passages",
+                               "module_id":  "core.knowledge.kg-hub",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_kg_skeleton_history|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_kg_skeleton_history",
+                               "module_id":  "core.knowledge.kg-hub",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_kg_source_progress_log|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_kg_source_progress_log",
+                               "module_id":  "core.knowledge.kg-hub",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_kg_sources|schema_registry",
+                               "table":  "bizcity_kg_sources",
+                               "module_id":  "core.knowledge.kg-hub",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_llm_license_ledger|schema_registry",
+                               "table":  "bizcity_llm_license_ledger",
+                               "module_id":  "core.bizcity-llm-router",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_llm_usage|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_llm_usage",
+                               "module_id":  "core.bizcity-llm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_llm_usage_logs|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_llm_usage_logs",
+                               "module_id":  "core.bizcity-llm",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_log_index|schema_registry",
+                               "table":  "bizcity_log_index",
+                               "module_id":  "core.helper",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_mcp_audit_log|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_mcp_audit_log",
+                               "module_id":  "core.mcp",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_member_payments|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_member_payments",
+                               "module_id":  "core.membership",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_member_subscriptions|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_member_subscriptions",
+                               "module_id":  "core.membership",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_member_usage|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_member_usage",
+                               "module_id":  "core.membership",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_memory|schema_registry",
+                               "table":  "bizcity_memory",
+                               "module_id":  "core.memory.unified",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_memory_episodic|schema_registry",
+                               "table":  "bizcity_memory_episodic",
+                               "module_id":  "core.intent.memory.episodic",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_memory_notes|schema_registry",
+                               "table":  "bizcity_memory_notes",
+                               "module_id":  "modules.twinchat.memory.notes",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_memory_rolling|schema_registry",
+                               "table":  "bizcity_memory_rolling",
+                               "module_id":  "core.intent.memory.rolling",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_memory_session|schema_registry",
+                               "table":  "bizcity_memory_session",
+                               "module_id":  "modules.webchat",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_memory_users|schema_registry",
+                               "table":  "bizcity_memory_users",
+                               "module_id":  "core.knowledge.memory",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_notebook_character_attachments|schema_registry",
+                               "table":  "bizcity_notebook_character_attachments",
+                               "module_id":  "core.knowledge.kg-hub",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_personal_notebook_chunks|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_personal_notebook_chunks",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_personal_notebook_pages|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_personal_notebook_pages",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_personal_notebooks|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_personal_notebooks",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_personal_profile_analytics_events|diagnostics_registry",
+                               "table":  "bizcity_personal_profile_analytics_events",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_personal_profile_cards|diagnostics_registry",
+                               "table":  "bizcity_personal_profile_cards",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_personal_profile_qrcodes|diagnostics_registry",
+                               "table":  "bizcity_personal_profile_qrcodes",
+                               "module_id":  "modules.personal",
+                               "missing":  [
+                                               "diagnostics_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_post_targets|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_post_targets",
+                               "module_id":  "core.content-ops",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_posts|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_posts",
+                               "module_id":  "core.content-ops",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_schedule_queue|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_schedule_queue",
+                               "module_id":  "core.content-ops",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_sheet_cells|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_sheet_cells",
+                               "module_id":  "twinbrain.sheets",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_sheets|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_sheets",
+                               "module_id":  "twinbrain.sheets",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_tool_registry|schema_registry",
+                               "table":  "bizcity_tool_registry",
+                               "module_id":  "core.intent",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_twin_event_stream|schema_registry",
+                               "table":  "bizcity_twin_event_stream",
+                               "module_id":  "core.twinbrain",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_twin_goal_contracts|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_twin_goal_contracts",
+                               "module_id":  "core.twinbrain",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_twinweb_artifact_jobs|schema_registry",
+                               "table":  "bizcity_twinweb_artifact_jobs",
+                               "module_id":  "modules.twinweb",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_twinweb_threads|schema_registry",
+                               "table":  "bizcity_twinweb_threads",
+                               "module_id":  "modules.twinweb",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_webchat_sources|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_webchat_sources",
+                               "module_id":  "modules.webchat",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_webchat_task_steps|schema_registry",
+                               "table":  "bizcity_webchat_task_steps",
+                               "module_id":  "modules.webchat",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_zalo_accounts|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_zalo_accounts",
+                               "module_id":  "modules.zalo-personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_zalo_message_map|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_zalo_message_map",
+                               "module_id":  "modules.zalo-personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bizcity_zalo_oa_window|diagnostics_registry+schema_registry",
+                               "table":  "bizcity_zalo_oa_window",
+                               "module_id":  "modules.zalo-personal",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bzcrm_print_generations|diagnostics_registry+schema_registry",
+                               "table":  "bzcrm_print_generations",
+                               "module_id":  "modules.crm.print-ads",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bzcrm_print_templates|diagnostics_registry+schema_registry",
+                               "table":  "bzcrm_print_templates",
+                               "module_id":  "modules.crm.print-ads",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_compositions|schema_registry",
+                               "table":  "bztimg_compositions",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_editor_fonts|schema_registry",
+                               "table":  "bztimg_editor_fonts",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_editor_frames|schema_registry",
+                               "table":  "bztimg_editor_frames",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_editor_shapes|schema_registry",
+                               "table":  "bztimg_editor_shapes",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_editor_templates|schema_registry",
+                               "table":  "bztimg_editor_templates",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_editor_text_presets|schema_registry",
+                               "table":  "bztimg_editor_text_presets",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_jobs|schema_registry",
+                               "table":  "bztimg_jobs",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_projects|schema_registry",
+                               "table":  "bztimg_projects",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_template_categories|schema_registry",
+                               "table":  "bztimg_template_categories",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "bztimg_templates|schema_registry",
+                               "table":  "bztimg_templates",
+                               "module_id":  "modules.tool-image",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "global_inbox_admin|schema_registry",
+                               "table":  "global_inbox_admin",
+                               "module_id":  "core.channel-gateway",
+                               "missing":  [
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "user_points|diagnostics_registry+schema_registry",
+                               "table":  "user_points",
+                               "module_id":  "modules.user-points",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "user_points_exchange|diagnostics_registry+schema_registry",
+                               "table":  "user_points_exchange",
+                               "module_id":  "modules.user-points",
+                               "missing":  [
+                                               "diagnostics_registry",
+                                               "schema_registry"
+                                           ]
+                           }
+                       ]
+}

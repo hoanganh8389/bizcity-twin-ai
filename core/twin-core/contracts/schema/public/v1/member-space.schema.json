@@ -1,0 +1,341 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/member-space.schema.json",
+  "title": "BizCity Member Personal Space",
+  "description": "PHASE-0.52 M0: one member personal space — own numbers only (no team averages, no ranking). The monthly goal is set by the team leader (Staff_Policy staff.set_goal) and is read-only for the member. The leader reads the same DTO read-only on B2 (audited).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "surface",
+    "as_of",
+    "customers",
+    "counts",
+    "no_next",
+    "assigned",
+    "week",
+    "goal",
+    "won_month"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "contract": {
+      "const": "member-space"
+    },
+    "version": {
+      "const": "1.0.0"
+    },
+    "surface": {
+      "enum": [
+        "B2_ADMIN_CRM",
+        "C_PUBLIC_TWINGPT"
+      ]
+    },
+    "as_of": {
+      "type": "string",
+      "minLength": 10
+    },
+    "read_only": {
+      "type": "boolean"
+    },
+    "can_set_goal": {
+      "type": "boolean"
+    },
+    "goal_set_by_leader": {
+      "type": "boolean"
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "display_name"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "display_name": {
+          "type": "string",
+          "maxLength": 120
+        }
+      }
+    },
+    "customers": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "counts": {
+      "type": "object"
+    },
+    "no_next": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stuck": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "assigned": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "open",
+        "overdue",
+        "unseen"
+      ],
+      "properties": {
+        "open": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "overdue": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unseen": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "week": {
+      "type": "array",
+      "maxItems": 14,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "tasks",
+          "today"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "tasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "today": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "goal": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "month",
+        "won_target"
+      ],
+      "properties": {
+        "month": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}$"
+        },
+        "won_target": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "set_by": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "set_at": {
+          "type": "string"
+        }
+      }
+    },
+    "won_month": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "first": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contact_id",
+          "display_name",
+          "stage",
+          "days",
+          "stuck",
+          "has_next"
+        ],
+        "properties": {
+          "contact_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "stage": {
+            "enum": [
+              "target",
+              "contacted",
+              "consult",
+              "quote",
+              "won",
+              "repeat",
+              "dormant",
+              "lost"
+            ]
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stuck": {
+            "type": "boolean"
+          },
+          "has_next": {
+            "type": "boolean"
+          },
+          "next_due": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overdue_tasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "manual_won_pending": {
+            "type": "boolean"
+          },
+          "paid_orders": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conversation_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "inbox_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "steps_done": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "channel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z0-9_]{0,40}$"
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 191
+          },
+          "task": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "recent": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "at",
+          "kind",
+          "contact_id"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "stage_changed",
+              "outcome_logged"
+            ]
+          },
+          "contact": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "contact_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "outcome": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "phones": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "attention"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attention": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "capped": {
+      "type": "boolean"
+    }
+  }
+}

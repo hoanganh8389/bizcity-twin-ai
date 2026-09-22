@@ -1,0 +1,40 @@
+{
+  "schema_version": "fixture",
+  "tables": {
+    "bizcity_context_bank": {
+      "purpose": "Fixture: pointer-only ledger.",
+      "note": "Pointer, hash and identity dimensions only.",
+      "columns": {
+        "id": {
+          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          "since": "1.0.0",
+          "pk": true
+        },
+        "blog_id": {
+          "type": "BIGINT UNSIGNED NOT NULL",
+          "since": "1.0.0"
+        },
+        "record_id": {
+          "type": "VARCHAR(191) NOT NULL",
+          "since": "1.0.0"
+        },
+        "relative_file": {
+          "type": "VARCHAR(500) NOT NULL",
+          "since": "1.0.0"
+        },
+        "byte_offset": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.0.0"
+        },
+        "row_hash": {
+          "type": "CHAR(64) NOT NULL DEFAULT ''",
+          "since": "1.0.0"
+        },
+        "content_hash": {
+          "type": "CHAR(64) NOT NULL DEFAULT ''",
+          "since": "1.0.0"
+        }
+      }
+    }
+  }
+}

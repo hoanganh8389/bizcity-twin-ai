@@ -178,6 +178,16 @@ class BizCity_TwinChat_REST_Controller {
 			],
 		] );
 
+		register_rest_route( $ns, '/public/kg/(?P<token>[A-Za-z0-9_.-]+)', [
+			'methods' => 'GET', 'callback' => [ $this, 'public_kg_graph' ], 'permission_callback' => '__return_true',
+		] );
+		register_rest_route( $ns, '/public/ask/(?P<token>[A-Za-z0-9_.-]+)', [
+			'methods' => 'POST', 'callback' => [ $this, 'public_kg_ask' ], 'permission_callback' => '__return_true',
+		] );
+		register_rest_route( $ns, '/public/mcp/(?P<token>[A-Za-z0-9_.-]+)', [
+			'methods' => 'POST', 'callback' => [ $this, 'public_kg_mcp' ], 'permission_callback' => '__return_true',
+		] );
+
 		// Delete legacy passages by origin string (for notebooks predating bizcity_twinchat_sources)
 		// Sprint 5.0d — FE→BE event dispatch (whitelisted user-action types only).
 		// All other event types must be emitted server-side via Event_Bus::dispatch_v2().
@@ -268,6 +278,58 @@ class BizCity_TwinChat_REST_Controller {
 		if ( ! is_user_logged_in() ) {
 			return new WP_Error( 'rest_forbidden', 'Login required.', [ 'status' => 401 ] );
 		}
+		return true;
+	}
+
+	public function public_kg_graph( WP_REST_Request $req ) {
+		if ( ! $this->public_link_rate_ok( $req['token'], 'graph' ) ) return new WP_Error( 'kg_public_rate_limited', 'Quá nhiều yêu cầu. Vui lòng thử lại sau.', array( 'status' => 429 ) );
+		$claims = BizCity_KG_Public_Link_Service::resolve( $req['token'], 'graph' );
+		if ( is_wp_error( $claims ) ) return $claims;
+		if ( 'notebook' !== $claims['typ'] ) return new WP_Error( 'kg_public_graph_scope', 'Đồ thị workspace chưa được hỗ trợ ở endpoint này.' );
+		if ( ! class_exists( 'BizCity_KG_Graph_Service' ) ) return new WP_Error( 'kg_graph_unavailable', 'KG graph chưa sẵn sàng.', array( 'status' => 503 ) );
+		nocache_headers();
+		header( 'X-Robots-Tag: noindex, nofollow', true );
+		return rest_ensure_response( BizCity_KG_Graph_Service::instance()->get_full_graph( (int) $claims['id'], 200 ) );
+	}
+
+	public function public_kg_ask( WP_REST_Request $req ) {
+		if ( ! $this->public_link_rate_ok( $req['token'], 'ask' ) ) return new WP_Error( 'kg_public_rate_limited', 'Quá nhiều yêu cầu. Vui lòng thử lại sau.', array( 'status' => 429 ) );
+		$claims = BizCity_KG_Public_Link_Service::resolve( $req['token'], 'ask' );
+		if ( is_wp_error( $claims ) ) return $claims;
+		if ( 'notebook' !== $claims['typ'] ) return new WP_Error( 'kg_public_ask_scope', 'Hỏi đáp workspace chưa được hỗ trợ ở endpoint này.' );
+		$data = $req->get_json_params() ?: $req->get_params();
+		$question = sanitize_textarea_field( (string) ( $data['question'] ?? '' ) );
+		if ( '' === $question ) return new WP_Error( 'kg_public_question_required', 'Câu hỏi không được để trống.', array( 'status' => 400 ) );
+		if ( ! class_exists( 'BizCity_KG_Retriever' ) ) return new WP_Error( 'kg_retriever_unavailable', 'KG retriever chưa sẵn sàng.', array( 'status' => 503 ) );
+		nocache_headers();
+		header( 'X-Robots-Tag: noindex, nofollow', true );
+		return rest_ensure_response( BizCity_KG_Retriever::instance()->ask( (int) $claims['id'], $question, array( 'public_link_scope' => true, 'persist_conversation' => false ) ) );
+	}
+
+	public function public_kg_mcp( WP_REST_Request $req ) {
+		if ( ! $this->public_link_rate_ok( $req['token'], 'mcp' ) ) return new WP_Error( 'kg_public_rate_limited', 'Quá nhiều yêu cầu. Vui lòng thử lại sau.', array( 'status' => 429 ) );
+		$claims = BizCity_KG_Public_Link_Service::resolve( $req['token'], 'mcp' );
+		if ( is_wp_error( $claims ) ) return $claims;
+		$body = $req->get_json_params() ?: array();
+		$method = (string) ( $body['method'] ?? 'tools/call' );
+		$id = $body['id'] ?? null;
+		if ( $method === 'tools/list' ) {
+			return rest_ensure_response( array( 'jsonrpc' => '2.0', 'id' => $id, 'result' => array( 'tools' => array( array( 'name' => 'kg.ask', 'description' => 'Hỏi đáp chỉ trong KG của public link.', 'inputSchema' => array( 'type' => 'object', 'properties' => array( 'question' => array( 'type' => 'string' ) ), 'required' => array( 'question' ) ) ) ) ) ) );
+		}
+		$args = isset( $body['params']['arguments'] ) && is_array( $body['params']['arguments'] ) ? $body['params']['arguments'] : array();
+		if ( $method !== 'tools/call' || (string) ( $body['params']['name'] ?? '' ) !== 'kg.ask' ) return new WP_Error( 'kg_public_mcp_read_only', 'Public MCP chỉ hỗ trợ tool kg.ask.', array( 'status' => 400 ) );
+		$question = sanitize_textarea_field( (string) ( $args['question'] ?? '' ) );
+		if ( $question === '' ) return new WP_Error( 'kg_public_question_required', 'Câu hỏi không được để trống.', array( 'status' => 400 ) );
+		$answer = BizCity_KG_Retriever::instance()->ask( (int) $claims['id'], $question, array( 'public_link_scope' => true, 'persist_conversation' => false ) );
+		return rest_ensure_response( array( 'jsonrpc' => '2.0', 'id' => $id, 'result' => array( 'content' => array( array( 'type' => 'text', 'text' => wp_json_encode( $answer ) ) ), 'isError' => false ) ) );
+	}
+
+	private function public_link_rate_ok( $token, $door ) {
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( (string) $_SERVER['REMOTE_ADDR'] ) : 'unknown';
+		$key = 'kg_pub_rate_' . md5( $door . '|' . $token . '|' . $ip );
+		$count = (int) get_transient( $key );
+		if ( $count >= 60 ) return false;
+		set_transient( $key, $count + 1, MINUTE_IN_SECONDS );
 		return true;
 	}
 

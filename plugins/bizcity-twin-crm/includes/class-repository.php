@@ -16,6 +16,44 @@ defined( 'ABSPATH' ) || exit;
 
 class BizCity_CRM_Repository {
 
+	/**
+	 * Build the bounded SQL preview used by Inbox list/read models.
+	 *
+	 * The preview is an index hint, never the cold-storage body. Existing rows
+	 * with a NULL preview remain readable through the legacy content path until
+	 * the H-02 backfill runs; new rows always receive a bounded value here.
+	 *
+	 * @param string $content
+	 * @param string $content_type
+	 * @param array  $attachments
+	 * @return string
+	 */
+	public static function make_content_preview( string $content, string $content_type = 'text', array $attachments = array() ): string {
+		// [2026-09-19 12:00 PM Johnny Chu] PHASE-0.56-H-02 — persist a bounded, body-independent preview at the canonical message write gate.
+		$plain = wp_strip_all_tags( $content );
+		$normalized = preg_replace( '/\s+/u', ' ', $plain );
+		$preview = trim( is_string( $normalized ) ? $normalized : $plain );
+		if ( '' !== $preview ) {
+			return function_exists( 'mb_substr' ) ? mb_substr( $preview, 0, 255 ) : substr( $preview, 0, 255 );
+		}
+
+		$type = sanitize_key( $content_type );
+		if ( 'sticker' === $type ) { return '[Sticker]'; }
+		if ( 'image' === $type ) { return '[Ảnh]'; }
+		if ( in_array( $type, array( 'audio', 'voice' ), true ) ) { return '[Audio]'; }
+		if ( 'video' === $type ) { return '[Video]'; }
+		foreach ( $attachments as $attachment ) {
+			if ( ! is_array( $attachment ) ) { continue; }
+			$attachment_type = sanitize_key( (string) ( $attachment['file_type'] ?? $attachment['type'] ?? 'file' ) );
+			if ( 'image' === $attachment_type ) { return '[Ảnh]'; }
+			if ( 'sticker' === $attachment_type ) { return '[Sticker]'; }
+			if ( in_array( $attachment_type, array( 'audio', 'voice' ), true ) ) { return '[Audio]'; }
+			if ( 'video' === $attachment_type ) { return '[Video]'; }
+			if ( '' !== $attachment_type ) { return '[Tệp]'; }
+		}
+		return '';
+	}
+
 	/* ============================================================
 	 * INBOX
 	 * ============================================================ */
@@ -112,6 +150,65 @@ class BizCity_CRM_Repository {
 		if ( class_exists( 'BizCity_Cache' ) ) {
 			BizCity_Cache::flush_group( 'crm_repository' );
 		}
+		self::queue_change_signal();
+	}
+
+	/** @var bool One signal write per request, registered on the first CRM write. */
+	private static $change_signal_pending = false;
+
+	/**
+	 * Mark that CRM data of this site changed; the marker file is rewritten once at shutdown (after every write of the request).
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — browsers poll this static file (no PHP) and only call
+	 * the Inbox REST delta when it changes. Each REST poll costs a full WordPress bootstrap (~1.5–4s on bizcity.vn),
+	 * which saturated PHP workers (Cloudflare 520/522/525). The file holds only an opaque version, never CRM data.
+	 */
+	public static function queue_change_signal(): void {
+		if ( self::$change_signal_pending ) { return; }
+		self::$change_signal_pending = true;
+		register_shutdown_function( array( __CLASS__, 'write_change_signal' ) );
+	}
+
+	/** Atomically rewrite the per-site change marker. */
+	public static function write_change_signal(): void {
+		self::$change_signal_pending = false;
+		$path = self::change_signal_path();
+		if ( '' === $path ) { return; }
+		$tmp = $path . '.' . getmypid() . '-' . mt_rand( 1000, 9999 ) . '.tmp';
+		$payload = (string) wp_json_encode( array( 'v' => uniqid( '', true ), 't' => time() ) );
+		if ( false === @file_put_contents( $tmp, $payload, LOCK_EX ) ) { return; }
+		if ( ! @rename( $tmp, $path ) ) { @unlink( $tmp ); }
+	}
+
+	/**
+	 * Public URL of this site's change marker, created on first use; '' when uploads are not writable.
+	 */
+	public static function change_signal_url(): string {
+		$path = self::change_signal_path();
+		if ( '' === $path ) { return ''; }
+		if ( ! file_exists( $path ) ) {
+			self::write_change_signal();
+			if ( ! file_exists( $path ) ) { return ''; }
+		}
+		$uploads = wp_upload_dir( null, false );
+		return set_url_scheme( trailingslashit( (string) $uploads['baseurl'] ) . 'bizcity-crm-signal/' . self::change_signal_name() . '.json' );
+	}
+
+	private static function change_signal_name(): string {
+		// Unguessable per site; knowing it only reveals that some CRM record of the site changed.
+		return substr( hash_hmac( 'sha256', 'crm-change-signal|' . get_current_blog_id(), wp_salt( 'auth' ) ), 0, 32 );
+	}
+
+	private static function change_signal_path(): string {
+		if ( ! function_exists( 'wp_upload_dir' ) || ! function_exists( 'wp_salt' ) ) { return ''; }
+		$uploads = wp_upload_dir( null, false );
+		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) { return ''; }
+		$dir = trailingslashit( (string) $uploads['basedir'] ) . 'bizcity-crm-signal';
+		if ( ! is_dir( $dir ) ) {
+			if ( ! wp_mkdir_p( $dir ) ) { return ''; }
+			@file_put_contents( $dir . '/index.html', '' );
+		}
+		return $dir . '/' . self::change_signal_name() . '.json';
 	}
 
 	public static function get_inbox( int $id ): ?array {
@@ -210,6 +307,23 @@ class BizCity_CRM_Repository {
 			}
 		}
 		return self::purge_inbox( $inbox_id ) ? 'deleted' : 'inbox_delete_failed';
+	}
+
+	/**
+	 * [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N4 (S5 `mode=purge`) — hard-delete a REAL,
+	 * actively-managed Zalo Personal inbox and everything under it. `delete_inbox()` above only
+	 * accepts test/diagnostic fixtures and `delete_legacy_zalo_personal_inbox()` only unmapped legacy
+	 * channels — this is for exactly the case those two refuse: a live managed inbox someone actually
+	 * wants gone. The caller (`class-staff-rest.php::remove_phone()`) MUST have already gated this
+	 * behind admin-only + a typed confirmation and torn down the Hub-side session first — this method
+	 * re-checks none of that, it only confirms the inbox really is a `zalo_personal` one so a bad
+	 * `inbox_id` can never wipe an unrelated channel.
+	 */
+	public static function purge_managed_personal_inbox( int $inbox_id ): bool {
+		if ( $inbox_id <= 0 ) { return false; }
+		$inbox = self::get_inbox( $inbox_id );
+		if ( ! $inbox || 'zalo_personal' !== strtolower( (string) ( $inbox['channel_type'] ?? '' ) ) ) { return false; }
+		return self::purge_inbox( $inbox_id );
 	}
 
 	/** Purge data owned by one inbox inside a transaction. */
@@ -335,6 +449,16 @@ class BizCity_CRM_Repository {
 			$wpdb->update( $inboxes_table, array( 'last_seen_at' => current_time( 'mysql' ) ), array( 'id' => $contact_inbox_id ) );
 		}
 		self::invalidate_read_models();
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.22A-WP5 — emit one canonical contact upsert event after identity/contact-inbox mutation succeeds.
+		if ( $contact_inbox_id > 0 && class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_contact_upserted', array(
+				'contact_id'       => $contact_id,
+				'inbox_id'         => $inbox_id,
+				'contact_inbox_id' => $contact_inbox_id,
+				'source_id'        => $source_id,
+				'action'           => $action,
+			) );
+		}
 		return array( 'contact_id' => $contact_id, 'contact_inbox_id' => $contact_inbox_id, 'action' => $action );
 	}
 
@@ -627,6 +751,27 @@ class BizCity_CRM_Repository {
 	}
 
 	/**
+	 * Resolve the canonical contact_id for a conversation.
+	 *
+	 * [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CRM-CONTEXT — the
+	 * conversations table stores `contact_inbox_id`, not `contact_id`, so any
+	 * caller that needs the customer reference must join `contact_inboxes`.
+	 * Returning 0 means the conversation has no linked contact profile yet; the
+	 * caller must fail closed instead of inventing an identity.
+	 */
+	public static function get_conversation_contact_id( int $conversation_id ): int {
+		global $wpdb;
+		if ( $conversation_id <= 0 ) { return 0; }
+		$tbl_conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$contact_id = $wpdb->get_var( $wpdb->prepare(
+			"SELECT ci.contact_id FROM {$tbl_conv} c JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id WHERE c.id = %d LIMIT 1",
+			$conversation_id
+		) );
+		return (int) $contact_id;
+	}
+
+	/**
 	 * List conversations with optional inbox filter, status filter, and pagination.
 	 *
 	 * @param array $args { id?, inbox_id?, status?, priority?, snoozed?, assignee_id?, unassigned?, participating_user_id?, unattended?, q?, limit?, before_id? }
@@ -655,7 +800,7 @@ class BizCity_CRM_Repository {
 					ci.source_id, ci.contact_id,
 					ct.name AS contact_name, ct.avatar_url AS contact_avatar,
 					ct.additional_attributes AS contact_attributes,
-					m.content AS last_message_content,
+					m.content_preview AS last_message_content,
 					m.message_type AS last_message_type,
 					m.sender_type AS last_sender_type,
 					m.created_at AS last_message_at
@@ -740,6 +885,10 @@ class BizCity_CRM_Repository {
 			$where[] = 'c.id IN ( SELECT conversation_id FROM ' . BizCity_CRM_DB_Installer_V2::tbl_conversation_labels() . ' WHERE label_id = %d )';
 			$params[] = (int) $args['label_id'];
 		}
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-LABEL-FILTER — "Chưa gắn nhãn" Inbox filter.
+		if ( ! empty( $args['unlabeled'] ) ) {
+			$where[] = 'c.id NOT IN ( SELECT conversation_id FROM ' . BizCity_CRM_DB_Installer_V2::tbl_conversation_labels() . ' )';
+		}
 		if ( ! empty( $args['contact_wp_user_id'] ) ) { $where[] = 'ct.wp_user_id = %d'; $params[] = (int) $args['contact_wp_user_id']; }
 		if ( isset( $args['thread_kind'] ) && in_array( (string) $args['thread_kind'], array( 'group', 'personal' ), true ) ) {
 			$where[] = 'group' === (string) $args['thread_kind'] ? "ci.source_id LIKE 'group:%'" : "ci.source_id NOT LIKE 'group:%'";
@@ -777,6 +926,22 @@ class BizCity_CRM_Repository {
 		return is_array( $rows ) ? $rows : array();
 	}
 
+	private static function contact_care_cache_key( int $contact_id, array $allowed_inbox_ids, int $limit ): string {
+		global $wpdb;
+		return 'contact_care_' . get_current_blog_id() . '_' . md5( (string) ( $wpdb->dbname ?? '' ) ) . '_' . md5( $contact_id . ':' . implode( ',', $allowed_inbox_ids ) . ':' . $limit );
+	}
+
+	/**
+	 * Drop one cached care projection after a note/task/event/label write.
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY — group flush is unsupported on some object caches, which left the C rail showing stale labels.
+	 */
+	public static function forget_contact_care_projection( int $contact_id, array $allowed_inbox_ids, int $limit = 30 ): void {
+		if ( $contact_id <= 0 || ! class_exists( 'BizCity_Cache' ) ) { return; }
+		$allowed_inbox_ids = array_values( array_unique( array_filter( array_map( 'absint', $allowed_inbox_ids ) ) ) );
+		if ( empty( $allowed_inbox_ids ) ) { return; }
+		BizCity_Cache::delete( 'crm_repository', self::contact_care_cache_key( $contact_id, $allowed_inbox_ids, max( 1, min( 100, $limit ) ) ) );
+	}
+
 	/** Return contact-scoped care projections after Inbox scope is resolved. */
 	public static function get_contact_care_projection( int $contact_id, array $allowed_inbox_ids, int $limit = 30 ): array {
 		// [2026-09-10 03:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CARE — keep notes/tasks/labels contact-scoped in the canonical CRM repository.
@@ -785,7 +950,7 @@ class BizCity_CRM_Repository {
 		$allowed_inbox_ids = array_values( array_unique( array_filter( array_map( 'absint', $allowed_inbox_ids ) ) ) );
 		if ( empty( $allowed_inbox_ids ) ) { return array( 'notes' => array(), 'tasks' => array(), 'labels' => array() ); }
 		$limit = max( 1, min( 100, $limit ) );
-		$cache_key = 'contact_care_' . get_current_blog_id() . '_' . md5( (string) ( $wpdb->dbname ?? '' ) ) . '_' . md5( $contact_id . ':' . implode( ',', $allowed_inbox_ids ) . ':' . $limit );
+		$cache_key = self::contact_care_cache_key( $contact_id, $allowed_inbox_ids, $limit );
 		if ( class_exists( 'BizCity_Cache' ) ) {
 			$cached = BizCity_Cache::get( 'crm_repository', $cache_key );
 			if ( false !== $cached && is_array( $cached ) ) { return $cached; }
@@ -803,6 +968,7 @@ class BizCity_CRM_Repository {
 				AND m.message_type = 'private_note'
 			ORDER BY m.id DESC LIMIT %d";
 		$notes = $wpdb->get_results( $wpdb->prepare( $notes_sql, $params ), ARRAY_A );
+		$notes = self::hydrate_messages( is_array( $notes ) ? $notes : array() );
 
 		$tasks = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
 		$task_sql = "SELECT id, title, status, priority, due_date, assignee_id, related_entity_type, related_entity_id, notes, completed, completed_at, created_at, updated_at
@@ -1206,12 +1372,19 @@ class BizCity_CRM_Repository {
 		$sender   = (string) ( $data['sender_type']  ?? 'contact' );
 		$ai_meta  = isset( $data['ai_metadata'] ) && is_array( $data['ai_metadata'] )
 			? wp_json_encode( $data['ai_metadata'] ) : null;
+		$attachments = isset( $data['attachments'] ) && is_array( $data['attachments'] ) ? $data['attachments'] : array();
+		$preview = self::make_content_preview(
+			(string) ( $data['content'] ?? '' ),
+			(string) ( $data['content_type'] ?? 'text' ),
+			$attachments
+		);
 
 		$row = array(
 			'conversation_id'    => $conv_id,
 			'inbox_id'           => $inbox_id,
 			'external_source_id' => $ext !== '' ? $ext : null,
 			'content'            => (string) ( $data['content'] ?? '' ),
+			'content_preview'    => $preview !== '' ? $preview : null,
 			'content_type'       => (string) ( $data['content_type'] ?? 'text' ),
 			'message_type'       => $msg_type,
 			'sender_type'        => $sender,
@@ -1247,15 +1420,62 @@ class BizCity_CRM_Repository {
 		}
 
 		// Denormalize on conversation.
-		$wpdb->update(
-			BizCity_CRM_DB_Installer_V2::tbl_conversations(),
-			array(
-				'last_message_id'  => $msg_id,
-				'last_activity_at' => $row['created_at'],
-				'updated_at'       => $now,
-			),
-			array( 'id' => $conv_id )
-		);
+		// [2026-09-19 Johnny Chu] PHASE-0.56 D-1 — `waiting_since`/`first_reply_at`/`unread_count`
+		// verified (0.48F class-staff-rest.php comment, re-verified here) to have NO writer anywhere
+		// in this plugin before this change; every reader of them silently saw NULL/0 forever. This is
+		// the one insertion point every message (customer or staff) already passes through, so it is
+		// the only place these three columns need a writer. Rules, matching the project's existing
+		// "AI doesn't count as a human answering" convention (0.48F/0.52 reply-rate/FRT already exclude
+		// AI): an incoming (customer) message starts the wait clock only if it isn't already running —
+		// a burst of customer messages keeps the ORIGINAL wait start, not the latest one; only a
+		// `responder_kind==='manual'` outgoing message (a human, not the AI replier) stops the wait
+		// clock, records the first-reply timestamp (once) and clears the unread badge. An AI-only
+		// reply leaves `waiting_since` running on purpose — a human still hasn't answered.
+		$conv_tbl = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		if ( 'incoming' === $msg_type ) {
+			// [2026-09-22 11:30 AM OpenAI GPT-5.6 Luna] HOTFIX — waiting_since is a BIGINT epoch on the CRM schema, not a DATETIME string.
+			$wpdb->query( $wpdb->prepare(
+				"UPDATE `{$conv_tbl}` SET last_message_id = %d, last_activity_at = %s, updated_at = %s,
+					waiting_since = COALESCE(waiting_since, %s), unread_count = unread_count + 1
+				 WHERE id = %d",
+				$msg_id, $row['created_at'], $now, (int) strtotime( (string) $row['created_at'] ), $conv_id
+			) );
+		} elseif ( 'outgoing' === $msg_type && 'manual' === (string) ( $data['responder_kind'] ?? '' ) ) {
+			// PHASE-0.56 D-5 — read the pre-update row first: need to know whether `first_reply_at`
+			// was still NULL (this is the actual first reply, not a later one) before this same
+			// query sets it.
+			$prior = $wpdb->get_row( $wpdb->prepare( "SELECT created_at, first_reply_at, assignee_id FROM `{$conv_tbl}` WHERE id = %d", $conv_id ), ARRAY_A );
+			$wpdb->query( $wpdb->prepare(
+				"UPDATE `{$conv_tbl}` SET last_message_id = %d, last_activity_at = %s, updated_at = %s,
+					waiting_since = NULL, first_reply_at = COALESCE(first_reply_at, %s), unread_count = 0
+				 WHERE id = %d",
+				$msg_id, $row['created_at'], $now, $row['created_at'], $conv_id
+			) );
+			// PHASE-0.56 D-5 — `conv_handled`/`conv_first_reply` rollup facts, gated the same way
+			// `fetch_reply_aggregates()` already computes "replied by X" live (documented known
+			// simplification there: `responder_user_id = c.assignee_id` at read time) — so switching
+			// the dashboard from that live query to these rollups later (D-7) does not shift the
+			// numbers. `record_fact()` dedupes on its seed, so replays/retries never double-count.
+			$responder_user_id = isset( $data['responder_user_id'] ) ? (int) $data['responder_user_id'] : 0;
+			if ( $responder_user_id > 0 && is_array( $prior ) && (int) ( $prior['assignee_id'] ?? 0 ) === $responder_user_id && class_exists( 'BizCity_CRM_Reporting_Rollup' ) ) {
+				$day = substr( $row['created_at'], 0, 10 );
+				BizCity_CRM_Reporting_Rollup::record_fact( 'conv_handled', $responder_user_id, $row['created_at'], 1, 'conv_handled|' . $conv_id . '|' . $responder_user_id . '|' . $day, $conv_id );
+				if ( null === ( $prior['first_reply_at'] ?? null ) && ! empty( $prior['created_at'] ) ) {
+					$frt_seconds = max( 0, strtotime( $row['created_at'] ) - strtotime( (string) $prior['created_at'] ) );
+					BizCity_CRM_Reporting_Rollup::record_fact( 'conv_first_reply', $responder_user_id, $row['created_at'], (float) $frt_seconds, 'conv_first_reply|' . $conv_id, $conv_id );
+				}
+			}
+		} else {
+			$wpdb->update(
+				$conv_tbl,
+				array(
+					'last_message_id'  => $msg_id,
+					'last_activity_at' => $row['created_at'],
+					'updated_at'       => $now,
+				),
+				array( 'id' => $conv_id )
+			);
+		}
 		self::invalidate_read_models();
 
 		// Emit appropriate event.
@@ -1284,7 +1504,9 @@ class BizCity_CRM_Repository {
 		global $wpdb;
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tbl} WHERE id = %d", $id ), ARRAY_A );
-		return $row ?: null;
+		if ( ! $row ) { return null; }
+		$hydrated = self::hydrate_messages( array( $row ) );
+		return $hydrated[0] ?? $row;
 	}
 
 	public static function mark_message_archived( int $message_id, string $channel, array $entry, string $key ): bool {
@@ -1368,6 +1590,8 @@ class BizCity_CRM_Repository {
 			array( '%d' )
 		);
 		if ( $updated ) {
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — delivery state changes must wake Inbox browsers (this path does not invalidate read models).
+			self::queue_change_signal();
 			// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — emit delivery lifecycle after SQL persistence for archive and analytics.
 			$event_uuid = class_exists( 'BizCity_CRM_Event_Emitter' )
 				? BizCity_CRM_Event_Emitter::emit( 'crm_message_delivery_updated', array(
@@ -1385,6 +1609,88 @@ class BizCity_CRM_Repository {
 			) );
 		}
 		return $updated;
+	}
+
+	/**
+	 * Bounded CRM-local freshness counters for one inbox.
+	 *
+	 * PHASE-0.41D §6.2 (D6). The C console must be able to say how old its CRM
+	 * snapshot is without pretending that a second SQL read proves provider or
+	 * bridge synchronisation. This reader therefore returns CRM facts only;
+	 * provider/bridge/session state stays with its own readiness owner.
+	 *
+	 * @param int $inbox_id CRM inbox id.
+	 * @return array{last_inbound_at:string,last_outbound_at:string,queued_outbound:int,message_count:int}
+	 */
+	public static function get_inbox_message_freshness( int $inbox_id ): array {
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D6 — CRM-local freshness only; never presented as provider/bridge health.
+		$empty = array( 'last_inbound_at' => '', 'last_outbound_at' => '', 'queued_outbound' => 0, 'message_count' => 0 );
+		if ( $inbox_id <= 0 ) {
+			return $empty;
+		}
+		$cache_key = 'inbox_freshness_' . $inbox_id;
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			$cached = BizCity_Cache::get( 'crm_repository', $cache_key );
+			if ( is_array( $cached ) ) {
+				return $cached;
+			}
+		}
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT
+				MAX( CASE WHEN message_type = 'incoming' THEN created_at END ) AS last_inbound_at,
+				MAX( CASE WHEN message_type = 'outgoing' THEN created_at END ) AS last_outbound_at,
+				SUM( CASE WHEN message_type = 'outgoing' AND status = 'queued' THEN 1 ELSE 0 END ) AS queued_outbound,
+				COUNT(*) AS message_count
+			FROM {$tbl} WHERE inbox_id = %d",
+			$inbox_id
+		), ARRAY_A );
+		$result = array(
+			'last_inbound_at'  => is_array( $row ) ? (string) ( $row['last_inbound_at'] ?? '' ) : '',
+			'last_outbound_at' => is_array( $row ) ? (string) ( $row['last_outbound_at'] ?? '' ) : '',
+			'queued_outbound'  => is_array( $row ) ? (int) ( $row['queued_outbound'] ?? 0 ) : 0,
+			'message_count'    => is_array( $row ) ? (int) ( $row['message_count'] ?? 0 ) : 0,
+		);
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::set( 'crm_repository', $cache_key, $result, BizCity_Cache::TTL_SHORT );
+		}
+		return $result;
+	}
+
+	/**
+	 * Persist a provider identifier on an outbound message exactly once.
+	 *
+	 * PHASE-0.41D §5 (D5). A delivery callback may supply the provider message
+	 * id after the CRM row already exists. The column is write-once: an
+	 * existing identifier is never overwritten, so a late or duplicated
+	 * callback cannot rewrite delivery provenance.
+	 *
+	 * @param int    $message_id         CRM message id.
+	 * @param string $external_source_id Provider message identifier.
+	 * @return bool True when the identifier was stored by this call.
+	 */
+	public static function set_message_external_source_id( int $message_id, string $external_source_id ): bool {
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5 — write-once provider id so callback replay cannot rewrite provenance.
+		$external_source_id = trim( $external_source_id );
+		if ( $message_id <= 0 || '' === $external_source_id ) {
+			return false;
+		}
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$row = self::get_message( $message_id );
+		if ( ! $row || '' !== (string) ( $row['external_source_id'] ?? '' ) ) {
+			return false;
+		}
+		$updated = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$tbl} SET external_source_id = %s WHERE id = %d AND ( external_source_id IS NULL OR external_source_id = '' )",
+			$external_source_id,
+			$message_id
+		) );
+		if ( $updated ) {
+			self::invalidate_read_models();
+		}
+		return (bool) $updated;
 	}
 
 	/**
@@ -1470,7 +1776,6 @@ class BizCity_CRM_Repository {
 	public static function list_messages( int $conversation_id, int $limit = 100, int $after_id = 0 ): array {
 		global $wpdb;
 		$tbl    = BizCity_CRM_DB_Installer_V2::tbl_messages();
-		$att_tbl = BizCity_CRM_DB_Installer_V2::tbl_attachments();
 		$limit  = max( 1, min( 500, $limit ) );
 
 		// [2026-09-06 12:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39C-C3 — hydrate the detail pane from the newest bounded message window; the conversation list already points at last_message_id, while ASC-from-zero returned only stale history once a thread exceeded the page limit.
@@ -1493,6 +1798,97 @@ class BizCity_CRM_Repository {
 			$rows = is_array( $rows ) ? array_reverse( $rows ) : array();
 		}
 
+		return self::hydrate_messages( is_array( $rows ) ? $rows : array() );
+	}
+
+	/**
+	 * List the newest bounded window of messages older than $before_id (chronological asc).
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — scroll-up paging for the browser cache; same hydration as list_messages().
+	 */
+	public static function list_messages_before( int $conversation_id, int $before_id, int $limit = 50 ): array {
+		global $wpdb;
+		if ( $conversation_id <= 0 || $before_id <= 0 ) { return array(); }
+		$tbl   = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$limit = max( 1, min( 500, $limit ) );
+		$rows  = $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$tbl}
+			 WHERE conversation_id = %d AND id < %d
+			 ORDER BY id DESC
+			 LIMIT %d",
+			$conversation_id, $before_id, $limit
+		), ARRAY_A );
+		return self::hydrate_messages( is_array( $rows ) ? array_reverse( $rows ) : array() );
+	}
+
+	/**
+	 * Re-read specific messages of one conversation; ids outside the conversation are ignored.
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — the messages table has no updated_at, so the browser rechecks non-terminal ids to pick up delivery changes.
+	 */
+	public static function get_messages_by_ids( int $conversation_id, array $ids ): array {
+		global $wpdb;
+		$ids = array_slice( array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) ), 0, 50 );
+		if ( $conversation_id <= 0 || empty( $ids ) ) { return array(); }
+		$tbl          = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$rows         = $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$tbl} WHERE conversation_id = %d AND id IN ({$placeholders}) ORDER BY id ASC",
+			array_merge( array( $conversation_id ), $ids )
+		), ARRAY_A );
+		return self::hydrate_messages( is_array( $rows ) ? $rows : array() );
+	}
+
+	/** Newest message id of one conversation (0 when empty). */
+	public static function get_conversation_newest_message_id( int $conversation_id ): int {
+		global $wpdb;
+		if ( $conversation_id <= 0 ) { return 0; }
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT MAX(id) FROM {$tbl} WHERE conversation_id = %d", $conversation_id ) );
+	}
+
+	/**
+	 * Cheap fingerprint of a conversation list using the exact list_conversations() predicates.
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — lets the Inbox poll answer not_modified without running the list + count queries.
+	 */
+	public static function get_inbox_sync_token( array $args ): string {
+		global $wpdb;
+		$tbl_conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$tbl_ct   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$tbl_msg  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+		list( $where, $params ) = self::build_conversation_where( $args );
+		$sql = "SELECT COUNT(*) AS n, MAX(c.updated_at) AS cu, MAX(c.last_message_id) AS lm, SUM(c.unread_count) AS ur,
+					MAX(c.last_activity_at) AS la, MAX(ct.updated_at) AS ctu, SUM(CRC32(COALESCE(c.cached_label_list, ''))) AS lb,
+					SUM(c.priority) AS pr, SUM(CRC32(COALESCE(c.status, ''))) AS st
+				FROM {$tbl_conv} c
+				LEFT JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+				LEFT JOIN {$tbl_ibx} i ON i.id = c.inbox_id
+				LEFT JOIN {$tbl_ct} ct ON ct.id = ci.contact_id
+				LEFT JOIN {$tbl_msg} m ON m.id = c.last_message_id
+				WHERE " . implode( ' AND ', $where );
+		$prepared = $params ? $wpdb->prepare( $sql, $params ) : $sql;
+		$row      = $wpdb->get_row( $prepared, ARRAY_A );
+		return md5( (string) wp_json_encode( array( is_array( $row ) ? array_values( $row ) : array(), $args ) ) );
+	}
+
+	/**
+	 * Attachments and cold-content read gate for every CRM message reader.
+	 *
+	 * Hot/archived rows remain SQL-backed. Only offloaded rows follow the
+	 * immutable archive pointer path. The result carries `cold`, `partial` and
+	 * `cold_error` so callers can render a bounded degraded state without
+	 * silently treating missing archive content as an empty message.
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 * @param int                            $max_ms
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function hydrate_messages( array $rows, int $max_ms = 800 ): array {
+		global $wpdb;
+		$att_tbl = BizCity_CRM_DB_Installer_V2::tbl_attachments();
 		if ( ! $rows ) {
 			return array();
 		}
@@ -1509,43 +1905,107 @@ class BizCity_CRM_Repository {
 		}
 		foreach ( $rows as &$r ) {
 			$r['attachments'] = $by_msg[ (int) $r['id'] ] ?? array();
+			$r['cold'] = false;
+			$r['partial'] = false;
 		}
 		unset( $r );
-		if ( class_exists( 'BizCity_Channel_Conversation_Archive' ) ) {
-			$context = $wpdb->get_row( $wpdb->prepare( "SELECT i.channel_type, i.channel_ref_id, ci.source_id FROM " . BizCity_CRM_DB_Installer_V2::tbl_conversations() . " c JOIN " . BizCity_CRM_DB_Installer_V2::tbl_inboxes() . " i ON i.id = c.inbox_id JOIN " . BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes() . " ci ON ci.id = c.contact_inbox_id WHERE c.id = %d LIMIT 1", $conversation_id ), ARRAY_A );
-			if ( is_array( $context ) ) {
-				foreach ( $rows as &$row ) {
-					if ( (string) ( $row['content_storage_state'] ?? '' ) !== 'offloaded' ) { continue; }
-					$cold = BizCity_Channel_Conversation_Archive::rehydrate_message( (int) $row['id'], (string) $context['channel_type'], (string) $context['channel_ref_id'], (string) $context['source_id'], (string) ( $row['archive_month'] ?? '' ) );
-					if ( is_array( $cold ) ) {
-						$row['content'] = (string) ( $cold['content'] ?? '' );
-						$row['body'] = (string) ( $cold['body'] ?? '' );
-						$row['content_type'] = (string) ( $cold['content_type'] ?? $row['content_type'] );
-						$row['_rehydrated'] = true;
-					}
+		$offloaded = array();
+		foreach ( $rows as $index => $row ) {
+			if ( 'offloaded' === (string) ( $row['content_storage_state'] ?? '' ) ) {
+				$offloaded[ (int) $row['id'] ] = $index;
+			} elseif ( 'expired' === (string) ( $row['content_storage_state'] ?? '' ) ) {
+				$rows[ $index ]['cold'] = true;
+				$rows[ $index ]['cold_error'] = 'expired';
+			}
+		}
+		if ( $offloaded && class_exists( 'BizCity_Channel_Conversation_Archive' ) ) {
+			$receipt_tbl = BizCity_CRM_DB_Installer_V2::tbl_archive_receipts();
+			$ids = array_keys( $offloaded );
+			$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+			$receipt_rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT crm_message_id, line_hash, byte_offset, line_bytes FROM {$receipt_tbl} WHERE archive_status = 'written' AND crm_message_id IN ({$placeholders})",
+				$ids
+			), ARRAY_A );
+			$receipts = array();
+			foreach ( is_array( $receipt_rows ) ? $receipt_rows : array() as $receipt ) {
+				$receipts[ (int) $receipt['crm_message_id'] ] = $receipt;
+			}
+			$pointers = array();
+			$pointer_rows = array();
+			foreach ( $offloaded as $message_id => $index ) {
+				$row = $rows[ $index ];
+				$receipt = $receipts[ $message_id ] ?? array();
+				$pointer_rows[] = array(
+					'crm_message_id' => $message_id,
+					'channel'        => (string) ( $row['archive_channel'] ?? '' ),
+					'account_key'    => (string) ( $row['archive_account_key'] ?? '' ),
+					'peer_key'       => (string) ( $row['archive_peer_key'] ?? '' ),
+					'archive_month'  => (string) ( $row['archive_month'] ?? '' ),
+					'byte_offset'    => $receipt['byte_offset'] ?? null,
+					'line_bytes'     => $receipt['line_bytes'] ?? null,
+					'row_hash'       => $receipt['line_hash'] ?? '',
+				);
+				$pointers[] = $pointer_rows[ count( $pointer_rows ) - 1 ];
+			}
+			$batch = BizCity_Channel_Conversation_Archive::read_batch( $pointers, $max_ms );
+			foreach ( $pointer_rows as $pointer_index => $pointer ) {
+				$message_id = (int) $pointer['crm_message_id'];
+				$index = $offloaded[ $message_id ];
+				$result = $batch['items'][ $pointer_index ] ?? array( 'ok' => false, 'cold_error' => 'archive_record_missing' );
+				$rows[ $index ]['cold'] = true;
+				$rows[ $index ]['partial'] = ! empty( $batch['partial'] );
+				if ( ! empty( $result['ok'] ) ) {
+					$rows[ $index ]['content'] = (string) ( $result['content'] ?? '' );
+					$rows[ $index ]['body'] = (string) ( $result['body'] ?? '' );
+					$rows[ $index ]['content_type'] = (string) ( $result['content_type'] ?? $rows[ $index ]['content_type'] );
+				} else {
+					$rows[ $index ]['cold_error'] = (string) ( $result['cold_error'] ?? 'archive_record_missing' );
 				}
-				unset( $row );
 			}
 		}
 
 		return $rows;
 	}
 
-	/** Offload verified archived message content in a bounded maintenance batch. */
-	public static function offload_archived_messages( string $before, int $limit = 100, int $keep_recent = 20 ): int {
-		// [2026-08-24 Johnny Chu] PHASE-0.39F-F2 — clear hot content only after receipt verification and never within the recent conversation window.
+	/** Plan or offload verified archived message content in a bounded maintenance batch. */
+	public static function offload_archived_messages( string $before, int $limit = 100, int $keep_recent = 20, bool $dry_run = false ): int {
+		// [2026-09-19 02:30 PM Johnny Chu] PHASE-0.56-H-11 — safe dry-run/guarded offload selection; production deletion remains feature-flagged.
 		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $before ) ) { return 0; }
+		if ( ! $dry_run && function_exists( 'get_option' ) && ! get_option( 'bizcity_crm_message_offload_enabled', false ) ) { return 0; }
 		global $wpdb;
 		$messages = BizCity_CRM_DB_Installer_V2::tbl_messages();
 		$receipts = BizCity_CRM_DB_Installer_V2::tbl_archive_receipts();
 		$limit = max( 1, min( 500, $limit ) );
 		$keep_recent = max( 1, min( 100, $keep_recent ) );
 		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT m.id, m.conversation_id FROM `{$messages}` m JOIN `{$receipts}` r ON r.crm_message_id = m.id AND r.archive_status = 'written' WHERE m.content_storage_state = 'archived' AND m.created_at < %s AND (SELECT COUNT(*) FROM `{$messages}` newer WHERE newer.conversation_id = m.conversation_id AND (newer.created_at > m.created_at OR (newer.created_at = m.created_at AND newer.id > m.id))) >= %d ORDER BY m.id ASC LIMIT %d",
+			"SELECT m.id, m.conversation_id, m.content, m.body, m.payload_json, m.message_type,
+				m.archive_channel, m.archive_account_key, m.archive_peer_key, m.archive_month,
+				r.archive_schema_version, r.line_hash, r.byte_offset, r.line_bytes
+			 FROM `{$messages}` m JOIN `{$receipts}` r ON r.crm_message_id = m.id AND r.archive_status = 'written'
+			 LEFT JOIN `{$messages}` newer ON newer.conversation_id = m.conversation_id AND newer.id > m.id
+			 WHERE m.content_storage_state = 'archived' AND m.created_at < %s
+			   AND m.message_type NOT IN ('private_note', 'activity')
+			   AND r.archive_schema_version >= 2
+			 GROUP BY m.id
+			 HAVING COUNT(newer.id) >= %d
+			 ORDER BY m.id ASC LIMIT %d",
 			$before, $keep_recent, $limit
 		), ARRAY_A );
 		$offloaded = 0;
 		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			if ( $dry_run ) { $offloaded++; continue; }
+			$pointer = array(
+				'crm_message_id' => (int) $row['id'],
+				'channel' => (string) ( $row['archive_channel'] ?? '' ),
+				'account_key' => (string) ( $row['archive_account_key'] ?? '' ),
+				'peer_key' => (string) ( $row['archive_peer_key'] ?? '' ),
+				'archive_month' => (string) ( $row['archive_month'] ?? '' ),
+				'byte_offset' => $row['byte_offset'] ?? null,
+				'line_bytes' => $row['line_bytes'] ?? null,
+				'row_hash' => $row['line_hash'] ?? '',
+			);
+			$verified = class_exists( 'BizCity_Channel_Conversation_Archive' ) ? BizCity_Channel_Conversation_Archive::read_batch( array( $pointer ), 200 ) : array();
+			if ( empty( $verified['items'][0]['ok'] ) ) { continue; }
 			$updated = $wpdb->update( $messages, array(
 				'content'              => null,
 				'body'                 => null,
@@ -1561,6 +2021,21 @@ class BizCity_CRM_Repository {
 			}
 		}
 		return $offloaded;
+	}
+
+	/** Run one guarded staged offload tick; the feature flag remains opt-in. */
+	public static function offload_staged_tick( int $limit = 25, bool $dry_run = true ): array {
+		// [2026-09-19 02:45 PM Johnny Chu] PHASE-0.56-H-12 — small staged rollout surface; no default scheduling or automatic enablement.
+		$before = current_time( 'mysql' );
+		$limit = max( 1, min( 25, $limit ) );
+		$count = self::offload_archived_messages( $before, $limit, 20, $dry_run );
+		return array(
+			'dry_run' => $dry_run,
+			'limit' => $limit,
+			'eligible_or_offloaded' => $count,
+			'offload_enabled' => function_exists( 'get_option' ) ? (bool) get_option( 'bizcity_crm_message_offload_enabled', false ) : false,
+			'before' => $before,
+		);
 	}
 
 	/* ============================================================
@@ -1604,7 +2079,7 @@ class BizCity_CRM_Repository {
 					c.created_at, c.updated_at,
 					ci.source_id, ci.contact_id,
 					ct.name AS contact_name, ct.avatar_url AS contact_avatar,
-					m.content AS last_message_content,
+					m.content_preview AS last_message_content,
 					m.message_type AS last_message_type,
 					m.sender_type AS last_sender_type,
 					m.created_at AS last_message_at
@@ -1886,20 +2361,28 @@ class BizCity_CRM_Repository {
 		$to_remove = array_values( array_diff( $current, $desired ) );
 		$now       = current_time( 'mysql' );
 
+		// PHASE-0.48F U5 / P-U-3 — a failed write must surface, not return "ok" with an empty label set.
+		$write_errors = array();
 		foreach ( $to_add as $lid ) {
-			$wpdb->insert( $cl_tbl, array(
+			$inserted = $wpdb->insert( $cl_tbl, array(
 				'conversation_id' => $conv_id,
 				'label_id'        => $lid,
 				'assigned_by'     => $by_user_id ?: null,
 				'assigned_at'     => $now,
 			) );
+			if ( false === $inserted ) { $write_errors[] = 'insert:' . $lid . ':' . $wpdb->last_error; }
 		}
 		if ( $to_remove ) {
 			$placeholders = implode( ',', array_fill( 0, count( $to_remove ), '%d' ) );
-			$wpdb->query( $wpdb->prepare(
+			$deleted = $wpdb->query( $wpdb->prepare(
 				"DELETE FROM {$cl_tbl} WHERE conversation_id = %d AND label_id IN ({$placeholders})",
 				array_merge( array( $conv_id ), $to_remove )
 			) );
+			if ( false === $deleted ) { $write_errors[] = 'delete:' . $wpdb->last_error; }
+		}
+		if ( $write_errors ) {
+			error_log( '[bizcity-crm] set_conversation_labels write failed conv=' . $conv_id . ' table=' . $cl_tbl . ' ' . implode( ' | ', $write_errors ) );
+			return array( 'added' => array(), 'removed' => array(), 'titles' => array(), 'failed' => true );
 		}
 
 		$titles = self::resync_conversation_label_cache( $conv_id );
@@ -2212,6 +2695,10 @@ class BizCity_CRM_Repository {
 	public static function get_sla_policy( int $id ): ?array {
 		global $wpdb;
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_sla_policies();
+		// [2026-09-21 10:50 PM OpenAI GPT-5.6 Luna] HOTFIX — policy lookup must also degrade when the optional legacy SLA schema is absent.
+		if ( ! BizCity_CRM_DB_Installer_V2::table_exists( $tbl ) ) {
+			return null;
+		}
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tbl} WHERE id = %d", $id ), ARRAY_A );
 		return is_array( $row ) ? $row : null;
 	}
@@ -2253,6 +2740,10 @@ class BizCity_CRM_Repository {
 	public static function get_applied_sla_for_conversation( int $conv_id ): ?array {
 		global $wpdb;
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_applied_slas();
+		// [2026-09-21 10:45 PM OpenAI GPT-5.6 Luna] HOTFIX — legacy SLA inspection must fail open when a tenant has not installed the optional SLA schema.
+		if ( ! BizCity_CRM_DB_Installer_V2::table_exists( $tbl ) ) {
+			return null;
+		}
 		$row = $wpdb->get_row( $wpdb->prepare(
 			"SELECT * FROM {$tbl} WHERE conversation_id = %d",
 			$conv_id

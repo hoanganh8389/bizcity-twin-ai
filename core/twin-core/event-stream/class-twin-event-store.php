@@ -25,6 +25,27 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_Twin_Event_Store {
 
 	/**
+	 * Bounded reason bucket for the most recent `persist()` failure.
+	 *
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — `dispatch_v2()`
+	 * throws a fixed sentence when persistence fails, so a deployed FAIL carried no
+	 * cause and every rerun reproduced it. The bucket is deliberately value-only
+	 * (never SQL, never a DSN) so it can travel inside an exception message.
+	 *
+	 * @var string
+	 */
+	private static $last_failure_reason = '';
+
+	/**
+	 * Read the bounded reason bucket of the last `persist()` failure.
+	 *
+	 * @return string Empty string when the last persistence attempt succeeded.
+	 */
+	public static function last_failure_reason(): string {
+		return self::$last_failure_reason;
+	}
+
+	/**
 	 * Persist an event row. Returns the inserted DB id (or 0 on failure).
 	 *
 	 * Resolves parent_event_id from parent_event_uuid if needed.
@@ -34,6 +55,7 @@ class BizCity_Twin_Event_Store {
 	 */
 	public static function persist( array $event ): int {
 		global $wpdb;
+		self::$last_failure_reason = '';
 		$table = BizCity_Twin_Event_Stream_Schema::table();
 
 		// [2026-09-01 Johnny Chu] PHASE-CB4.1 — avoid an expected duplicate INSERT/error log on replay while retaining the existing race-safe fallback below.
@@ -71,7 +93,33 @@ class BizCity_Twin_Event_Store {
 			// Duplicate UUID (idempotency for ingest_remote) — return existing id silently.
 			$existing = self::id_for_uuid( $event['event_uuid'] );
 			if ( $existing > 0 ) return $existing;
+			self::$last_failure_reason = (string) $wpdb->last_error !== ''
+				? 'event_insert_failed'
+				: 'event_insert_failed_silent';
 			return 0;
+		}
+
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — capture the
+		// auto-increment id IMMEDIATELY. The previous implementation read
+		// `(int) $wpdb->insert_id` on the FINAL line of this method, i.e. after the
+		// JSONL mirror and `BizCity_Log_Index::record()` had run a chain of their own
+		// statements. `wpdb::query()` re-assigns `$this->insert_id` for any statement
+		// matching `^\s*(insert|replace)\s` (class-wpdb.php:2319) and CLEARS it to 0
+		// when such a statement FAILS (class-wpdb.php:2304-2305). So a log-index
+		// INSERT IGNORE that failed on this tenant turned a successful event INSERT
+		// into `persist() === 0`, and `dispatch_v2()` threw "Failed to persist event"
+		// on EVERY dispatch — a canonical-spine outage caused by a log indexer.
+		$insert_id = (int) $wpdb->insert_id;
+		if ( $insert_id <= 0 ) {
+			// The INSERT reported success but the connection returned no id. The row
+			// exists (event_uuid is UNIQUE), so recover it by its canonical key rather
+			// than declaring a false failure.
+			$insert_id = self::id_for_uuid( (string) $event['event_uuid'] );
+			if ( $insert_id <= 0 ) {
+				self::$last_failure_reason = 'insert_id_not_returned';
+				return 0;
+			}
+			self::$last_failure_reason = 'insert_id_recovered_by_uuid';
 		}
 
 		// [2026-08-01 Johnny Chu] PHASE-1.25-TWIN-EVENT-JSONL — mirror only newly
@@ -108,7 +156,9 @@ class BizCity_Twin_Event_Store {
 					'Canonical Goal Loop event persisted.',
 					array(
 						'event_uuid'   => (string) $event['event_uuid'],
-						'event_id'     => (int) $id,
+						// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — `$id` was never
+						// defined in this scope; use the captured insert id.
+						'event_id'     => (int) $insert_id,
 						'event_source' => (string) $event['event_source'],
 						'trace_id'     => (string) $event['trace_id'],
 						'goal_id'      => is_array( $payload ) ? (string) ( $payload['goal_id'] ?? '' ) : '',
@@ -153,7 +203,10 @@ class BizCity_Twin_Event_Store {
 				);
 			}
 		}
-		return (int) $wpdb->insert_id;
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — return the id that
+		// was captured right after the INSERT, never a value re-read after the logger
+		// chain (which can have clobbered or cleared `$wpdb->insert_id`).
+		return $insert_id;
 	}
 
 	/**

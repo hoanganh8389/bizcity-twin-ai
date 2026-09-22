@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Twin Event Stream: context_bank_started",
+  "description": "Context Bank phase boundary (open). Contract CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1 §3. Phase order is DECLARED, not observed: the row renders in canonical MPR phase order regardless of arrival.",
+  "type": "object",
+  "required": ["trace_id", "event_uuid", "phase", "started_epoch_ms", "mode"],
+  "properties": {
+    "trace_id": { "type": "string", "minLength": 1 },
+    "event_uuid": { "type": "string", "minLength": 1 },
+    "parent_event_uuid": { "type": "string" },
+    "phase": { "type": "string", "enum": ["context_bank"] },
+    "started_epoch_ms": { "type": "integer", "minimum": 0, "description": "Server clock, monotonic within the turn." },
+    "mode": { "type": "string" },
+    "vertical_id": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -54,6 +54,43 @@ final class BizCity_CRM_Plugin {
 		// [2026-09-02 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — register current channel manifests after adapter wiring; descriptor migration remains compatibility-safe.
 		$this->register_built_in_manifests();
 
+		// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — register exactly one canonical Inbox renderer under the user-inbox-scope contract.
+		if ( ! defined( 'BIZCITY_CRM_SETTING_PANEL_REGISTERED' )
+			&& class_exists( 'BizCity_Twin_Plugin_SDK' )
+			&& class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+			BizCity_Twin_Plugin_SDK::register_ui( array(
+				'setting_panel' => array(
+					array(
+						'contract'        => 'setting-panel-registration',
+						'version'         => '1.0.0',
+						'id'              => 'bundle.twin-crm.inbox',
+						'owner'           => 'plugins/bizcity-twin-crm',
+						'origin'          => 'bundle',
+						'destination'     => 'crm-inbox',
+						'group'           => 'crm.inbox',
+						'label_key'       => 'settings.crm_inbox.label',
+						'description_key' => 'settings.crm_inbox.description',
+						'icon'            => 'cil-inbox',
+						'capability'      => class_exists( 'BizCity_CRM_Authority' ) ? BizCity_CRM_Authority::menu_cap( 'crm.inbox.open' ) : 'manage_options',
+						'scope'           => 'site_user',
+						'surface'         => 'admin_shell',
+						'renderer'        => array(
+							'type'           => 'deep_link',
+							'id'             => 'bundle.twin-crm.inbox',
+							'canonical_slug' => 'bizcity-crm',
+						),
+						'availability'    => array(
+							'policy'         => 'registered-owner',
+							'dependency_ids' => array( 'plugins.bizcity-twin-crm' ),
+						),
+						'position'        => 500,
+						'aliases'         => array( 'bizcity-crm-inbox' ),
+					),
+				),
+			) );
+			define( 'BIZCITY_CRM_SETTING_PANEL_REGISTERED', true );
+		}
+
 		// v1.16.0 — register built-in Customer Sources (Sales Pipeline auto-fill).
 		// Hooked at priority 5 so 3rd-party plugins can override via priority 10.
 		add_filter( 'bizcity_crm_register_customer_sources', static function ( array $sources ): array {
@@ -156,6 +193,21 @@ final class BizCity_CRM_Plugin {
 
 		// REST API (operations namespace).
 		add_action( 'rest_api_init', array( 'BizCity_CRM_REST_Controller', 'register_routes' ) );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F F6 — staff management REST (`/crm-staff*`, `DELETE /inboxes/{id}/members/{user_id}`).
+		// Also registers PHASE-0.48F F4's `GET /reports/team-inbox` + `/reports/team-inbox/member/{id}` (Team Inbox Dashboard).
+		add_action( 'rest_api_init', array( 'BizCity_CRM_Staff_REST', 'register_routes' ) );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 W4 — `/crm-tasks/handoff`, `/crm-tasks/board`, `/crm-tasks/{id}/handoff-action`.
+		add_action( 'rest_api_init', array( 'BizCity_CRM_Leader_Member_REST', 'register_routes' ) );
+		// [2026-09-18] PHASE-0.52 — customer pipeline (R-PIPE): board, stage changes, planner, settings, personal space.
+		add_action( 'rest_api_init', array( 'BizCity_CRM_Pipeline_REST', 'register_routes' ) );
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-05 — internal handoff ping; the `/gpt/crm/` badge stays the contract notification.
+		BizCity_CRM_Task_Handoff_Notify::register();
+		// [2026-09-19] PHASE-0.55 A5 — proactive task_overdue/task_reviewed pings (off by default, R-LM-8, §5.6).
+		BizCity_CRM_Task_Overdue_Notify::register();
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-04 — `POST /reports/attribution-backfill` (manage_options) + `wp bizcity crm-attribution-backfill`.
+		BizCity_CRM_Attribution_Backfill::register();
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 UID-02 — `GET/POST /crm-settings/personal-phone-quota`.
+		add_action( 'rest_api_init', array( 'BizCity_CRM_Personal_Quota_REST', 'register_routes' ) );
 
 		// Bump grants version on any mutation so /version endpoint and cache invalidate.
 		$bump = array( 'BizCity_CRM_REST_Controller', 'bump_grants_version' );
@@ -225,6 +277,9 @@ final class BizCity_CRM_Plugin {
 		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — load maintenance backfill service without running it.
 		require_once $inc . 'woo/migrations/class-contacts-unify-backfill.php';
 		require_once $inc . 'class-capabilities.php';
+		// [2026-09-21 PHASE-0.63A S-4] The pipeline platform has exactly one entry point. Lanes add files
+		// under includes/pipeline/ or includes/context/ and they load themselves — this line never changes again.
+		require_once $inc . 'pipeline/bootstrap-pipeline.php';
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — load account-backed CRM inbox policy before REST routes.
 		// [2026-08-25 Johnny Chu] PHASE-1.24 — accept the canonical flat path and the legacy reorganized path during partial deploys.
 		$inbox_access_file = $inc . 'class-inbox-access.php';
@@ -239,6 +294,8 @@ final class BizCity_CRM_Plugin {
 		require_once $inc . 'class-assignment-manager.php';
 		require_once $inc . 'class-event-emitter.php';
 		require_once $inc . 'class-repository.php';
+		// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.56 I-1 — deterministic aggregate-only Team Ops insights.
+		require_once $inc . 'class-team-insights.php';
 		$reconciliation_preview = $inc . 'admin/class-conversation-reconciliation-preview.php';
 		if ( is_file( $reconciliation_preview ) && is_readable( $reconciliation_preview ) && class_exists( 'BizCity_Safe_Loader' ) ) {
 			// [2026-09-01 Johnny Chu] R-CRM-LEGACY-PREVIEW - guarded load for read-only conversation reconciliation preview.
@@ -246,6 +303,24 @@ final class BizCity_CRM_Plugin {
 		}
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F4-F5 — load tenant-local Teams, Inbox Members and assignment eligibility before REST consumers.
 		require_once $inc . 'class-team-manager.php';
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F — staff management
+		// ACL (supervisor/lead rank + team scope); every `/crm-staff*` and
+		// `staff.*`/`phone.*`/`inbox.member` REST callback depends on this.
+		require_once $inc . 'class-staff-policy.php';
+		// [2026-09-19 01:45 PM Johnny Chu] PHASE-0.60 C1/C2 — guard the actor/authority contract bundle so a partial deployment cannot fatal the whole CRM bootstrap. The Safe Loader records a redacted missing-artifact signal; deployment must still ship the complete bundle.
+		$crm_contract_files = array(
+			'class-crm-actor.php'         => 'crm.contract.actor',
+			'class-crm-authority.php'     => 'crm.contract.authority',
+			'class-crm-zone-registry.php' => 'crm.contract.zone_registry',
+			'crm-surfaces.php'            => 'crm.contract.surfaces',
+		);
+		foreach ( $crm_contract_files as $contract_file => $contract_label ) {
+			$contract_path = $inc . 'contracts/' . $contract_file;
+			if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+				BizCity_Safe_Loader::require_file( $contract_path, $contract_label );
+			}
+		}
+		unset( $crm_contract_files, $contract_file, $contract_label, $contract_path );
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — load read-only Kanban projections after repository ownership is available.
 		require_once $inc . 'class-kanban-manager.php';
 		// [2026-08-25 Johnny Chu] PHASE-1.24-LOADER-GUARD — tolerate stale/partial assignment-manager artifacts without fatal activation.
@@ -269,6 +344,12 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-FRAMEWORK — load the canonical cross-channel contract before adapters.
 		require_once $inc . 'inbox/class-channel-contract.php';
 		require_once $inc . 'inbox/class-channel-registry.php';
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5 — load the canonical outbound dispatcher after the contract/registry it depends on.
+		$outbound_dispatcher = $inc . 'inbox/class-outbound-dispatcher.php';
+		if ( is_file( $outbound_dispatcher ) && is_readable( $outbound_dispatcher ) && class_exists( 'BizCity_Safe_Loader' ) ) {
+			BizCity_Safe_Loader::require_file( $outbound_dispatcher, 'crm.inbox.outbound_dispatcher' );
+		}
+		unset( $outbound_dispatcher );
 
 		// Bot-plugin bridges (M7.W5.task-1) — adapters call these instead of
 		// touching sibling-plugin classes directly. Loaded BEFORE adapters.
@@ -310,6 +391,26 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'inbox/class-pipeline-sync.php';
 
 		require_once $inc . 'class-rest-controller.php';
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F F6 — separate REST file (pattern already used by woo/class-woo-order-recap-rest.php) instead of growing the monolithic controller further.
+		require_once $inc . 'class-staff-rest.php';
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 R-LEADER-MEMBER — leader → member work handoff service (B2 + C share it) and B2 REST.
+		require_once $inc . 'class-task-handoff.php';
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 W1/W2 — "chuyển phụ trách khách" service (§4.4, R-ZP-OWNER).
+		require_once $inc . 'class-contact-transfer.php';
+		require_once $inc . 'class-customer-360-team-view.php';
+		require_once $inc . 'class-leader-member-rest.php';
+		// [2026-09-18] PHASE-0.52 — customer pipeline read model, the one writer, and B2 REST.
+		require_once $inc . 'class-customer-pipeline.php';
+		require_once $inc . 'class-pipeline-stage-service.php';
+		require_once $inc . 'class-pipeline-rest.php';
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-05 — optional Zone 2 Zalo Bot ping for assigned work (off by default, no customer data).
+		require_once $inc . 'class-task-handoff-notify.php';
+		// [2026-09-19] PHASE-0.55 A5 — proactive task_overdue/task_reviewed events + optional Zalo Bot ping.
+		require_once $inc . 'class-task-overdue-notify.php';
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-04 — idempotent D4 attribution backfill for legacy CRM orders (dry-run by default).
+		require_once $inc . 'class-attribution-backfill.php';
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 UID-02 — site-level cap on Zalo Personal numbers per user.
+		require_once $inc . 'class-personal-quota-rest.php';
 		require_once $inc . 'class-admin-menu.php';
 		require_once $inc . 'class-sprint-diagnostic.php';
 		// PHASE-0.35 / 2026-05-14 — Phase C/D diagnostic sections extracted into
@@ -390,6 +491,9 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F3 — content-free reporting facts and daily rollups for message-growth-safe dashboards.
 		require_once $inc . 'reports/class-reporting-rollup.php';
 		BizCity_CRM_Reporting_Rollup::register();
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-04 — additive per-employee order/task rollups (§5.4) + reader/backfill.
+		require_once $inc . 'class-staff-metrics.php';
+		BizCity_CRM_Staff_Metrics::register();
 
 		// PHASE 0.35 M-Bridge.W1 — Inbox → CRM activity logger (chat session → task).
 		require_once $inc . 'bridge/class-inbox-to-crm-bridge.php';
@@ -530,6 +634,12 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 
 		// PHASE 0.35 M6.W22 — invalidate cached marketing assets on brand-kit / campaign change + daily GC.
 		BizCity_CRM_Asset_Cache_Invalidator::bootstrap();
+
+		// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57 T1/T2/T3 — built-in "Hướng dẫn dùng Twin CRM" training doc CPT + auto-seed into KG notebook.
+		require_once $inc . 'training/class-training-cpt.php';
+		require_once $inc . 'training/class-training-seeder.php';
+		BizCity_CRM_Training_CPT::register();
+		BizCity_CRM_Training_Seeder::register();
 
 		// PHASE 3.5 Wave A — Admin Chat magic-link landing handler (init priority 1).
 		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — tolerate a partial deploy while the legacy linker stays fail-closed for bzm2_ tokens.

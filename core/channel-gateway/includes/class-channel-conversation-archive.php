@@ -27,6 +27,7 @@ final class BizCity_Channel_Conversation_Archive {
 	const MAX_LINE_BYTES = 262144;
 	const DEFAULT_RETENTION_DAYS = 365;
 	const MAX_RECONCILE_IDS = 1000;
+	const KEYRING_OPTION = 'bizcity_channel_archive_keyring';
 
 	private static $registered = false;
 
@@ -118,16 +119,58 @@ final class BizCity_Channel_Conversation_Archive {
 	/** Run the archive retention sweep from the existing Channel Gateway job. */
 	public static function retention_tick(): void {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W8 — archive retention shares the existing guarded JSONL retention owner.
+		$retry = self::retry_hot_messages();
 		$deleted = self::purge_expired();
 		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
 			$cron = BizCity_Cron_Manager::instance();
-			$cron->note( array( 'counters' => array( 'channel_conversation_archive_deleted' => $deleted ) ) );
+			$cron->note( array( 'counters' => array(
+				'channel_conversation_archive_deleted' => $deleted,
+				'channel_conversation_archive_retry_attempted' => (int) ( $retry['attempted'] ?? 0 ),
+				'channel_conversation_archive_retry_archived' => (int) ( $retry['archived'] ?? 0 ),
+				'channel_conversation_archive_retry_failed' => (int) ( $retry['failed'] ?? 0 ),
+			) ) );
 			$cron->note_event( 'channel_conversation_archive_retention', array(
 				'deleted_files'  => $deleted,
 				'retention_days' => self::retention_days(),
 				'channels'       => self::CHANNELS,
+				'retry'          => $retry,
 			) );
 		}
+	}
+
+	/** Retry bounded archive writes for old HOT messages; offload is never involved. */
+	public static function retry_hot_messages( int $limit = 100 ): array {
+		// [2026-09-19 02:00 PM Johnny Chu] PHASE-0.56-H-10 — retry HOT archive failures through the existing retention cron, max five attempts per message.
+		if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) { return array( 'attempted' => 0, 'archived' => 0, 'failed' => 0 ); }
+		global $wpdb;
+		$messages = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$limit = max( 1, min( 500, $limit ) );
+		$now = current_time( 'mysql' );
+		$cutoff = date( 'Y-m-d H:i:s', strtotime( $now ) - HOUR_IN_SECONDS );
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, message_type FROM `{$messages}` WHERE content_storage_state = 'hot' AND created_at < %s AND storage_attempts < 5 ORDER BY id ASC LIMIT %d",
+			$cutoff, $limit
+		), ARRAY_A );
+		$result = array( 'attempted' => 0, 'archived' => 0, 'failed' => 0 );
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$message_id = (int) ( $row['id'] ?? 0 );
+			if ( $message_id <= 0 ) { continue; }
+			$attempted = (int) $wpdb->query( $wpdb->prepare(
+				"UPDATE `{$messages}` SET storage_attempts = storage_attempts + 1, storage_error_code = 'archive_retry' WHERE id = %d AND content_storage_state = 'hot' AND storage_attempts < 5",
+				$message_id
+			) );
+			if ( 1 !== $attempted ) { continue; }
+			$result['attempted']++;
+			$direction = 'outgoing' === (string) ( $row['message_type'] ?? '' ) ? 'outbound' : 'inbound';
+			$archived = self::archive_message( array( 'message_id' => $message_id, 'event_uuid' => 'archive_retry_' . $message_id ), $direction );
+			if ( $archived ) {
+				$result['archived']++;
+			} else {
+				$result['failed']++;
+				$wpdb->update( $messages, array( 'storage_error_code' => 'archive_retry_failed' ), array( 'id' => $message_id ), array( '%s' ), array( '%d' ) );
+			}
+		}
+		return $result;
 	}
 
 	/** Return the bounded archive retention policy in days. */
@@ -157,7 +200,13 @@ final class BizCity_Channel_Conversation_Archive {
 				if ( false === $file_ts || $file_ts >= $cutoff ) { continue; }
 				$channel = self::channel_from_path( $file, $root );
 				if ( $channel === '' || self::under_legal_hold( $channel, $file, $month ) ) { continue; }
-				if ( $dry_run || @unlink( $file ) ) { $deleted++; }
+				if ( $dry_run || @unlink( $file ) ) {
+					if ( ! $dry_run ) {
+						$partition = self::partition_from_path( $file, $root, $month );
+						if ( is_array( $partition ) ) { self::expire_partition_rows( $partition ); }
+					}
+					$deleted++;
+				}
 			}
 		} catch ( \Throwable $e ) {
 			self::operational_failure( 'conversation_archive_retention_failed', $e );
@@ -195,7 +244,8 @@ final class BizCity_Channel_Conversation_Archive {
 				$entry = json_decode( trim( $line ), true );
 				if ( ! is_array( $entry ) || empty( $entry['content_ciphertext'] ) ) { continue; }
 				if ( (string) ( $entry['channel'] ?? '' ) !== sanitize_key( $channel ) || (int) ( $entry['blog_id'] ?? 0 ) !== (int) get_current_blog_id() || (string) ( $entry['account_key'] ?? '' ) !== $expected_account_key || (string) ( $entry['peer_key'] ?? '' ) !== $expected_peer_key ) { continue; }
-				$plain = BizCity_Codec::decrypt_json_payload( (string) $entry['content_ciphertext'], $key, self::PREFIX, 'bizcity-channel-conversation' );
+				$entry_key = self::archive_key_for_version( (string) ( $entry['archive_key_version'] ?? 'v1' ), $key );
+				$plain = BizCity_Codec::decrypt_json_payload( (string) $entry['content_ciphertext'], $entry_key, self::PREFIX, 'bizcity-channel-conversation' );
 				if ( is_array( $plain ) ) { $entry['content'] = $plain; unset( $entry['content_ciphertext'] ); $entries[] = $entry; }
 			}
 		} finally {
@@ -499,17 +549,18 @@ final class BizCity_Channel_Conversation_Archive {
 			if ( $key === '' ) {
 				return false;
 			}
+			$payload = ! empty( $row['payload_json'] ) ? json_decode( (string) $row['payload_json'], true ) : array();
 			$plain = array(
 				'content'      => (string) ( $row['content'] ?? '' ),
 				'body'         => (string) ( $row['body'] ?? '' ),
 				'content_type' => (string) ( $row['content_type'] ?? 'text' ),
+				'payload_json' => self::archive_payload_json( is_array( $payload ) ? $payload : array() ),
 			);
 			$ciphertext = BizCity_Codec::encrypt_json_payload( $plain, $key, self::PREFIX, 'bizcity-channel-conversation' );
 			if ( $ciphertext === '' ) {
 				return false;
 			}
 
-			$payload = ! empty( $row['payload_json'] ) ? json_decode( (string) $row['payload_json'], true ) : array();
 			$delivery_status = (string) ( $row['status'] ?? 'received' );
 			if ( is_array( $payload ) && isset( $payload['delivery']['sent'] ) ) {
 				$delivery_status = ! empty( $payload['delivery']['sent'] ) ? 'sent' : 'failed';
@@ -535,7 +586,8 @@ final class BizCity_Channel_Conversation_Archive {
 			}
 
 			$entry = array(
-				'schema_version'          => 1,
+				'schema_version'          => 2,
+				'archive_key_version'     => self::archive_key_version(),
 				'event_type'              => $event_type,
 				'event_uuid'              => (string) ( $event['event_uuid'] ?? $row['event_uuid'] ?? '' ),
 				'trace_id'                => (string) ( $event['trace_id'] ?? '' ),
@@ -568,7 +620,7 @@ final class BizCity_Channel_Conversation_Archive {
 				do_action( 'bizcity_channel_archive_written', array( 'entry' => $entry, 'receipt' => $archive_receipt ) );
 				return true;
 			}
-			$receipt_ok = self::write_receipt( $entry, $key, $archive_channel, $account_id, $peer_uid );
+			$receipt_ok = self::write_receipt( $entry, $key, $archive_channel, $account_id, $peer_uid, $archive_receipt );
 			if ( ! $receipt_ok ) {
 				self::operational_failure( 'conversation_archive_receipt_failed', new Exception( 'archive_receipt_failed' ), $archive_channel );
 				return false;
@@ -599,6 +651,20 @@ final class BizCity_Channel_Conversation_Archive {
 		return 'agent';
 	}
 
+	/** Return a valid, bounded payload JSON envelope for archive schema v2. */
+	private static function archive_payload_json( array $payload ): string {
+		if ( empty( $payload ) ) { return ''; }
+		$json = wp_json_encode( $payload, JSON_UNESCAPED_SLASHES );
+		if ( ! is_string( $json ) ) { return ''; }
+		if ( strlen( $json ) <= 8192 ) { return $json; }
+		$bounded = array( 'truncated' => true );
+		if ( isset( $payload['delivery'] ) && is_array( $payload['delivery'] ) ) {
+			$bounded['delivery'] = $payload['delivery'];
+		}
+		$json = wp_json_encode( $bounded, JSON_UNESCAPED_SLASHES );
+		return is_string( $json ) && strlen( $json ) <= 8192 ? $json : '{"truncated":true}';
+	}
+
 	/** Read one encrypted cold message without writing it back to SQL. */
 	public static function rehydrate_message( int $message_id, string $channel, string $account_id, string $peer_uid, string $month ): ?array {
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F2 — rehydrate only the authorized message locator; never bulk restore cold content.
@@ -607,6 +673,29 @@ final class BizCity_Channel_Conversation_Archive {
 		}
 		$key = self::archive_key();
 		$file = self::archive_file( self::archive_channel_for( $channel ), $account_id, $peer_uid, $month );
+		return self::rehydrate_message_from_file( $message_id, $file, $key );
+	}
+
+	/**
+	 * Read one cold message from the immutable hashed partition stored in SQL.
+	 *
+	 * @param int    $message_id CRM message ID.
+	 * @param string $channel Archive channel slug.
+	 * @param string $account_key Stored `a_<hmac>` partition key.
+	 * @param string $peer_key Stored `p_<hmac>` partition key.
+	 * @param string $month Stored archive month.
+	 * @return array|null
+	 */
+	public static function rehydrate_message_from_keys( int $message_id, string $channel, string $account_key, string $peer_key, string $month ): ?array {
+		// [2026-09-19 01:00 PM Johnny Chu] PHASE-0.56-H-04 — read from immutable SQL archive keys so rebinding an inbox cannot move the cold partition.
+		if ( $message_id <= 0 ) { return null; }
+		$key = self::archive_key();
+		$file = self::archive_file_from_keys( $channel, $account_key, $peer_key, $month );
+		return self::rehydrate_message_from_file( $message_id, $file, $key );
+	}
+
+	/** Read and decrypt one message from a validated archive file. */
+	private static function rehydrate_message_from_file( int $message_id, string $file, string $key ): ?array {
 		if ( $key === '' || $file === '' || ! is_readable( $file ) ) {
 			return null;
 		}
@@ -617,8 +706,9 @@ final class BizCity_Channel_Conversation_Archive {
 				if ( strlen( $line ) > self::MAX_LINE_BYTES + 1 ) { continue; }
 				$entry = json_decode( trim( $line ), true );
 				if ( ! is_array( $entry ) || (int) ( $entry['crm_message_id'] ?? 0 ) !== $message_id || (string) ( $entry['event_type'] ?? '' ) !== 'message' ) { continue; }
-				$plain = BizCity_Codec::decrypt_json_payload( (string) ( $entry['content_ciphertext'] ?? '' ), $key, self::PREFIX, 'bizcity-channel-conversation' );
-				return is_array( $plain ) ? array_merge( $entry, array( 'content' => $plain['content'] ?? '', 'body' => $plain['body'] ?? '', 'content_type' => $plain['content_type'] ?? 'text' ) ) : null;
+				$entry_key = self::archive_key_for_version( (string) ( $entry['archive_key_version'] ?? 'v1' ), $key );
+				$plain = BizCity_Codec::decrypt_json_payload( (string) ( $entry['content_ciphertext'] ?? '' ), $entry_key, self::PREFIX, 'bizcity-channel-conversation' );
+				return is_array( $plain ) ? array_merge( $entry, array( 'content' => $plain['content'] ?? '', 'body' => $plain['body'] ?? '', 'content_type' => $plain['content_type'] ?? 'text', 'payload_json' => $plain['payload_json'] ?? '' ) ) : null;
 			}
 		} finally {
 			fclose( $handle );
@@ -643,6 +733,57 @@ final class BizCity_Channel_Conversation_Archive {
 		$key = function_exists( 'wp_salt' ) ? (string) wp_salt( 'auth' ) : '';
 		$key = (string) apply_filters( 'bizcity_channel_archive_key', $key );
 		return $key;
+	}
+
+	/** Return a non-secret archive key version derived from the active key. */
+	public static function archive_key_version(): string {
+		$key = self::archive_key();
+		return '' !== $key ? 'k_' . substr( hash( 'sha256', $key ), 0, 16 ) : 'v1';
+	}
+
+	/**
+	 * Resolve an archive key by receipt/entry version.
+	 *
+	 * Legacy `v1` rows fall back to the active key when no keyring exists. A
+	 * planned salt rotation must call rotate_archive_key() before the salt is
+	 * changed so the old key is wrapped by the new active key.
+	 */
+	private static function archive_key_for_version( string $version, string $fallback = '' ): string {
+		$current = self::archive_key();
+		if ( '' === $version || $version === self::archive_key_version() ) { return $current; }
+		$keyring = function_exists( 'get_option' ) ? get_option( self::KEYRING_OPTION, array() ) : array();
+		if ( ! is_array( $keyring ) || empty( $keyring[ $version ]['wrapped'] ) || '' === $current || ! class_exists( 'BizCity_Codec' ) ) {
+			return $fallback !== '' ? $fallback : ( 'v1' === $version ? $current : '' );
+		}
+		$decoded = BizCity_Codec::decrypt_json_payload( (string) $keyring[ $version ]['wrapped'], $current, self::PREFIX . 'keyring_', 'bizcity-channel-archive-keyring' );
+		return is_array( $decoded ) ? (string) ( $decoded['key'] ?? '' ) : '';
+	}
+
+	/**
+	 * Register the active key and optionally wrap a previous key for rotation.
+	 * The previous key is operator-supplied and is never logged or returned.
+	 */
+	public static function rotate_archive_key( string $previous_key = '' ): bool {
+		$current = self::archive_key();
+		if ( '' === $current || ! function_exists( 'update_option' ) || ! class_exists( 'BizCity_Codec' ) ) { return false; }
+		$ring = function_exists( 'get_option' ) ? get_option( self::KEYRING_OPTION, array() ) : array();
+		$ring = is_array( $ring ) ? $ring : array();
+		if ( '' !== $previous_key && $previous_key !== $current ) {
+			$previous_version = 'k_' . substr( hash( 'sha256', $previous_key ), 0, 16 );
+			$ring[ $previous_version ] = array(
+				'fingerprint' => $previous_version,
+				'wrapped'     => BizCity_Codec::encrypt_json_payload( array( 'key' => $previous_key ), $current, self::PREFIX . 'keyring_', 'bizcity-channel-archive-keyring' ),
+				'created_at'  => gmdate( 'c' ),
+			);
+			$ring['v1'] = $ring[ $previous_version ];
+		}
+		$version = self::archive_key_version();
+		$ring[ $version ] = array(
+			'fingerprint' => $version,
+			'wrapped'     => BizCity_Codec::encrypt_json_payload( array( 'key' => $current ), $current, self::PREFIX . 'keyring_', 'bizcity-channel-archive-keyring' ),
+			'created_at'  => gmdate( 'c' ),
+		);
+		return (bool) update_option( self::KEYRING_OPTION, $ring, false );
 	}
 
 	private static function hash_identifier( string $value, string $key ): string {
@@ -696,6 +837,7 @@ final class BizCity_Channel_Conversation_Archive {
 			'event_uuid'    => (string) ( $entry['event_uuid'] ?? '' ),
 			'relative_file' => $channel . '/a_' . self::hash_identifier( $account_id, self::archive_key() ) . '/p_' . self::hash_identifier( $peer_uid, self::archive_key() ) . '/' . gmdate( 'Y-m' ) . '.jsonl',
 			'byte_offset'   => $offset,
+			'line_bytes'    => strlen( $durable_line ),
 			'row_hash'      => hash( 'sha256', $durable_line ),
 			'content_hash'  => hash( 'sha256', $line ),
 			'occurred_at'   => (string) ( $entry['occurred_at'] ?? gmdate( 'c' ) ),
@@ -753,7 +895,320 @@ final class BizCity_Channel_Conversation_Archive {
 		return array( 'ok' => true, 'operation' => (string) ( $entry['operation'] ?? 'upsert' ), 'entry' => array( 'record_id' => (string) $entry['record_id'], 'event_uuid' => (string) $entry['event_uuid'], 'blog_id' => $blog_id, 'grant_account_key' => (string) ( $entry['grant_account_key'] ?? '' ) ) );
 	}
 
-	private static function write_receipt( array $entry, string $key, string $channel, string $account_id, string $peer_uid ): bool {
+	/**
+	 * Read a bounded batch of archive pointers, grouped by monthly file.
+	 *
+	 * Pointers with a byte offset use one open handle per file and seek directly
+	 * to the durable line. Legacy pointers without an offset trigger one linear
+	 * scan per file, never one scan per message. The method is read-only and
+	 * returns partial results when the time budget is exhausted.
+	 *
+	 * @param array<int,array<string,mixed>> $pointers
+	 * @param int                            $max_ms
+	 * @return array{items:array<int,array<string,mixed>>,partial:bool,files_scanned:int}
+	 */
+	public static function read_batch( array $pointers, int $max_ms = 800 ): array {
+		// [2026-09-19 01:30 PM Johnny Chu] PHASE-0.56-H-05 — batch cold reads by immutable archive file and bounded time budget.
+		$started = microtime( true );
+		$budget = max( 1, min( 5000, $max_ms ) );
+		$items = array();
+		$groups = array();
+		foreach ( array_values( $pointers ) as $index => $pointer ) {
+			if ( ! is_array( $pointer ) ) {
+				$items[ $index ] = array( 'ok' => false, 'cold_error' => 'invalid_pointer' );
+				continue;
+			}
+			$file = self::pointer_file( $pointer );
+			if ( '' === $file ) {
+				$items[ $index ] = array( 'ok' => false, 'cold_error' => 'invalid_pointer' );
+				continue;
+			}
+			$groups[ $file ][] = array( 'index' => $index, 'pointer' => $pointer );
+		}
+
+		$partial = false;
+		$files_scanned = 0;
+		$key = self::archive_key();
+		foreach ( $groups as $file => $group ) {
+			if ( ( microtime( true ) - $started ) * 1000 >= $budget ) {
+				$partial = true;
+				break;
+			}
+			if ( ! is_readable( $file ) || false === ( $handle = @fopen( $file, 'rb' ) ) ) {
+				foreach ( $group as $request ) { $items[ $request['index'] ] = array( 'ok' => false, 'cold_error' => 'archive_pointer_missing' ); }
+				continue;
+			}
+			$files_scanned++;
+			$offset_requests = array();
+			$scan_requests = array();
+			foreach ( $group as $request ) {
+				$offset = isset( $request['pointer']['byte_offset'] ) ? (int) $request['pointer']['byte_offset'] : -1;
+				if ( $offset >= 0 ) { $offset_requests[] = $request; } else { $scan_requests[] = $request; }
+			}
+
+			foreach ( $offset_requests as $request ) {
+				if ( ( microtime( true ) - $started ) * 1000 >= $budget ) { $partial = true; break; }
+				$pointer = $request['pointer'];
+				if ( false === @fseek( $handle, (int) $pointer['byte_offset'] ) ) {
+					$items[ $request['index'] ] = array( 'ok' => false, 'cold_error' => 'archive_pointer_seek_failed' );
+					continue;
+				}
+				$line = @fgets( $handle, self::MAX_LINE_BYTES + 2 );
+				$items[ $request['index'] ] = self::decode_batch_line( $line, $pointer, $key );
+			}
+
+			if ( ! $partial && $scan_requests ) {
+				$wanted = array();
+				$scan_lookup = array();
+				foreach ( $scan_requests as $request ) {
+					$wanted[ $request['index'] ] = true;
+					$pointer = $request['pointer'];
+					$identity = isset( $pointer['crm_message_id'] ) ? 'id:' . (string) $pointer['crm_message_id'] : ( isset( $pointer['record_id'] ) ? 'record:' . (string) $pointer['record_id'] : ( isset( $pointer['event_uuid'] ) ? 'event:' . (string) $pointer['event_uuid'] : '' ) );
+					if ( '' !== $identity ) { $scan_lookup[ $identity ][] = $request; }
+				}
+				@rewind( $handle );
+				while ( $wanted && false !== ( $line = @fgets( $handle, self::MAX_LINE_BYTES + 2 ) ) ) {
+					if ( ( microtime( true ) - $started ) * 1000 >= $budget ) { $partial = true; break; }
+					$envelope = json_decode( trim( $line ), true );
+					if ( ! is_array( $envelope ) ) { continue; }
+					$identity_keys = array( 'id:' . (string) ( $envelope['crm_message_id'] ?? '' ), 'record:' . (string) ( $envelope['record_id'] ?? '' ), 'event:' . (string) ( $envelope['event_uuid'] ?? '' ) );
+					$candidates = array();
+					foreach ( $identity_keys as $identity_key ) {
+						if ( isset( $scan_lookup[ $identity_key ] ) ) { $candidates = array_merge( $candidates, $scan_lookup[ $identity_key ] ); }
+					}
+					if ( ! $candidates && count( $scan_lookup ) < count( $scan_requests ) ) { $candidates = $scan_requests; }
+					foreach ( $candidates as $request ) {
+						$index = $request['index'];
+						if ( ! isset( $wanted[ $index ] ) ) { continue; }
+						$decoded = self::decode_batch_line( $line, $request['pointer'], $key );
+						if ( ! empty( $decoded['ok'] ) ) { $items[ $index ] = $decoded; unset( $wanted[ $index ] ); }
+					}
+				}
+				foreach ( array_keys( $wanted ) as $index ) { $items[ $index ] = array( 'ok' => false, 'cold_error' => $partial ? 'read_budget_exhausted' : 'archive_record_missing' ); }
+			}
+			fclose( $handle );
+		}
+
+		if ( $partial ) {
+			foreach ( array_keys( $groups ) as $file ) {
+				foreach ( $groups[ $file ] as $request ) {
+					if ( ! isset( $items[ $request['index'] ] ) ) { $items[ $request['index'] ] = array( 'ok' => false, 'cold_error' => 'read_budget_exhausted' ); }
+				}
+			}
+		}
+		ksort( $items );
+		return array( 'items' => $items, 'partial' => $partial, 'files_scanned' => $files_scanned );
+	}
+
+	/**
+	 * Plan or repair missing byte pointers on legacy CRM archive receipts.
+	 *
+	 * The archive line is the source of truth: no pointer is written unless the
+	 * immutable hashed partition, CRM message id and stored line hash all match.
+	 *
+	 * @param int  $limit   Maximum receipts inspected in this bounded call.
+	 * @param bool $dry_run Do not update receipts when true.
+	 * @return array<string,mixed>
+	 */
+	public static function reconcile_legacy_receipt_pointers( int $limit = 100, bool $dry_run = true ): array {
+		// [2026-09-21 05:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.56-H-11 — receipt-safe legacy pointer repair; bounded, hash-verified and dry-run by default.
+		$limit = max( 1, min( 500, $limit ) );
+		if ( ! $dry_run ) {
+			// [2026-09-21 06:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.56-H-11 — preflight the complete batch before any receipt write; missing files, unmatched rows or integrity errors block the whole apply atomically.
+			$preflight = self::reconcile_legacy_receipt_pointers( $limit, true );
+			$preflight_clean = ! empty( $preflight['ok'] )
+				&& (int) ( $preflight['scanned'] ?? 0 ) > 0
+				&& (int) ( $preflight['matched'] ?? 0 ) === (int) ( $preflight['scanned'] ?? 0 )
+				&& 0 === (int) ( $preflight['skipped'] ?? 0 )
+				&& 0 === (int) ( $preflight['errors'] ?? 0 )
+				&& 0 === (int) ( $preflight['files_missing'] ?? 0 )
+				&& 0 === (int) ( $preflight['malformed_lines'] ?? 0 )
+				&& 0 === (int) ( $preflight['hash_mismatches'] ?? 0 )
+				&& 0 === (int) ( $preflight['unmatched_receipts'] ?? 0 );
+			if ( ! $preflight_clean ) {
+				$preflight['dry_run'] = false;
+				$preflight['reason'] = 'apply_blocked_preflight';
+				$preflight['repaired'] = 0;
+				return $preflight;
+			}
+		}
+		$result = array(
+			'ok'              => false,
+			'dry_run'         => $dry_run,
+			'limit'           => $limit,
+			'scanned'         => 0,
+			'matched'         => 0,
+			'repaired'        => 0,
+			'skipped'         => 0,
+			'errors'          => 0,
+			'files_scanned'   => 0,
+			'files_missing'   => 0,
+			'archive_lines_scanned' => 0,
+			'malformed_lines' => 0,
+			'hash_mismatches' => 0,
+			'hash_matches_exact' => 0,
+			'hash_matches_without_newline' => 0,
+			'unmatched_receipts' => 0,
+			'partitions'       => array(),
+			'coverage_complete' => false,
+		);
+		if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			$result['reason'] = 'crm_schema_owner_unavailable';
+			return $result;
+		}
+		global $wpdb;
+		$receipts = BizCity_CRM_DB_Installer_V2::tbl_archive_receipts();
+		if ( ! BizCity_CRM_DB_Installer_V2::table_exists( $receipts ) ) {
+			$result['reason'] = 'archive_receipts_table_missing';
+			return $result;
+		}
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, crm_message_id, channel_type, account_key, peer_key, archive_month, line_hash
+			 FROM `{$receipts}`
+			 WHERE archive_status = 'written'
+			   AND archive_schema_version < 2
+			   AND (byte_offset IS NULL OR line_bytes IS NULL)
+			 ORDER BY id ASC LIMIT %d",
+			$limit
+		), ARRAY_A );
+		$groups = array();
+		$partition_index = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$result['scanned']++;
+			$channel = self::archive_channel_for( (string) ( $row['channel_type'] ?? '' ) );
+			$account_key = (string) ( $row['account_key'] ?? '' );
+			$peer_key = (string) ( $row['peer_key'] ?? '' );
+			$month = (string) ( $row['archive_month'] ?? '' );
+			$file = self::archive_file_from_keys( $channel, $account_key, $peer_key, $month );
+			$partition_key = $channel . '/' . $account_key . '/' . $peer_key . '/' . $month . '.jsonl';
+			if ( ! isset( $partition_index[ $file ] ) ) {
+				$partition_index[ $file ] = count( $result['partitions'] );
+				$result['partitions'][] = array(
+					'partition' => $partition_key,
+					'receipts'  => 0,
+					'matched'   => 0,
+					'unmatched' => 0,
+					'errors'    => 0,
+					'file_missing' => false,
+				);
+			}
+			$result['partitions'][ $partition_index[ $file ] ]['receipts']++;
+			if ( '' === $file ) {
+				$result['skipped']++;
+				$result['partitions'][ $partition_index[ $file ] ]['errors']++;
+				continue;
+			}
+			$groups[ $file ][] = $row;
+		}
+		foreach ( $groups as $file => $file_rows ) {
+			if ( ! is_readable( $file ) || false === ( $handle = @fopen( $file, 'rb' ) ) ) {
+				$result['errors'] += count( $file_rows );
+				$result['files_missing']++;
+				$partition_id = $partition_index[ $file ];
+				$result['partitions'][ $partition_id ]['file_missing'] = true;
+				$result['partitions'][ $partition_id ]['errors'] += count( $file_rows );
+				continue;
+			}
+			$result['files_scanned']++;
+			$wanted = array();
+			foreach ( $file_rows as $row ) {
+				$wanted[ (int) $row['crm_message_id'] ][] = $row;
+			}
+			$offset = 0;
+			while ( false !== ( $line = @fgets( $handle ) ) ) {
+				$line_bytes = strlen( $line );
+				$result['archive_lines_scanned']++;
+				$entry = $line_bytes <= self::MAX_LINE_BYTES + 1 ? json_decode( trim( $line ), true ) : null;
+				$message_id = is_array( $entry ) ? (int) ( $entry['crm_message_id'] ?? 0 ) : 0;
+				if ( ! is_array( $entry ) || $message_id <= 0 ) {
+					$result['malformed_lines']++;
+				}
+				if ( $message_id > 0 && isset( $wanted[ $message_id ] ) ) {
+					$line_hash = hash( 'sha256', $line );
+					$line_hash_without_newline = hash( 'sha256', rtrim( $line, "\r\n" ) );
+					foreach ( $wanted[ $message_id ] as $row ) {
+						$stored_hash = strtolower( (string) $row['line_hash'] );
+						$exact_hash_match = hash_equals( $stored_hash, strtolower( $line_hash ) );
+						$trimmed_hash_match = hash_equals( $stored_hash, strtolower( $line_hash_without_newline ) );
+						if ( ! $exact_hash_match && ! $trimmed_hash_match ) {
+							$result['errors']++;
+							$result['hash_mismatches']++;
+							$result['partitions'][ $partition_index[ $file ] ]['errors']++;
+							continue;
+						}
+						if ( $exact_hash_match ) {
+							$result['hash_matches_exact']++;
+						} else {
+							$result['hash_matches_without_newline']++;
+						}
+						$result['matched']++;
+						$result['partitions'][ $partition_index[ $file ] ]['matched']++;
+						if ( ! $dry_run ) {
+							$updated = $wpdb->query( $wpdb->prepare(
+								"UPDATE `{$receipts}` SET line_hash = %s, byte_offset = %d, line_bytes = %d, updated_at = %s WHERE id = %d AND archive_status = 'written' AND archive_schema_version < 2 AND (byte_offset IS NULL OR line_bytes IS NULL)",
+								$line_hash,
+								$offset,
+								$line_bytes,
+								current_time( 'mysql' ),
+								(int) $row['id']
+							) );
+							if ( false !== $updated && $updated > 0 ) {
+								$result['repaired']++;
+							} else {
+								$result['errors']++;
+							}
+						}
+					}
+					unset( $wanted[ $message_id ] );
+				}
+				$offset += $line_bytes;
+			}
+			fclose( $handle );
+			foreach ( $wanted as $unmatched ) {
+				$result['skipped'] += count( $unmatched );
+				$result['unmatched_receipts'] += count( $unmatched );
+				$result['partitions'][ $partition_index[ $file ] ]['unmatched'] += count( $unmatched );
+			}
+		}
+		$result['coverage_complete'] = count( $rows ) < $limit;
+		$result['ok'] = true;
+		$result['reason'] = $dry_run ? 'dry_run_only' : 'pointer_repair_applied';
+		return $result;
+	}
+
+	/** Resolve a pointer to an existing archive file without accepting raw IDs. */
+	private static function pointer_file( array $pointer ): string {
+		$relative = (string) ( $pointer['relative_file'] ?? '' );
+		$root = self::root_directory();
+		if ( '' !== $root && preg_match( '#^(facebook|messenger|zalo_oa|zalo_personal|webchat|email|instagram|whatsapp)/a_[a-f0-9]{64}/p_[a-f0-9]{64}/\d{4}-\d{2}\.jsonl$#i', $relative ) ) {
+			return $root . DIRECTORY_SEPARATOR . str_replace( array( '/', '\\' ), DIRECTORY_SEPARATOR, $relative );
+		}
+		return self::archive_file_from_keys(
+			(string) ( $pointer['channel'] ?? $pointer['archive_channel'] ?? '' ),
+			(string) ( $pointer['account_key'] ?? $pointer['archive_account_key'] ?? '' ),
+			(string) ( $pointer['peer_key'] ?? $pointer['archive_peer_key'] ?? '' ),
+			(string) ( $pointer['archive_month'] ?? $pointer['month'] ?? '' )
+		);
+	}
+
+	/** Decode, verify and decrypt one JSONL line for read_batch(). */
+	private static function decode_batch_line( $line, array $pointer, string $key ): array {
+		if ( ! is_string( $line ) || strlen( $line ) > self::MAX_LINE_BYTES + 1 ) { return array( 'ok' => false, 'cold_error' => 'line_too_large' ); }
+		if ( isset( $pointer['line_bytes'] ) && (int) $pointer['line_bytes'] > 0 && (int) $pointer['line_bytes'] !== strlen( $line ) ) { return array( 'ok' => false, 'cold_error' => 'line_length_mismatch' ); }
+		if ( ! empty( $pointer['row_hash'] ) && ! hash_equals( strtolower( (string) $pointer['row_hash'] ), strtolower( hash( 'sha256', $line ) ) ) ) { return array( 'ok' => false, 'cold_error' => 'line_hash_mismatch' ); }
+		if ( ! empty( $pointer['content_hash'] ) && ! hash_equals( strtolower( (string) $pointer['content_hash'] ), strtolower( hash( 'sha256', rtrim( $line, "\r\n" ) ) ) ) ) { return array( 'ok' => false, 'cold_error' => 'content_hash_mismatch' ); }
+		$entry = json_decode( trim( $line ), true );
+		if ( ! is_array( $entry ) ) { return array( 'ok' => false, 'cold_error' => 'invalid_archive_line' ); }
+		foreach ( array( 'record_id', 'event_uuid', 'crm_message_id' ) as $identity ) {
+			if ( isset( $pointer[ $identity ] ) && (string) $pointer[ $identity ] !== (string) ( $entry[ $identity ] ?? '' ) ) { return array( 'ok' => false, 'cold_error' => 'archive_identity_mismatch' ); }
+		}
+		$entry_key = self::archive_key_for_version( (string) ( $entry['archive_key_version'] ?? 'v1' ), $key );
+		$plain = ! empty( $entry['content_ciphertext'] ) && $entry_key !== '' ? BizCity_Codec::decrypt_json_payload( (string) $entry['content_ciphertext'], $entry_key, self::PREFIX, 'bizcity-channel-conversation' ) : array();
+		if ( ! is_array( $plain ) ) { return array( 'ok' => false, 'cold_error' => 'archive_decrypt_failed' ); }
+		return array( 'ok' => true, 'entry' => $entry, 'content' => (string) ( $plain['content'] ?? '' ), 'body' => (string) ( $plain['body'] ?? '' ), 'content_type' => (string) ( $plain['content_type'] ?? 'text' ), 'payload_json' => (string) ( $plain['payload_json'] ?? '' ) );
+	}
+
+	private static function write_receipt( array $entry, string $key, string $channel, string $account_id, string $peer_uid, array $pointer = array() ): bool {
 		if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
 			return false;
 		}
@@ -765,8 +1220,14 @@ final class BizCity_Channel_Conversation_Archive {
 		$line = wp_json_encode( $entry, JSON_UNESCAPED_SLASHES );
 		$month = gmdate( 'Y-m' );
 		$now = current_time( 'mysql' );
-		$ok = $wpdb->query( $wpdb->prepare(
-			"INSERT INTO `{$table}` (crm_message_id, conversation_id, inbox_id, channel_type, account_key, peer_key, archive_month, archive_schema_version, archive_key_version, line_hash, archive_status, written_at, verified_at, created_at, updated_at) VALUES (%d, %d, %d, %s, %s, %s, %s, 1, %s, %s, 'written', %s, %s, %s, %s) ON DUPLICATE KEY UPDATE archive_status = 'written', line_hash = VALUES(line_hash), archive_month = VALUES(archive_month), verified_at = VALUES(verified_at), updated_at = VALUES(updated_at)",
+		$byte_offset = isset( $pointer['byte_offset'] ) ? max( 0, (int) $pointer['byte_offset'] ) : null;
+		$line_bytes = isset( $pointer['line_bytes'] ) ? max( 0, (int) $pointer['line_bytes'] ) : null;
+		$line_hash = isset( $pointer['row_hash'] ) && preg_match( '/^[a-f0-9]{64}$/i', (string) $pointer['row_hash'] )
+			? (string) $pointer['row_hash']
+			: hash( 'sha256', is_string( $line ) ? $line . "\n" : '' );
+		$offset_sql = null === $byte_offset ? 'NULL' : '%d';
+		$line_bytes_sql = null === $line_bytes ? 'NULL' : '%d';
+		$params = array(
 			(int) $entry['crm_message_id'],
 			(int) $entry['conversation_id'],
 			(int) $entry['inbox_id'],
@@ -774,12 +1235,15 @@ final class BizCity_Channel_Conversation_Archive {
 			'a_' . self::hash_identifier( $account_id, $key ),
 			'p_' . self::hash_identifier( $peer_uid, $key ),
 			$month,
-			'v1',
-			hash( 'sha256', is_string( $line ) ? $line : '' ),
-			$now,
-			$now,
-			$now,
-			$now
+			(string) ( $entry['archive_key_version'] ?? self::archive_key_version() ),
+			$line_hash,
+		);
+		if ( null !== $byte_offset ) { $params[] = $byte_offset; }
+		if ( null !== $line_bytes ) { $params[] = $line_bytes; }
+		$params = array_merge( $params, array( $now, $now, $now, $now ) );
+		$ok = $wpdb->query( $wpdb->prepare(
+			"INSERT INTO `{$table}` (crm_message_id, conversation_id, inbox_id, channel_type, account_key, peer_key, archive_month, archive_schema_version, archive_key_version, line_hash, byte_offset, line_bytes, archive_status, written_at, verified_at, created_at, updated_at) VALUES (%d, %d, %d, %s, %s, %s, %s, 2, %s, %s, {$offset_sql}, {$line_bytes_sql}, 'written', %s, %s, %s, %s) ON DUPLICATE KEY UPDATE archive_status = 'written', archive_schema_version = 2, archive_key_version = VALUES(archive_key_version), line_hash = VALUES(line_hash), byte_offset = VALUES(byte_offset), line_bytes = VALUES(line_bytes), archive_month = VALUES(archive_month), verified_at = VALUES(verified_at), updated_at = VALUES(updated_at)",
+			$params
 		) );
 		return false !== $ok;
 	}
@@ -839,11 +1303,56 @@ final class BizCity_Channel_Conversation_Archive {
 		return $dir !== '' ? $dir . DIRECTORY_SEPARATOR . $month . '.jsonl' : '';
 	}
 
+	/**
+	 * Resolve one archive file from already-hashed, SQL-persisted partition keys.
+	 *
+	 * This method deliberately never calls `archive_key()` and never accepts raw
+	 * account/contact identifiers. Legacy receipts can continue using the raw
+	 * identity wrapper above; new cold reads must use this stable path contract.
+	 */
+	public static function archive_file_from_keys( string $channel, string $account_key, string $peer_key, string $month ): string {
+		$channel = self::archive_channel_for( $channel );
+		if ( ! in_array( $channel, self::CHANNELS, true ) || ! preg_match( '/^a_[a-f0-9]{64}$/i', $account_key ) || ! preg_match( '/^p_[a-f0-9]{64}$/i', $peer_key ) || ! preg_match( '/^\d{4}-\d{2}$/', $month ) ) {
+			return '';
+		}
+		$root = self::root_directory();
+		if ( '' === $root ) { return ''; }
+		return $root . DIRECTORY_SEPARATOR . $channel
+			. DIRECTORY_SEPARATOR . $account_key
+			. DIRECTORY_SEPARATOR . $peer_key
+			. DIRECTORY_SEPARATOR . $month . '.jsonl';
+	}
+
 	/** Extract a whitelisted channel from an archive path relative to the archive root. */
 	private static function channel_from_path( string $file, string $root ): string {
 		$relative = ltrim( str_replace( array( '/', '\\' ), DIRECTORY_SEPARATOR, substr( $file, strlen( $root ) ) ), DIRECTORY_SEPARATOR );
 		$channel = sanitize_key( (string) strtok( $relative, DIRECTORY_SEPARATOR ) );
 		return in_array( $channel, self::CHANNELS, true ) ? $channel : '';
+	}
+
+	/** Extract the stable hashed partition identity from a monthly archive path. */
+	private static function partition_from_path( string $file, string $root, string $month ): ?array {
+		$relative = ltrim( str_replace( array( '/', '\\' ), '/', substr( $file, strlen( $root ) ) ), '/' );
+		if ( ! preg_match( '#^(facebook|messenger|zalo_oa|zalo_personal|webchat|email|instagram|whatsapp)/(a_[a-f0-9]{64})/(p_[a-f0-9]{64})/' . preg_quote( $month, '#' ) . '\.jsonl$#i', $relative, $matches ) ) {
+			return null;
+		}
+		return array( 'channel' => sanitize_key( $matches[1] ), 'account_key' => $matches[2], 'peer_key' => $matches[3], 'month' => $month );
+	}
+
+	/** Mark SQL indexes expired and remove receipts only after the archive file is gone. */
+	private static function expire_partition_rows( array $partition ): void {
+		if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) { return; }
+		global $wpdb;
+		$messages = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$receipts = BizCity_CRM_DB_Installer_V2::tbl_archive_receipts();
+		$wpdb->query( $wpdb->prepare(
+			"UPDATE `{$messages}` SET content_storage_state = 'expired', storage_error_code = 'archive_expired' WHERE archive_channel = %s AND archive_account_key = %s AND archive_peer_key = %s AND archive_month = %s AND content_storage_state IN ('archived','offloaded')",
+			$partition['channel'], $partition['account_key'], $partition['peer_key'], $partition['month']
+		) );
+		$wpdb->query( $wpdb->prepare(
+			"DELETE FROM `{$receipts}` WHERE channel_type = %s AND account_key = %s AND peer_key = %s AND archive_month = %s",
+			$partition['channel'], $partition['account_key'], $partition['peer_key'], $partition['month']
+		) );
 	}
 
 	/** Let the owning policy protect files from retention or legal erasure. */

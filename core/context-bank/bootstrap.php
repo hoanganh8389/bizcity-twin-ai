@@ -92,6 +92,18 @@ if ( class_exists( 'BizCity_Context_Bank_Channel_Archive_Adapter' ) ) {
 }
 unset( $_context_bank_channel_archive_adapter );
 
+// [2026-09-21 OpenAI GPT-5.6 Luna] PHASE-0.63A WP-8.1 — attach the pointer-only CRM pipeline lifecycle adapter.
+$_context_bank_crm_pipeline_adapter = __DIR__ . '/includes/class-context-bank-crm-pipeline-adapter.php';
+if ( class_exists( 'BizCity_Safe_Loader', false )
+	&& is_file( $_context_bank_crm_pipeline_adapter )
+	&& is_readable( $_context_bank_crm_pipeline_adapter ) ) {
+	BizCity_Safe_Loader::require_file( $_context_bank_crm_pipeline_adapter, 'context_bank.crm_pipeline_adapter' );
+}
+if ( class_exists( 'BizCity_Context_Bank_CRM_Pipeline_Adapter', false ) ) {
+	BizCity_Context_Bank_CRM_Pipeline_Adapter::boot();
+}
+unset( $_context_bank_crm_pipeline_adapter );
+
 // [2026-09-01 Johnny Chu] PHASE-CB6.1 — load the bounded search owner after the ledger and before REST consumers.
 $_context_bank_search = __DIR__ . '/includes/class-context-bank-search.php';
 if ( class_exists( 'BizCity_Safe_Loader', false )
@@ -100,6 +112,15 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	BizCity_Safe_Loader::require_file( $_context_bank_search, 'context_bank.search' );
 }
 unset( $_context_bank_search );
+
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D3 — load the canonical L4 Context Retrieval Pack builder after the scope resolver, search owner and access owner. It composes existing owners only; it starts no worker and touches no storage at load time.
+$_context_bank_retrieval_pack = __DIR__ . '/includes/class-context-bank-retrieval-pack.php';
+if ( class_exists( 'BizCity_Safe_Loader', false )
+	&& is_file( $_context_bank_retrieval_pack )
+	&& is_readable( $_context_bank_retrieval_pack ) ) {
+	BizCity_Safe_Loader::require_file( $_context_bank_retrieval_pack, 'context_bank.retrieval_pack' );
+}
+unset( $_context_bank_retrieval_pack );
 
 // [2026-09-01 Johnny Chu] PHASE-CB-MVP — mount the metadata-only REST consumer only for the Context Bank namespace.
 $_context_bank_rest_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';

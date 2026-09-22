@@ -56,7 +56,9 @@ class BizCity_Twin_Event_Taxonomy {
 	// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — added event-sourced Twin Goal Loop lifecycle.
 	// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — added event-sourced HIL Instance lifecycle (twin_hil_*).
 	// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — added canonical deterministic Notebook fallback notice event.
-	const TAXONOMY_VERSION = 12;
+	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — register memory_recall so Layer 0.5 audit emit stops throwing.
+	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — register the Context Bank phase boundary pair.
+	const TAXONOMY_VERSION = 14;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -139,6 +141,27 @@ class BizCity_Twin_Event_Taxonomy {
 	const CONVERSATION_ROUTE_DECIDED = 'conversation_route_decided';
 	const CONVERSATION_CONFIRM_PROMPT = 'conversation_confirm_prompt';
 	const EVIDENCE_FALLBACK_NOTICE = 'evidence_fallback_notice';
+
+	// ---- Wave 2.8 TBR.MEM (Layer 0.5) — memory recall audit -----------
+	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — this constant was
+	// previously declared only in the retired orphan file
+	// `core/twin-core/includes/class-twin-event-taxonomy_deleted.php`, which no
+	// bootstrap loads. `BizCity_TwinBrain_Runtime` therefore threw
+	// `Undefined class constant 'MEMORY_RECALL'` on every turn, the audit event
+	// never reached the Event Stream, and the timeline could not attribute the
+	// Layer 0.5 step. Schema: event-stream/schemas/events/memory_recall.json.
+	// CANONICAL OWNER: this file. Never revive the `_deleted` copy.
+	const MEMORY_RECALL = 'memory_recall';
+
+	// ---- PHASE-1.33D (2026-09-16) — Context Bank phase boundary -----------
+	// Contract: CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1 §3. The pair travels on
+	// the existing twin_event channel only; no Context Bank SSE channel exists.
+	// Schemas: event-stream/schemas/events/context_bank_{started,done}.json.
+	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — the taxonomy is
+	// the gate: a type must be declared here BEFORE any dispatch, otherwise the
+	// emit throws and the event is lost silently (the exact memory_recall defect).
+	const CONTEXT_BANK_STARTED = 'context_bank_started';
+	const CONTEXT_BANK_DONE    = 'context_bank_done';
 
 	// ---- MPR-V5-HIL-RUNTIME (2026-08-16) — bounded slot-collection instance lifecycle -------
 	// Schemas: core/twin-core/event-stream/schemas/events/twin_hil_*.json.
@@ -226,6 +249,15 @@ class BizCity_Twin_Event_Taxonomy {
 			self::CONVERSATION_ROUTE_DECIDED => [ 'trace_id', 'route', 'confidence', 'needs_confirm' ],
 			self::CONVERSATION_CONFIRM_PROMPT => [ 'trace_id', 'route', 'expires_in' ],
 			self::EVIDENCE_FALLBACK_NOTICE => [ 'trace_id', 'trigger', 'reason', 'notice' ],
+
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — Layer 0.5 recall audit payload contract.
+			self::MEMORY_RECALL => [ 'trace_id', 'surface', 'counts', 'citations', 'block_len', 'latency_ms' ],
+
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — Context Bank phase boundary.
+			// Never carry query text, prompt, ledger row, owner body, file path,
+			// byte offset, row/content hash, account key, bearer token or provider ID.
+			self::CONTEXT_BANK_STARTED => [ 'trace_id', 'event_uuid', 'phase', 'started_epoch_ms', 'mode' ],
+			self::CONTEXT_BANK_DONE    => [ 'trace_id', 'event_uuid', 'phase', 'started_epoch_ms', 'completed_epoch_ms', 'duration_ms', 'status', 'reason_bucket', 'mode', 'contract_count', 'source_ref_count', 'pointer_follows' ],
 
 			// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — each event carries a normalized HIL Instance snapshot.
 			self::TWIN_HIL_OPENED     => [ 'hil_id', 'spec_id', 'trigger_id', 'session_id', 'status', 'state' ],

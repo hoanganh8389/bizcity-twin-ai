@@ -1,0 +1,31 @@
+{
+  "contract": "leader-task-handoff",
+  "version": "1.1.0",
+  "surface": "C_PUBLIC_TWINGPT",
+  "principal": { "blog_id": 1258, "actor_user_id": 42 },
+  "subject": { "user_id": 42, "display_name": "Nguyễn Hương", "team_role": "agent" },
+  "as_of": "2026-09-18T09:15:00+07:00",
+  "coverage": { "complete": true, "degraded_sources": [], "truncated": false },
+  "data": {
+    "unseen": 1,
+    "tasks": [
+      {
+        "task_id": 501,
+        "title": "Tái chạm khách nguội",
+        "instructions": "Nhắn ưu đãi tháng 9, ghi lại ai quan tâm",
+        "priority": "high",
+        "due_at": "2026-09-20",
+        "status": "sent",
+        "overdue": false,
+        "assigned_by": { "display_name": "Trưởng nhóm Marketing" },
+        "subjects": [
+          { "kind": "contact", "contact_id": 9001, "conversation_id": 88, "inbox_id": 13, "display_name": "Chị Lan", "touched": false, "can_open_thread": true, "phone_masked": "09******11", "channel": "zalo_personal", "ref": "acc_7c1e" }
+        ],
+        "progress": { "touched": 0, "total": 1 },
+        "seen": false,
+        "created_at": "2026-09-18 09:12:00",
+        "can": ["accept", "start", "return"]
+      }
+    ]
+  }
+}

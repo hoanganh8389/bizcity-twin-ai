@@ -1,0 +1,52 @@
+{
+    "contract": "diagnostics-verdict",
+    "version": "1",
+    "command": "diagnostics",
+    "batch": "all",
+    "run_id": "",
+    "environment": {
+        "php": "7.4.33",
+        "wordpress": "6.9",
+        "blog_id": 1258
+    },
+    "catalog_hash": "1c9afde080def30fbc7107513126102f8f71a359823bdcab783af2b8d66f10c9",
+    "batch_hash": "7035f53617e212398753dddc607e85d5ef91c1d63619cb4ce28436733c373b44",
+    "evidence_audit": {
+        "total": 1,
+        "actionable_total": 0,
+        "with_fix_hint": 0,
+        "missing_fix_hint": 0,
+        "coverage_percent": 100,
+        "missing_probe_ids": []
+    },
+    "counts": {
+        "pass": 0,
+        "warn": 0,
+        "fail": 0,
+        "skip": 1
+    },
+    "verdict": "skip",
+    "duration_ms": 11,
+    "coverage": {
+        "catalog_total": 265,
+        "selected_total": 1,
+        "executed": 0,
+        "allowed_skipped": 1,
+        "deferred": 0,
+        "complete": false
+    },
+    "results": {
+        "core.admin_menu.unified": {
+            "id": "core.admin_menu.unified",
+            "status": "precheck-fail",
+            "skip_reason": "precondition_skip",
+            "error": "Probe c\u1ea7n ch\u1ea1y trong wp-admin.",
+            "duration_ms": 0,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.admin_menu.unified --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.admin_menu.unified --format=json"
+            }
+        }
+    }
+}

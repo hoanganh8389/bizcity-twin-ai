@@ -1,0 +1,7 @@
+Running 1 probe(s)…
+
+[PRECHECK-FAIL] core.admin_menu.unified                                0ms
+      ↳ precondition: Probe cần chạy trong wp-admin.
+
+Result: 0 pass · 0 fail · 1 skip · total 11ms
+JUnit XML written to /home/vibeyeuc/huongnguyen.vibeyeu.com.vn/wp-content/plugins/bizcity-twin-ai/build/setting-panel-vps/20260916T064634Z/step7-admin-menu.xml

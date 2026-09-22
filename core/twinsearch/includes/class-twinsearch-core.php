@@ -546,10 +546,10 @@ class BizCity_TwinSearch_Core {
 				$notebook_ids[] = $notebook_id;
 			}
 		} elseif ( 'user' === $scope ) {
-			$notebook_ids = $wpdb->get_col( $wpdb->prepare(
-				"SELECT id FROM {$notebooks} WHERE owner_id = %d ORDER BY id DESC LIMIT 2000",
-				$user_id
-			) );
+			$where = class_exists( 'BizCity_KG_Access' )
+				? BizCity_KG_Access::readable_where( $user_id )
+				: 'owner_id = %d';
+			$notebook_ids = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$notebooks} WHERE {$where} ORDER BY id DESC LIMIT 2000", $user_id ) );
 		} elseif ( 'blog' === $scope ) {
 			$notebook_ids = $wpdb->get_col( "SELECT id FROM {$notebooks} ORDER BY id DESC LIMIT 5000" );
 		} elseif ( 'character' === $scope ) {

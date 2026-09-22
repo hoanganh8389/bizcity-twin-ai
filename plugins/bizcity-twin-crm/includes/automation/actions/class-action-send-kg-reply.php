@@ -141,44 +141,55 @@ final class BizCity_CRM_Action_Send_KG_Reply {
 			) );
 		}
 
-		$msg_id = (int) BizCity_CRM_Repository::insert_message( array(
-			'conversation_id'    => (int) $conv['id'],
-			'inbox_id'           => $inbox_id,
-			'content'            => $body,
-			'content_type'       => 'text',
-			'message_type'       => 'outgoing',
-			'sender_type'        => 'bot',
-			'status'             => 'pending',
-			'responder_kind'     => 'kg_reply',
-			'parent_event_uuid'  => $context['event_uuid'] ?? null,
-			'external_source_id' => 'kg:' . wp_generate_uuid4(),
-		) );
-
-		// Channel adapter dispatch — parity with do_send_message.
-		$dispatched = false;
-		if ( $msg_id > 0 && class_exists( 'BizCity_CRM_Channel_Registry' ) ) {
-			$inbox = BizCity_CRM_Repository::get_inbox( $inbox_id );
-			if ( $inbox ) {
-				$adapter = BizCity_CRM_Channel_Registry::adapter_for( (string) $inbox['channel_type'] );
-				if ( $adapter && method_exists( $adapter, 'send' ) ) {
-					try {
-						$result     = $adapter->send( $conv, array( 'content' => $body, 'content_type' => 'text' ) );
-						$dispatched = (bool) ( $result['success'] ?? false );
-					} catch ( \Throwable $e ) {
-						$dispatched = false;
-					}
-				}
-			}
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7 — route the KG reply through the canonical outbound dispatcher instead of insert + raw adapter send.
+		if ( ! class_exists( 'BizCity_CRM_Outbound_Dispatcher' ) ) {
+			return self::fail( 'outbound_dispatcher_unavailable', array( 'conversation_id' => (int) $conv['id'] ) );
 		}
 
+		// A stable key per (conversation, triggering event, body) so a retried
+		// automation run can never post the same KG reply twice.
+		$correlation     = (string) ( $context['event_uuid'] ?? $context['run_id'] ?? '' );
+		$idempotency_key = 'kgreply_' . md5( (int) $conv['id'] . '|' . $correlation . '|' . $body );
+		$request_hash    = md5( 'kg_reply|' . (int) $conv['id'] . '|' . $body );
+
+		$envelope = BizCity_CRM_Outbound_Dispatcher::dispatch( array(
+			'conversation_id'      => (int) $conv['id'],
+			'content'              => $body,
+			'content_type'         => 'text',
+			'idempotency_key'      => $idempotency_key,
+			'request_hash'         => $request_hash,
+			'actor'                => 'system',
+			'system_source'        => 'kg_reply',
+			// Owner continuity when the run carries one; otherwise the dispatcher
+			// anchors on the conversation assignee or the inbox capability.
+			'on_behalf_of_user_id' => (int) ( $context['owner_user_id'] ?? $context['user_id'] ?? 0 ),
+			'parent_event_uuid'    => $context['event_uuid'] ?? null,
+			'trace_id'             => (string) ( $context['trace_id'] ?? '' ),
+		) );
+
+		$msg_id  = (int) ( $envelope['message_id'] ?? 0 );
+		$outcome = (string) ( $envelope['outcome'] ?? 'failed' );
+		if ( 'failed' === $outcome ) {
+			return self::fail( 'kg_reply_not_sent', array(
+				'conversation_id' => (int) $conv['id'],
+				'code'            => (string) ( $envelope['code'] ?? '' ),
+				'reason_bucket'   => (string) ( $envelope['reason_bucket'] ?? '' ),
+				'retryable'       => ! empty( $envelope['retryable'] ),
+			) );
+		}
+
+		// `queued` is the truthful state after provider acceptance; only a delivery
+		// callback may promote it to sent/delivered (PHASE-0.41D §5.2).
 		return self::ok(
-			$dispatched ? 'sent' : ( $msg_id > 0 ? 'queued_no_dispatch' : 'insert_failed' ),
+			! empty( $envelope['replayed'] ) ? 'idempotency_replayed' : $outcome,
 			array(
-				'message_id' => $msg_id,
-				'dispatched' => $dispatched,
-				'grounded'   => $grounded,
-				'matched'    => (int) ( $kg['matched'] ?? 0 ),
-				'source'     => $source,
+				'message_id'    => $msg_id,
+				'outcome'       => $outcome,
+				'replayed'      => ! empty( $envelope['replayed'] ),
+				'owner_source'  => (string) ( $envelope['owner_source'] ?? '' ),
+				'grounded'      => $grounded,
+				'matched'       => (int) ( $kg['matched'] ?? 0 ),
+				'source'        => $source,
 			)
 		);
 	}

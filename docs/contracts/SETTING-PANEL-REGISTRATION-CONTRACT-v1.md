@@ -51,6 +51,121 @@ capability and network scope, returns no callables/secrets/options, and does
 not resolve or execute owner renderers. REST registration and Runtime evidence
 remain separate from this source-level contract.
 
+## 2.1 Author guide — registering a setting surface
+
+Any core package, module, bundled plugin or extension can contribute a Control
+Panel entry. The registration is metadata only: the owner keeps its renderer,
+storage, capability checks and provider credentials.
+
+### Step 1 — Register through the SDK, never through the menu
+
+```php
+if ( ! defined( 'MY_PLUGIN_SETTING_PANEL_REGISTERED' )
+    && class_exists( 'BizCity_Twin_Plugin_SDK' )
+    && class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+    BizCity_Twin_Plugin_SDK::register_ui( array(
+        'setting_panel' => array(
+            array(
+                'contract'        => 'setting-panel-registration',
+                'version'         => '1.0.0',
+                'id'              => 'bundle.my-plugin.settings',
+                'owner'           => 'plugins/my-plugin',
+                'origin'          => 'bundle',
+                'destination'     => 'control-panel',
+                'group'           => 'studio',
+                'label_key'       => 'settings.my_plugin.label',
+                'description_key' => 'settings.my_plugin.description',
+                'icon'            => 'cil-description',
+                'capability'      => 'manage_options',
+                'scope'           => 'site',
+                'surface'         => 'admin_shell',
+                'renderer'        => array(
+                    'type'           => 'deep_link',
+                    'id'             => 'bundle.my-plugin.settings',
+                    'canonical_slug' => 'my-plugin-settings',
+                ),
+                'availability'    => array(
+                    'policy'         => 'registered-owner',
+                    'dependency_ids' => array( 'plugins.my-plugin' ),
+                ),
+                'position'        => 700,
+            ),
+        ),
+    ) );
+    define( 'MY_PLUGIN_SETTING_PANEL_REGISTERED', true );
+}
+```
+
+### Step 2 — Survive load order
+
+The framework contracts may load after your plugin. Register immediately when
+they exist, otherwise retry on the earliest hook:
+
+```php
+if ( class_exists( 'BizCity_Twin_Plugin_SDK' ) && class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+    my_plugin_register_setting_panel();
+} elseif ( function_exists( 'add_action' ) ) {
+    add_action( 'plugins_loaded', 'my_plugin_register_setting_panel', 1 );
+    add_action( 'init', 'my_plugin_register_setting_panel', 1 );
+}
+```
+
+Do **not** register inside an `is_admin()` guard: CLI, cron and diagnostics
+probe contexts must see the same registry. Two production defects were caused
+by exactly this mistake (see the checklist's Known Gaps section).
+
+### Step 3 — Pick the right destination and zone
+
+| Destination | Use for |
+|---|---|
+| `workspace` | Daily work surfaces (Brain, Profile) |
+| `settings` | Configuration (gateway, account, appearance, integrations) |
+| `control-panel` | Modules, extensions and studio tools |
+| `channel-settings` | Channel accounts and bindings — **requires `zone`** |
+| `crm-inbox` | Exactly one canonical Inbox renderer |
+| `plugins-store` | Catalog and lifecycle surfaces |
+
+`channel-settings` entries must declare `zone` as `customer`, `admin` or
+`system`. Zone 1 customer channels (Facebook, Messenger, Zalo OA, WebChat,
+Email) and Zone 2 admin channels (Zalo Bot, Telegram, TwinChat BE) must never
+be mixed.
+
+### Step 4 — Rules that are enforced
+
+- `id` must be unique; a duplicate is rejected with `duplicate_id:<id>`.
+- Two non-`legacy_adapter` entries cannot share a `renderer.id`
+  (`renderer_collision:<id>`).
+- `renderer.type = external` requires an `https://` `target_url`.
+- `position` must be an integer in `0..9999`.
+- Never put credentials, option values, callables or PII in the metadata.
+
+### Step 5 — Verify
+
+```bash
+php bin/diagnostics-run.php \
+  --filter=modules.twinshell.setting_panel \
+  --skip-provision \
+  --skip-network \
+  --format=json
+```
+
+The probe reports the registered item count, destination validity, ID
+uniqueness, lookup resolution and any rejected registrations. A `fail` or a
+non-zero rejection count means the entry was not admitted.
+
+### Reference implementations
+
+| Owner | ID | Pattern |
+|---|---|---|
+| `core/bizcity-llm` | `core.bizcity-llm.api-gateway` | core, `deep_link` |
+| `modules/twinchat` | `core.twinchat.brain` | module, `deep_link` |
+| `modules/twinshell` | `core.twinshell.user_preferences` | `scope=user`, `route` |
+| `core/channel-gateway` | `core.channel-gateway.zone1` | `zone=customer` |
+| `plugins/bizcity-twin-crm` | `bundle.twin-crm.inbox` | single Inbox owner |
+| `plugins/bizcity-facebook-bot` | `bundle.facebook-bot.channels` | bundle, Zone 1 |
+| `plugins/bizcity-zalo-bot` | `bundle.zalo-bot.channels` | bundle, Zone 2 |
+| `plugins/bizgpt-tool-google` | `bundle.google_tools.settings` | integration, no secret |
+
 ## 3. Envelope
 
 A native registration has this shape:

@@ -1,0 +1,14 @@
+{
+  "contract": "app-shell-nav",
+  "version": "1.0.0",
+  "items": [
+    {"key":"inbox","label":"Inbox","question":"Ai đang nói gì với tôi?","panel_ids":["inbox","contacts"]},
+    {"key":"work","label":"Công việc","question":"Tôi phải làm gì?","panel_ids":["tasks","task-board","task-plan","mywork"]},
+    {"key":"calendar","label":"Lịch","question":"Khi nào?","panel_ids":["calendar"]},
+    {"key":"dispatch","label":"Điều phối","question":"Đội đang thế nào, giao cho ai?","panel_ids":["team","staff","pipeline","funnel"]},
+    {"key":"requests","label":"Yêu cầu","question":"Ai đang chờ tôi quyết?","panel_ids":["submissions","crm-care"]},
+    {"key":"documents","label":"Tài liệu","question":"Hồ sơ ở đâu?","panel_ids":["documents"]},
+    {"key":"reports","label":"Báo cáo","question":"Kết quả ra sao?","panel_ids":["dashboard","reports","audit"]},
+    {"key":"apps","label":"Ứng dụng","question":"Còn gì nữa hoặc cần cấu hình?","panel_ids":["sales","invoices","email","automation","campaigns","labels","macros","attrs","sla","channels","admin-chat-grants","broadcast","zns-rules"]}
+  ]
+}

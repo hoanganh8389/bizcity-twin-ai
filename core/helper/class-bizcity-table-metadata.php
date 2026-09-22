@@ -33,6 +33,20 @@ final class BizCity_Table_Metadata {
 		);
 	}
 
+	/**
+	 * SQL comment that makes wp-content/db.php route an information_schema probe to the shard that owns
+	 * the table. The router picks a shard only from an UNQUOTED `wp_{blog_id}_*` token (it strips string
+	 * literals first), so `... TABLE_NAME = 'wp_582_x'` alone fell to its "(C) default: current
+	 * connection" path — global DB or whichever shard the previous query used — and DATABASE() answered
+	 * for the wrong schema, cached for CACHE_TTL. Seen 2026-09-18: tenants whose registry table was
+	 * missing on their shard never got it auto-created. Comments are not stripped by the router.
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-METADATA-CACHE shard routing.
+	 */
+	private static function route_hint( $table_name ) {
+		$table_name = (string) $table_name;
+		return preg_match( '/^wp_\d+_[a-z0-9_]+$/i', $table_name ) ? ' /* route:' . $table_name . ' */' : '';
+	}
+
 	/** Build one namespaced metadata cache key. */
 	private static function cache_key( $prefix, $table_name, $column_name = '' ) {
 		$context = self::context();
@@ -69,7 +83,7 @@ final class BizCity_Table_Metadata {
 		}
 		global $wpdb;
 		$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1' . self::route_hint( $table_name ),
 			$table_name
 		) );
 		wp_cache_set( $cache_key, $present, self::CACHE_GROUP, self::CACHE_TTL );
@@ -102,12 +116,19 @@ final class BizCity_Table_Metadata {
 			if ( ! is_object( $wpdb ) ) {
 				return false;
 			}
-			$placeholders = implode( ',', array_fill( 0, count( $missing ), '%s' ) );
-			$found        = $wpdb->get_col( $wpdb->prepare(
-				"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({$placeholders})",
-				$missing
-			) );
-			$found_lookup = array_fill_keys( array_map( 'strval', (array) $found ), true );
+			$groups = array();
+			foreach ( $missing as $table_name ) {
+				$groups[ preg_match( '/^wp_(\d+)_/i', $table_name, $m ) ? $m[1] : '' ][] = $table_name;
+			}
+			$found_lookup = array();
+			foreach ( $groups as $group ) {
+				$placeholders = implode( ',', array_fill( 0, count( $group ), '%s' ) );
+				$found        = $wpdb->get_col( $wpdb->prepare(
+					"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({$placeholders})" . self::route_hint( $group[0] ),
+					$group
+				) );
+				$found_lookup += array_fill_keys( array_map( 'strval', (array) $found ), true );
+			}
 			foreach ( $missing as $table_name ) {
 				$table_present       = isset( $found_lookup[ $table_name ] );
 				$present[ $table_name ] = $table_present;
@@ -152,7 +173,7 @@ final class BizCity_Table_Metadata {
 		}
 		global $wpdb;
 		$type = (string) $wpdb->get_var( $wpdb->prepare(
-			'SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			'SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1' . self::route_hint( $table_name ),
 			$table_name
 		) );
 		wp_cache_set( $cache_key, $type, self::CACHE_GROUP, self::CACHE_TTL );
@@ -190,7 +211,7 @@ final class BizCity_Table_Metadata {
 		}
 		global $wpdb;
 		$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
+			'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1' . self::route_hint( $table_name ),
 			$table_name,
 			$column_name
 		) );
@@ -230,7 +251,7 @@ final class BizCity_Table_Metadata {
 		$args = array_merge( array( $table_name ), $columns );
 		global $wpdb;
 		$found = $wpdb->get_col( $wpdb->prepare(
-			"SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME IN ({$placeholders})",
+			"SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME IN ({$placeholders})" . self::route_hint( $table_name ),
 			$args
 		) );
 		$ready = count( array_unique( array_map( 'strval', (array) $found ) ) ) === count( $columns );

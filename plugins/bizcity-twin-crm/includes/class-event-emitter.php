@@ -32,6 +32,7 @@ class BizCity_CRM_Event_Emitter {
 			'parent_event_uuid' => $parent_uuid,
 			'event_source'      => 'crm',
 			'created_epoch_ms'  => (int) round( microtime( true ) * 1000 ),
+			'blog_id'           => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
 		) );
 
 		// Primary path: Twin Event Bus dispatch (if loaded).

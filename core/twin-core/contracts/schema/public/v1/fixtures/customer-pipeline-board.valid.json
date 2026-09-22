@@ -1,0 +1,100 @@
+{
+  "ok": true,
+  "contract": "customer-pipeline-board",
+  "version": "1.0.0",
+  "surface": "B2_ADMIN_CRM",
+  "as_of": "2026-09-18T09:20:00+07:00",
+  "range": {
+    "key": "30d",
+    "days": 30
+  },
+  "columns": [
+    {
+      "stage": "quote",
+      "label": "Đã báo giá",
+      "count": 101,
+      "stuck": 12,
+      "no_next": 3,
+      "stuck_days": 3,
+      "cards": [
+        {
+          "contact_id": 9001,
+          "display_name": "Chị Lan",
+          "stage": "quote",
+          "days": 4,
+          "stuck": true,
+          "has_next": true,
+          "next_due": "2026-09-19",
+          "overdue_tasks": 0,
+          "source": "zalo_personal",
+          "manual_won_pending": false,
+          "paid_orders": 0,
+          "conversation_id": 88,
+          "inbox_id": 13,
+          "steps_done": 1,
+          "owner": {
+            "user_id": 42,
+            "display_name": "Nguyễn Hương"
+          }
+        }
+      ]
+    }
+  ],
+  "kpis": {
+    "customers": 1842,
+    "no_next": 71,
+    "stuck": 96,
+    "overdue_tasks": 88,
+    "touch7_rate": 72.4,
+    "conversion": {
+      "num": 213,
+      "den": 1498,
+      "value": 14.2
+    }
+  },
+  "matrix": [
+    {
+      "user_id": 42,
+      "display_name": "Nguyễn Hương",
+      "team_id": 3,
+      "role": "agent",
+      "counts": {
+        "target": 2,
+        "quote": 2
+      },
+      "stuck": 2,
+      "no_next": 1,
+      "overdue_tasks": 2,
+      "open": 7,
+      "touched7": 5,
+      "touched": 12,
+      "ordered": 2,
+      "touch7_rate": 71.4,
+      "conversion": {
+        "num": 2,
+        "den": 12,
+        "value": 16.7
+      },
+      "risk": 9
+    },
+    {
+      "user_id": null,
+      "display_name": "Nhân viên khác",
+      "counts": {},
+      "stuck": 0,
+      "no_next": 0,
+      "overdue_tasks": 0,
+      "conversion": null,
+      "touch7_rate": null
+    }
+  ],
+  "settings": {
+    "stuck_days": {
+      "target": 3,
+      "contacted": 3,
+      "consult": 3,
+      "quote": 3
+    }
+  },
+  "capped": false
+}

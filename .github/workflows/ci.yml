@@ -57,6 +57,12 @@ jobs:
       - name: Validate plugin contract registry
         run: node bin/validate-plugin-contract-registry.mjs
 
+      - name: Validate agent instruction parity (R-AGENT-PARITY)
+        run: node bin/sync-agent-instructions.mjs --check
+
+      - name: Run agent instruction parity fixtures
+        run: node bin/sync-agent-instructions-fixtures.mjs
+
       - name: Reject new active contract bypasses
         run: node bin/framework-contract-audit.mjs
 
@@ -259,6 +265,110 @@ jobs:
 
       - name: Validate reference extension manifest
         run: php bin/bizcity-manifest-validate.php --plugin=examples/bizcity-reference-plugin
+
+      - name: Run diagnostics batch orchestrator fixtures
+        run: bash tests/fixtures/diagnostics-batch-until-complete/run.sh
+
+      - name: Validate side-effect capability idempotency fixtures
+        run: |
+          set -e
+          php bin/bizcity-manifest-validate.php --plugin=tests/fixtures/manifest-adoption-valid-side-effect
+          if php bin/bizcity-manifest-validate.php --plugin=tests/fixtures/manifest-adoption-invalid-side-effect; then
+            echo "::error::Invalid side-effect capability fixture must fail manifest validation"
+            exit 1
+          fi
+
+      - name: Validate JSONL log contract parity
+        run: |
+          set -e
+          node bin/validate-jsonl-contract-parity.mjs --strict
+          node bin/validate-jsonl-contract-parity.mjs --fixture-root=tests/fixtures/jsonl-contract-parity/valid
+          if node bin/validate-jsonl-contract-parity.mjs --fixture-root=tests/fixtures/jsonl-contract-parity/invalid; then
+            echo "::error::Invalid JSONL contract fixture must fail parity validation"
+            exit 1
+          fi
+
+      - name: Reconcile manifest capabilities with registration symbols
+        run: |
+          set -e
+          node bin/validate-manifest-capability-parity.mjs --strict
+          node bin/validate-manifest-capability-parity.mjs --fixture-root=tests/fixtures/manifest-capability-parity/valid
+          if node bin/validate-manifest-capability-parity.mjs --fixture-root=tests/fixtures/manifest-capability-parity/invalid; then
+            echo "::error::Invalid manifest capability fixture must fail parity validation"
+            exit 1
+          fi
+
+      - name: Reconcile DDL tables across changelog, diagnostics and schema registries
+        run: |
+          set -e
+          node bin/validate-ddl-table-parity.mjs --strict
+          node bin/validate-ddl-table-parity-fixtures.mjs
+
+      - name: Reconcile capability registration receipts
+        run: |
+          set -e
+          node bin/validate-capability-receipts.mjs --strict
+          node bin/validate-capability-receipts-fixtures.mjs
+
+      - name: Enforce channel zone and identity discriminator
+        run: |
+          set -e
+          node bin/validate-channel-zone-identity.mjs --strict
+          node bin/validate-channel-zone-identity-fixtures.mjs
+
+      - name: Enforce CRM repository ownership
+        run: |
+          set -e
+          node bin/validate-crm-ownership.mjs --strict
+          node bin/validate-crm-ownership-fixtures.mjs
+
+      - name: Enforce normalized CRM contracts and spine correlation
+        run: |
+          set -e
+          node bin/validate-crm-contracts.mjs --strict
+          node bin/validate-crm-contracts-fixtures.mjs
+
+      - name: Enforce file-first channel operational evidence
+        run: |
+          set -e
+          node bin/validate-channel-file-first-logging.mjs --strict
+          node bin/validate-channel-file-first-logging-fixtures.mjs
+
+      - name: Enforce canonical sender ownership and duplicate-send prevention
+        run: |
+          set -e
+          node bin/validate-sender-ownership.mjs --strict
+          node bin/validate-sender-ownership-fixtures.mjs
+
+      - name: Enforce Context Bank pointer isolation and KG promotion ownership
+        run: |
+          set -e
+          node bin/validate-context-bank-kg-ownership.mjs --strict
+          node bin/validate-context-bank-kg-ownership-fixtures.mjs
+
+      - name: Enforce TwinBrain vertical bridge registry ownership
+        run: |
+          set -e
+          node bin/validate-twinbrain-vertical-bridge-ownership.mjs --strict
+          node bin/validate-twinbrain-vertical-bridge-ownership-fixtures.mjs
+
+      - name: Enforce provider gateway isolation (R-GW-8, Node-portable evidence)
+        run: |
+          set -e
+          node bin/validate-provider-gateway-isolation.mjs --strict
+          node bin/validate-provider-gateway-isolation-fixtures.mjs
+
+      - name: Enforce Brain retrieval facade ownership
+        run: |
+          set -e
+          node bin/validate-brain-retrieval-facade-ownership.mjs --strict
+          node bin/validate-brain-retrieval-facade-ownership-fixtures.mjs
+
+      - name: Enforce KG reranker ownership
+        run: |
+          set -e
+          node bin/validate-kg-reranker-ownership.mjs --strict
+          node bin/validate-kg-reranker-ownership-fixtures.mjs
 
       - name: PHP 7.4 compatibility grep guards
         run: |
@@ -527,7 +637,7 @@ jobs:
         run: >-
           php bin/diagnostics-run.php --host=cli.local --skip-network
           --junit=build/junit.xml
-          --filter='core.legacy_table.lifecycle,core.legacy_table.install_prevention,core.legacy_table.callers,core.legacy_table.state_machine,core.legacy_table.drop_zero_row_guard,core.legacy_table.approved_drop,core.legacy_table.uninstall_matrix,core.legacy_table.multisite_scope,core.legacy_table.owner_parity,core.legacy_table.jsonl_source_parity,core.legacy_table.contract_scoreboard,core.memory.filestore_parity,core.memory.notes_filestore_parity,core.knowledge.kg_source_progress_parity,core.knowledge.kg_cleanup_audit_parity,core.knowledge.kg_usage_ledger_parity,integrations.google_usage_parity,core.skills.usage_parity,modules.zalobot.memory_unify'
+          --filter='core.legacy_table.lifecycle,core.legacy_table.install_prevention,core.legacy_table.install_absence,core.legacy_table.callers,core.legacy_table.state_machine,core.legacy_table.drop_zero_row_guard,core.legacy_table.approved_drop,core.legacy_table.uninstall_matrix,core.legacy_table.multisite_scope,core.legacy_table.owner_parity,core.legacy_table.jsonl_source_parity,core.legacy_table.contract_scoreboard,core.memory.filestore_parity,core.memory.notes_filestore_parity,core.knowledge.kg_source_progress_parity,core.knowledge.kg_cleanup_audit_parity,core.knowledge.kg_usage_ledger_parity,integrations.google_usage_parity,core.skills.usage_parity,modules.zalobot.memory_unify'
 
       - name: Run framework production smoke
         run: wp --user=1 eval-file wp-content/plugins/bizcity-twin-ai/bin/framework-smoke.php

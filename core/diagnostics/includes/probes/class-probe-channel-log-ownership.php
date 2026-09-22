@@ -76,23 +76,40 @@ final class BizCity_Probe_Channel_Log_Ownership implements BizCity_Diagnostics_P
 			}
 		};
 
+		// [2026-09-18 09:59 AM Johnny Chu - Chu Hoàng Anh] R-DDV — align with BizCity_CRM_Channel_Contract after PHASE-0.41: bare `messenger` and `zalo` are quarantined (zone legacy, CRM disabled) until a runtime adapter manifest exists; core.channel.manifest_compat asserts the same fail-closed behaviour. Exact codes, mabel_wheel included, must stay authorized.
 		$expected = array(
 			'facebook'      => array( 'zone' => 'customer', 'crm_enabled' => true ),
-			'messenger'     => array( 'zone' => 'customer', 'crm_enabled' => true ),
 			'zalo_oa'       => array( 'zone' => 'customer', 'crm_enabled' => true ),
 			'zalo_personal' => array( 'zone' => 'customer', 'crm_enabled' => true ),
+			'mabel_wheel'   => array( 'zone' => 'customer', 'crm_enabled' => true ),
 			'zalo_bot'      => array( 'zone' => 'admin', 'crm_enabled' => true ),
 		);
-		$contract_ok = true;
+		$mismatches = array();
 		foreach ( $expected as $code => $expectation ) {
 			$descriptor = BizCity_CRM_Channel_Contract::describe( $code );
-			$ok = (string) ( $descriptor['zone'] ?? '' ) === $expectation['zone']
-				&& ! empty( $descriptor['crm_enabled'] ) === $expectation['crm_enabled'];
-			$contract_ok = $contract_ok && $ok;
+			$zone       = (string) ( $descriptor['zone'] ?? '' );
+			$enabled    = ! empty( $descriptor['crm_enabled'] );
+			if ( $zone !== $expectation['zone'] || $enabled !== $expectation['crm_enabled'] ) {
+				$mismatches[] = sprintf( '%s zone=%s crm=%s (expected zone=%s crm=%s)', $code, $zone, $enabled ? 'on' : 'off', $expectation['zone'], $expectation['crm_enabled'] ? 'on' : 'off' );
+			}
 		}
-		$generic = BizCity_CRM_Channel_Contract::describe( 'zalo' );
-		$generic_rejected = (string) ( $generic['zone'] ?? 'unknown' ) === 'unknown' && empty( $generic['crm_enabled'] );
-		$emit( 'Runtime - exact CRM channel matrix', $contract_ok && $generic_rejected, $contract_ok && $generic_rejected ? 'facebook, messenger, zalo_oa, zalo_personal and zalo_bot retain separate authorized descriptors; generic zalo is rejected.' : 'CRM channel descriptors still collapse or accept a generic zalo code.' );
+		// Quarantined aliases: must never create a CRM envelope, and must not
+		// resolve to a customer/admin zone that would route them like an exact code.
+		foreach ( array( 'zalo', 'messenger' ) as $alias ) {
+			$descriptor = BizCity_CRM_Channel_Contract::describe( $alias );
+			$zone       = (string) ( $descriptor['zone'] ?? 'unknown' );
+			if ( ! empty( $descriptor['crm_enabled'] ) || ! in_array( $zone, array( 'legacy', 'unknown' ), true ) ) {
+				$mismatches[] = sprintf( 'bare %s zone=%s crm=%s (expected quarantined: zone legacy|unknown, crm off)', $alias, $zone, empty( $descriptor['crm_enabled'] ) ? 'off' : 'on' );
+			}
+		}
+		$matrix_ok = empty( $mismatches );
+		$emit(
+			'Runtime - exact CRM channel matrix',
+			$matrix_ok,
+			$matrix_ok
+				? 'facebook, zalo_oa, zalo_personal, mabel_wheel and zalo_bot keep separate authorized descriptors; bare zalo and messenger stay quarantined.'
+				: 'Descriptor mismatch: ' . implode( '; ', $mismatches )
+		);
 
 		$contract_ids = array( 'core.channel_gateway.facebook', 'core.channel_gateway.zalo_bot' );
 		$jsonl_ok = true;
@@ -143,10 +160,18 @@ final class BizCity_Probe_Channel_Log_Ownership implements BizCity_Diagnostics_P
 		$google_global = is_array( $google ) && (string) ( $google['storage_scope'] ?? '' ) === 'global';
 		$emit( 'Runtime - Google usage global scope', $google_global, $google_global ? 'Google usage audit is registered as global operational JSONL.' : 'Google usage audit is not registered with global storage scope.' );
 
+		// [2026-09-18 09:59 AM Johnny Chu - Chu Hoàng Anh] R-DDV — every fail/warn must carry an actionable fix_hint (evidence_audit flagged this probe).
+		$failed_labels = array();
+		foreach ( $steps as $step ) {
+			if ( 'pass' !== $step['status'] ) {
+				$failed_labels[] = $step['label'];
+			}
+		}
 		return array(
-			'status'  => $pass ? 'pass' : 'fail',
-			'summary' => $pass ? 'Exact channel ownership and three-table SQL retirement passed.' : 'Channel ownership or SQL retirement evidence failed.',
-			'steps'   => $steps,
+			'status'   => $pass ? 'pass' : 'fail',
+			'summary'  => $pass ? 'Exact channel ownership and three-table SQL retirement passed.' : 'Channel ownership or SQL retirement evidence failed.',
+			'fix_hint' => $pass ? '' : 'Fix the failing step(s): ' . implode( ' · ', $failed_labels ) . '. Channel codes resolve through BizCity_CRM_Channel_Contract::describe() and the CRM manifest; retired tables through BizCity_Legacy_Table_Policy. Rerun: php bin/diagnostics-run.php --filter=core.legacy_table.channel_log_ownership --format=json',
+			'steps'    => $steps,
 		);
 	}
 

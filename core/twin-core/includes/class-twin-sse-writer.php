@@ -33,11 +33,37 @@ class BizCity_Twin_SSE_Writer {
 	/** @var int */
 	private $tokens_flushed = 0;
 
-	public function __construct( bool $send_headers = true ) {
-		if ( $send_headers ) {
+	/**
+	 * Capture-only writers exist so non-stream callers can reuse streaming code
+	 * paths while collecting the output in their own buffer. They never flush
+	 * buffers they do not own and never subscribe to global hooks.
+	 *
+	 * @var bool
+	 */
+	private $capture_only = false;
+
+	/**
+	 * @param bool $send_headers  Send SSE headers now (false when the caller already opened the stream).
+	 * @param bool $capture_only  Collect-only mode for non-stream callers; see capture().
+	 */
+	public function __construct( bool $send_headers = true, bool $capture_only = false ) {
+		// [2026-09-18 10:51 AM Johnny Chu - Chu Hoàng Anh] HOTFIX — capture-only mode: a non-stream caller must not attach the global debug bridge (it outlived the caller and kept echoing `event: debug` into later responses) nor flush buffers it does not own.
+		$this->capture_only = $capture_only;
+		if ( $send_headers && ! $capture_only ) {
 			$this->begin();
 		}
-		$this->maybe_attach_debug_bridge();
+		if ( ! $capture_only ) {
+			$this->maybe_attach_debug_bridge();
+		}
+	}
+
+	/**
+	 * Writer for non-stream callers that wrap streaming code in their own
+	 * ob_start()/ob_end_clean(): output stays in the caller's buffer.
+	 */
+	public static function capture(): self {
+		// [2026-09-18 10:51 AM Johnny Chu - Chu Hoàng Anh] HOTFIX — explicit factory; `new self( false )` stays a real stream writer for callers that opened the stream themselves (twinweb).
+		return new self( false, true );
 	}
 
 	/**
@@ -126,6 +152,11 @@ class BizCity_Twin_SSE_Writer {
 		);
 		echo "event: {$type}\n";
 		echo "data: {$payload}\n\n";
+		// [2026-09-18 10:51 AM Johnny Chu - Chu Hoàng Anh] HOTFIX — a capture writer leaves the output in the caller's buffer; ob_flush() here would push it through to whatever buffer sits below (for the diagnostics CLI: straight to stdout).
+		if ( $this->capture_only ) {
+			$this->last_emit = microtime( true );
+			return;
+		}
 		// Defensive double-flush — some hosts (LiteSpeed shared, plugins
 		// that re-open OB mid-request) buffer output between echo and the
 		// kernel socket. ob_flush() drains any reopened buffer; flush()
@@ -169,6 +200,10 @@ class BizCity_Twin_SSE_Writer {
 
 	/** Send heartbeat comment if idle > 15s. */
 	public function maybe_heartbeat(): void {
+		// [2026-09-18 10:51 AM Johnny Chu - Chu Hoàng Anh] HOTFIX — nothing to keep alive when output is only captured.
+		if ( $this->capture_only ) {
+			return;
+		}
 		if ( microtime( true ) - $this->last_emit >= self::HEARTBEAT_SEC ) {
 			echo ": heartbeat\n\n";
 			@flush();

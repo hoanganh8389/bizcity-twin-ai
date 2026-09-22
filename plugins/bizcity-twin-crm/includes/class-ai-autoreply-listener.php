@@ -54,8 +54,10 @@ class BizCity_CRM_AI_Autoreply_Listener {
 		}
 		try {
 			// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P11: trace autoreply entry.
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-LOG-NOISE — dropped the duplicate error_log() line;
+			// this exact event already goes to the per-channel JSONL debug log right below (with its own
+			// retention/rotation), confirmed firing correctly on every message (97/97 in a 1.5h sample).
 			$p11_msg = 'P11 autoreply_listener sender_type=' . ( $payload['sender_type'] ?? '?' ) . ' conv=' . ( $payload['conversation_id'] ?? 0 ) . ' inbox=' . ( $payload['inbox_id'] ?? '?' );
-			error_log( '[bizcity-crm-trace] ' . $p11_msg );
 			// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — channel not resolved yet at this step; use shared gateway bucket.
 			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
 				BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_DEBUG, 'crm_trace_p11', $p11_msg, array( 'conv_id' => (int) ( $payload['conversation_id'] ?? 0 ) ) );
@@ -105,8 +107,10 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			self::$current_channel = (string) ( $inbox['channel_type'] ?? '' );
 
 			// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P11b: trace inbox channel_type + ref_id for Resolver debug.
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-LOG-NOISE — dropped the duplicate error_log() line;
+			// the per-channel JSONL mirror below carries the same event (confirmed firing on every inbox,
+			// 88/88 across zalo_personal/zalo_bot/facebook in a 1.5h sample) with its own retention.
 			$p11b_channel_type = (string) ( $inbox['channel_type'] ?? '' );
-			error_log( '[bizcity-crm-trace] P11b inbox_channel_type=' . ( $p11b_channel_type !== '' ? $p11b_channel_type : 'NULL' ) . ' channel_ref_id=' . ( $inbox['channel_ref_id'] ?? 'NULL' ) );
 			// [2026-08-02 Johnny Chu] R-ZONE — Zalo Bot/Telegram/TwinChat are Zone 2 command surfaces; workflow matcher owns their reply and CRM AI must not run a parallel TwinBrain response.
 			$channel_descriptor = class_exists( 'BizCity_CRM_Channel_Contract' )
 				? BizCity_CRM_Channel_Contract::describe( $p11b_channel_type )

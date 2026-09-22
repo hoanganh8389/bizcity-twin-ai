@@ -36,7 +36,20 @@ final class BizCity_TwinBrain_Vertical_Bridge_Registry {
 			self::row( 'law', 'Pháp luật', 'Tra cứu văn bản pháp luật.', 'core/twinbrain', 'list_and_narrative', false, 'plus', 'Scale' ),
 			self::row( 'tax', 'Thuế', 'Tra cứu văn bản và chính sách thuế.', 'core/twinbrain', 'list_and_narrative', false, 'plus', 'Receipt' ),
 			self::row( 'gov', 'Chính sách / Tin nhà nước', 'Tra cứu tin và chính sách chính thống.', 'core/twinbrain', 'list_and_narrative', false, 'plus', 'Landmark' ),
-			array_merge( self::row( 'woo_bizops', 'Woo BizOps', 'Dữ liệu doanh thu, đơn hàng và khách hàng WooCommerce.', 'core/twinbrain', 'table_and_narrative', false, 'free', 'BarChart3' ), array( 'sensitive' => true ) ),
+			array_merge( self::row( 'woo_bizops', 'Woo BizOps', 'Dữ liệu doanh thu, đơn hàng và khách hàng WooCommerce.', 'core/twinbrain', 'table_and_narrative', false, 'free', 'BarChart3' ), array(
+				'sensitive' => true,
+				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D §5A.1 — MVP pilot: this is the ONLY row with a Context Bank binding. Every other row stays absent, which is defined to behave as mode_hint=inherit (byte-identical to today).
+				// The vertical may only NARROW the horizontal scope: its contracts are intersected with the mode policy allowlist, never unioned.
+				'context_bank' => array(
+					'mode_hint'          => 'hybrid',
+					'contracts'          => array( 'core.context_bank.commerce_order', 'core.context_bank.rollup' ),
+					'record_kinds'       => array( 'event', 'rollup' ),
+					'dimension_source'   => array( 'entity_type' ),
+					'static_entity_type' => 'order',
+					'window_days'        => 90,
+					'requires_grant'     => true,
+				),
+			) ),
 		);
 		$verticals = apply_filters( 'bizcity_twinbrain_vertical_bridge_registry', $verticals );
 		return array_values( array_filter( (array) $verticals, static function ( $row ) {

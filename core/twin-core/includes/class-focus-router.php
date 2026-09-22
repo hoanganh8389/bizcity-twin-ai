@@ -124,6 +124,13 @@ class BizCity_Focus_Router {
             }
         }
 
+        // [2026-09-19 10:00 AM Johnny Chu] PHASE-0.59-CRM-AI-ASSISTANT-RELEVANCE-RELIABILITY — CRM replies must not inject astrology or transit context. Keep this guard after channel-role overrides so a generic CRM request cannot re-enable the layers accidentally.
+        $crm_platforms = array( 'FB_MESS', 'ZALO_BOT', 'ZALO_OA', 'ZALO_PERSONAL', 'TELEGRAM' );
+        if ( in_array( strtoupper( (string) $platform ), $crm_platforms, true ) ) {
+            $profile['astro']   = false;
+            $profile['transit'] = false;
+        }
+
         // ── Debug: log resolved profile for traceability ──
         error_log( sprintf(
             '[FocusRouter] resolve | platform=%s | mode=%s | branch=%s | knowledge=%s | notes=%s | astro=%s | transit=%s | coaching=%s | companion=%s | token_budget=%s',

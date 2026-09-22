@@ -717,7 +717,7 @@ function twf_send_telegram_document($chat_id, $file_any, $caption = '') {
     /// Xử lý cho chat qua web/
     if (function_exists('bizgpt_log_chat_message')) {
         $upload_dir = wp_upload_dir();
-        $base_dir = $upload_dir['basedir']; // '/home/vibeyeuc/huongnguyen.vibeyeu.com.vn/wp-content/uploads'
+        $base_dir = $upload_dir['basedir']; // e.g. '<wp-root>/wp-content/uploads' // [2026-09-18 11:11 AM Johnny Chu - Chu Hoàng Anh] R-AGENT-PARITY — operator path removed from a public comment
         $base_url = $upload_dir['baseurl']; // 'https://bizgpt.vn/wp-content/uploads'
         
         $file_url = str_replace($base_dir, $base_url, $file_path);

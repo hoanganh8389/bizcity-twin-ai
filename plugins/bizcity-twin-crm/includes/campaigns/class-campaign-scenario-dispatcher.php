@@ -802,64 +802,36 @@ final class BizCity_CRM_Campaign_Scenario_Dispatcher {
 			}
 			return 0;
 		}
-		$mid = (int) BizCity_CRM_Repository::insert_message( array(
-			'conversation_id' => $conv_id,
-			'inbox_id'        => $inbox_id,
-			'content'         => $body,
-			'content_type'    => 'text',
-			'message_type'    => 'outgoing',
-			'sender_type'     => 'bot',
-			'status'          => 'sent',
-			// responder_kind column is VARCHAR(10) — must truncate or insert silently fails
-			// under MySQL STRICT_TRANS_TABLES. Use short slugs: cmp_send / cmp_short / cmp_remind.
-			'responder_kind'  => substr( $responder_kind, 0, 10 ),
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7d — the scenario step used to write `status=sent` BEFORE the provider was called and then dispatch separately; both now belong to the canonical outbound owner.
+		if ( ! class_exists( 'BizCity_CRM_Outbound_Dispatcher' ) ) {
+			if ( $dbg ) { BizCity_CG_Debug_Logger::log( 'scenario_dispatcher', 'insert_outbound_skip_no_dispatcher', array( 'conv_id' => $conv_id ), 'error' ); }
+			return 0;
+		}
+		$correlation = (string) ( $ctx['event_uuid'] ?? $ctx['step_id'] ?? $ctx['scenario_id'] ?? '' );
+		$envelope = BizCity_CRM_Outbound_Dispatcher::dispatch( array(
+			'conversation_id'      => $conv_id,
+			'content'              => $body,
+			'content_type'         => 'text',
+			// One send per (conversation, scenario step, body) even when the scheduler retries.
+			'idempotency_key'      => 'cmpstep_' . md5( $conv_id . '|' . $responder_kind . '|' . $correlation . '|' . $body ),
+			'request_hash'         => md5( 'campaign_step|' . $conv_id . '|' . $body ),
+			'actor'                => 'system',
+			'system_source'        => 'campaign',
+			'responder_kind'       => $responder_kind,
+			'on_behalf_of_user_id' => (int) ( $ctx['owner_user_id'] ?? 0 ),
+			'parent_event_uuid'    => $ctx['event_uuid'] ?? null,
 		) );
+		$mid = (int) ( $envelope['message_id'] ?? 0 );
 		if ( $dbg ) {
-			BizCity_CG_Debug_Logger::log( 'scenario_dispatcher', 'insert_outbound_result', array(
-				'conv_id'    => $conv_id,
-				'inbox_id'   => $inbox_id,
-				'body_len'   => strlen( $body ),
-				'responder'  => $responder_kind,
-				'message_id' => $mid,
-			), $mid > 0 ? 'info' : 'warn' );
+			BizCity_CG_Debug_Logger::log( 'scenario_dispatcher', 'outbound_dispatch_result', array(
+				'conv_id'      => $conv_id,
+				'message_id'   => $mid,
+				'outcome'      => (string) ( $envelope['outcome'] ?? '' ),
+				'replayed'     => ! empty( $envelope['replayed'] ),
+				'owner_source' => (string) ( $envelope['owner_source'] ?? '' ),
+				'code'         => (string) ( $envelope['code'] ?? '' ),
+			), 'failed' === (string) ( $envelope['outcome'] ?? '' ) ? 'warn' : 'info' );
 		}
-
-		// M6.W13.8 — DB insert is not enough; we must dispatch via the channel
-		// adapter to actually deliver the message. AI_Replier + Action_Registry +
-		// REST controller all do this same step. Without it, the outbound row
-		// sits in DB and FB user never sees the scenario message.
-		if ( $mid > 0 && class_exists( 'BizCity_CRM_Channel_Registry' ) ) {
-			$inbox = BizCity_CRM_Repository::get_inbox( $inbox_id );
-			$conv  = BizCity_CRM_Repository::get_conversation( $conv_id );
-			if ( $inbox && $conv ) {
-				$adapter = BizCity_CRM_Channel_Registry::get( (string) $inbox['channel_type'] );
-				if ( $adapter && method_exists( $adapter, 'send' ) ) {
-					try {
-						$result = $adapter->send( $conv, array( 'content' => $body, 'content_type' => 'text' ) );
-						if ( $dbg ) {
-							BizCity_CG_Debug_Logger::log( 'scenario_dispatcher', 'adapter_send_result', array(
-								'message_id'    => $mid,
-								'channel_type'  => (string) $inbox['channel_type'],
-								'dispatched'    => (bool) ( $result['success'] ?? false ),
-								'result'        => $result,
-							), ! empty( $result['success'] ) ? 'info' : 'warn' );
-						}
-					} catch ( \Throwable $e ) {
-						if ( $dbg ) {
-							BizCity_CG_Debug_Logger::log( 'scenario_dispatcher', 'adapter_send_exception', array(
-								'message_id' => $mid,
-								'error'      => $e->getMessage(),
-							), 'error' );
-						}
-					}
-				} elseif ( $dbg ) {
-					BizCity_CG_Debug_Logger::log( 'scenario_dispatcher', 'adapter_send_skip_no_adapter', array( 'channel_type' => (string) $inbox['channel_type'] ), 'warn' );
-				}
-			} elseif ( $dbg ) {
-				BizCity_CG_Debug_Logger::log( 'scenario_dispatcher', 'adapter_send_skip_no_inbox_or_conv', array( 'inbox_id' => $inbox_id, 'conv_id' => $conv_id, 'has_inbox' => (bool) $inbox, 'has_conv' => (bool) $conv ), 'warn' );
-			}
-		}
-
 		return $mid;
 	}
 

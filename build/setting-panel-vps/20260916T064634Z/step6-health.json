@@ -1,0 +1,175 @@
+{
+    "contract": "diagnostics-verdict",
+    "version": "1",
+    "command": "diagnostics",
+    "batch": "health",
+    "run_id": "diag_20260916064752_a592645e",
+    "environment": {
+        "php": "7.4.33",
+        "wordpress": "6.9",
+        "blog_id": 1258
+    },
+    "catalog_hash": "1c9afde080def30fbc7107513126102f8f71a359823bdcab783af2b8d66f10c9",
+    "batch_hash": "9c17de57d944d0dc14f57764408b348b0fb43ac14e9f827b21ae9ebb013f066e",
+    "evidence_audit": {
+        "total": 5,
+        "actionable_total": 0,
+        "with_fix_hint": 0,
+        "missing_fix_hint": 0,
+        "coverage_percent": 100,
+        "missing_probe_ids": []
+    },
+    "counts": {
+        "pass": 5,
+        "warn": 0,
+        "fail": 0,
+        "skip": 0
+    },
+    "verdict": "pass",
+    "duration_ms": 3337,
+    "coverage": {
+        "catalog_total": 265,
+        "selected_total": 5,
+        "executed": 5,
+        "allowed_skipped": 0,
+        "deferred": 0,
+        "skip_reasons": [],
+        "complete": true
+    },
+    "results": [
+        {
+            "status": "pass",
+            "summary": "BizCity_Error_Payload load OK, make() + from_wp_error() contract \u0111\u00fang.",
+            "steps": [
+                {
+                    "label": "Disk \u2014 class-bizcity-error-payload.php t\u1ed3n t\u1ea1i",
+                    "status": "pass"
+                },
+                {
+                    "label": "Loader \u2014 class BizCity_Error_Payload \u0111\u00e3 load",
+                    "status": "pass"
+                },
+                {
+                    "label": "Runtime \u2014 make() tr\u1ea3 \u0111\u00fang 5 tr\u01b0\u1eddng (success/code/message/hint/help_code)",
+                    "status": "pass"
+                },
+                {
+                    "label": "Runtime \u2014 from_wp_error() map \u0111\u00fang code + hint",
+                    "status": "pass"
+                },
+                {
+                    "label": "Audit \u2014 class-admin-menu.php scan",
+                    "status": "skip",
+                    "detail": "File kh\u00f4ng t\u00ecm th\u1ea5y \u2014 b\u1ecf qua."
+                }
+            ],
+            "id": "core.helper.error_ux",
+            "duration_ms": 36,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.helper.error_ux --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=health --format=json",
+                "wp_cli": "wp bizcity probe --id=core.helper.error_ux --format=json"
+            }
+        },
+        {
+            "status": "pass",
+            "summary": "No modules registered via `bizcity_register_module` (legacy plugins_loaded init pattern still supported).",
+            "steps": [
+                {
+                    "label": "Filter discovery",
+                    "status": "pass",
+                    "detail": "0 modules pushed onto bizcity_register_module."
+                }
+            ],
+            "id": "core.module-registry",
+            "duration_ms": 0,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.module-registry --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=health --format=json",
+                "wp_cli": "wp bizcity probe --id=core.module-registry --format=json"
+            }
+        },
+        {
+            "status": "pass",
+            "summary": "No invalid WP_Hook callback fired; unloaded admin-context callbacks were reported separately.",
+            "fix_hint": "",
+            "steps": [
+                {
+                    "label": "Runtime \u00b7 WP_Hook callbacks are callable",
+                    "status": "pass",
+                    "detail": "No invalid callback has fired; 41 context-only callback(s) are not loaded in this request."
+                },
+                {
+                    "label": "Runtime \u00b7 current user/blog/shard context",
+                    "status": "pass",
+                    "detail": "{\"blog_id\":1258,\"user_id\":317,\"prefix\":\"wp_1258_\",\"current_bizname\":\"slave1\",\"database\":\"slave1\"}"
+                },
+                {
+                    "label": "Runtime \u00b7 tenant WooCommerce session table",
+                    "status": "pass",
+                    "detail": "wp_1258_woocommerce_sessions exists on slave1."
+                }
+            ],
+            "id": "core.wp_hook.callback_integrity",
+            "duration_ms": 11,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.wp_hook.callback_integrity --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=health --format=json",
+                "wp_cli": "wp bizcity probe --id=core.wp_hook.callback_integrity --format=json"
+            }
+        },
+        {
+            "status": "pass",
+            "summary": "Canonical owner records are valid and conflict-free in observe-only mode.",
+            "fix_hint": "",
+            "steps": [
+                {
+                    "label": "Runtime \u00b7 canonical owner records",
+                    "status": "pass",
+                    "detail": "{\"mode\":\"observe_only\",\"feature_count\":4,\"invalid_records\":[],\"states\":{\"CONTRACT_READY\":4}}"
+                },
+                {
+                    "label": "Runtime \u00b7 secondary and conflicting owner attempts",
+                    "status": "pass",
+                    "detail": "{\"secondary_claims\":1,\"conflicts\":[]}"
+                }
+            ],
+            "id": "core.loader.ownership",
+            "duration_ms": 0,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.loader.ownership --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=health --format=json",
+                "wp_cli": "wp bizcity probe --id=core.loader.ownership --format=json"
+            }
+        },
+        {
+            "status": "pass",
+            "summary": "Hook, available REST route and required cron registration evidence is stable.",
+            "fix_hint": "",
+            "steps": [
+                {
+                    "label": "Runtime \u00b7 hook registration identity",
+                    "status": "pass",
+                    "detail": "{\"hooks\":2269,\"callbacks\":5009,\"duplicate_hooks\":[]}"
+                },
+                {
+                    "label": "Runtime \u00b7 REST route registration identity",
+                    "status": "pass",
+                    "detail": "{\"status\":\"pass\",\"route_count\":1885,\"duplicate_routes\":[]}"
+                },
+                {
+                    "label": "Runtime \u00b7 required cron schedules visible",
+                    "status": "pass",
+                    "detail": "{\"schedule_count\":28,\"missing\":[]}"
+                }
+            ],
+            "id": "core.loader.registration_integrity",
+            "duration_ms": 2853,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.loader.registration_integrity --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=health --format=json",
+                "wp_cli": "wp bizcity probe --id=core.loader.registration_integrity --format=json"
+            }
+        }
+    ]
+}

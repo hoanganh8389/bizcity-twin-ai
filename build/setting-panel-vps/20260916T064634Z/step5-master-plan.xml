@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bizcity-twin-ai-diagnostics" tests="5" failures="0" skipped="0" time="7.792">
+  <testsuite name="diagnostics" tests="5" failures="0" skipped="0" time="7.792">
+    <testcase classname="bizcity.diagnostics" name="core.membership.entitlement" time="2.340">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.membership.rest" time="2.617">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.membership.plan_rank" time="0.000">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="core.membership.hub_seat_admission" time="0.561">
+    </testcase>
+    <testcase classname="bizcity.diagnostics" name="modules.twinweb.me_plan_catalog" time="2.228">
+    </testcase>
+  </testsuite>
+</testsuites>

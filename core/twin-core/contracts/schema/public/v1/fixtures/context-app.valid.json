@@ -1,0 +1,14 @@
+{
+  "contract": "context-app",
+  "version": "1.0.0",
+  "key": "documents",
+  "label": "Tài liệu",
+  "icon": "file",
+  "entity": "Document",
+  "provider": "",
+  "applies_to": {"subject_roles":["customer","supplier"],"pipeline_kinds":[],"capability":"crm.inbox.read","channels":["*"]},
+  "surfaces": ["b2","c"],
+  "position": 40,
+  "render": {"type":"component","id":"DocumentsPanel"},
+  "rest": ["/documents"]
+}

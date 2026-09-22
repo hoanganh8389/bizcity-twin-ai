@@ -816,6 +816,19 @@ if ( $_bizcity_admin_ctx
     require_once __DIR__ . '/core/twinbrain/bootstrap.php';
 }
 
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-HOTFIX3 — the Twin Brain admin menu must
+// exist on EVERY wp-admin page. It cannot live behind the `$_bizcity_admin_ctx && !$_bizcity_twinchat_admin_shell_request`
+// gate above: when the operator opened `?page=bizcity-twinchat`, the TwinBrain bootstrap was skipped and the
+// entire Twin Brain menu disappeared from wp-admin. This lightweight owner registers the menu only — it declares
+// no REST route, schema or provider behaviour — so it is safe to load on any admin request.
+if ( is_admin()
+    && file_exists( __DIR__ . '/core/twinbrain/includes/class-twinbrain-admin-menu.php' ) ) {
+    require_once __DIR__ . '/core/twinbrain/includes/class-twinbrain-admin-menu.php';
+    if ( class_exists( 'BizCity_TwinBrain_Admin_Menu', false ) ) {
+        BizCity_TwinBrain_Admin_Menu::register();
+    }
+}
+
 // ── Legacy helpers — flow functions that automation blocks depend on ──────────
 // Loaded here so bizcity-twin-ai works standalone (without mu-plugin).
 // function_exists() guards inside prevent double-loading when mu-plugin is also active.

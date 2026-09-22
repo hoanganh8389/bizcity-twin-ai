@@ -1,0 +1,309 @@
+{
+    "schema":  "bizcity-capability-receipts-baseline-v1",
+    "generated_at":  "2026-09-15T07:58:38Z",
+    "owner":  "WP3 — SDK Registration Receipts",
+    "contract":  "docs/contracts/CAPABILITY-RECEIPT-v1.md",
+    "note":  "Reviewed legacy debt captured in report mode before --strict was enabled. The reference plugin is fully backfilled as the canonical example. The 14 real packages register through the legacy filter path and declare neither a typed class nor package_role=legacy_adapter, so they carry both receipt_incomplete and untyped_unclassified. New incomplete/untyped receipts fail immediately.",
+    "source_counts":  {
+                          "manifests_scanned":  14,
+                          "extensions_with_capabilities":  14,
+                          "capabilities_declared":  22,
+                          "total_findings":  28
+                      },
+    "known_findings":  [
+                           {
+                               "fingerprint":  "incomplete|bizcity.content-creator|content-creator.generate|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "content-creator.generate",
+                               "extension_id":  "bizcity.content-creator",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.content-creator|content-creator.generate|tools",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "content-creator.generate",
+                               "extension_id":  "bizcity.content-creator",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.doc|doc.generate|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "doc.generate",
+                               "extension_id":  "bizcity.doc",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.doc|doc.generate|tools",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "doc.generate",
+                               "extension_id":  "bizcity.doc",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.facebook-bot|facebook-bot.messenger|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "facebook-bot.messenger",
+                               "extension_id":  "bizcity.facebook-bot",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.facebook-bot|facebook-bot.messenger|channels",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "facebook-bot.messenger",
+                               "extension_id":  "bizcity.facebook-bot",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.pagebuilder|pagebuilder.generate|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "pagebuilder.generate",
+                               "extension_id":  "bizcity.pagebuilder",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.pagebuilder|pagebuilder.generate|tools",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "pagebuilder.generate",
+                               "extension_id":  "bizcity.pagebuilder",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.profile|profile.assistant|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "profile.assistant",
+                               "extension_id":  "bizcity.profile",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.profile|profile.assistant|tools",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "profile.assistant",
+                               "extension_id":  "bizcity.profile",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.twin-crm|twin-crm.inbox|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "twin-crm.inbox",
+                               "extension_id":  "bizcity.twin-crm",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.twin-crm|twin-crm.inbox|channels",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "twin-crm.inbox",
+                               "extension_id":  "bizcity.twin-crm",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.twin-crm|twin-crm.operations|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "twin-crm.operations",
+                               "extension_id":  "bizcity.twin-crm",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.twin-crm|twin-crm.operations|channels",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "twin-crm.operations",
+                               "extension_id":  "bizcity.twin-crm",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.video-kling|video-kling.generate|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "video-kling.generate",
+                               "extension_id":  "bizcity.video-kling",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.video-kling|video-kling.generate|tools",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "video-kling.generate",
+                               "extension_id":  "bizcity.video-kling",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.zalo-bizcity|zalo-bizcity.hotline|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "zalo-bizcity.hotline",
+                               "extension_id":  "bizcity.zalo-bizcity",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.zalo-bizcity|zalo-bizcity.hotline|channels",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "zalo-bizcity.hotline",
+                               "extension_id":  "bizcity.zalo-bizcity",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.zalo-bot|zalo-bot.oa|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "zalo-bot.oa",
+                               "extension_id":  "bizcity.zalo-bot",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.zalo-bot|zalo-bot.oa|channels",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "zalo-bot.oa",
+                               "extension_id":  "bizcity.zalo-bot",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.zalo-personal|zalo-personal.bridge|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "zalo-personal.bridge",
+                               "extension_id":  "bizcity.zalo-personal",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.zalo-personal|zalo-personal.bridge|channels",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "zalo-personal.bridge",
+                               "extension_id":  "bizcity.zalo-personal",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.bizcoach-pro|bizcoach-pro.astro|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "bizcoach-pro.astro",
+                               "extension_id":  "bizcity.bizcoach-pro",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.bizcoach-pro|bizcoach-pro.astro|tools",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "bizcoach-pro.astro",
+                               "extension_id":  "bizcity.bizcoach-pro",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizcity.bizcoach-pro|bizcoach-pro.coach|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "bizcoach-pro.coach",
+                               "extension_id":  "bizcity.bizcoach-pro",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizcity.bizcoach-pro|bizcoach-pro.coach|personas",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "bizcoach-pro.coach",
+                               "extension_id":  "bizcity.bizcoach-pro",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "incomplete|bizgpt.tool-google|tool-google.connect|owner+scope+contract_id+contract_version",
+                               "rule":  "capability.receipt_incomplete",
+                               "capability_id":  "tool-google.connect",
+                               "extension_id":  "bizgpt.tool-google",
+                               "missing":  [
+                                               "owner",
+                                               "scope",
+                                               "contract_id",
+                                               "contract_version"
+                                           ]
+                           },
+                           {
+                               "fingerprint":  "untyped|bizgpt.tool-google|tool-google.connect|tools",
+                               "rule":  "capability.untyped_unclassified",
+                               "capability_id":  "tool-google.connect",
+                               "extension_id":  "bizgpt.tool-google",
+                               "missing":  [
+                                               "class"
+                                           ]
+                           }
+                       ]
+}

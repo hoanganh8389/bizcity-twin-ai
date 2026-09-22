@@ -30,21 +30,54 @@ class BizCity_CRM_Admin_Menu {
 			return;
 		}
 		// [2026-08-11 Johnny Chu] PHASE-1.26 — bundled CRM is owned by the unified Workspace registry.
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E1 — Inbox entry uses the employee capability; Channels/Add Inbox/Settings stay admin-only.
+		$inbox_cap = self::inbox_cap();
+		$surfaces = function_exists( 'bizcity_crm_surface_descriptors' ) ? bizcity_crm_surface_descriptors() : array();
+		$inbox = $surfaces['crm.inbox'] ?? array( 'slug' => self::SLUG, 'action' => 'crm.inbox.open', 'render' => array( $this, 'render_inbox_page' ) );
 		add_menu_page(
 			'BizCity CRM',
 			'BizCity CRM',
-			'manage_options',
-			self::SLUG,
+			$inbox_cap,
+			(string) $inbox['slug'],
 			array( $this, 'render_inbox_page' ),
 			'dashicons-format-chat',
 			26
 		);
-		add_submenu_page( self::SLUG, 'Inbox',    'Inbox',    'manage_options', self::SLUG,                array( $this, 'render_inbox_page' ) );
-		add_submenu_page( self::SLUG, 'Channels', 'Channels', 'manage_options', self::SLUG . '-channels', array( $this, 'render_channels_page' ) );
-		add_submenu_page( self::SLUG, 'Add Inbox', 'Add Inbox', 'manage_options', self::SLUG . '-add-inbox', array( $this, 'render_add_inbox_wizard' ) );
-		add_submenu_page( self::SLUG, 'Settings', 'Settings', 'manage_options', self::SLUG . '-settings', array( $this, 'render_settings_page' ) );
+		add_submenu_page( self::SLUG, 'Inbox', 'Inbox', $inbox_cap, self::SLUG, array( $this, 'render_inbox_page' ) );
+		foreach ( array( 'crm.channels' => array( 'Channels', 'Channels' ), 'crm.add_inbox' => array( 'Add Inbox', 'Add Inbox' ), 'crm.settings' => array( 'Settings', 'Settings' ), 'crm.identity_queue' => array( 'Identity Queue', 'Identity Queue' ) ) as $id => $label ) {
+			if ( empty( $surfaces[ $id ] ) ) { continue; }
+			$surface = $surfaces[ $id ];
+			$cap = class_exists( 'BizCity_CRM_Authority' ) ? BizCity_CRM_Authority::menu_cap( (string) $surface['action'] ) : 'manage_options';
+			add_submenu_page( self::SLUG, $label[0], $label[1], $cap, (string) $surface['slug'], $surface['render'] );
+		}
 		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — identity conflict review and maintenance backfill page.
 		add_submenu_page( self::SLUG, 'Identity Queue', 'Identity Queue', 'bizcity_crm_manage_rules', self::SLUG . '-identity-queue', array( $this, 'render_identity_queue_page' ) );
+	}
+
+	/** Return the canonical CRM surface descriptors with callbacks bound to this owner. */
+	public function surfaces_for( string $placement = 'twin_plugins' ): array {
+		$surfaces = function_exists( 'bizcity_crm_surface_descriptors' ) ? bizcity_crm_surface_descriptors() : array();
+		foreach ( $surfaces as $id => &$surface ) {
+			$surface['placement'] = $placement;
+			if ( isset( $surface['render'][1] ) ) {
+				$surface['callback'] = array( $this, (string) $surface['render'][1] );
+			}
+		}
+		unset( $surface );
+		return $surfaces;
+	}
+
+	/**
+	 * Capability for the CRM Inbox menu entry (shared with the unified Workspace registry).
+	 */
+	public static function inbox_cap(): string {
+		// [2026-09-19 Johnny Chu] PHASE-0.60 C2 — all CRM placements ask the canonical action resolver, not WordPress capabilities directly.
+		if ( class_exists( 'BizCity_CRM_Authority' ) ) {
+			return BizCity_CRM_Authority::menu_cap( 'crm.inbox.open' );
+		}
+		return class_exists( 'BizCity_CRM_Capabilities' ) && method_exists( 'BizCity_CRM_Capabilities', 'inbox_menu_cap' )
+			? BizCity_CRM_Capabilities::inbox_menu_cap()
+			: 'manage_options';
 	}
 
 	public function enqueue( $hook ): void {
@@ -96,6 +129,15 @@ class BizCity_CRM_Admin_Menu {
 			);
 		}
 
+		// [2026-09-20 Johnny Chu] PHASE-0.60 C60-M08 — one canonical block for FE, sourced from
+		// the action resolver rather than a raw WP capability name per flag.
+		$crm_boot_permissions = array();
+		if ( class_exists( 'BizCity_CRM_Authority' ) ) {
+			foreach ( array( 'crm.inbox.open', 'crm.inbox.read', 'crm.inbox.handle', 'crm.channel.self_connect', 'crm.channel.manage', 'crm.settings.manage', 'crm.rules.manage', 'crm.team.manage', 'crm.work.lead', 'crm.reports.view', 'crm.sales.write', 'crm.ai.use' ) as $crm_boot_action ) {
+				$crm_boot_permissions[ $crm_boot_action ] = BizCity_CRM_Authority::can( $crm_boot_action )['ok'];
+			}
+		}
+
 		// Bootstrap config — exposed to both built and fallback bundles.
 		$config = array(
 			'restUrl'          => esc_url_raw( rest_url( BIZCITY_CRM_REST_NS . '/' ) ),
@@ -110,12 +152,46 @@ class BizCity_CRM_Admin_Menu {
 			'twinUrl'          => esc_url_raw( home_url( '/twin/' ) ),
 			'restNonce'        => wp_create_nonce( 'wp_rest' ),
 			'pollMs'           => 3000,
+			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.51 A2 — static per-site change marker (nginx-served
+			// JSON, no PHP): FE polls this instead of hammering REST on a fixed interval. Same mechanism modules/
+			// twinweb's `/crm/inbox` already relies on (bumped by BizCity_CRM_Repository::invalidate_read_models()
+			// on every CRM write, including ones made through this very SPA) — resolved once here since it depends
+			// only on the current site, not on any per-request channel/ref like TwinWeb's REST-carried version.
+			'changeSignalUrl'  => class_exists( 'BizCity_CRM_Repository' ) && method_exists( 'BizCity_CRM_Repository', 'change_signal_url' )
+				? esc_url_raw( BizCity_CRM_Repository::change_signal_url() )
+				: '',
 			// [2026-06-13 Johnny Chu] PHASE-0.40 G7 CRM-B03 — expose woo_active so ChannelsTab integration panel shows correct status
 			'woo_active'       => ( class_exists( 'WooCommerce' ) || function_exists( 'WC' ) ),
 			// [2026-07-05 Johnny Chu] PHASE-0.46 M1 — expose current user ID so FE can resolve 'me' filter without extra fetch
 			'currentUserId'    => get_current_user_id(),
-			'isManager'        => ( current_user_can( 'manage_options' ) || current_user_can( 'bizcity_manager' ) ),
-			'canManageInboxes' => current_user_can( 'manage_options' ), // [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — match DELETE inbox permission in the rail.
+			// PHASE-0.56 11.B2 (Sơ đồ đội root node, Hướng dẫn 2 lớp) — just a label, not a security field.
+			'siteName'         => get_bloginfo( 'name' ),
+			// [2026-09-17 Johnny Chu - Chu Hoang Anh] PHASE-0.48F F5-02/F5-03 — namespaces the
+			// cross-tab poll-leader lock and the persisted catalog cache key so a shared machine
+			// or a multisite network never mixes state across blogs.
+			'blogId'           => get_current_blog_id(),
+			// [2026-09-21 PHASE-0.63B C-08] The eight-item shell is opt-in per tenant;
+			// legacy navigation remains the default until the route migration is verified.
+			'featureFlags'     => array(
+				'bizcity_crm_shell_v2' => (bool) get_option( 'bizcity_crm_shell_v2', false ),
+			),
+			'isManager'        => ( ( function_exists( 'is_super_admin' ) && is_super_admin() ) || current_user_can( 'manage_options' ) || current_user_can( 'bizcity_manager' ) ),
+			'canManageInboxes' => ( ( function_exists( 'is_super_admin' ) && is_super_admin() ) || current_user_can( 'manage_options' ) ), // [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — match DELETE inbox permission in the rail.
+			// PHASE-0.48F UI-review — UI hint only (which section tabs to show); every /crm-staff* and /reports/team-inbox* route re-checks Staff_Policy::can().
+			'staffRole'        => class_exists( 'BizCity_CRM_Staff_Policy' ) ? BizCity_CRM_Staff_Policy::role( get_current_user_id() ) : ( ( function_exists( 'is_super_admin' ) && is_super_admin() ) || current_user_can( 'manage_options' ) ? 'admin' : 'none' ),
+			'canViewInboxUserGroups' => ( function_exists( 'is_super_admin' ) && is_super_admin() ) || ( class_exists( 'BizCity_CRM_REST_Controller' ) && method_exists( 'BizCity_CRM_REST_Controller', 'can_view_inbox_user_groups' )
+				? BizCity_CRM_REST_Controller::can_view_inbox_user_groups()
+				: current_user_can( 'manage_options' ) ),
+			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E2 — let the SPA hide composer/triage actions for read-only viewers; REST still enforces.
+			'canHandleInbox'   => class_exists( 'BizCity_CRM_Capabilities' ) && method_exists( 'BizCity_CRM_Capabilities', 'user_can_handle_inbox' )
+				? BizCity_CRM_Capabilities::user_can_handle_inbox()
+				: current_user_can( 'manage_options' ),
+			// [2026-09-20 Johnny Chu] PHASE-0.60 C60-M08 — additive to the legacy ad-hoc flags
+			// above (kept as-is to avoid touching their 12 existing FE call sites in one pass).
+			// New/changed FE reads `permissions.<action>` instead of guessing from a WP
+			// capability name; REST still re-checks `BizCity_CRM_Authority::can()` on every
+			// write regardless of this hint (R-ERROR-UX server-decides / UI-reflects).
+			'permissions'      => $crm_boot_permissions,
 			'i18n'             => array(
 				'title'           => __( 'BizCity CRM Inbox', 'bizcity-twin-crm' ),
 				'noChannels'      => __( 'Chưa có inbox nào — hãy kết nối Facebook Page hoặc Zalo OA.', 'bizcity-twin-crm' ),
@@ -563,7 +639,105 @@ class BizCity_CRM_Admin_Menu {
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html__( 'BizCity CRM — Settings', 'bizcity-twin-crm' ) . '</h1>';
 		echo '<p>' . esc_html__( 'Auto-reply per inbox, business hours và default notebook sẽ có ở M3.', 'bizcity-twin-crm' ) . '</p>';
+		$this->render_zalo_bot_notify_setting();
+		$this->render_training_seed_setting();
 		echo '<p><a class="button" href="' . esc_url( admin_url( 'tools.php?page=bizcity-crm-sprint-diag' ) ) . '">→ Sprint Diagnostic</a></p>';
 		echo '</div>';
+	}
+
+	/**
+	 * PHASE-0.57 T3-06/T3-07a (D57-5, D57-6) — checkbox "Tự tạo tài liệu đào tạo"
+	 * (mặc định bật) + nút "Khôi phục / Cập nhật" cho notebook "Hướng dẫn dùng
+	 * Twin CRM". Nút chạy đồng bộ ngay (giống ingest() đồng bộ dùng trong webhook
+	 * ở nơi khác của plugin) nên có thể mất vài giây khi phải gọi embeddings.
+	 */
+	// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57 T3-06/T3-07a — training seed settings row (checkbox + Khôi phục/Cập nhật).
+	private function render_training_seed_setting(): void {
+		if ( ! current_user_can( 'manage_options' ) || ! class_exists( 'BizCity_CRM_Training_Seeder' ) ) { return; }
+
+		$nonce_action = 'bzc_crm_training_seed_settings';
+		if ( isset( $_POST['bzc_crm_training_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['bzc_crm_training_nonce'] ) ), $nonce_action ) ) {
+			BizCity_CRM_Training_Seeder::set_enabled( ! empty( $_POST['bzcrm_training_seed_enabled'] ) );
+			if ( ! empty( $_POST['bzcrm_training_restore'] ) ) {
+				$result = BizCity_CRM_Training_Seeder::restore_now( get_current_user_id() );
+				if ( ! empty( $result['ok'] ) ) {
+					echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Đã khôi phục / cập nhật tài liệu đào tạo.', 'bizcity-twin-crm' ) . '</p></div>';
+				} else {
+					echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'Khôi phục thất bại: ', 'bizcity-twin-crm' ) . esc_html( (string) ( $result['error'] ?? '' ) ) . '</p></div>';
+				}
+			} else {
+				echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Đã lưu.', 'bizcity-twin-crm' ) . '</p></div>';
+			}
+		}
+
+		$enabled = BizCity_CRM_Training_Seeder::is_enabled();
+		$state   = BizCity_CRM_Training_Seeder::get_state();
+		$status  = (string) ( $state['status'] ?? '—' );
+		// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57 T4-04 — expose KG build evidence collected by the seeder.
+		$kg_status    = (string) ( $state['kg_status'] ?? '—' );
+		$kg_entities  = (int) ( $state['kg_entities'] ?? 0 );
+		$kg_relations = (int) ( $state['kg_relations'] ?? 0 );
+
+		echo '<h2>' . esc_html__( 'Tài liệu đào tạo "Hướng dẫn dùng Twin CRM"', 'bizcity-twin-crm' ) . '</h2>';
+		echo '<form method="post">';
+		wp_nonce_field( $nonce_action, 'bzc_crm_training_nonce' );
+		echo '<table class="form-table" role="presentation"><tbody><tr>';
+		echo '<th scope="row">' . esc_html__( 'Tự tạo tài liệu đào tạo', 'bizcity-twin-crm' ) . '</th><td>';
+		echo '<label><input type="checkbox" name="bzcrm_training_seed_enabled" value="1"' . checked( $enabled, true, false ) . '> ';
+		esc_html_e( 'Tự động tạo notebook + nội dung mẫu khi chưa có', 'bizcity-twin-crm' );
+		echo '</label>';
+		echo '<p class="description">' . esc_html__( 'Trạng thái seed: ', 'bizcity-twin-crm' ) . esc_html( $status );
+		if ( ! empty( $state['notebook_id'] ) ) {
+			echo ' · notebook #' . (int) $state['notebook_id'];
+		}
+		echo '</p>';
+		echo '<p class="description">' . esc_html__( 'Trạng thái KG: ', 'bizcity-twin-crm' ) . esc_html( $kg_status ) . ' · ' . esc_html__( 'Entity: ', 'bizcity-twin-crm' ) . (int) $kg_entities . ' · ' . esc_html__( 'Relation: ', 'bizcity-twin-crm' ) . (int) $kg_relations . '</p>';
+		echo '</td></tr></tbody></table>';
+		submit_button( __( 'Lưu thay đổi', 'bizcity-twin-crm' ), 'primary', 'submit', false );
+		echo ' <button type="submit" name="bzcrm_training_restore" value="1" class="button">' . esc_html__( 'Khôi phục / Cập nhật', 'bizcity-twin-crm' ) . '</button>';
+		echo '</form>';
+	}
+
+	/**
+	 * PHASE-0.50 C-05 (N-08, R-LM-8) — tenant-wide master switch for the leader-assign-work Zalo Bot
+	 * ping (`BizCity_CRM_Task_Handoff_Notify`). Off by default. The leader's own per-handoff checkbox
+	 * (mockup §3.4) is an ADDITIONAL, narrower gate on top of this — both must be on for a ping to send;
+	 * this option alone never sends anything by itself.
+	 */
+	private function render_zalo_bot_notify_setting(): void {
+		if ( ! current_user_can( 'manage_options' ) || ! class_exists( 'BizCity_CRM_Task_Handoff_Notify' ) ) { return; }
+		$option = BizCity_CRM_Task_Handoff_Notify::OPTION_ENABLED;
+		$workflow_option = BizCity_CRM_Task_Handoff_Notify::OPTION_WORKFLOW;
+		$nonce_action = 'bzc_crm_zalo_bot_notify';
+		if ( isset( $_POST['bzc_crm_settings_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['bzc_crm_settings_nonce'] ) ), $nonce_action ) ) {
+			update_option( $option, ! empty( $_POST[ $option ] ), false );
+			$slug = isset( $_POST[ $workflow_option ]['slug'] ) ? sanitize_key( wp_unslash( $_POST[ $workflow_option ]['slug'] ) ) : '';
+			$secret = isset( $_POST[ $workflow_option ]['secret'] ) ? sanitize_text_field( wp_unslash( $_POST[ $workflow_option ]['secret'] ) ) : '';
+			update_option( $workflow_option, array( 'slug' => $slug, 'secret' => $secret ), false );
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Đã lưu.', 'bizcity-twin-crm' ) . '</p></div>';
+		}
+		$enabled = (bool) get_option( $option, false );
+		$workflow = get_option( $workflow_option, array() );
+		$wf_slug = is_array( $workflow ) ? (string) ( $workflow['slug'] ?? '' ) : '';
+		$wf_secret = is_array( $workflow ) ? (string) ( $workflow['secret'] ?? '' ) : '';
+		echo '<h2>' . esc_html__( 'Thông báo Zalo Bot nội bộ', 'bizcity-twin-crm' ) . '</h2>';
+		echo '<form method="post">';
+		wp_nonce_field( $nonce_action, 'bzc_crm_settings_nonce' );
+		echo '<table class="form-table" role="presentation"><tbody><tr>';
+		echo '<th scope="row">' . esc_html__( 'Nhắc việc mới qua Zalo Bot', 'bizcity-twin-crm' ) . '</th><td>';
+		echo '<label><input type="checkbox" name="' . esc_attr( $option ) . '" value="1"' . checked( $enabled, true, false ) . '> ';
+		esc_html_e( 'Cho phép gửi', 'bizcity-twin-crm' );
+		echo '</label>';
+		echo '<p class="description">' . esc_html__( 'Khi bật: nhân viên đã liên kết Zalo Bot (Channel Gateway hoặc /gpt/ Kênh của tôi) nhận một tin ngắn khi được giao việc — chỉ số lượng việc, tên người giao, hạn và đường dẫn tới /gpt/crm/. Không tên, SĐT hay ID khách. Leader còn phải tick "Nhắn Zalo Bot nội bộ" ở từng lần giao thì tin mới thật sự gửi.', 'bizcity-twin-crm' ) . '</p>';
+		echo '</td></tr><tr>';
+		echo '<th scope="row">' . esc_html__( 'Kịch bản tuỳ biến (tuỳ chọn)', 'bizcity-twin-crm' ) . '</th><td>';
+		echo '<p><label for="bzc-notify-wf-slug">' . esc_html__( 'Slug webhook của workflow', 'bizcity-twin-crm' ) . '</label><br>';
+		echo '<input type="text" id="bzc-notify-wf-slug" name="' . esc_attr( $workflow_option ) . '[slug]" value="' . esc_attr( $wf_slug ) . '" class="regular-text" placeholder="vd: crm-task-handoff-ping"></p>';
+		echo '<p><label for="bzc-notify-wf-secret">' . esc_html__( 'Secret của trigger', 'bizcity-twin-crm' ) . '</label><br>';
+		echo '<input type="password" id="bzc-notify-wf-secret" name="' . esc_attr( $workflow_option ) . '[secret]" value="' . esc_attr( $wf_secret ) . '" class="regular-text" autocomplete="off"></p>';
+		echo '<p class="description">' . esc_html__( 'Để trống dùng tin mặc định ở trên. Điền cả hai để đổi sang một workflow bạn tự dựng ở Twin Workflow: trigger Webhook (đặt Secret khớp ô này) → khối "Trả lời Zalo". Workflow nhận chat_id, recipient_user_id, count, kind, leader_name, due_date, link — vẫn không có tên/SĐT/ID khách.', 'bizcity-twin-crm' ) . ' <a href="' . esc_url( admin_url( 'admin.php?page=bizcity-automation' ) ) . '" target="_blank" rel="noopener">' . esc_html__( 'Mở Twin Workflow ↗', 'bizcity-twin-crm' ) . '</a></p>';
+		echo '</td></tr></tbody></table>';
+		submit_button( __( 'Lưu thay đổi', 'bizcity-twin-crm' ) );
+		echo '</form>';
 	}
 }

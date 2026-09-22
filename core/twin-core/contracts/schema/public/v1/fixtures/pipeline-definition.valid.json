@@ -1,0 +1,196 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.0.0",
+  "kind": "production",
+  "label": "Sản xuất",
+  "subject": "contact",
+  "clock": "calendar:factory_shift_a",
+  "lock_version": true,
+  "pause_when": [
+    "flag(waiting_customer)"
+  ],
+  "roles": {
+    "R02": {
+      "label": "Kế hoạch",
+      "resolve": {
+        "team": 5
+      }
+    },
+    "R09": {
+      "label": "QAQC",
+      "resolve": {
+        "users": [
+          12,
+          18
+        ]
+      }
+    },
+    "shift_lead": {
+      "label": "Trưởng ca",
+      "resolve": {
+        "relation": "team_lead_of_assignee"
+      }
+    }
+  },
+  "calendars": {
+    "factory_shift_a": [
+      {
+        "dow": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "from": "06:00",
+        "to": "14:00"
+      }
+    ]
+  },
+  "tools": [
+    "stage",
+    "ops",
+    "documents",
+    "activity"
+  ],
+  "stages": [
+    {
+      "key": "B12",
+      "label": "Đóng gói bán thành phẩm",
+      "role": "R02",
+      "sub_steps": [
+        {
+          "key": "B12.1",
+          "label": "Cân và dán nhãn",
+          "mode": "task",
+          "role": "R02"
+        },
+        {
+          "key": "B12.2",
+          "label": "Ghi nhận số lô",
+          "mode": "status_only"
+        }
+      ]
+    },
+    {
+      "key": "B13",
+      "label": "QC",
+      "role": "R09",
+      "sla": {
+        "start_within": {
+          "within": "+15m",
+          "on_miss": [
+            {
+              "at": "0",
+              "do": "notify(role:R09) + flag(breached)"
+            }
+          ]
+        },
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+45m",
+          "on_miss": [
+            {
+              "at": "-20%",
+              "do": "flag(at_risk)"
+            },
+            {
+              "at": "0",
+              "do": "escalate(role:shift_lead)"
+            }
+          ]
+        }
+      },
+      "requires": {
+        "fields": [
+          "qc_result"
+        ],
+        "evidence": [
+          "photo"
+        ],
+        "min_count": 1
+      }
+    },
+    {
+      "key": "B36",
+      "label": "Nhập kho",
+      "role": "R02",
+      "terminal": true
+    }
+  ],
+  "gates": [
+    {
+      "stage": "B36",
+      "requires": {
+        "all_of": [
+          "B12",
+          "B13"
+        ]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "id": "pickup",
+      "layer": "wait",
+      "anchor": "run_created",
+      "offset": "+5m",
+      "target": "assigned",
+      "on_miss": [
+        {
+          "at": "0",
+          "do": "notify(role:shift_lead)"
+        }
+      ]
+    }
+  ],
+  "process_sla": {
+    "id": "lead_time",
+    "layer": "process",
+    "anchor": "run_created",
+    "offset": "+18h",
+    "target": "stage_done(B36)",
+    "on_miss": [
+      {
+        "at": "-10%",
+        "do": "notify(role:R02)"
+      },
+      {
+        "at": "0",
+        "do": "escalate(role:shift_lead)"
+      }
+    ]
+  },
+  "exceptions": [
+    {
+      "key": "qc_fail",
+      "label": "QC không đạt",
+      "raised_from": [
+        "B13"
+      ],
+      "handler_role": "R09",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+10m",
+          "target": "exception_ack",
+          "clock": "24x7",
+          "on_miss": [
+            {
+              "at": "+10m",
+              "do": "escalate(role:shift_lead)"
+            },
+            {
+              "at": "+35m",
+              "do": "escalate(role:R02)"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

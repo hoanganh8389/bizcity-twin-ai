@@ -69,7 +69,7 @@ class BizCity_KG_Database {
 	//                   Backward-compatible: nullable, default storage_ver=1 so
 	//                   legacy code continues reading from MySQL columns. Wave F1
 	//                   dual-writer flips to 2 only after file flush + sha256 verify.
-	const SCHEMA_VERSION = '0.30.2'; // [2026-07-30 Johnny Chu] PHASE-0.6-KG-CLEANUP — align runtime version with the kg_mentions retirement changelog.
+	const SCHEMA_VERSION = '0.31.0'; // [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57A — workspace ACL tables.
 	const OPTION_VERSION = 'bizcity_kg_db_version';
 	const LEGACY_ATTACHMENT_MIGRATION_OPTION = 'bizcity_kg_legacy_attachment_backfill_v1';
 	const LEGACY_ATTACHMENT_MIGRATION_VERSION_OPTION = 'bizcity_kg_legacy_attachment_backfill_version';
@@ -133,6 +133,9 @@ class BizCity_KG_Database {
 				$database->tbl_entities(),
 				$database->tbl_relations(),
 				$database->tbl_notebook_character_attachments(),
+				$database->tbl_workspaces(),
+				$database->tbl_grants(),
+				$database->tbl_acl_log(),
 			) as $table_name ) {
 				bizcity_tbl_invalidate( $table_name );
 			}
@@ -266,6 +269,9 @@ class BizCity_KG_Database {
 	public function tbl_source_chunks()       { global $wpdb; return $wpdb->prefix . 'bizcity_kg_passages'; }
 	// Phase 0.21 — Guru marketplace virtual-attach map (notebook ↔ character).
 	public function tbl_notebook_character_attachments() { global $wpdb; return $wpdb->prefix . 'bizcity_notebook_character_attachments'; }
+	public function tbl_workspaces() { global $wpdb; return $wpdb->prefix . 'bizcity_kg_workspaces'; }
+	public function tbl_grants() { global $wpdb; return $wpdb->prefix . 'bizcity_kg_grants'; }
+	public function tbl_acl_log() { global $wpdb; return $wpdb->prefix . 'bizcity_kg_acl_log'; }
 
 	// ─── Wave 1.3 helpers — virtual-merge retrieval ────────────────────
 
@@ -547,7 +553,7 @@ class BizCity_KG_Database {
 			owner_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			notebook_scope ENUM('business_kb','guru_kb','personal') NOT NULL DEFAULT 'personal',
 			color VARCHAR(20) DEFAULT '',
-			settings TEXT COMMENT 'JSON: auto_extract, review_required, …',
+			settings TEXT COMMENT 'JSON: auto_extract, review_required, workspace_id, visibility_override, …',
 			stats TEXT COMMENT 'JSON cached counts',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -807,6 +813,56 @@ class BizCity_KG_Database {
 			PRIMARY KEY  (id),
 			UNIQUE KEY uk_notebook_version (notebook_id, version),
 			KEY idx_notebook_built (notebook_id, built_at)
+		) {$cs};" );
+
+		// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57A W1-01 — shared workspace, view-only grant and ACL audit tables. All are per-blog via $wpdb->prefix.
+		dbDelta( "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}bizcity_kg_workspaces (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			uuid CHAR(36) NOT NULL,
+			owner_id BIGINT UNSIGNED NOT NULL,
+			parent_id BIGINT UNSIGNED DEFAULT NULL,
+			title VARCHAR(190) NOT NULL,
+			icon VARCHAR(40) NOT NULL DEFAULT '',
+			sort_order INT NOT NULL DEFAULT 0,
+			visibility VARCHAR(16) NOT NULL DEFAULT 'private',
+			settings LONGTEXT NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			deleted_at DATETIME NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uq_uuid (uuid),
+			KEY idx_owner (owner_id, deleted_at),
+			KEY idx_parent (parent_id),
+			KEY idx_visibility (visibility, deleted_at)
+		) {$cs};" );
+
+		dbDelta( "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}bizcity_kg_grants (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			object_type VARCHAR(16) NOT NULL,
+			object_id BIGINT UNSIGNED NOT NULL,
+			grantee_type VARCHAR(16) NOT NULL,
+			grantee_ref VARCHAR(80) NOT NULL,
+			permission VARCHAR(16) NOT NULL DEFAULT 'view',
+			created_by BIGINT UNSIGNED NOT NULL,
+			created_at DATETIME NOT NULL,
+			revoked_at DATETIME NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uq_active_grant (object_type, object_id, grantee_type, grantee_ref, revoked_at),
+			KEY idx_object (object_type, object_id, revoked_at),
+			KEY idx_grantee (grantee_type, grantee_ref, revoked_at)
+		) {$cs};" );
+
+		dbDelta( "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}bizcity_kg_acl_log (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			object_type VARCHAR(16) NOT NULL,
+			object_id BIGINT UNSIGNED NOT NULL,
+			action VARCHAR(40) NOT NULL,
+			actor_id BIGINT UNSIGNED NOT NULL,
+			payload LONGTEXT NULL,
+			created_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			KEY idx_object (object_type, object_id, created_at),
+			KEY idx_actor (actor_id, created_at)
 		) {$cs};" );
 	}
 
@@ -1777,3 +1833,12 @@ class BizCity_KG_Database {
 		return mb_strtolower( $name, 'UTF-8' );
 	}
 }
+
+// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57A W1-01 — register ACL
+// tables before create_tables() can create them (R-CR/R-DCL).
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register( 'bizcity_kg_workspaces', 'core.knowledge.kg-hub', BizCity_KG_Database::SCHEMA_VERSION, BizCity_KG_Database::OPTION_VERSION, array( 'BizCity_KG_Database', 'create_tables' ) );
+	BizCity_Schema_Registry::register( 'bizcity_kg_grants', 'core.knowledge.kg-hub', BizCity_KG_Database::SCHEMA_VERSION, BizCity_KG_Database::OPTION_VERSION, array( 'BizCity_KG_Database', 'create_tables' ) );
+	BizCity_Schema_Registry::register( 'bizcity_kg_acl_log', 'core.knowledge.kg-hub', BizCity_KG_Database::SCHEMA_VERSION, BizCity_KG_Database::OPTION_VERSION, array( 'BizCity_KG_Database', 'create_tables' ) );
+}
+

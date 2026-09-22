@@ -592,6 +592,10 @@ class BizCity_KG_Cleanup_Service {
 
 	private function should_use_sql_audit( $operation = 'read' ) {
 		$table = $this->table_log();
+		// [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — without the lifecycle policy the retired cleanup-log SQL is neither installed nor queried.
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			return false;
+		}
 		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
 			if ( ! BizCity_Legacy_Table_Policy::allow_sql( $table, $operation ) ) {
 				return false;

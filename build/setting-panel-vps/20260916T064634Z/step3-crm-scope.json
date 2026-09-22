@@ -1,0 +1,108 @@
+{
+    "contract": "diagnostics-verdict",
+    "version": "1",
+    "command": "diagnostics",
+    "batch": "all",
+    "run_id": "",
+    "environment": {
+        "php": "7.4.33",
+        "wordpress": "6.9",
+        "blog_id": 1258
+    },
+    "catalog_hash": "1c9afde080def30fbc7107513126102f8f71a359823bdcab783af2b8d66f10c9",
+    "batch_hash": "7035f53617e212398753dddc607e85d5ef91c1d63619cb4ce28436733c373b44",
+    "evidence_audit": {
+        "total": 1,
+        "actionable_total": 0,
+        "with_fix_hint": 0,
+        "missing_fix_hint": 0,
+        "coverage_percent": 100,
+        "missing_probe_ids": []
+    },
+    "counts": {
+        "pass": 1,
+        "warn": 0,
+        "fail": 0,
+        "skip": 0
+    },
+    "verdict": "pass",
+    "duration_ms": 47,
+    "coverage": {
+        "catalog_total": 265,
+        "selected_total": 1,
+        "executed": 1,
+        "allowed_skipped": 0,
+        "deferred": 0,
+        "complete": false
+    },
+    "results": {
+        "core.crm.user_inbox_scope": {
+            "status": "pass",
+            "summary": "CRM B2/C scope and CX1 projection runtime passed; CX2 Context Bank admission/canary remains explicitly pending.",
+            "steps": [
+                {
+                    "label": "Disk - canonical CRM user-inbox scope owner",
+                    "status": "pass",
+                    "detail": "CRM owner exposes the versioned envelope and forwards normalized B2/C policy."
+                },
+                {
+                    "label": "Loader - CRM scope resolver",
+                    "status": "pass",
+                    "detail": "BizCity_CRM_Inbox_Access::resolve_user_inbox_scope() is loaded."
+                },
+                {
+                    "label": "Runtime - B2/C envelope forwarding",
+                    "status": "pass",
+                    "detail": "C and B2 envelopes preserve one principal and distinct surface policy keys."
+                },
+                {
+                    "label": "Runtime - B2 selected user differs from admin operator",
+                    "status": "pass",
+                    "detail": "Admin operator resolved a distinct selected principal through the B2 envelope without collapsing to operator user scope."
+                },
+                {
+                    "label": "Runtime - one user multi-Page/OA scope union",
+                    "status": "skip",
+                    "detail": "Multi-Page/OA union is deferred because the current tenant has fewer than two distinct business account fixtures."
+                },
+                {
+                    "label": "Runtime - CRM to Context Bank scope handoff",
+                    "status": "skip",
+                    "detail": "Context Bank scope/access owners and the guarded CX2 CRM scope adapter are loaded; Runtime admission and two-user canary evidence remain pending."
+                },
+                {
+                    "label": "Disk - CX2 CRM to Context Bank bridge",
+                    "status": "pass",
+                    "detail": "The bridge consumes user-inbox-scope and preserves the canonical grant account key."
+                },
+                {
+                    "label": "Loader - CX2 CRM scope bridge",
+                    "status": "pass",
+                    "detail": "The CRM scope bridge is loaded through the Context Bank bootstrap."
+                },
+                {
+                    "label": "Runtime - CX1 unified Contacts source memberships",
+                    "status": "pass",
+                    "detail": "B2/C share the CRM-owned Contacts DTO; source memberships are bounded and provider identifiers are redacted."
+                },
+                {
+                    "label": "Runtime - two-user foreign Personal Context Bank canary",
+                    "status": "skip",
+                    "detail": "Two-user/foreign-Personal canary is deferred because the diagnostics tenant has no current and foreign Personal fixtures."
+                },
+                {
+                    "label": "Runtime - CRM scope to archive receipt/pointer admission",
+                    "status": "skip",
+                    "detail": "No supported CRM customer Inbox fixture is available for a disposable archive receipt."
+                }
+            ],
+            "id": "core.crm.user_inbox_scope",
+            "duration_ms": 35,
+            "rerun": {
+                "probe": "php bin/diagnostics-run.php --filter=core.crm.user_inbox_scope --format=json",
+                "batch": "php bin/diagnostics-run.php --batch=core --format=json",
+                "wp_cli": "wp bizcity probe --id=core.crm.user_inbox_scope --format=json"
+            }
+        }
+    }
+}

@@ -415,6 +415,124 @@ class BizCity_Channel_User_Linker {
 		), 'direct_message' );
 	}
 
+	/**
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 R-LM-8 — the Zalo Bot a WP user is bound to.
+	 *
+	 * Personal channels bind to the first `user_id` through two paths: an admin binds in the Channel
+	 * Gateway BE, or the owner connects in `/gpt/` "Kênh của tôi". Both end up as a `linked` identity
+	 * row (canonical table here, or the legacy Zalo Bot link table). The `/gpt/` My Channels selection
+	 * only picks WHICH of those real links to use; a selected chat that is not linked to this user is
+	 * ignored, so a user can never route a notification to someone else's chat.
+	 *
+	 * Server-side only: never return the chat id to a browser (R-LM-8.5).
+	 *
+	 * @return array{bot_id:int,chat_id:string,source:string} Empty when the user has no linked Zalo Bot.
+	 */
+	public static function zalo_bot_target_for_user( int $wp_user_id, int $blog_id = 0 ): array {
+		if ( $wp_user_id <= 0 ) {
+			return array();
+		}
+		$blog_id = $blog_id > 0 ? $blog_id : (int) get_current_blog_id();
+		$links   = self::zalo_bot_links_for_user( $wp_user_id, $blog_id );
+		if ( empty( $links ) ) {
+			return array();
+		}
+		$selected = self::mychannels_zalo_selection( $wp_user_id );
+		if ( ! empty( $selected ) ) {
+			foreach ( $links as $link ) {
+				if ( $link['bot_id'] === $selected['bot_id'] && $link['zalo_user_id'] === $selected['zalo_user_id'] ) {
+					return array(
+						'bot_id'  => $link['bot_id'],
+						'chat_id' => self::zalo_bot_private_chat_id( $link['bot_id'], $link['zalo_user_id'] ),
+						'source'  => 'mychannels',
+					);
+				}
+			}
+		}
+		$first = $links[0];
+		return array(
+			'bot_id'  => $first['bot_id'],
+			'chat_id' => self::zalo_bot_private_chat_id( $first['bot_id'], $first['zalo_user_id'] ),
+			'source'  => $first['source'],
+		);
+	}
+
+	/** Outbound 1:1 Zalo Bot target — R-CRM-CHANNEL-CONTRACT canonical private form (same as automation `action.reply_zalo`). */
+	private static function zalo_bot_private_chat_id( int $bot_id, string $zalo_user_id ): string {
+		return 'zalobot_' . $bot_id . '_private_' . $zalo_user_id;
+	}
+
+	/**
+	 * Linked Zalo Bot identities of one user: canonical rows first (newest link first), then legacy rows.
+	 *
+	 * @return array<int,array{bot_id:int,zalo_user_id:string,source:string}>
+	 */
+	private static function zalo_bot_links_for_user( int $wp_user_id, int $blog_id ): array {
+		global $wpdb;
+		$out  = array();
+		$seen = array();
+		if ( is_object( $wpdb ) && isset( $wpdb->prefix ) && self::table_exists() ) {
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				'SELECT account_id, external_user_id FROM ' . self::table() . ' WHERE blog_id=%d AND platform=%s AND wp_user_id=%d AND status=%s ORDER BY linked_at DESC, id DESC LIMIT 20',
+				$blog_id,
+				self::PLATFORM_ZALO_BOT,
+				$wp_user_id,
+				self::STATUS_LINKED
+			), ARRAY_A );
+			foreach ( (array) $rows as $row ) {
+				self::push_zalo_bot_link( $out, $seen, (int) ( $row['account_id'] ?? 0 ), (string) ( $row['external_user_id'] ?? '' ), 'channel_link' );
+			}
+		}
+		if ( class_exists( 'BizCity_Zalobot_User_Linker' ) && method_exists( 'BizCity_Zalobot_User_Linker', 'get_links_for_wp_user' ) ) {
+			foreach ( (array) BizCity_Zalobot_User_Linker::get_links_for_wp_user( $wp_user_id ) as $link ) {
+				if ( ! is_array( $link ) || self::STATUS_LINKED !== (string) ( $link['status'] ?? '' ) ) {
+					continue;
+				}
+				if ( isset( $link['blog_id'] ) && (int) $link['blog_id'] > 0 && (int) $link['blog_id'] !== $blog_id ) {
+					continue;
+				}
+				self::push_zalo_bot_link( $out, $seen, (int) ( $link['bot_id'] ?? 0 ), (string) ( $link['zalo_user_id'] ?? '' ), 'legacy_link' );
+			}
+		}
+		return $out;
+	}
+
+	private static function push_zalo_bot_link( array &$out, array &$seen, int $bot_id, string $zalo_user_id, string $source ): void {
+		$zalo_user_id = trim( $zalo_user_id );
+		if ( $bot_id <= 0 || '' === $zalo_user_id ) {
+			return;
+		}
+		$key = $bot_id . ':' . $zalo_user_id;
+		if ( isset( $seen[ $key ] ) ) {
+			return;
+		}
+		$seen[ $key ] = true;
+		$out[] = array( 'bot_id' => $bot_id, 'zalo_user_id' => $zalo_user_id, 'source' => $source );
+	}
+
+	/**
+	 * The Zalo Bot chat the owner picked in `/gpt/` "Kênh của tôi" (user meta `bizcity_twinweb_mychannels`).
+	 *
+	 * @return array{bot_id:int,zalo_user_id:string}|array{}
+	 */
+	private static function mychannels_zalo_selection( int $wp_user_id ): array {
+		$selected = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $wp_user_id, 'bizcity_twinweb_mychannels', array() )
+			: get_user_meta( $wp_user_id, 'bizcity_twinweb_mychannels', true );
+		if ( ! is_array( $selected ) ) {
+			return array();
+		}
+		$chat_id = trim( (string) ( $selected['selected_zalo_chat_id'] ?? '' ) );
+		if ( ! preg_match( '/^zalobot_(\d+)_(?:private_)?(.+)$/', $chat_id, $m ) ) {
+			return array();
+		}
+		$bot_id = (int) ( $selected['selected_zalo_bot_id'] ?? 0 );
+		if ( $bot_id > 0 && $bot_id !== (int) $m[1] ) {
+			return array(); // Inconsistent selection — do not guess.
+		}
+		return array( 'bot_id' => (int) $m[1], 'zalo_user_id' => (string) $m[2] );
+	}
+
 	private static function get_identity_row( string $platform, string $external_user_id, string $account_id, int $blog_id ): ?array {
 		if ( ! self::table_exists() ) {
 			return null;

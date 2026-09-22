@@ -1,0 +1,534 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/pipeline-definition.schema.json",
+  "title": "BizCity Pipeline Definition",
+  "description": "PHASE-0.63/0.63A WP-1.2 — the configuration document of one internal pipeline (kind). Stored in the `bzcrm_pipeline` CPT post_content; a run pins (pipeline_def_id, pipeline_def_version) so editing this document never breaks a run in flight. One deadline is always the quadruple (anchor, offset, target, on_miss[]) — the four SLA layers of PHASE-0.63 §2.2 are four configurations of that quadruple, never four code branches. No customer PII belongs in this document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "kind",
+    "label",
+    "stages"
+  ],
+  "properties": {
+    "contract": {
+      "const": "pipeline-definition"
+    },
+    "version": {
+      "const": "1.0.0"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Stable slug, unique per site. Matches the `pipeline_kind` column on a run.",
+      "pattern": "^[a-z][a-z0-9_]{1,31}$"
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "subject": {
+      "description": "Which core entity a run of this kind hangs off. Default `contact`.",
+      "enum": [
+        "contact",
+        "account",
+        "order",
+        "asset"
+      ]
+    },
+    "clock": {
+      "description": "Default clock for every rule that does not override it. `24x7` or `calendar:<name>` declared in `calendars`.",
+      "type": "string",
+      "pattern": "^(24x7|calendar:[a-z][a-z0-9_]{0,63})$"
+    },
+    "lock_version": {
+      "description": "PHASE-0.63 D63-5 — when true, a write carrying a stale `_lock` is rejected with `stale_write` instead of overwriting a concurrent approval.",
+      "type": "boolean"
+    },
+    "pause_when": {
+      "description": "PHASE-0.63 D63-3 — clock-pause conditions declared per kind, not hardcoded per business.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/condition"
+      }
+    },
+    "roles": {
+      "description": "Process role -> how it resolves to real people at fire time. Keys are the role codes used by stages, gates, exceptions and on_miss ladders.",
+      "type": "object",
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_.-]{0,31}$": {
+          "$ref": "#/$defs/role"
+        }
+      }
+    },
+    "calendars": {
+      "description": "Named working calendars (PHASE-0.63 §3.6). Reused by the SLA clock; never touches the per-inbox `working_hours` table.",
+      "type": "object",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]{0,63}$": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/calendar_window"
+          }
+        }
+      }
+    },
+    "tools": {
+      "description": "Context App keys this kind prefers, in display order. PHASE-0.63B: a PRIORITY/ORDER filter only — the server resolver decides the closed list, so an unknown key here is ignored rather than fatal.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      }
+    },
+    "stages": {
+      "description": "Main steps, in display order on the stage rail.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/stage"
+      }
+    },
+    "gates": {
+      "description": "AND/OR gates evaluated server-side on start_stage(); a blocked stage returns `gate_blocked` with the missing keys.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/gate"
+      }
+    },
+    "rules": {
+      "description": "Run-level SLA rules (layers 1-2 expressed against the whole run, e.g. pickup / first_reply).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sla_rule"
+      }
+    },
+    "process_sla": {
+      "description": "Layer 3 — one deadline spanning the whole run.",
+      "$ref": "#/$defs/sla_rule"
+    },
+    "exceptions": {
+      "description": "Layer 4 — exceptions are first-class: they open beside the running stage, have their own handler and their own deadlines.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/exception"
+      }
+    }
+  },
+  "$defs": {
+    "condition": {
+      "description": "A clock-pause / gate condition expression, e.g. `stage_in([rfq])`, `flag(waiting_customer)`.",
+      "type": "string",
+      "pattern": "^[a-z_]+\\([^()]*\\)$",
+      "maxLength": 190
+    },
+    "offset": {
+      "description": "Signed duration. Negative is legal only when the anchor is a future moment (`appointment_at`, `field:*`).",
+      "type": "string",
+      "pattern": "^[+-]?[0-9]{1,5}(m|h|d|w)$"
+    },
+    "anchor": {
+      "type": "string",
+      "pattern": "^(run_created|assigned|accepted|last_inbound|appointment_at|checkin|exception_raised|stage_ready\\([A-Za-z0-9._-]{1,64}\\)|stage_started\\([A-Za-z0-9._-]{1,64}\\)|exception_raised\\([A-Za-z0-9._-]{1,64}\\)|field:[a-z][a-z0-9_]{0,63})$"
+    },
+    "target": {
+      "type": "string",
+      "pattern": "^(assigned|accepted|first_outbound|run_terminal|exception_ack|exception_resolved|checkin|stage_started\\([A-Za-z0-9._-]{1,64}\\)|stage_done\\([A-Za-z0-9._-]{1,64}\\)|stage_in\\(\\[[A-Za-z0-9._,\\s-]{1,190}\\]\\))$"
+    },
+    "escalation_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "do"
+      ],
+      "properties": {
+        "at": {
+          "description": "`-20%` = early warning, `0` = breach, `+20m` = a rung after breach.",
+          "type": "string",
+          "pattern": "^(0|[+-][0-9]{1,3}%|[+-][0-9]{1,5}(m|h|d))$"
+        },
+        "do": {
+          "description": "One or more registered actions chained with `+`. The five core actions are flag/notify/escalate/reassign/emit; D63-2 keeps the set open via `bizcity_crm_register_pipeline_sla_actions`.",
+          "type": "string",
+          "pattern": "^[a-z_]+\\([^()]*\\)(\\s*\\+\\s*[a-z_]+\\([^()]*\\))*$",
+          "maxLength": 190
+        }
+      }
+    },
+    "requires": {
+      "description": "Server-enforced close conditions. One of the very few places the framework is allowed to be rigid, because it is business evidence.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "photo",
+              "file",
+              "signature",
+              "note"
+            ]
+          }
+        },
+        "min_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      }
+    },
+    "sla_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anchor",
+        "offset",
+        "target"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "layer": {
+          "enum": [
+            "step",
+            "wait",
+            "process",
+            "exception"
+          ]
+        },
+        "anchor": {
+          "$ref": "#/$defs/anchor"
+        },
+        "offset": {
+          "$ref": "#/$defs/offset"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "clock": {
+          "type": "string",
+          "pattern": "^(24x7|calendar:[a-z][a-z0-9_]{0,63})$"
+        },
+        "pause_when": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/condition"
+          }
+        },
+        "on_miss": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/escalation_step"
+          }
+        },
+        "requires": {
+          "$ref": "#/$defs/requires"
+        }
+      }
+    },
+    "stage_sla": {
+      "description": "Sugar over the quadruple for the two commonest stage cases. `start_within` is layer 2 (the wait between two steps); `finish_within` is layer 1.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start_within": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "within"
+          ],
+          "properties": {
+            "within": {
+              "$ref": "#/$defs/offset"
+            },
+            "on_miss": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/escalation_step"
+              }
+            }
+          }
+        },
+        "finish_within": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "within"
+          ],
+          "properties": {
+            "from": {
+              "description": "D63-1 — explicit, per definition, never a per-kind constant. `stage_ready` protects the whole-process lead time; `stage_started` is fairer to the operator but accumulates drift.",
+              "enum": [
+                "stage_ready",
+                "stage_started"
+              ]
+            },
+            "within": {
+              "$ref": "#/$defs/offset"
+            },
+            "on_miss": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/escalation_step"
+              }
+            }
+          }
+        },
+        "clock": {
+          "type": "string",
+          "pattern": "^(24x7|calendar:[a-z][a-z0-9_]{0,63})$"
+        },
+        "pause_when": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/condition"
+          }
+        },
+        "on_miss": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/escalation_step"
+          }
+        }
+      }
+    },
+    "sub_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "mode"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 190
+        },
+        "mode": {
+          "description": "`task` writes a real work ticket into bizcity_crm_tasks; `status_only` lives in custom_json.stages[key].sub[].",
+          "enum": [
+            "task",
+            "status_only"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,31}$"
+        },
+        "sla": {
+          "$ref": "#/$defs/stage_sla"
+        },
+        "requires": {
+          "$ref": "#/$defs/requires"
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 190
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,31}$"
+        },
+        "terminal": {
+          "description": "True for the stages that close a run (feeds `run_terminal`).",
+          "type": "boolean"
+        },
+        "return_to": {
+          "description": "Rejection target — the declared step a rejected run goes back to (PHASE-0.63A §4.3).",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "sub_steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sub_step"
+          }
+        },
+        "sla": {
+          "$ref": "#/$defs/stage_sla"
+        },
+        "requires": {
+          "$ref": "#/$defs/requires"
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "requires"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "requires": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "all_of": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+              }
+            },
+            "any_of": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "exception": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "handler_role"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 190
+        },
+        "raised_from": {
+          "description": "Stages this exception may be raised from. Empty/absent = any stage.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+          }
+        },
+        "handler_role": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,31}$"
+        },
+        "blocks_stage": {
+          "description": "True means complete_stage() returns `exception_open` until this one is resolved.",
+          "type": "boolean"
+        },
+        "sla": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sla_rule"
+          }
+        }
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "resolve"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "resolve": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "team": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "users": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "relation": {
+              "enum": [
+                "team_lead_of_assignee",
+                "owner_of_run",
+                "creator_of_run",
+                "assignee_of_stage"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "calendar_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dow",
+        "from",
+        "to"
+      ],
+      "properties": {
+        "dow": {
+          "description": "ISO days of week, 1 = Monday .. 7 = Sunday.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 7,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7
+          }
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/pipeline-stage-change.schema.json",
+  "title": "BizCity Pipeline Stage Change",
+  "description": "PHASE-0.52 R-PIPE-2/3: result of POST /crm-contacts/{id}/stage (B2) or /crm/pipeline/contacts/{id}/stage (C). Flexible: any manual stage incl. won without an order; only lost needs a reason (enforced server-side). Every change is audited; no customer PII in this DTO.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "contact_id",
+    "from",
+    "to",
+    "stage",
+    "moved"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "contract": {
+      "const": "pipeline-stage-change"
+    },
+    "version": {
+      "const": "1.0.0"
+    },
+    "surface": {
+      "enum": [
+        "B2_ADMIN_CRM",
+        "C_PUBLIC_TWINGPT"
+      ]
+    },
+    "contact_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "from": {
+      "enum": [
+        "target",
+        "contacted",
+        "consult",
+        "quote",
+        "won",
+        "repeat",
+        "dormant",
+        "lost"
+      ]
+    },
+    "to": {
+      "enum": [
+        "target",
+        "contacted",
+        "consult",
+        "quote",
+        "won",
+        "repeat",
+        "dormant",
+        "lost"
+      ]
+    },
+    "stage": {
+      "enum": [
+        "target",
+        "contacted",
+        "consult",
+        "quote",
+        "won",
+        "repeat",
+        "dormant",
+        "lost"
+      ]
+    },
+    "moved": {
+      "type": "boolean"
+    },
+    "opportunity_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "note_message_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "reminder_task_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "handoff_task_done": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "steps_done": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "duplicate": {
+      "type": "boolean"
+    }
+  }
+}

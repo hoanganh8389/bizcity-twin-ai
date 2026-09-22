@@ -24,6 +24,7 @@ if ( ! class_exists( 'BizCity_Framework_CLI' ) ) {
 			\WP_CLI::add_command( 'bizcity diagnostics', [ __CLASS__, 'diagnostics' ] );
 			\WP_CLI::add_command( 'bizcity health', [ __CLASS__, 'health' ] );
 			\WP_CLI::add_command( 'bizcity probe', [ __CLASS__, 'probe' ] );
+			\WP_CLI::add_command( 'bizcity crm archive-pointers', [ __CLASS__, 'crm_archive_pointers' ] );
 			\WP_CLI::add_command( 'bizcity sdk-check', [ __CLASS__, 'sdk_check' ] );
 			\WP_CLI::add_command( 'bizcity tools', [ 'BizCity_Framework_CLI_Tools', 'dispatch' ] );
 			\WP_CLI::add_command( 'bizcity cron', [ 'BizCity_Framework_CLI_Cron', 'dispatch' ] );
@@ -227,6 +228,35 @@ if ( ! class_exists( 'BizCity_Framework_CLI' ) ) {
 				self::restore_blog( $origin );
 			}
 			self::emit( $payload, $assoc_args, self::exit_code( $payload, $assoc_args ) );
+		}
+
+		/**
+		 * Plan or apply bounded legacy CRM archive receipt pointer repairs.
+		 *
+		 * @param array<int,string> $args
+		 * @param array<string,mixed> $assoc_args
+		 * @return void
+		 */
+		public static function crm_archive_pointers( array $args, array $assoc_args ): void {
+			// [2026-09-21 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.56-H-11 — canonical bounded receipt maintenance command; dry-run by default and explicit confirmation required for writes.
+			self::require_class( 'BizCity_Channel_Conversation_Archive', 'Channel archive owner' );
+			$origin = self::switch_blog( $assoc_args );
+			try {
+				$limit = isset( $assoc_args['limit'] ) ? max( 1, min( 100, (int) $assoc_args['limit'] ) ) : 100;
+				$apply = ! empty( $assoc_args['apply'] );
+				$confirm = (string) ( $assoc_args['confirm'] ?? '' );
+				if ( $apply && 'REPAIR_LEGACY_POINTERS' !== $confirm ) {
+					self::usage_error( 'Apply requires --confirm=REPAIR_LEGACY_POINTERS.' );
+				}
+				$payload = BizCity_Channel_Conversation_Archive::reconcile_legacy_receipt_pointers( $limit, ! $apply );
+				$payload['command'] = 'crm archive-pointers';
+				$payload['blog_id'] = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+				$payload['mode'] = $apply ? 'apply' : 'dry_run';
+				$payload['confirmation_required'] = 'REPAIR_LEGACY_POINTERS';
+			} finally {
+				self::restore_blog( $origin );
+			}
+			self::emit( array( 'contract' => self::VERDICT_CONTRACT, 'version' => self::VERDICT_VERSION, 'verdict' => ! empty( $payload['ok'] ) && empty( $payload['errors'] ) ? 'pass' : 'fail', 'results' => array( $payload ) ), $assoc_args, ! empty( $payload['ok'] ) && empty( $payload['errors'] ) ? 0 : 1 );
 		}
 
 		public static function sdk_check( array $args, array $assoc_args ): void {
@@ -732,9 +762,119 @@ if ( ! class_exists( 'BizCity_Framework_CLI_Contracts' ) ) {
 				case 'graph':
 					self::graph_contracts( $assoc_args );
 					return;
+				case 'receipts':
+					self::receipts( $args, $assoc_args );
+					return;
 				default:
-					BizCity_Framework_CLI::usage_error( 'Usage: wp bizcity contracts list|show|check|audit|graph.' );
+					BizCity_Framework_CLI::usage_error( 'Usage: wp bizcity contracts list|show|check|audit|graph|receipts.' );
 			}
+		}
+
+		/**
+		 * [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.22A-WP3 — read-only
+		 * registration receipt inspection.
+		 *
+		 * Reports, per active package capability, whether the receipt declared
+		 * in manifest.json carries owner/scope/contract and whether the declared
+		 * class implements the interface its capability kind requires.
+		 *
+		 * This is INSPECTION ONLY. It never writes, never loads the package,
+		 * never calls dbDelta and never grants permission. It mirrors the CI
+		 * gate `bin/validate-capability-receipts.mjs`; the gate is what blocks,
+		 * this command is what a developer reads. Static evidence reported here
+		 * is not Runtime evidence and does not promote a package to pass.
+		 */
+		private static function receipts( array $args, array $assoc_args ): void {
+			$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 2 ) . '/';
+			$id_filter = isset( $args[1] ) ? (string) $args[1] : '';
+
+			$checks = [];
+			$declared = 0;
+			$complete  = 0;
+
+			foreach ( self::active_package_dirs() as $package_path ) {
+				$manifest_path = $package_path . '/manifest.json';
+				if ( ! is_readable( $manifest_path ) ) {
+					continue;
+				}
+				$manifest = json_decode( (string) file_get_contents( $manifest_path ), true );
+				if ( ! is_array( $manifest ) || empty( $manifest['id'] ) || empty( $manifest['capabilities'] ) ) {
+					continue;
+				}
+
+				$package_id   = (string) $manifest['id'];
+				$package_role = (string) ( $manifest['package_role'] ?? '' );
+				$relative     = 'plugins/' . basename( $package_path ) . '/manifest.json';
+				$owner        = (string) ( $manifest['owner'] ?? '' );
+				$is_legacy    = $package_role === 'legacy_adapter';
+
+				foreach ( (array) $manifest['capabilities'] as $kind => $items ) {
+					foreach ( (array) $items as $item ) {
+						if ( ! is_array( $item ) ) {
+							continue;
+						}
+						$capability_id = (string) ( $item['id'] ?? '' );
+						if ( $capability_id === '' ) {
+							$checks[] = self::receipt_check( '', $package_id, (string) $kind, $relative, [ 'capability_id' ], 'Declare an id for this capability entry.' );
+							continue;
+						}
+						if ( $id_filter !== '' && $capability_id !== $id_filter ) {
+							continue;
+						}
+						$declared++;
+
+						$missing = [];
+						foreach ( [ 'owner', 'scope', 'contract_id', 'contract_version' ] as $field ) {
+							$value = $item[ $field ] ?? ( $field === 'owner' ? $owner : '' );
+							if ( ! is_string( $value ) || $value === '' ) {
+								$missing[] = $field;
+							}
+						}
+
+						$declared_class = isset( $item['class'] ) ? trim( (string) $item['class'] ) : '';
+						if ( $declared_class === '' && ! $is_legacy ) {
+							$missing[] = 'class';
+						}
+
+						if ( empty( $missing ) ) {
+							$complete++;
+							$checks[] = self::receipt_check( $capability_id, $package_id, (string) $kind, $relative, [], 'Receipt is complete; runtime registration still requires the owning probe.' );
+							continue;
+						}
+
+						$hint = $is_legacy
+							? 'Legacy adapter packages are exempt from the typed requirement; still record owner, scope and contract.'
+							: 'Declare the missing fields, or set package_role=legacy_adapter with a sunset block if this package registers through the legacy filter path.';
+						$checks[] = self::receipt_check( $capability_id, $package_id, (string) $kind, $relative, $missing, $hint );
+					}
+				}
+			}
+
+			if ( empty( $checks ) ) {
+				BizCity_Framework_CLI::usage_error( 'No capability receipts matched the requested id.' );
+			}
+
+			$payload = BizCity_Framework_CLI::aggregate( $checks, [
+				'command'          => 'contracts receipts',
+				'inventory_source' => 'derived_manifest_receipts',
+				'declared'         => $declared,
+				'complete'         => $complete,
+				'coverage_note'    => 'Static receipt completeness only; not Runtime registration evidence.',
+			] );
+			BizCity_Framework_CLI::emit( $payload, $assoc_args, BizCity_Framework_CLI::exit_code( $payload, $assoc_args ) );
+		}
+
+		private static function receipt_check( string $capability_id, string $package_id, string $kind, string $relative, array $missing, string $fix_hint ): array {
+			$status = empty( $missing ) ? 'pass' : 'warn';
+			return [
+				'id'       => $capability_id !== '' ? $capability_id : 'missing_id.' . sanitize_key( $package_id . '.' . $kind ),
+				'label'    => $package_id . ' · ' . $kind,
+				'status'   => $status,
+				'evidence' => empty( $missing ) ? 'Receipt fields present.' : 'Missing: ' . implode( ', ', $missing ),
+				'fix_hint' => $fix_hint,
+				'file'     => $relative,
+				'severity' => empty( $missing ) ? 'info' : 'warn',
+			];
 		}
 
 		private static function list_contracts( array $assoc_args ): void {
@@ -828,9 +968,13 @@ if ( ! class_exists( 'BizCity_Framework_CLI_Contracts' ) ) {
 				[ 'from' => 'BizCity_Tool_Interface', 'to' => 'tool-io-envelope', 'kind' => 'implements' ],
 				[ 'from' => 'BizCity_Tool_Interface', 'to' => 'permission-scopes', 'kind' => 'requires' ],
 				[ 'from' => 'BizCity_Tool_Interface', 'to' => 'runtime-execution-policy', 'kind' => 'requires' ],
+				// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.22A-WP3 — the real
+				// channel adapters implement the unsuffixed interface declared in
+				// core/channel-gateway/includes/interface-channel-adapter.php.
 				[ 'from' => 'BizCity_Channel_Adapter', 'to' => 'channel-payload', 'kind' => 'produces' ],
 				[ 'from' => 'BizCity_Channel_Adapter', 'to' => 'event-envelope', 'kind' => 'produces' ],
 				[ 'from' => 'BizCity_Channel_Adapter', 'to' => 'error-envelope', 'kind' => 'failure' ],
+				[ 'from' => 'BizCity_Channel_Adapter_Interface', 'to' => 'channel-payload', 'kind' => 'produces' ],
 				[ 'from' => 'BizCity_Automation_Block', 'to' => 'workflow-json', 'kind' => 'implements' ],
 				[ 'from' => 'BizCity_Automation_Block', 'to' => 'mutation-contract', 'kind' => 'side_effect' ],
 				[ 'from' => 'BizCity_TwinBrain_Vertical_Bridge_Registry', 'to' => 'MPR Layer 2/5', 'kind' => 'dispatches' ],
@@ -950,8 +1094,15 @@ if ( ! class_exists( 'BizCity_Framework_CLI_Brain' ) ) {
 		public static function dispatch( array $args, array $assoc_args ): void {
 			// [2026-08-28 Johnny Chu] PHASE-1.32 — expose the canonical Vertical Brain/MPR bridge contract.
 			$verb = isset( $args[0] ) ? (string) $args[0] : 'verticals';
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C2 — `trace` reads the
+			// read-only MPR trace calculator; it does not depend on the Vertical Bridge
+			// Registry, so it is routed before that class-existence guard below.
+			if ( 'trace' === $verb ) {
+				self::dispatch_trace( $args, $assoc_args );
+				return;
+			}
 			if ( ! in_array( $verb, [ 'verticals', 'check' ], true ) || ! class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) ) {
-				BizCity_Framework_CLI::usage_error( 'Usage: wp bizcity brain verticals|check [--id=<vertical>] [--json] [--strict].' );
+				BizCity_Framework_CLI::usage_error( 'Usage: wp bizcity brain verticals|check|trace <trace_id> [--id=<vertical>] [--json] [--strict].' );
 			}
 			$verticals = BizCity_TwinBrain_Vertical_Bridge_Registry::all();
 			$id = isset( $assoc_args['id'] ) ? sanitize_key( (string) $assoc_args['id'] ) : '';
@@ -971,6 +1122,58 @@ if ( ! class_exists( 'BizCity_Framework_CLI_Brain' ) ) {
 			}
 			$payload = BizCity_Framework_CLI::aggregate( $checks, [ 'command' => 'brain check', 'source' => 'BizCity_TwinBrain_Vertical_Bridge_Registry' ] );
 			BizCity_Framework_CLI::emit( $payload, $assoc_args, BizCity_Framework_CLI::exit_code( $payload, $assoc_args ) );
+		}
+
+		/**
+		 * `wp bizcity brain trace <trace_id> [--json]`
+		 *
+		 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C2 — read-only wrapper
+		 * around BizCity_TwinBrain_Trace_Calculator. Prints counts and durations
+		 * only; never a payload body, query text or credential, matching the same
+		 * bounded-field rule as every other diagnostics surface in this codebase.
+		 */
+		private static function dispatch_trace( array $args, array $assoc_args ): void {
+			$trace_id = isset( $args[1] ) ? (string) $args[1] : (string) ( $assoc_args['trace_id'] ?? '' );
+			if ( '' === trim( $trace_id ) || ! class_exists( 'BizCity_TwinBrain_Trace_Calculator' ) ) {
+				BizCity_Framework_CLI::usage_error( 'Usage: wp bizcity brain trace <trace_id> [--json]. (BizCity_TwinBrain_Trace_Calculator must be loaded.)' );
+			}
+			$result = BizCity_TwinBrain_Trace_Calculator::calculate( $trace_id );
+			if ( BizCity_Framework_CLI::wants_json( $assoc_args ) ) {
+				\WP_CLI::line( wp_json_encode( array_merge(
+					[ 'contract' => BizCity_Framework_CLI::VERDICT_CONTRACT, 'version' => BizCity_Framework_CLI::VERDICT_VERSION, 'command' => 'brain trace' ],
+					$result
+				), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+				return;
+			}
+			if ( empty( $result['ok'] ) ) {
+				\WP_CLI::error( 'Trace calculator: ' . (string) ( $result['reason'] ?? 'unknown_failure' ) );
+				return;
+			}
+			\WP_CLI::line( sprintf( 'trace_id            = %s', (string) $result['trace_id'] ) );
+			\WP_CLI::line( sprintf( 'event_count         = %d', (int) $result['event_count'] ) );
+			\WP_CLI::line( sprintf( 'wall_time_ms        = %d (basis: %s)', (int) $result['wall_time_ms'], (string) $result['wall_time_basis'] ) );
+			\WP_CLI::line( sprintf( 'known_phase_ms_sum  = %d', (int) $result['known_phase_ms_sum'] ) );
+			\WP_CLI::line( sprintf( 'unattributed_ms     = %d', (int) $result['unattributed_ms'] ) );
+			\WP_CLI::line( 'parallel_worker_ms  = ' . ( null === $result['parallel_worker_ms'] ? 'n/a (no durable perspective event yet)' : (string) $result['parallel_worker_ms'] ) );
+			\WP_CLI::line( 'network_gap_ms      = ' . ( null === $result['network_gap_ms'] ? 'n/a (needs client-reported timestamp)' : (string) $result['network_gap_ms'] ) );
+			\WP_CLI::line( 'client_gap_ms       = ' . ( null === $result['client_gap_ms'] ? 'n/a (needs client-reported timestamp)' : (string) $result['client_gap_ms'] ) );
+			\WP_CLI::line( '' );
+			\WP_CLI::line( 'phases:' );
+			foreach ( (array) $result['phases'] as $phase_name => $phase ) {
+				if ( empty( $phase['durable'] ) ) {
+					\WP_CLI::line( sprintf( '  %-22s not durable (%s)', $phase_name, (string) ( $phase['reason'] ?? 'unknown' ) ) );
+					continue;
+				}
+				\WP_CLI::line( sprintf(
+					'  %-22s %5dms  status=%-9s reason=%s',
+					$phase_name,
+					(int) $phase['duration_ms'],
+					(string) $phase['status'],
+					'' === (string) ( $phase['reason_bucket'] ?? '' ) ? '-' : (string) $phase['reason_bucket']
+				) );
+			}
+			\WP_CLI::line( '' );
+			\WP_CLI::line( 'coverage_note: ' . (string) $result['coverage_note'] );
 		}
 	}
 }

@@ -44,6 +44,8 @@ final class BizCity_Diagnostics_Smoke_Runner {
 	/** Focused storage-migration probes used to refresh the deprecated-table catalog. */
 	private const LEGACY_BATCH_IDS = array(
 		'core.legacy_table.install_prevention',
+		// [2026-09-18 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — physical-absence evidence follows the policy-level install gate.
+		'core.legacy_table.install_absence',
 		'core.legacy_table.lifecycle',
 		'core.legacy_table.callers',
 		'core.legacy_table.state_machine',
@@ -56,18 +58,28 @@ final class BizCity_Diagnostics_Smoke_Runner {
 		// [2026-09-02 09:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-DDV — persist WebChat owner results before CRUD-stop evaluates the retired projection rows.
 		'core.webchat.sql_lifecycle',
 		'core.webchat.tool_registry_parity',
+		// [2026-09-18 12:47 PM Johnny Chu - Chu Hoàng Anh] M-101 — add missing WebChat filestore parity probes to manifest.
+		'core.webchat.session_filestore_parity',
+		'core.webchat.conversation_message_unify',
+		// [2026-09-18 03:35 PM Johnny Chu - Chu Hoàng Anh] M-101 fix — id is 'twinbrain.goal_contracts' (no 'core.' prefix); must run before crud_stop per the required owner-evidence rerun order.
+		'twinbrain.goal_contracts',
+		// [2026-09-18 03:35 PM Johnny Chu - Chu Hoàng Anh] M-101 — channel-gateway.flows is also a required owner-evidence prerequisite for crud_stop per the roadmap rerun order; was missing entirely.
+		'channel-gateway.flows',
 		'core.legacy_table.crud_stop',
-		'core.legacy_table.contract_scoreboard',
 		'core.memory.filestore_parity',
 		'core.memory.intent_filestore_parity',
 		'core.memory.notes_filestore_parity',
 		'core.context_bank.ledger',
 		'core.skills.usage_parity',
 		'core.bizcity_llm.usage_ledger_parity',
+		// [2026-09-18 12:47 PM Johnny Chu - Chu Hoàng Anh] M-101 — add missing LLM usage filestore parity probe.
+		'core.bizcity_llm.usage_filestore_parity',
 		'core.knowledge.kg_usage_ledger_parity',
 		'core.helper.jsonl_search_query_index_parity',
 		'core.helper.log_index',
 		'core.helper.table_metadata',
+		// [2026-09-18 12:47 PM Johnny Chu - Chu Hoàng Anh] M-101 — move contract_scoreboard last so it aggregates all prior probe evidence.
+		'core.legacy_table.contract_scoreboard',
 	);
 
 	/** @var array<int,string> Batches required for a normal release aggregate. */
@@ -560,7 +572,15 @@ final class BizCity_Diagnostics_Smoke_Runner {
 			];
 		}
 		$probe = $catalog[ $id ];
-		if ( self::execution_metadata( $id )['admin_required'] && function_exists( 'current_user_can' ) && ! current_user_can( 'manage_options' ) ) {
+		$diagnostics_admin_ok = function_exists( 'current_user_can' ) && current_user_can( 'manage_options' );
+		$trusted_cli_context = ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
+			|| ( defined( 'WP_CLI' ) && WP_CLI );
+		if ( ! $diagnostics_admin_ok && $trusted_cli_context ) {
+			// [2026-09-21 03:50 PM Johnny Chu - Chu Hoàng Anh] R-MSDB/R-DDV — mapped multisite diagnostics may expose network authority without a site-scoped manage_options result; accept the explicit network capability only inside trusted CLI, never in web requests.
+			$diagnostics_admin_ok = ( function_exists( 'current_user_can' ) && current_user_can( 'manage_network_options' ) )
+				|| ( function_exists( 'is_super_admin' ) && is_super_admin() );
+		}
+		if ( self::execution_metadata( $id )['admin_required'] && function_exists( 'current_user_can' ) && ! $diagnostics_admin_ok ) {
 			// [2026-08-29 Johnny Chu] PHASE-1.31-S2.6 — classify a missing diagnostics admin context without executing probe code.
 			$result = array(
 				'id'          => $id,
@@ -738,12 +758,24 @@ final class BizCity_Diagnostics_Smoke_Runner {
 		if ( $resume_id !== '' ) {
 			$checkpoint = self::get_checkpoint( $resume_id, $batch_name );
 			if ( empty( $checkpoint ) || (string) ( $checkpoint['catalog_hash'] ?? '' ) !== $catalog_hash || (string) ( $checkpoint['batch_hash'] ?? '' ) !== $batch_hash ) {
+				// [2026-09-18 10:27 AM Johnny Chu - Chu Hoàng Anh] R-DDV / R-MSDB — say which condition failed. Checkpoints are stored per blog, so a resume run that lands on another tenant (e.g. missing --host) must read as "not found on blog N", not as a hash change.
+				if ( empty( $checkpoint ) ) {
+					$resume_error = sprintf(
+						'Diagnostics checkpoint %s was not found on blog_id=%d. Checkpoints are stored per blog: resume with the same --host (and --wp-root) as the original run.',
+						$resume_id,
+						function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0
+					);
+				} elseif ( (string) ( $checkpoint['catalog_hash'] ?? '' ) !== $catalog_hash ) {
+					$resume_error = 'Diagnostics catalog hash changed since the checkpoint was written; start a fresh batch run instead of resuming.';
+				} else {
+					$resume_error = 'Diagnostics batch hash changed since the checkpoint was written; start a fresh batch run instead of resuming.';
+				}
 				return array(
 					'run_id'       => $resume_id,
 					'batch'        => $batch_name,
 					'catalog_hash' => $catalog_hash,
 					'batch_hash'   => $batch_hash,
-					'error'        => 'Diagnostics checkpoint is missing or catalog hash changed.',
+					'error'        => $resume_error,
 					'coverage'     => array( 'catalog_total' => count( $catalog ), 'selected_total' => count( $catalog_ids ), 'executed' => 0, 'allowed_skipped' => 0, 'deferred' => count( $catalog_ids ), 'complete' => false ),
 					'results'      => array(),
 				);

@@ -9,8 +9,8 @@ Cảm ơn bạn quan tâm đóng góp! Đây là framework AI cho WordPress đư
 
 - 🏗️ [docs/getting-started.md](docs/getting-started.md) — setup dev environment.
 - 🔌 [docs/extending/sub-plugin-quickstart.md](docs/extending/sub-plugin-quickstart.md) — build sub-plugin đầu tiên.
-- 🎯 [docs/rules/PHASE-0-CANON.md](docs/rules/PHASE-0-CANON.md) — tier rules (TỐI THƯỢNG / QUAN TRỌNG).
-- 🔧 [.github/copilot-instructions.md](.github/copilot-instructions.md) — rule cho AI agent (Copilot/Claude/Cursor).
+- 🎯 [.github/copilot-instructions.md](.github/copilot-instructions.md) — rule tối thượng đầy đủ (kiến trúc, DB, channel, error, validation), dùng chung cho người và cho AI agent (Copilot/Claude Code/Codex/Cursor); `AGENTS.md` là bản sinh tự động của cùng bộ rule.
+- 🗺️ [.github/instructions/agent-environment.instructions.md](.github/instructions/agent-environment.instructions.md) + [docs/AGENT-DOC-CATALOG.md](docs/AGENT-DOC-CATALOG.md) — bản đồ contract, README, tool `bin/`, lệnh test/CI và danh mục tài liệu.
 - 📜 [CHANGELOG.md](CHANGELOG.md) — version history.
 
 ---
@@ -19,11 +19,11 @@ Cảm ơn bạn quan tâm đóng góp! Đây là framework AI cho WordPress đư
 
 | Rule | Tóm tắt | Spec |
 |---|---|---|
-| **R-DCL** | Mọi schema change → JSON changelog + validator. | [PHASE-0-RULE-DIAGNOSTICS-CHANGELOG.md](docs/diagnostics/PHASE-0-RULE-DIAGNOSTICS-CHANGELOG.md) |
-| **R-DDV** | Mỗi sprint mới phải có diagnostic row PASS. | [PHASE-0-RULE-DIAGNOSTIC-DRIVEN-VALIDATION.md](docs/diagnostics/PHASE-0-RULE-DIAGNOSTIC-DRIVEN-VALIDATION.md) |
-| **R-CRON-META** | Cron handler phải `note()` evidence. | [PHASE-0-RULE-CRON-META.md](docs/rules/PHASE-0-RULE-CRON-META.md) |
-| **R-CH-NS** | Channel REST namespace = `bizcity-channel/v1`. | [PHASE-0-RULE-CHANNEL-ONLY.md](docs/rules/PHASE-0-RULE-CHANNEL-ONLY.md) |
-| **R-GW-8** | Client KHÔNG cài `bizcity-llm-router` — proxy về bizcity.vn. | [PHASE-0-RULE-GATEWAY-ONLY.md](docs/rules/PHASE-0-RULE-GATEWAY-ONLY.md) |
+| **R-DCL** | Mọi schema change → JSON changelog + validator. | [copilot-instructions.md §4](.github/copilot-instructions.md) |
+| **R-DDV** | Mỗi sprint mới phải có diagnostic row PASS. | [copilot-instructions.md §8](.github/copilot-instructions.md) |
+| **R-CRON-META** | Cron handler phải `note()` evidence. | [copilot-instructions.md §7](.github/copilot-instructions.md) |
+| **R-CH-NS** | Channel REST namespace = `bizcity-channel/v1`. | [copilot-instructions.md §6](.github/copilot-instructions.md) |
+| **R-GW-8** | Client KHÔNG cài `bizcity-llm-router` — proxy về bizcity.vn. | [copilot-instructions.md §2](.github/copilot-instructions.md) |
 | **R-GW-API-CATALOG** | Lookup [docs/api/](../bizcity-llm-router/docs/api) trước, build endpoint server trước nếu thiếu. | [.github/copilot-instructions.md](.github/copilot-instructions.md#R-GW-API-CATALOG) |
 
 ---
@@ -163,8 +163,7 @@ File PHP **public mới** (trong `core/`, `modules/` không gitignored, hoặc
  */
 ```
 
-File **proprietary** (gitignored vertical plugins) dùng header riêng — xem
-[docs/roadmaps/PHASE-0.98-IP-PROTECTION.md §4.2](docs/roadmaps/PHASE-0.98-IP-PROTECTION.md).
+File **proprietary** (vertical plugin không công bố) dùng header riêng theo tài liệu IP nội bộ của maintainer; contributor bên ngoài luôn dùng header GPL ở trên.
 
 ---
 

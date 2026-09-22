@@ -39,8 +39,11 @@ if ( (string) $options['host'] === '' || preg_match( '/[^A-Za-z0-9.:-]/', (strin
 if ( (int) $options['blog'] <= 0 || (int) $options['user'] <= 0 ) {
 	$fail( 'Refusing readiness report: pass positive --blog and --user IDs.' );
 }
-$tables = array_values( array_filter( array_map( 'sanitize_key', explode( ',', (string) $options['tables'] ) ) ) );
-if ( empty( $tables ) ) {
+// [2026-09-19 Johnny Chu - Chu Hoàng Anh] HOTFIX — cheap pre-WordPress check only; sanitize_key() is a WP core
+// function and is not defined yet here. Calling it before wp-load.php fatals on PHP 8 and, on PHP 7.4, raises a
+// warning and silently returns NULL through array_map()/array_filter(), so $tables always ended up empty and this
+// tool never produced a report for any --tables value. The real sanitize_key()-based parse now runs after wp-load.php.
+if ( trim( (string) $options['tables'] ) === '' ) {
 	$fail( 'Refusing readiness report: pass --tables=suffix1,suffix2.' );
 }
 $wp_root = (string) $options['wp-root'];
@@ -59,6 +62,12 @@ if ( function_exists( 'wp_set_current_user' ) ) {
 }
 if ( ! function_exists( 'current_user_can' ) || ! current_user_can( 'manage_options' ) ) {
 	$fail( 'Refusing readiness report: --user is not a tenant administrator.', 3 );
+}
+
+// [2026-09-19 Johnny Chu - Chu Hoàng Anh] HOTFIX — sanitize_key() requires WordPress; parse --tables here, now that wp-load.php has run.
+$tables = array_values( array_filter( array_map( 'sanitize_key', explode( ',', (string) $options['tables'] ) ) ) );
+if ( empty( $tables ) ) {
+	$fail( 'Refusing readiness report: pass --tables=suffix1,suffix2.' );
 }
 
 $plugin_root = dirname( __DIR__ );

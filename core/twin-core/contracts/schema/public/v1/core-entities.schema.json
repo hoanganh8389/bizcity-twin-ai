@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/core-entities.schema.json",
+  "title": "BizCity Twin Core Entities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "entities"],
+  "properties": {
+    "contract": { "const": "core-entities" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "entities": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label", "canonical_store"],
+        "properties": {
+          "key": {
+            "enum": ["person", "organization", "conversation", "work", "request", "flow", "document", "appointment", "approval", "context"]
+          },
+          "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "canonical_store": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "identity_key": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "plugin_extensible": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

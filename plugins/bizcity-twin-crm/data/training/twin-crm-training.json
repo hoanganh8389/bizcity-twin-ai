@@ -1,0 +1,66 @@
+{
+  "template_id": "twin-crm-training",
+  "template_version": "1.0.0",
+  "notebook": {
+    "title": "Hướng dẫn dùng Twin CRM",
+    "description": "Sổ tay cho nhân viên: Inbox, giai đoạn khách, việc được giao, kết nối Zalo, tạo đơn nhanh.",
+    "scope": "business_kb",
+    "tags": ["training", "twin-crm"]
+  },
+  "documents": [
+    {
+      "doc_id": "inbox-basics",
+      "title": "Inbox: đọc và trả lời khách",
+      "topics": ["inbox"],
+      "content_md": "## Inbox là gì\n\nInbox gom hội thoại từ mọi kênh (Facebook, Zalo OA, Zalo Cá nhân, WebChat, Email…) về một danh sách duy nhất để nhân viên trả lời.\n\n## Việc thường làm\n\n- **Mở một hội thoại**: bấm vào tên khách trong danh sách bên trái để xem toàn bộ lịch sử tin nhắn.\n- **Trả lời khách**: gõ nội dung ở khung soạn tin phía dưới rồi gửi; có thể **dán ảnh trực tiếp bằng Ctrl+V** thay vì phải tải file lên trước.\n- **Ghi chú nội bộ**: dùng khung ghi chú riêng để trao đổi với đồng nghiệp về khách này — khách **không** nhìn thấy ghi chú nội bộ.\n- **Gửi lại tin bị lỗi**: nếu một tin nhắn gửi thất bại (mất mạng, kênh tạm ngắt), sẽ có nút gửi lại ngay trên chính tin đó.\n- **Lọc hội thoại**: theo kênh, trạng thái (chưa đọc / đang xử lý / đã xong) hoặc theo nhân viên phụ trách.\n\n## Mẹo\n\n- Ưu tiên trả lời hội thoại đã đợi lâu nhất trước.\n- Khi chuyển giao khách cho đồng nghiệp khác, hãy để lại ghi chú nội bộ tóm tắt tình trạng để người sau không phải hỏi lại khách."
+    },
+    {
+      "doc_id": "inbox-pipeline-bar",
+      "title": "Thanh giai đoạn khách trong Inbox",
+      "topics": ["inbox", "pipeline"],
+      "content_md": "## Thanh giai đoạn khách\n\nNgay trong màn hình hội thoại của Inbox có một thanh hiển thị **giai đoạn hiện tại** của khách trong hành trình mua hàng (ví dụ: Mới, Đang tư vấn, Đã báo giá, Đã chốt…).\n\n## Vì sao có thanh này\n\nThay vì phải mở một màn hình Kanban/pipeline riêng, nhân viên **cập nhật giai đoạn khách ngay tại chỗ đang trả lời tin nhắn** — không mất công chuyển qua lại nhiều màn hình.\n\n## Cách dùng\n\n1. Mở hội thoại của khách.\n2. Nhìn thanh giai đoạn ở đầu khung chat — giai đoạn hiện tại được tô đậm.\n3. Bấm vào bước tiếp theo (hoặc bước phù hợp) để **chuyển khách sang giai đoạn đó**.\n4. Nếu giai đoạn yêu cầu ghi kết quả (ví dụ báo giá bao nhiêu, hẹn ngày nào), điền vào ô xuất hiện rồi xác nhận.\n\n## Lưu ý\n\n- Cập nhật giai đoạn giúp cấp quản lý thấy được khách nào đang kẹt ở đâu trong hành trình mà không cần hỏi trực tiếp nhân viên.\n- Khách không phản hồi lâu ngày nên được chuyển sang giai đoạn phù hợp (ví dụ \"Ngủ đông\") thay vì để treo ở giữa chừng."
+    },
+    {
+      "doc_id": "zalo-personal-connect",
+      "title": "Kết nối Zalo Cá nhân bằng QR",
+      "topics": ["zalo", "ket-noi"],
+      "content_md": "## Zalo Cá nhân dùng để làm gì\n\nKết nối Zalo Cá nhân cho phép hệ thống nhận và gửi tin nhắn thay bạn qua đúng tài khoản Zalo cá nhân bạn đang dùng để chăm sóc khách.\n\n## Cách kết nối lần đầu\n\n1. Vào màn hình **Kết nối kênh** trong CRM, chọn **Zalo Cá nhân**.\n2. Hệ thống hiện một **mã QR**.\n3. Mở app Zalo trên điện thoại → **Quét mã QR** (thường ở mục thêm bạn/đăng nhập thiết bị) → xác nhận đăng nhập trên điện thoại.\n4. Chờ vài giây, trạng thái chuyển sang **Đã kết nối** là xong.\n\n## Khi phiên đăng nhập hết hạn\n\n- Zalo có thể tự đăng xuất phiên sau một thời gian hoặc khi bạn đăng nhập Zalo ở thiết bị khác.\n- Khi thấy trạng thái **Mất kết nối / Cần quét lại**, chỉ cần quay lại màn hình kết nối và **quét QR lại** — không mất dữ liệu hội thoại cũ.\n\n## Chuyển sang số điện thoại khác\n\n- Nếu đổi số Zalo phụ trách, cần **ngắt kết nối tài khoản cũ** trước rồi kết nối tài khoản mới bằng QR của số mới.\n- Mỗi số điện thoại Zalo Cá nhân chỉ nên gắn với **một** tài khoản Zalo Cá nhân trong hệ thống tại một thời điểm."
+    },
+    {
+      "doc_id": "zalo-bot-link",
+      "title": "Liên kết Zalo Bot để nhận thông báo việc",
+      "topics": ["zalo", "thong-bao"],
+      "content_md": "## Zalo Bot khác Zalo Cá nhân như thế nào\n\n- **Zalo Cá nhân**: dùng để chăm sóc khách hàng (Inbox).\n- **Zalo Bot**: dùng để **hệ thống nhắn cho chính bạn** — ví dụ báo có việc mới được giao, nhắc việc sắp tới hạn.\n\n## Cách liên kết tài khoản Zalo của bạn với Zalo Bot\n\n1. Vào **Việc của tôi** hoặc **Kênh của tôi** trong khu vực trợ lý `/gpt/`.\n2. Chọn **Liên kết Zalo Bot**, hệ thống gửi một đường link (hoặc mã) một lần.\n3. Mở link/quét mã bằng đúng tài khoản Zalo cá nhân của bạn để xác nhận liên kết.\n4. Sau khi liên kết xong, khi được giao việc mới bạn sẽ nhận một tin ngắn qua Zalo Bot: số lượng việc, người giao, hạn và đường dẫn vào xem việc.\n\n## Lưu ý\n\n- Tin nhắn Zalo Bot chỉ chứa thông tin công việc nội bộ (không tên khách, không số điện thoại khách, không nội dung nhạy cảm).\n- Nếu không muốn nhận thông báo qua Zalo Bot, có thể huỷ liên kết bất cứ lúc nào mà không ảnh hưởng tới việc dùng Inbox."
+    },
+    {
+      "doc_id": "my-tasks",
+      "title": "Việc của tôi: Bảng việc · Hôm nay · Thống kê",
+      "topics": ["viec", "task"],
+      "content_md": "## Ba khu vực chính\n\n- **Bảng việc**: toàn bộ việc được giao cho bạn, xếp theo trạng thái (Chưa nhận, Đang làm, Đã xong, Trả lại).\n- **Hôm nay**: chỉ hiện việc cần xử lý trong ngày hoặc đã quá hạn — dùng để biết nên làm gì trước.\n- **Thống kê**: số việc đã hoàn thành, thời gian trung bình xử lý, so với kỳ trước.\n\n## Vòng đời một việc\n\n1. **Nhận việc** — xác nhận bạn sẽ làm việc này (chuyển từ \"Chưa nhận\" sang \"Đang làm\").\n2. **Bắt đầu** — đánh dấu đang xử lý nếu hệ thống có bước riêng cho việc này.\n3. **Hoàn thành** — đóng việc, có thể ghi chú kết quả.\n4. **Trả lại** — nếu việc này không phù hợp với bạn hoặc cần người khác xử lý, trả lại kèm lý do để người giao việc biết và giao lại.\n\n## Mẹo\n\n- Luôn xử lý việc ở tab **Hôm nay** trước để không bị trễ hạn.\n- Ghi chú rõ khi hoàn thành hoặc trả lại việc — người giao việc và đồng nghiệp sau này sẽ đọc lại ghi chú đó."
+    },
+    {
+      "doc_id": "customer-stages",
+      "title": "8 giai đoạn khách và ý nghĩa",
+      "topics": ["pipeline", "giai-doan"],
+      "content_md": "## 8 giai đoạn hành trình khách\n\n1. **Mới** — khách vừa nhắn tin lần đầu, chưa ai tiếp cận.\n2. **Đang tư vấn** — nhân viên đang trao đổi tìm hiểu nhu cầu.\n3. **Đã báo giá** — đã gửi báo giá/đề xuất cho khách.\n4. **Đang chờ khách quyết định** — khách đã nhận báo giá nhưng chưa trả lời.\n5. **Đã chốt** — khách đồng ý mua, chuẩn bị lên đơn.\n6. **Đã giao/hoàn tất** — đơn hàng hoặc dịch vụ đã hoàn tất.\n7. **Ngủ đông** — khách không phản hồi trong thời gian dài, tạm gác lại nhưng vẫn có thể chăm sóc lại sau.\n8. **Thua** — khách đã từ chối rõ ràng hoặc chuyển sang đối thủ.\n\n## Khi nào chuyển sang \"Thua\" hoặc \"Ngủ đông\"\n\n- Chuyển **Thua** khi khách nói rõ không mua hoặc đã chọn nơi khác — ghi lại lý do nếu biết, để sau này phân tích.\n- Chuyển **Ngủ đông** khi khách im lặng quá lâu dù đã nhắc lại — không xoá khách, chỉ tạm gác để không làm phiền, và có thể dùng kịch bản chăm khách để \"đánh thức\" lại sau này.\n\n## Vì sao cần cập nhật đúng giai đoạn\n\nGiai đoạn khách là dữ liệu để cấp quản lý biết đội đang mạnh ở khâu nào, yếu ở khâu nào (ví dụ: nhiều khách kẹt ở \"Đã báo giá\" nghĩa là cần cải thiện khâu chốt đơn)."
+    },
+    {
+      "doc_id": "playbooks",
+      "title": "8 kịch bản chăm khách",
+      "topics": ["playbook", "cham-soc"],
+      "content_md": "## 8 kịch bản (playbook) chăm khách có sẵn\n\n- **new_24h** — chào và tiếp cận khách mới trong 24 giờ đầu, thời điểm khách còn quan tâm nhất.\n- **quote_followup** — nhắc lại sau khi đã gửi báo giá mà khách chưa phản hồi.\n- **nudge** — nhắc nhẹ khách đang im lặng giữa chừng, chưa tới mức phải chuyển \"Ngủ đông\".\n- **no_next** — khách chưa có bước tiếp theo rõ ràng, gợi ý hành động kế tiếp phù hợp.\n- **aftercare** — chăm sóc sau khi đã giao/hoàn tất, hỏi thăm trải nghiệm.\n- **retouch** — chạm lại khách đã \"Ngủ đông\" một thời gian, thử đánh thức quan tâm.\n- **rebuy** — gợi ý mua lại/gia hạn cho khách cũ đã từng mua.\n- **stuck** — khách bị kẹt lâu ở một giai đoạn, cần một cách tiếp cận khác để đẩy tiếp.\n\n## Cách dùng\n\nTrong hội thoại của khách, chọn kịch bản phù hợp với tình trạng hiện tại — hệ thống gợi ý nội dung/nhắc việc theo đúng kịch bản đó, nhân viên xem lại rồi gửi hoặc chỉnh sửa trước khi gửi cho khách.\n\n## Lưu ý\n\nKịch bản là gợi ý, không tự động gửi thay bạn — luôn đọc lại nội dung trước khi gửi để đảm bảo phù hợp với đúng khách đang chăm."
+    },
+    {
+      "doc_id": "orders-quick",
+      "title": "Tạo đơn nhanh từ hội thoại, gửi recap / QR thanh toán",
+      "topics": ["don-hang", "thanh-toan"],
+      "content_md": "## Tạo đơn ngay trong hội thoại\n\nKhi khách đã đồng ý mua, không cần rời khỏi Inbox để tạo đơn ở màn hình khác — có thể **tạo đơn nhanh ngay trong hội thoại** đang chat với khách.\n\n## Các bước thường gặp\n\n1. Trong hội thoại, chọn chức năng **Tạo đơn** (thường ở thanh công cụ của khung chat).\n2. Chọn sản phẩm/dịch vụ, số lượng, giá — hệ thống có thể tự điền theo báo giá đã gửi trước đó.\n3. Xác nhận tạo đơn.\n4. Gửi **recap đơn hàng** cho khách để khách xem lại đã đúng chưa (tên hàng, số lượng, tổng tiền).\n5. Nếu cần thanh toán trước, gửi **mã QR thanh toán** kèm recap để khách chuyển khoản ngay trong hội thoại.\n\n## Mẹo\n\n- Luôn gửi recap trước khi yêu cầu khách thanh toán để tránh nhầm lẫn số tiền hoặc sản phẩm.\n- Sau khi khách xác nhận đã thanh toán, cập nhật trạng thái đơn để bộ phận xử lý đơn tiếp theo (đóng gói/giao hàng) biết đơn đã sẵn sàng."
+    },
+    {
+      "doc_id": "faq",
+      "title": "Câu hỏi thường gặp của nhân viên mới",
+      "topics": ["faq"],
+      "content_md": "## Tôi nên bắt đầu từ đâu?\n\nBắt đầu ở **Inbox** — đây là nơi bạn dành nhiều thời gian nhất mỗi ngày. Sau đó tìm hiểu **Việc của tôi** để biết những việc được giao ngoài Inbox.\n\n## Tôi không thấy hội thoại của một khách quen thuộc, phải làm sao?\n\nKiểm tra bộ lọc đang áp dụng (kênh, trạng thái, nhân viên phụ trách) — hội thoại có thể đang bị lọc ẩn đi chứ không mất dữ liệu.\n\n## Tôi trả lời nhầm hoặc gửi nhầm nội dung cho khách thì sao?\n\nGửi ngay một tin nhắn đính chính cho khách, đồng thời ghi chú nội bộ để đồng nghiệp biết tình huống nếu người khác tiếp tục hội thoại này.\n\n## Tôi được giao một việc nhưng không phải chuyên môn của mình?\n\nDùng chức năng **Trả lại việc** kèm lý do ngắn gọn, người giao việc sẽ giao lại cho người phù hợp hơn.\n\n## Tôi cần hỏi thêm về cách dùng hệ thống thì hỏi ai?\n\nCó thể hỏi trực tiếp trợ lý ở `/gpt/` — trợ lý được huấn luyện từ chính bộ tài liệu này và sẽ trích tên tài liệu khi trả lời để bạn kiểm tra lại chi tiết đầy đủ."
+    }
+  ]
+}

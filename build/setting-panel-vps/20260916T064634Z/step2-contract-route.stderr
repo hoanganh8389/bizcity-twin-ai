@@ -1,0 +1,59 @@
+Running 6 probe(s)…
+
+[PASS         ] core.loader.trace_completeness                         0ms · Loader schema v2 is structurally complete for the captured phases; unknown causal parents are explicit.
+  ↳ [PASS] Runtime · loader schema v2 and request context · {"phases":2,"invalid_schema":0,"missing_context":0}
+  ↳ [PASS] Runtime · callback provenance and file anchors · {"callback_rows":600,"callback_locations":582,"file_anchor_phases":1,"parent_status_errors":0}
+  ↳ [PASS] Runtime · registration delta is present · {"phases":2,"registration_rows":2}
+  ↳ [PASS] Runtime · canonical boot ownership is observe-only · {"boot_state_rows":8,"boot_observe_only":2,"invalid_records":0,"conflicts":0}
+[PASS         ] core.framework.plugin_sdk                              3ms · Twin Plugin SDK registration boundary passed.
+  ↳ [PASS] Disk — SDK registry artifacts exist · core/twin-core/contracts/class-twin-plugin-sdk.php, core/twin-core/event-stream/class-twin-event-registry.php, core/twin-core/includes/class-twin-content-registry.php, core/twin-core/includes/class-twin-tool-registry.php
+  ↳ [PASS] Loader — SDK facade and registries loaded · BizCity_Twin_Plugin_SDK, BizCity_Event_Registry, BizCity_Twin_Content_Registry, BizCity_Twin_Tool_Registry, BizCity_Typed_Tool_Adapter
+  ↳ [PASS] Runtime — seven SDK registration verbs are exposed · register_plugin, register_tool, register_skill, register_source, register_event, register_diagnostic, register_ui
+  ↳ [PASS] Runtime — event registry accepts canonical and rejects unknown types · tool_call accepted; sdk_probe_unknown rejected.
+  ↳ [PASS] Runtime — built-in memory/ingest tools implement typed contract · memory_remember, memory_forget, memory_recall, ingest_document
+[FAIL         ] core.framework.extension_manifest                     33ms · Extension manifest contract has validation failures.
+  ↳ [PASS] Disk - public catalog, schemas and fixtures are readable JSON · Catalog 1.8.0 and every referenced contract artifact are readable.
+  ↳ [PASS] Loader - extension manifest probe contract is loaded · Probe interface and named probe class are loaded.
+  ↳ [PASS] Runtime - N-1 optional fields and future channel policy matrix · N-1 manifest remains valid on the current contract and Slack/TikTok/Shopee policies keep identity, zone and commerce boundaries.
+  ↳ [PASS] Runtime - user-centric Inbox branches and Personal owner isolation · Customer and admin branches remain separate; Personal is owner-only and raw phone/membership negative fixture is present.
+  ↳ [PASS] Loader - user Inbox resolver and admin-branch producer · CRM scope resolver and Zalo Bot admin-branch producer are registered.
+  ↳ [FAIL] Runtime - valid manifest and fail-closed negative matrix · Manifest semantic policy or negative fixture expectation failed.
+[PASS         ] core.framework.manifest_registry                       1ms · Framework manifest registry passed.
+  ↳ [PASS] Disk - manifest registry, SDK and valid fixture are readable · Registry classes, extension-manifest JSON and public-SDK sample fixture are available.
+  ↳ [PASS] Loader - bounded SDK and registry API are loaded · BizCity_Framework_SDK::register() and registry catalog APIs are available.
+  ↳ [PASS] Loader - sample extension uses the public SDK artifact boundary · Named sample extension loaded without provider, database or internal runtime dependencies.
+  ↳ [PASS] Runtime - register returns exactly five bounded services · contracts, channels, context, brain, actions
+  ↳ [PASS] Runtime - five service handles expose contract-only descriptors · Each bounded service has a public descriptor and no storage, path or credential field.
+  ↳ [PASS] Runtime - exact manifest derives channel policy descriptors · Zone, CRM, Brain, surface and operational log policy came from the registered manifest.
+  ↳ [PASS] Runtime - identical manifest registration is idempotent · One extension remains registered after identical replay.
+  ↳ [PASS] Runtime - sample extension registers without a core allowlist edit · The sample channel manifest was discovered and registered through the public SDK only.
+  ↳ [PASS] Runtime - extension/channel/capability conflicts fail closed · Different extension ownership, channel collision and unsupported capability were rejected.
+[FAIL         ] core.framework.package_adoption                      135ms · Phase 1.24 package adoption contract has pending failures.
+  ↳ [PASS] Disk — PageBuilder adoption files exist · Framework-facing PageBuilder files are readable.
+  ↳ [SKIP] Disk — PageBuilder development transport source · Development source is absent; built PageBuilder dist is authoritative: plugins/bizcity-pagebuilder/app/src/api.ts
+  ↳ [FAIL] Disk — PageBuilder boundary markers and optional Video provider quarantine · {"pagebuilder_error_boundary":true,"pagebuilder_mutation_transport":false,"video_provider_quarantine":"skip_optional_absent"}
+  ↳ [PASS] Loader — PageBuilder boundary, mutation, and optional video client classes loaded · Required classes and methods are loaded.
+  ↳ [PASS] Runtime — PageBuilder mutation allow/deny and error contract · {"error_contract":true,"mutation_allowed":true,"mutation_denied_before_side_effect":true,"rest_error_boundary":true,"mutation_error_mapping":true,"missing_upload_envelope":true,"invalid_mime_envelope":true,"attachment_failure_envelope":true,"mutation_store_replay_conflict":true}
+  ↳ [SKIP] Runtime — optional Video client mock submit/poll · Video Kling is not deployed; optional feature probe skipped.
+[PASS         ] core.twinshell.boundary                             2616ms · TwinShell boundary stack PASS: disk+loader+runtime contract ổn định.
+  ↳ [PASS] Layer 1 · Disk · bootstrap.php · exists + no BOM + markers ok
+  ↳ [PASS] Layer 1 · Disk · class-twin-shell-page.php · exists + no BOM + markers ok
+  ↳ [PASS] Layer 1 · Disk · class-twin-shell-registry.php · exists + no BOM + markers ok
+  ↳ [PASS] Layer 1 · Disk · class-twin-shell-rest.php · exists + no BOM + markers ok
+  ↳ [PASS] Layer 1 · Disk · class-twin-shell-bridge.php · exists + no BOM + markers ok
+  ↳ [PASS] Layer 2 · Loader · TwinShell classes · all core classes loaded
+  ↳ [PASS] Layer 2 · Hook · template_redirect::maybe_render · priority=10
+  ↳ [PASS] Layer 2 · Hook · rest_api_init::register_routes · priority=10
+  ↳ [PASS] Layer 2 · Hook · wp_enqueue_scripts::bridge · priority=5
+  ↳ [PASS] Layer 3 · REST · /bizcity-twinchat/v1/shell/plugins · methods=GET
+  ↳ [PASS] Layer 3 · REST · /bizcity-twinchat/v1/shell/self · methods=GET · perm_cb=permission_logged_in
+  ↳ [PASS] Layer 3 · Registry payload schema · plugins=18 · required keys present
+  ↳ [PASS] Layer 3 · Registry Pro badge/package contract · Astro/Doc/Image/Video entries expose PRO badge and package owner.
+  ↳ [PASS] Layer 3 · iframe URL guard param · default=twinchat · bizcity_iframe=1 present
+  ↳ [PASS] Layer 3 · /shell/self current-user scope · user.id=317
+
+Result: 4 pass · 2 fail · 0 skip · total 2860ms
+Failed probes:
+ - core.framework.extension_manifest: Extension manifest contract has validation failures.
+ - core.framework.package_adoption: Phase 1.24 package adoption contract has pending failures.
+JUnit XML written to /home/vibeyeuc/huongnguyen.vibeyeu.com.vn/wp-content/plugins/bizcity-twin-ai/build/setting-panel-vps/20260916T064634Z/step2-contract-route.xml

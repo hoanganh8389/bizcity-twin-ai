@@ -1,3 +1,4 @@
+// Enforce legacy table lifecycle gates across the policy class, uninstall matrix and active callers.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -76,10 +77,32 @@ if (groupBFindings.length) {
   process.exit(1);
 }
 
+// PHASE-1.30-FAIL-CLOSED — installers build table names from variables, so the literal
+// CREATE TABLE scan below cannot see them. Reject install guards that still create the
+// legacy table when BizCity_Legacy_Table_Policy is not loaded (fail-open).
+const policyClass = String.raw`class_exists\(\s*['"]BizCity_Legacy_Table_Policy['"]\s*\)`;
+const failOpenInstallGuards = [
+  // if ( ! class_exists( Policy ) || ! Policy::install_blocked( $t ) ) { dbDelta(...) }
+  new RegExp(String.raw`!\s*${policyClass}\s*\|\|\s*!\s*BizCity_Legacy_Table_Policy::install_blocked`),
+  // if ( class_exists( Policy ) && Policy::install_blocked( $t ) ) { return; }  → installs when the class is missing
+  new RegExp(String.raw`(?<!!\s*)${policyClass}\s*&&\s*BizCity_Legacy_Table_Policy::install_blocked\s*\(`),
+];
+// Active-quarantine owners whose table must stay installable (not retired); reviewed individually.
+const failOpenAllowlist = new Set([
+  'core/knowledge/kg-hub/includes/class-kg-cost-guard.php', // bizcity_kg_usage_log is ACTIVE-QUARANTINE (billing ledger)
+  'core/runtime/class-schema-registry.php', // status reporter only (labels retired rows); runs no DDL
+]);
+
 const findings = [];
 for (const file of walk(root)) {
   const relative = path.relative(root, file).replaceAll(path.sep, '/');
   const code = withoutPhpComments(read(file));
+  if (!failOpenAllowlist.has(relative)
+    && !relative.startsWith('core/diagnostics/')
+    && !relative.startsWith('tests/')
+    && failOpenInstallGuards.some((pattern) => pattern.test(code))) {
+    findings.push(`${relative}: fail-open legacy install guard (must skip install when BizCity_Legacy_Table_Policy is missing)`);
+  }
   for (const table of retired) {
     const tablePattern = new RegExp(`\\b${table}\\b`, 'i');
     if (!tablePattern.test(code)) continue;
@@ -117,5 +140,5 @@ if (findings.length) {
   process.exit(1);
 }
 
-console.log(`LEGACY TABLE LIFECYCLE PASS (${retired.length} retired tables; no direct install statements; gated uninstall present)`);
+console.log(`LEGACY TABLE LIFECYCLE PASS (${retired.length} retired tables; no direct install statements; no fail-open install guards; gated uninstall present)`);
 console.log(`GROUP B EXIT-RETURN PASS (${groupB.length} dead tables; policy/catalog covered; no active SQL path)`);

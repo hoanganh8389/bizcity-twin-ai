@@ -996,7 +996,8 @@ function bizgpt_process_unified_message( array $ctx ): void {
             return;
 
         case 'audio':
-            $api_gg_key  = get_option( 'bizcity_google_speech_api_key', 'AIzaSyAgnuicZKh3wZjqpj--w0T_Nrqi-5_X-gQ' );
+            // [2026-09-18 08:15 AM Johnny Chu - Chu Hoàng Anh] HOTFIX — remove leaked Google Speech key from source; configure the option instead.
+            $api_gg_key  = (string) get_option( 'bizcity_google_speech_api_key', '' );
             $transcript  = twf_get_transcript_from_voice_url_google( $attachment_url, $api_gg_key );
             if ( ! empty( $transcript ) ) {
                 $message_text = $transcript;
@@ -1437,7 +1438,7 @@ function convert_aac_to_wav_local($input_file) {
 }
 
 function twf_google_speech_to_text($file_path,$api_key, $language_code = 'vi-VN') {
-	#apikey = AIzaSyAgnuicZKh3wZjqpj--w0T_Nrqi-5_X-gQ
+	// [2026-09-18 08:15 AM Johnny Chu - Chu Hoàng Anh] HOTFIX — leaked key removed; key comes from option bizcity_google_speech_api_key.
     if (!file_exists($file_path)) return false;
 
     $audio_content = base64_encode(file_get_contents($file_path));

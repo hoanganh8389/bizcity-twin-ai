@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Validate the plugin contract registry: ids, kinds, roles, stages and adoption metadata.
 import fs from 'node:fs';
 import path from 'node:path';
 
