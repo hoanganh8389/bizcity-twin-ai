@@ -374,7 +374,10 @@ class BizCity_CF7_REST {
 	// ── Permission ────────────────────────────────────────────────────────
 
 	public static function admin_only(): bool {
-		return current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	/**

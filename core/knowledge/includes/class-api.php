@@ -87,7 +87,8 @@ class BizCity_Knowledge_API {
             return false;
         }
         
-        return current_user_can('manage_options') || !empty($api_key);
+        // [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was 403'd here.
+        return ( class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can('manage_options') ) || !empty($api_key);
     }
     
     /**

@@ -35,15 +35,22 @@ class BizCity_CF7_BigLead {
 	 */
 	public static function register_admin_page(): void {
 		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — register submenu when admin menus load.
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( ! $can_manage ) {
 			return;
 		}
 
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_submenu_page(
 			'bizchat-gateway',
 			'BigLead · CF7',
 			'BigLead · CF7',
-			'manage_options',
+			$capability,
 			'bizcity-cf7-biglead',
 			array( __CLASS__, 'render_admin_page' )
 		);
@@ -54,7 +61,11 @@ class BizCity_CF7_BigLead {
 	 */
 	public static function render_admin_page(): void {
 		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — render global and per-form settings.
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( ! $can_manage ) {
 			wp_die( esc_html__( 'Bạn không có quyền truy cập trang này.', 'bizcity-twin-ai' ) );
 		}
 
@@ -131,7 +142,11 @@ class BizCity_CF7_BigLead {
 	 */
 	public static function handle_admin_save(): void {
 		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — persist sanitized settings.
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( ! $can_manage ) {
 			wp_die( esc_html__( 'Bạn không có quyền thực hiện thao tác này.', 'bizcity-twin-ai' ) );
 		}
 		check_admin_referer( 'bizcity_cf7_biglead_save' );

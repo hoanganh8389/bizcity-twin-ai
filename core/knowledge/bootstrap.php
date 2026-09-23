@@ -247,7 +247,18 @@ class BizCity_Knowledge {
         }
         return self::$instance;
     }
-    
+
+    /**
+     * [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — same fix as
+     * BizCity_Knowledge_Admin_Menu::can_manage() (class-admin-menu.php), applied here for this
+     * class's own ajax_* handlers (see docs/audits/FRAMEWORK-CONTRACT-AUDIT-2026-07-30.md).
+     */
+    private static function can_manage(): bool {
+        return class_exists( 'BizCity_Network_Admin_Capability' )
+            ? BizCity_Network_Admin_Capability::can_manage()
+            : current_user_can( 'manage_options' );
+    }
+
     public function __construct() {
         $this->init_hooks();
     }
@@ -456,7 +467,7 @@ class BizCity_Knowledge {
     public function ajax_import_url() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -484,7 +495,7 @@ class BizCity_Knowledge {
     public function ajax_process_file() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -511,7 +522,7 @@ class BizCity_Knowledge {
     public function ajax_sync_fanpage() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         

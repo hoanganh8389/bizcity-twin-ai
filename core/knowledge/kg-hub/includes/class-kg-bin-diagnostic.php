@@ -97,7 +97,8 @@ class BizCity_KG_Bin_Diagnostic {
 	}
 
 	public function render_page() {
-		if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Forbidden' ); }
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was blocked here.
+		if ( ! ( class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' ) ) ) { wp_die( 'Forbidden' ); }
 
 		$notebook_id = isset( $_GET['notebook'] ) ? max( 0, (int) $_GET['notebook'] ) : 0;
 		$action      = isset( $_POST['bizcity_action'] ) ? sanitize_key( $_POST['bizcity_action'] ) : '';

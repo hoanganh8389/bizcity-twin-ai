@@ -226,22 +226,35 @@ class BizCity_Gateway_Bridge {
 		}
 
 		// Resolve blog: chat_id → blog_id (multisite)
+		// [2026-09-23 Claude] R-MSDB — this switch_to_blog() had no matching restore_current_blog(),
+		// so any request that reached this path (webhook, but also an inline/test dispatch from an
+		// admin request) permanently left the process pinned to the resolved blog. Every later
+		// current_user_can()/menu check in that same request then evaluated against the WRONG site's
+		// capabilities table for the rest of the request.
+		$_bizcity_switched_blog_id = 0;
 		if ( is_multisite() && class_exists( 'BizCity_Blog_Resolver' ) ) {
 			$payload['blog_id'] = BizCity_Blog_Resolver::instance()->resolve( $payload['chat_id'] ?? '', $payload );
 			if ( $payload['blog_id'] && $payload['blog_id'] !== get_current_blog_id() ) {
 				switch_to_blog( $payload['blog_id'] );
+				$_bizcity_switched_blog_id = (int) $payload['blog_id'];
 			}
 		}
 
-		/**
-		 * Fires after an inbound channel message is received and normalized.
-		 *
-		 * @param array $payload Standard normalized payload.
-		 */
-		do_action( 'bizcity_channel_message_received', $payload );
+		try {
+			/**
+			 * Fires after an inbound channel message is received and normalized.
+			 *
+			 * @param array $payload Standard normalized payload.
+			 */
+			do_action( 'bizcity_channel_message_received', $payload );
 
-		// Fire gateway trigger → Intent Engine / Chat Gateway
-		$this->fire_trigger( $payload, $raw_data );
+			// Fire gateway trigger → Intent Engine / Chat Gateway
+			$this->fire_trigger( $payload, $raw_data );
+		} finally {
+			if ( $_bizcity_switched_blog_id ) {
+				restore_current_blog();
+			}
+		}
 
 		return $payload;
 	}

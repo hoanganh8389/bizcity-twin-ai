@@ -34,11 +34,15 @@ class BizCity_KG_Admin_Menu {
 	public function register() {
 		// Phase G (2026-05-19) — moved from top-level menu to submenu of Twin Chat.
 		// Slug `bizcity-kg-hub` is preserved → all deep-links continue to work.
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role couldn't see this menu item.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		$root_hook = add_submenu_page(
 			'bizcity-twinchat',
 			__( 'Knowledge Graph', 'bizcity-knowledge' ),
 			__( 'Knowledge Graph', 'bizcity-knowledge' ),
-			'manage_options',
+			$capability,
 			self::PAGE_SLUG,
 			[ $this, 'render_page' ]
 		);

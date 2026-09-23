@@ -25,7 +25,19 @@ class BizCity_Knowledge_Admin_Menu {
         }
         return self::$instance;
     }
-    
+
+    /**
+     * [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — every ajax_* handler
+     * below independently re-checked bare current_user_can('manage_options'), which wrongly
+     * denies a Network Super Admin with no local administrator row on the mapped blog. One
+     * shared helper instead of ~38 separate bare checks (see docs/audits/FRAMEWORK-CONTRACT-AUDIT-2026-07-30.md).
+     */
+    private static function can_manage(): bool {
+        return class_exists( 'BizCity_Network_Admin_Capability' )
+            ? BizCity_Network_Admin_Capability::can_manage()
+            : current_user_can( 'manage_options' );
+    }
+
     public function __construct() {
         // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
@@ -149,7 +161,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_update_database() {
         check_ajax_referer('bizcity_knowledge_update_db', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -2645,7 +2657,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_delete_memory() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ] );
         }
 
@@ -2681,7 +2693,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_promote_source() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( array( 'message' => 'Permission denied' ) );
         }
 
@@ -2720,7 +2732,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_tavily_search() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( array( 'message' => 'Permission denied' ) );
         }
 
@@ -2962,7 +2974,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_save_character() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -3281,7 +3293,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_delete_character() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
 
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
 
@@ -3305,7 +3317,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_quick_faq_upsert() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
 
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3373,7 +3385,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_quick_faq_delete() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
 
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3409,7 +3421,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_faq_upsert() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3456,7 +3468,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_faq_delete() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3483,7 +3495,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_memory_upsert() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3543,7 +3555,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_episodic_list() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3573,7 +3585,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_episodic_delete() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3618,7 +3630,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_rolling_list() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3648,7 +3660,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_rolling_delete() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3693,7 +3705,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_notes_list() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3720,7 +3732,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_notes_upsert() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3765,7 +3777,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_notes_delete() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3789,7 +3801,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_files_list() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3837,7 +3849,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_mh_files_delete() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
         }
 
@@ -3862,7 +3874,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_quick_update_status() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -3898,7 +3910,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_test_openrouter() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
 
@@ -3925,7 +3937,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_fetch_models() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
 
@@ -3977,7 +3989,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_chat() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -4374,7 +4386,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_upload_document() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -4478,7 +4490,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_delete_document() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -4513,7 +4525,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_reprocess_document() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -4572,7 +4584,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_list_sources() {
         check_ajax_referer( 'bizcity_knowledge', 'nonce' );
 
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if ( ! self::can_manage() ) {
             wp_send_json_error( [ 'message' => 'Permission denied' ] );
         }
 
@@ -4616,7 +4628,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_add_website() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -4767,7 +4779,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_process_website() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -4908,7 +4920,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_delete_website() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -4947,7 +4959,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_import_legacy_faq() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
         
@@ -5056,7 +5068,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_export_knowledge() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Unauthorized']);
         }
         
@@ -5152,7 +5164,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_import_knowledge() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Unauthorized']);
         }
         
@@ -5261,7 +5273,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_duplicate_character() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Unauthorized']);
         }
         
@@ -5401,7 +5413,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function ajax_check_slug() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
-        if (!current_user_can('manage_options')) {
+        if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Unauthorized']);
         }
         
@@ -5473,7 +5485,7 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function admin_post_character_notebook_attach() {
         $cid = isset( $_POST['character_id'] ) ? (int) $_POST['character_id'] : 0;
-        if ( ! $cid || ! current_user_can( 'manage_options' ) ) {
+        if ( ! $cid || ! self::can_manage() ) {
             wp_die( 'forbidden' );
         }
         check_admin_referer( 'bk_char_nb_' . $cid );
@@ -5498,7 +5510,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function admin_post_character_notebook_detach() {
         $cid = isset( $_POST['character_id'] ) ? (int) $_POST['character_id'] : 0;
         $nb  = isset( $_POST['notebook_id'] )  ? (int) $_POST['notebook_id']  : 0;
-        if ( ! $cid || ! $nb || ! current_user_can( 'manage_options' ) ) {
+        if ( ! $cid || ! $nb || ! self::can_manage() ) {
             wp_die( 'forbidden' );
         }
         check_admin_referer( 'bk_char_nb_' . $cid );

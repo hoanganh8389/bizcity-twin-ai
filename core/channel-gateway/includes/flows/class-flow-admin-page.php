@@ -25,12 +25,16 @@ final class BizCity_CG_Flow_Admin_Page {
 	}
 
 	public static function register_menu(): void {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — a Network Super Admin with no local blog role was getting this menu item silently hidden by the hardcoded capability string.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		// [2026-06-10 Johnny Chu] HOTFIX — Flows moved under TwinChat (bizcity-twinchat) per request.
 		add_submenu_page(
 			'bizcity-twinchat',
 			'CG · Flows (Kịch bản trả lời)',
 			'Flows (Kịch bản)',
-			'manage_options',
+			$capability,
 			self::MENU_SLUG,
 			array( __CLASS__, 'render' )
 		);
@@ -39,7 +43,7 @@ final class BizCity_CG_Flow_Admin_Page {
 			'',
 			'CG · Flows (legacy alias)',
 			'',
-			'manage_options',
+			$capability,
 			'bizgpt_flows',
 			array( __CLASS__, 'render' )
 		);
@@ -69,7 +73,11 @@ final class BizCity_CG_Flow_Admin_Page {
 	}
 
 	public static function render(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( ! $can_manage ) {
 			wp_die( 'Bạn không có quyền.' );
 		}
 		global $wpdb;

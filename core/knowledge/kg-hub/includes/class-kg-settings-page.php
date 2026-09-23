@@ -28,11 +28,15 @@ class BizCity_KG_Settings_Page {
 	}
 
 	public function register() {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role couldn't see this menu item.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_submenu_page(
 			BizCity_KG_Admin_Menu::PAGE_SLUG,
 			__( 'KG Settings & Cost', 'bizcity-knowledge' ),
 			__( 'Settings & Cost', 'bizcity-knowledge' ),
-			'manage_options',
+			$capability,
 			self::PAGE_SLUG,
 			[ $this, 'render' ]
 		);

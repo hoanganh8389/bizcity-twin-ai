@@ -113,7 +113,10 @@ class BizCity_Skill_REST_API {
 	 * ================================================================ */
 
 	public function check_admin(): bool {
-		return current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was 403'd here.
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	/* ================================================================

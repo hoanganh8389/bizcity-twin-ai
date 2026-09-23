@@ -139,8 +139,11 @@ class BizCity_Facebook_Page_OAuth_Bridge {
 			[
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'rest_start' ],
+				// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' );
+					return class_exists( 'BizCity_Network_Admin_Capability' )
+						? BizCity_Network_Admin_Capability::can_manage()
+						: current_user_can( 'manage_options' );
 				},
 				'args' => [
 					'account_uid' => [
@@ -157,8 +160,11 @@ class BizCity_Facebook_Page_OAuth_Bridge {
 			[
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'rest_result' ],
+				// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
 				'permission_callback' => function () {
-					return current_user_can( 'manage_options' );
+					return class_exists( 'BizCity_Network_Admin_Capability' )
+						? BizCity_Network_Admin_Capability::can_manage()
+						: current_user_can( 'manage_options' );
 				},
 			]
 		);

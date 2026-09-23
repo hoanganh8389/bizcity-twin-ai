@@ -301,7 +301,11 @@ class BizCity_Email_SMTP_REST {
 	 * @return bool|WP_Error
 	 */
 	public static function require_manage_options() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( ! $can_manage ) {
 			return new WP_Error(
 				'rest_forbidden',
 				'Bạn không có quyền truy cập.',

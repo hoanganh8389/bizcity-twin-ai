@@ -69,7 +69,10 @@ final class BizCity_Channel_Conversation_Archive {
 	/** Require an authenticated tenant administrator for archive maintenance. */
 	public static function rest_permission(): bool {
 		// [2026-08-22 Johnny Chu] R-ERROR-UX/R-TWEB-4 — archive maintenance is destructive/sensitive and remains admin-only until a CRM export policy exists.
-		return is_user_logged_in() && current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		return is_user_logged_in() && ( class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' ) );
 	}
 
 	/** Read common archive maintenance parameters without accepting a filesystem path. */

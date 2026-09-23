@@ -110,12 +110,16 @@ class BizCity_Channel_Menu_Registry {
 			return;
 		}
 		$key = $group . '/' . $slug;
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — a caller that never overrides 'capability' was defaulting to the hardcoded manage_options literal, silently hiding the subpage (and its add_submenu_page()/current_user_can() gates below, which read this same stored value) from Network Super Admins with no local blog role.
+		$default_capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		$this->subpages[ $key ] = [
 			'group'      => $group,
 			'slug'       => $slug,
 			'title'      => (string) ( $args['title'] ?? $slug ),
 			'icon'       => (string) ( $args['icon'] ?? '' ),
-			'capability' => (string) ( $args['capability'] ?? 'manage_options' ),
+			'capability' => (string) ( $args['capability'] ?? $default_capability ),
 			'callback'   => $args['callback'] ?? null,
 			'order'      => (int) ( $args['order'] ?? 50 ),
 		];
@@ -179,7 +183,11 @@ class BizCity_Channel_Menu_Registry {
 	 * Call this from BizCity_Gateway_Admin::render_overview() (or replace it).
 	 */
 	public function render(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( ! $can_manage ) {
 			wp_die( 'Forbidden' );
 		}
 

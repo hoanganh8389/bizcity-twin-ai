@@ -62,12 +62,19 @@ class BizCity_Listener_REST {
 	}
 
 	public static function can_admin( $request ): bool {
-		return current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	public static function can_read_feed( $request ): bool {
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — admin sees full listener; customers need workflow-scoped proof.
-		if ( current_user_can( 'manage_options' ) ) { return true; }
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( $can_manage ) { return true; }
 		if ( ! current_user_can( 'read' ) || ! ( $request instanceof WP_REST_Request ) ) { return false; }
 		return self::customer_workflow_listener_allowed( $request );
 	}

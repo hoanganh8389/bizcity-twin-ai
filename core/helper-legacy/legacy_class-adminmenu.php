@@ -26,10 +26,14 @@ class BizCity_AdminHook_AdminMenu {
 	}
 
 	public static function registerMenus() {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_menu_page(
 			'Biz-life',
 			'Bots - Zalo BizCity',
-			'manage_options',
+			$capability,
 			'bizlife_dashboard',
 			'zalo-video-guider',
 			'dashicons-format-status',
@@ -39,7 +43,7 @@ class BizCity_AdminHook_AdminMenu {
 			'bizlife_dashboard',
 			'Hướng dẫn ra lệnh qua zalo BizCity',
 			'Hướng dẫn ra lệnh qua zalo BizCity',
-			'manage_options',
+			$capability,
 			'zalo-video-guider',
 			'bizcity_guides_admin_page',
 			'0',
@@ -48,7 +52,7 @@ class BizCity_AdminHook_AdminMenu {
 			'bizlife_dashboard',
 			'Tài khoản quản trị qua Zalo BizCity',
 			'Tài khoản quản trị qua Zalo BizCity',
-			'manage_options',
+			$capability,
 			'zalo-users-admin',
 			'twf_zalo_users_admin_page'
 		);
@@ -56,7 +60,7 @@ class BizCity_AdminHook_AdminMenu {
 			'bizlife_dashboard',
 			'Hướng dẫn kết nối Zalo BizCity',
 			'Hướng dẫn kết nối Zalo BizCity',
-			'manage_options',
+			$capability,
 			'zalo-guider',
 			'twf_telegram_command_widget_content'
 		);

@@ -39,13 +39,17 @@ class BizCity_Webhook_Inspector {
 	public static function register_menu(): void {
 		global $admin_page_hooks;
 		$parent_crm = isset( $admin_page_hooks['bizcity-crm'] ) ? 'bizcity-crm' : '';
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — a Network Super Admin with no local blog role was getting this menu item silently hidden by the hardcoded capability string.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 
 		if ( $parent_crm ) {
 			add_submenu_page(
 				$parent_crm,
 				__( 'Webhook Inspector', 'bizcity' ),
 				__( 'BizCity Logs · Webhooks', 'bizcity' ),
-				'manage_options',
+				$capability,
 				self::SLUG,
 				array( __CLASS__, 'render_page' )
 			);
@@ -54,7 +58,7 @@ class BizCity_Webhook_Inspector {
 			add_management_page(
 				__( 'Webhook Inspector', 'bizcity' ),
 				__( 'BizCity Logs · Webhooks', 'bizcity' ),
-				'manage_options',
+				$capability,
 				self::SLUG,
 				array( __CLASS__, 'render_page' )
 			);
@@ -62,7 +66,11 @@ class BizCity_Webhook_Inspector {
 	}
 
 	public static function render_page(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( ! $can_manage ) {
 			wp_die( esc_html__( 'Access denied.', 'bizcity' ) );
 		}
 		$nonce     = wp_create_nonce( 'wp_rest' );

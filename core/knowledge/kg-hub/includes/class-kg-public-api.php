@@ -125,7 +125,8 @@ class BizCity_KG_Public_API {
 	 * Permission: logged-in admin OR matching token header.
 	 */
 	public function check_permission( WP_REST_Request $request ) {
-		if ( current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was falling through to the token check below.
+		if ( class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' ) ) {
 			return true;
 		}
 		$token = (string) get_option( self::TOKEN_OPT, '' );

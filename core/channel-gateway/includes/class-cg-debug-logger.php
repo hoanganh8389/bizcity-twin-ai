@@ -527,7 +527,12 @@ class BizCity_CG_Debug_Logger {
 	public static function register_routes(): void {
 		register_rest_route( self::NAMESPACE_V1, '/debug-logs', array(
 			'methods'             => 'GET',
-			'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+			// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+			'permission_callback' => function () {
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
+			},
 			'callback'            => array( __CLASS__, 'rest_list' ),
 			'args'                => array(
 				'date'    => array( 'type' => 'string', 'required' => false ),
@@ -551,13 +556,23 @@ class BizCity_CG_Debug_Logger {
 
 		register_rest_route( self::NAMESPACE_V1, '/debug-logs/dates', array(
 			'methods'             => 'GET',
-			'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+			// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+			'permission_callback' => function () {
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
+			},
 			'callback'            => array( __CLASS__, 'rest_list_dates' ),
 		) );
 
 		register_rest_route( self::NAMESPACE_V1, '/debug-logs/clear', array(
 			'methods'             => 'POST',
-			'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+			// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+			'permission_callback' => function () {
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
+			},
 			'callback'            => array( __CLASS__, 'rest_clear' ),
 			'args'                => array(
 				'date' => array( 'type' => 'string', 'required' => true ),
@@ -566,7 +581,12 @@ class BizCity_CG_Debug_Logger {
 
 		register_rest_route( self::NAMESPACE_V1, '/debug-logs/test-emit', array(
 			'methods'             => 'POST',
-			'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+			// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+			'permission_callback' => function () {
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
+			},
 			'callback'            => function () {
 				self::log( 'manual', 'test_emit', array( 'now' => time(), 'note' => 'admin clicked Test Emit' ) );
 				return array( 'ok' => true );
@@ -577,7 +597,12 @@ class BizCity_CG_Debug_Logger {
 		// thread key so each row in the UI = one inbound→outbound message turn.
 		register_rest_route( self::NAMESPACE_V1, '/debug-logs/threads', array(
 			'methods'             => 'GET',
-			'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+			// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+			'permission_callback' => function () {
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
+			},
 			'callback'            => array( __CLASS__, 'rest_list_threads' ),
 			'args'                => array(
 				'date'        => array( 'type' => 'string',  'required' => false ),

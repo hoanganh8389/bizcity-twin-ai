@@ -59,7 +59,11 @@ final class BizCity_Guru_Turn_Controller {
      */
     public static function permission_check( $request ) {
         // (1) Admin nonce path.
-        if ( current_user_can( 'manage_options' ) ) {
+        // [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+        $can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+            ? BizCity_Network_Admin_Capability::can_manage()
+            : current_user_can( 'manage_options' );
+        if ( $can_manage ) {
             return true;
         }
         // (2) Inter-plugin shared key.

@@ -322,7 +322,12 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 add_action( 'rest_api_init', static function () {
 	register_rest_route( 'bizcity-kg/v1', '/identity/backfill', [
 		'methods'             => 'POST',
-		'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was 403'd here.
+		'permission_callback' => static function () {
+			return class_exists( 'BizCity_Network_Admin_Capability' )
+				? BizCity_Network_Admin_Capability::can_manage()
+				: current_user_can( 'manage_options' );
+		},
 		'callback'            => static function ( WP_REST_Request $req ) {
 			$args = [
 				'notebook_id' => (int) $req->get_param( 'notebook_id' ),
@@ -341,7 +346,12 @@ add_action( 'rest_api_init', static function () {
 
 	register_rest_route( 'bizcity-kg/v1', '/identity/reset', [
 		'methods'             => 'POST',
-		'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was 403'd here.
+		'permission_callback' => static function () {
+			return class_exists( 'BizCity_Network_Admin_Capability' )
+				? BizCity_Network_Admin_Capability::can_manage()
+				: current_user_can( 'manage_options' );
+		},
 		'callback'            => static function ( WP_REST_Request $req ) {
 			return rest_ensure_response(
 				BizCity_KG_Identity_Backfill::reset_auto( (int) $req->get_param( 'notebook_id' ) )

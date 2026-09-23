@@ -46,10 +46,66 @@ class BizCity_Character_Quick_Edit_REST {
 				),
 			)
 		);
+
+		// [2026-09-23 Claude Sonnet 5] Quick-create for the Channel Gateway SPA's "Tạo Guru mới"
+		// dialog — `GET/POST /characters` in class-api.php only lists/reads (permission_callback
+		// __return_true) and has no create branch, so this is the one place a Guru-agnostic caller
+		// can safely mint a new character row without leaving the SPA. Same manage_options gate as
+		// quick-edit above, since this is a write.
+		register_rest_route(
+			self::NS,
+			'/characters',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'create_character' ),
+				'permission_callback' => array( __CLASS__, 'can_edit' ),
+			)
+		);
+	}
+
+	/* ────────────────────────── POST /characters (create) ────────────────────────── */
+
+	public static function create_character( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Knowledge_Database' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Knowledge database chưa sẵn sàng.', array( 'status' => 503 ) );
+		}
+		$body = $req->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$name = trim( (string) ( $body['name'] ?? '' ) );
+		if ( '' === $name ) {
+			return new WP_Error( 'invalid_param', 'Tên Guru không được để trống.', array( 'status' => 422 ) );
+		}
+		$data = array( 'name' => sanitize_text_field( $name ) );
+		if ( isset( $body['system_prompt'] ) && '' !== trim( (string) $body['system_prompt'] ) ) {
+			$data['system_prompt'] = wp_kses_post( (string) $body['system_prompt'] );
+		}
+
+		$db     = BizCity_Knowledge_Database::instance();
+		$result = $db->create_character( $data );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+		$character_id = (int) $result;
+		$character    = $db->get_character( $character_id );
+		return new WP_REST_Response(
+			array(
+				'id'   => $character_id,
+				'name' => (string) ( $character->name ?? $data['name'] ),
+				'slug' => (string) ( $character->slug ?? '' ),
+			),
+			201
+		);
 	}
 
 	public static function can_edit(): bool {
-		return current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Opus 5] PHASE-0.60A — a Network Super Admin with no local
+		// administrator row on the mapped blog was getting 403 here, which made the Channel
+		// Gateway "Edit Guru" sheet render an endless skeleton (GuruQuickEditSheet.jsx gates
+		// its whole body on this payload), i.e. the entire Bot Studio config looked "missing".
+		// Same gate as every sibling route — see BizCity_Network_Admin_Capability's docblock.
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	/* ────────────────────────── GET ────────────────────────── */

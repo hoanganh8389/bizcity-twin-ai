@@ -33,18 +33,24 @@ final class BizCity_Intent_Shell_Admin {
 	public static function register_pages(): void {
 		// Sit under Intent Monitor when present, fallback to Tools menu.
 		$parent = class_exists( 'BizCity_Intent_Monitor', false ) ? 'bizcity-intent-monitor' : null;
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options
+		// wrongly denied a Network Super Admin with no local blog role; hoisted above the if/else
+		// so the Tools-menu fallback branch below gets the same fix (missed in an earlier pass).
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		if ( $parent ) {
 			add_submenu_page( $parent,
 				'BizCity Intent Shell',
 				'Intent Shell — Settings',
-				'manage_options',
+				$capability,
 				self::PAGE_SETTINGS,
 				[ __CLASS__, 'render_settings' ]
 			);
 			add_submenu_page( $parent,
 				'BizCity Shadow Diff',
 				'Intent Shell — Shadow Diff',
-				'manage_options',
+				$capability,
 				self::PAGE_SHADOW,
 				[ __CLASS__, 'render_shadow' ]
 			);
@@ -52,14 +58,14 @@ final class BizCity_Intent_Shell_Admin {
 			add_management_page(
 				'BizCity Intent Shell',
 				'BizCity Intent Shell',
-				'manage_options',
+				$capability,
 				self::PAGE_SETTINGS,
 				[ __CLASS__, 'render_settings' ]
 			);
 			add_management_page(
 				'BizCity Shadow Diff',
 				'BizCity Shadow Diff',
-				'manage_options',
+				$capability,
 				self::PAGE_SHADOW,
 				[ __CLASS__, 'render_shadow' ]
 			);
