@@ -393,6 +393,32 @@ final class BizCity_CRM_Pipeline_Registry {
 		return $out;
 	}
 
+	/**
+	 * One `catalogs.services[]` entry by key (PHASE-0.69 D69-5 — service duration is read from HERE, not
+	 * re-invented by a caller). Takes the definition array directly (the caller already has it pinned to
+	 * the run's `pipeline_def_version` via `get_version()`) rather than re-fetching by kind, so a run stays
+	 * consistent with whatever catalog was in force when it was opened.
+	 *
+	 * @return array{key:string,label:string,duration_minutes:int,required_skill:?string}|null
+	 */
+	public static function catalog_service( array $definition, string $service_key ): ?array {
+		$service_key = self::sanitize_kind( $service_key );
+		if ( '' === $service_key ) {
+			return null;
+		}
+		foreach ( (array) ( $definition['catalogs']['services'] ?? array() ) as $service ) {
+			if ( is_array( $service ) && (string) ( $service['key'] ?? '' ) === $service_key ) {
+				return array(
+					'key'              => $service_key,
+					'label'            => (string) ( $service['label'] ?? $service_key ),
+					'duration_minutes' => (int) ( $service['duration_minutes'] ?? 60 ),
+					'required_skill'   => isset( $service['required_skill'] ) ? (string) $service['required_skill'] : null,
+				);
+			}
+		}
+		return null;
+	}
+
 	public static function flush_cache(): void {
 		self::$cache = null;
 	}
@@ -468,6 +494,7 @@ final class BizCity_CRM_Pipeline_Registry {
 		}
 
 		self::check_clock( $definition['clock'] ?? null, $calendars, 'definition', $reasons );
+		self::check_catalogs( $definition['catalogs'] ?? null, $reasons );
 
 		$stages = $definition['stages'] ?? null;
 		if ( ! is_array( $stages ) || empty( $stages ) ) {
@@ -636,6 +663,49 @@ final class BizCity_CRM_Pipeline_Registry {
 		}
 		if ( ! isset( $calendars[ $m[1] ] ) ) {
 			$reasons[] = $label . ' uses calendar "' . $m[1] . '" which the definition does not declare';
+		}
+	}
+
+	/** PHASE-0.69 S-04 — mirrors `catalogs` in `pipeline-definition.schema.json`. Optional; a kind that has
+	 * no need for a skill/area/service vocabulary simply omits the whole block. */
+	private static function check_catalogs( $catalogs, array &$reasons ): void {
+		if ( null === $catalogs ) {
+			return;
+		}
+		if ( ! is_array( $catalogs ) ) {
+			$reasons[] = 'catalogs must be an object';
+			return;
+		}
+		$slug = '/^[a-z0-9_]{1,64}$/';
+		foreach ( array( 'skills', 'areas' ) as $list_key ) {
+			foreach ( (array) ( $catalogs[ $list_key ] ?? array() ) as $item ) {
+				if ( ! preg_match( $slug, (string) $item ) ) {
+					$reasons[] = 'catalogs.' . $list_key . ' has invalid slug "' . (string) $item . '"';
+				}
+			}
+		}
+		$skills = array_map( 'strval', (array) ( $catalogs['skills'] ?? array() ) );
+		$service_keys = array();
+		foreach ( (array) ( $catalogs['services'] ?? array() ) as $index => $service ) {
+			$label = 'catalogs.services #' . (int) $index;
+			if ( ! is_array( $service ) || ! preg_match( $slug, (string) ( $service['key'] ?? '' ) ) ) {
+				$reasons[] = $label . ' needs a valid slug key';
+				continue;
+			}
+			if ( isset( $service_keys[ $service['key'] ] ) ) {
+				$reasons[] = 'catalogs.services key "' . $service['key'] . '" appears twice';
+			}
+			$service_keys[ $service['key'] ] = true;
+			if ( '' === trim( (string) ( $service['label'] ?? '' ) ) ) {
+				$reasons[] = $label . ' needs a label';
+			}
+			$duration = $service['duration_minutes'] ?? null;
+			if ( ! is_int( $duration ) || $duration < 1 || $duration > 1440 ) {
+				$reasons[] = $label . ' needs duration_minutes between 1 and 1440';
+			}
+			if ( isset( $service['required_skill'] ) && ! in_array( (string) $service['required_skill'], $skills, true ) ) {
+				$reasons[] = $label . ' requires skill "' . (string) $service['required_skill'] . '" which catalogs.skills does not declare';
+			}
 		}
 	}
 

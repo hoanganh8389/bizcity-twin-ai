@@ -191,6 +191,9 @@ final class BizCity_CRM_Order_Recap_REST {
 	// ─────────────────────────────────────────────────────────────────────────
 
 	public static function can_manage(): bool {
-		return current_user_can( 'manage_woocommerce' ) || current_user_can( 'manage_options' );
+		return current_user_can( 'manage_woocommerce' )
+			|| ( class_exists( 'BizCity_Network_Admin_Capability' )
+				? BizCity_Network_Admin_Capability::can_manage()
+				: current_user_can( 'manage_options' ) );
 	}
 }

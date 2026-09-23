@@ -420,6 +420,21 @@ class BizCity_TwinWeb_REST {
 			'callback'            => array( $this, 'delete_mychannels_zalo_oa' ),
 			'permission_callback' => '__return_true',
 		) );
+		// [2026-09-23 05:20 PM Claude Fable 5.1] PHASE-0.60A B-12 / A5.2–A5.4 — member-scoped bot toggle + office hours on the
+		// account the member owns. Same binding owner (BizCity_Channel_Binding) as /twin/?plugin=gateway; never a key, never
+		// Guru create/edit; scope comes from the server session, not from a posted user_id.
+		register_rest_route( $ns, '/mychannels/zalo-personal/accounts/(?P<id>[A-Za-z0-9_-]+)/bot', array(
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_mychannels_zalo_personal_bot' ),
+				'permission_callback' => '__return_true',
+			),
+			array(
+				'methods'             => 'PUT',
+				'callback'            => array( $this, 'put_mychannels_zalo_personal_bot' ),
+				'permission_callback' => '__return_true',
+			),
+		) );
 		register_rest_route( $ns, '/mychannels/zalo-personal/conversations', array(
 			'methods'             => 'GET',
 			'callback'            => array( $this, 'get_mychannels_zalo_personal_conversations' ),
@@ -4433,6 +4448,100 @@ class BizCity_TwinWeb_REST {
 		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
 		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
 		return BizCity_Zalo_Bridge_REST::qr_status_for_owner( $account, (int) $identity['user_id'] );
+	}
+
+	/** Shape one binding row for /gpt/ (no key, no character editing — A5.3). */
+	private function mychannels_zalo_personal_bot_shape( array $account, $binding ): array {
+		// [2026-09-23 05:20 PM Claude Fable 5.1] PHASE-0.60A B-12.
+		$policy = is_array( $binding ) && class_exists( 'BizCity_Bot_Turn_Claim' ) ? BizCity_Bot_Turn_Claim::decode_office_hours( $binding['office_hours_json'] ?? '' ) : array();
+		$first  = isset( $policy['days']['mon'][0] ) && is_array( $policy['days']['mon'][0] ) ? $policy['days']['mon'][0] : array();
+		$mode   = is_array( $binding ) ? (string) ( $binding['mode'] ?? 'manual' ) : 'manual';
+		$character_name = '';
+		if ( is_array( $binding ) && (int) ( $binding['character_id'] ?? 0 ) > 0 && class_exists( 'BizCity_Knowledge_Database' ) ) {
+			$character = BizCity_Knowledge_Database::instance()->get_character( (int) $binding['character_id'] );
+			$character_name = $character ? (string) ( $character->name ?? '' ) : '';
+		}
+		return array(
+			'account_id'     => (string) ( $account['bridge_account_id'] ?? $account['id'] ?? '' ),
+			'configured'     => is_array( $binding ) && (int) ( $binding['character_id'] ?? 0 ) > 0,
+			'enabled'        => in_array( $mode, array( 'auto', 'hybrid' ), true ),
+			'mode'           => $mode,
+			'character_name' => $character_name,
+			'office_hours'   => array(
+				'enabled' => ! empty( $policy['enabled'] ) && ! empty( $policy['days']['mon'] ),
+				'start'   => (string) ( $first['start'] ?? '08:00' ),
+				'end'     => (string) ( $first['end'] ?? '17:30' ),
+			),
+			'pause_on_manual_reply' => ! isset( $policy['pause_on_manual_reply'] ) || ! empty( $policy['pause_on_manual_reply'] ),
+		);
+	}
+
+	public function get_mychannels_zalo_personal_bot( WP_REST_Request $request ) {
+		// [2026-09-23 05:20 PM Claude Fable 5.1] PHASE-0.60A B-12 — owner-scoped read of the bot binding.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem trợ lý.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
+		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Channel_Binding' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Channel Gateway chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
+		$bridge_id = (string) ( $account['bridge_account_id'] ?? '' );
+		$binding   = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $bridge_id );
+		return rest_ensure_response( array( 'success' => true, 'bot' => $this->mychannels_zalo_personal_bot_shape( $account, $binding ) ) );
+	}
+
+	public function put_mychannels_zalo_personal_bot( WP_REST_Request $request ) {
+		// [2026-09-23 05:20 PM Claude Fable 5.1] PHASE-0.60A B-12 — member may toggle + set hours ONLY on an already-bound account.
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để bật/tắt trợ lý.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
+		$gate = $this->mychannels_zalo_personal_gate();
+		if ( true !== $gate ) { return $gate; }
+		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
+		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Channel_Binding' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Channel Gateway chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
+		$bridge_id = (string) ( $account['bridge_account_id'] ?? '' );
+		$binding   = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $bridge_id );
+		if ( ! is_array( $binding ) || (int) ( $binding['character_id'] ?? 0 ) <= 0 ) {
+			return $this->mychannels_error( 'bot_not_configured', 'Số Zalo này chưa được gắn trợ lý.', 'Nhờ quản trị viên gắn trợ lý trong Channel Gateway → Zalo Cá nhân; sau đó bạn bật/tắt ở đây.', 'bot_binding_missing' );
+		}
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$policy = class_exists( 'BizCity_Bot_Turn_Claim' ) ? BizCity_Bot_Turn_Claim::decode_office_hours( $binding['office_hours_json'] ?? '' ) : array();
+		if ( isset( $body['office_hours'] ) && is_array( $body['office_hours'] ) ) {
+			$oh    = $body['office_hours'];
+			$start = (string) ( $oh['start'] ?? '08:00' );
+			$end   = (string) ( $oh['end'] ?? '17:30' );
+			if ( ! preg_match( '/^([01]\d|2[0-3]):[0-5]\d$/', $start ) || ! preg_match( '/^([01]\d|2[0-3]):[0-5]\d$/', $end ) ) {
+				return $this->mychannels_error( 'invalid_param', 'Giờ trực phải ở dạng HH:MM.', 'Ví dụ 08:00 và 17:30.', 'invalid_param_generic' );
+			}
+			$policy['enabled'] = ! empty( $oh['enabled'] );
+			$policy['days']    = array();
+			if ( $policy['enabled'] ) {
+				foreach ( array( 'mon', 'tue', 'wed', 'thu', 'fri' ) as $day ) {
+					$policy['days'][ $day ] = array( array( 'start' => $start, 'end' => $end ) );
+				}
+			}
+		}
+		if ( isset( $body['pause_on_manual_reply'] ) ) {
+			$policy['pause_on_manual_reply'] = ! empty( $body['pause_on_manual_reply'] );
+		}
+		$mode = (string) ( $binding['mode'] ?? 'manual' );
+		if ( isset( $body['enabled'] ) ) {
+			$mode = ! empty( $body['enabled'] ) ? ( 'hybrid' === $mode ? 'hybrid' : 'auto' ) : 'manual';
+		}
+		$id = BizCity_Channel_Binding::upsert( array(
+			'platform'     => 'ZALO_PERSONAL',
+			'account_id'   => $bridge_id,
+			'character_id' => (int) $binding['character_id'],
+			'mode'         => $mode,
+			'auto_reply'   => in_array( $mode, array( 'auto', 'hybrid' ), true ) ? 1 : 0,
+			'office_hours' => $policy,
+		) );
+		if ( $id <= 0 ) {
+			return $this->mychannels_error( 'write_failed', 'Không lưu được cấu hình trợ lý.', 'Thử lại; nếu vẫn lỗi hãy liên hệ quản trị viên.', 'bot_binding_write_failed' );
+		}
+		$binding = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $bridge_id );
+		return rest_ensure_response( array( 'success' => true, 'bot' => $this->mychannels_zalo_personal_bot_shape( $account, $binding ) ) );
 	}
 
 	public function delete_mychannels_zalo_personal_account( WP_REST_Request $request ) {

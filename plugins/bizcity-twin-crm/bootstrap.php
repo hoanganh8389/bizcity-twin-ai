@@ -200,6 +200,10 @@ final class BizCity_CRM_Plugin {
 		add_action( 'rest_api_init', array( 'BizCity_CRM_Leader_Member_REST', 'register_routes' ) );
 		// [2026-09-18] PHASE-0.52 — customer pipeline (R-PIPE): board, stage changes, planner, settings, personal space.
 		add_action( 'rest_api_init', array( 'BizCity_CRM_Pipeline_REST', 'register_routes' ) );
+		// [2026-09-23] PHASE-0.69 — service dispatch: staff routing profile, matcher, location links.
+		if ( class_exists( 'BizCity_CRM_Service_REST' ) ) {
+			add_action( 'rest_api_init', array( 'BizCity_CRM_Service_REST', 'register_routes' ) );
+		}
 		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 C-05 — internal handoff ping; the `/gpt/crm/` badge stays the contract notification.
 		BizCity_CRM_Task_Handoff_Notify::register();
 		// [2026-09-19] PHASE-0.55 A5 — proactive task_overdue/task_reviewed pings (off by default, R-LM-8, §5.6).
@@ -280,6 +284,19 @@ final class BizCity_CRM_Plugin {
 		// [2026-09-21 PHASE-0.63A S-4] The pipeline platform has exactly one entry point. Lanes add files
 		// under includes/pipeline/ or includes/context/ and they load themselves — this line never changes again.
 		require_once $inc . 'pipeline/bootstrap-pipeline.php';
+		// [2026-09-23 PHASE-0.69] Service dispatch — location extraction/storage, staff routing profile,
+		// matcher, and REST. Consumers of the pipeline platform above, not part of it (own directory,
+		// plain `require_once` like the rest of this file's non-pipeline includes, not the pipeline
+		// loader's glob — this is a CRM feature module, not a Context App or a pipeline-kind plugin).
+		require_once $inc . 'service/class-crm-location-service.php';
+		require_once $inc . 'service/class-crm-staff-profile.php';
+		require_once $inc . 'service/class-crm-service-matcher.php';
+		require_once $inc . 'service/class-service-rest.php';
+		require_once $inc . 'service/class-location-link-handler.php';
+		require_once $inc . 'service/class-service-sla-listener.php';
+		BizCity_CRM_Location_Service::register();
+		BizCity_CRM_Location_Link_Handler::register();
+		BizCity_CRM_Service_SLA_Listener::register();
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — load account-backed CRM inbox policy before REST routes.
 		// [2026-08-25 Johnny Chu] PHASE-1.24 — accept the canonical flat path and the legacy reorganized path during partial deploys.
 		$inbox_access_file = $inc . 'class-inbox-access.php';
@@ -294,6 +311,12 @@ final class BizCity_CRM_Plugin {
 		require_once $inc . 'class-assignment-manager.php';
 		require_once $inc . 'class-event-emitter.php';
 		require_once $inc . 'class-repository.php';
+		// [2026-09-23 04:25 PM Claude Fable 5.1] PHASE-0.60B — Zalo contact enrichment + birthday reminder (adapter needs the Scheduler base class; guarded inside the file).
+		require_once $inc . 'class-contact-enrichment.php';
+		if ( class_exists( 'BizCity_Scheduler_Adapter_Base' ) ) {
+			require_once $inc . 'class-scheduler-adapter-contact-birthday.php';
+		}
+		BizCity_CRM_Contact_Enrichment::init();
 		// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.56 I-1 — deterministic aggregate-only Team Ops insights.
 		require_once $inc . 'class-team-insights.php';
 		$reconciliation_preview = $inc . 'admin/class-conversation-reconciliation-preview.php';

@@ -350,6 +350,30 @@ class BizCity_CRM_REST_Controller {
 			),
 		) );
 
+		// [2026-09-23 04:30 PM Claude Fable 5.1] PHASE-0.60B §7 / 0.60A B-07 — one RailSection's data: enriched profile with
+		// source labels, refresh-from-Zalo (throttled), staff birthday edit, customer withdrawal. Same scope gates as /contacts/{id}.
+		register_rest_route( $ns, '/contacts/(?P<id>\d+)/bot-context', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_contact_bot_context' ),
+			'permission_callback' => array( __CLASS__, 'can_read_contact_scope' ),
+		) );
+		register_rest_route( $ns, '/contacts/(?P<id>\d+)/enrich', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_contact_enrich' ),
+			'permission_callback' => array( __CLASS__, 'can_write_contact_scope' ),
+			'args'                => array( 'conversation_id' => array( 'type' => 'integer', 'default' => 0 ) ),
+		) );
+		register_rest_route( $ns, '/contacts/(?P<id>\d+)/birthday', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'put_contact_birthday' ),
+			'permission_callback' => array( __CLASS__, 'can_write_contact_scope' ),
+		) );
+		register_rest_route( $ns, '/contacts/(?P<id>\d+)/enrichment', array(
+			'methods'             => WP_REST_Server::DELETABLE,
+			'callback'            => array( __CLASS__, 'delete_contact_enrichment' ),
+			'permission_callback' => array( __CLASS__, 'can_write_contact_scope' ),
+		) );
+
 		// PHASE-0.35-GURU-SERVICES — Persona infrastructure endpoints.
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/last-skip', array(
 			'methods'             => WP_REST_Server::READABLE,
@@ -7715,6 +7739,120 @@ class BizCity_CRM_REST_Controller {
 			'created_at'   => (string) ( $r['created_at'] ?? '' ),
 			'updated_at'   => (string) ( $r['updated_at'] ?? '' ),
 		);
+	}
+
+	/* ───── PHASE-0.60B — enrichment projection for the "🤖 Ngữ cảnh cho trợ lý" RailSection ───── */
+
+	/** Four-field error helper for the 0.60B routes (R-ERR: code · message · hint · help_code). */
+	private static function enrichment_error( string $code, string $message, string $hint, string $help_code, int $status = 400 ) {
+		return new WP_REST_Response( array( 'ok' => false, 'code' => $code, 'message' => $message, 'hint' => $hint, 'help_code' => $help_code ), $status );
+	}
+
+	public static function get_contact_bot_context( WP_REST_Request $req ) {
+		// [2026-09-23 04:30 PM Claude Fable 5.1] PHASE-0.60B C5/C6 — projection with source labels; empty slots are stated.
+		return self::wrap( static function () use ( $req ) {
+			$id      = (int) $req['id'];
+			$contact = BizCity_CRM_Repository::get_contact( $id );
+			if ( ! $contact ) { throw new \RuntimeException( 'contact_not_found' ); }
+			$attrs   = is_array( json_decode( (string) ( $contact['additional_attributes'] ?? '' ), true ) ) ? json_decode( (string) $contact['additional_attributes'], true ) : array();
+			$zalo    = isset( $attrs['zalo_profile'] ) && is_array( $attrs['zalo_profile'] ) ? $attrs['zalo_profile'] : array();
+			$bmeta   = isset( $attrs['birthday_meta'] ) && is_array( $attrs['birthday_meta'] ) ? $attrs['birthday_meta'] : array();
+			$birthday = (string) ( $contact['birthday'] ?? '' );
+			$md       = (string) ( $contact['birthday_md'] ?? '' );
+			$has_year = $birthday !== '' && $birthday !== '0000-00-00';
+			$name     = (string) ( $contact['name'] ?? '' );
+			$name_src = $name === '' ? '' : ( isset( $zalo['display_name'] ) && $zalo['display_name'] === $name ? 'zalo' : 'staff' );
+			$event_id = class_exists( 'BizCity_CRM_Contact_Enrichment' ) ? BizCity_CRM_Contact_Enrichment::find_active_event( $id ) : 0;
+			$opt_out  = (string) ( $attrs['enrichment_opt_out_until'] ?? '' );
+			return array(
+				'contact_id' => $id,
+				'profile'    => array(
+					'name'        => array( 'value' => $name, 'source' => $name_src ),
+					'gender'      => array( 'value' => (string) ( $zalo['gender'] ?? '' ), 'source' => ! empty( $zalo['gender'] ) ? 'zalo' : '' ),
+					'birthday'    => array( 'value' => $has_year ? $birthday : '', 'md' => $md !== '' ? $md : ( $has_year ? substr( $birthday, 5 ) : '' ), 'has_year' => $has_year, 'source' => (string) ( $bmeta['source'] ?? ( $has_year || $md !== '' ? 'crm' : '' ) ) ),
+					'birth_time'  => array( 'value' => (string) ( $attrs['birth_time'] ?? '' ), 'source' => ! empty( $attrs['birth_time'] ) ? (string) ( $bmeta['source'] ?? 'crm' ) : '' ),
+					'avatar_url'  => array( 'value' => (string) ( $contact['avatar_url'] ?? '' ), 'source' => ! empty( $zalo['avatar_url'] ) && $zalo['avatar_url'] === (string) ( $contact['avatar_url'] ?? '' ) ? 'zalo' : ( ! empty( $contact['avatar_url'] ) ? 'crm' : '' ) ),
+				),
+				'enrichment' => array(
+					'last_at'          => (string) ( $zalo['_at'] ?? '' ),
+					'keys_seen'        => isset( $zalo['_keys'] ) && is_array( $zalo['_keys'] ) ? array_values( $zalo['_keys'] ) : array(),
+					'throttled'        => class_exists( 'BizCity_CRM_Contact_Enrichment' ) ? BizCity_CRM_Contact_Enrichment::is_throttled( $id ) : false,
+					'opt_out_until'    => $opt_out,
+					'birthday_event_id'=> $event_id,
+				),
+				'context_block' => class_exists( 'BizCity_CRM_Contact_Enrichment' ) ? BizCity_CRM_Contact_Enrichment::render_context_block( $contact ) : '',
+				'conversations' => count( BizCity_CRM_Repository::list_conversations_for_contact( $id, 50 ) ),
+			);
+		} );
+	}
+
+	public static function post_contact_enrich( WP_REST_Request $req ) {
+		// [2026-09-23 04:30 PM Claude Fable 5.1] PHASE-0.60B A4.4 — "Làm mới từ Zalo" with a 10-minute manual throttle.
+		$id = (int) $req['id'];
+		if ( ! class_exists( 'BizCity_CRM_Contact_Enrichment' ) ) {
+			return self::enrichment_error( 'module_not_loaded', 'Làm giàu liên hệ chưa sẵn sàng.', 'Bật module CRM enrichment rồi thử lại.', 'module_not_loaded', 503 );
+		}
+		$conversation_id = (int) $req->get_param( 'conversation_id' );
+		if ( $conversation_id <= 0 ) {
+			$convs = BizCity_CRM_Repository::list_conversations_for_contact( $id, 1 );
+			$conversation_id = ! empty( $convs ) ? (int) $convs[0]['id'] : 0;
+		}
+		if ( BizCity_CRM_Contact_Enrichment::is_throttled( $id ) ) {
+			return self::enrichment_error( 'rate_limited', 'Vừa làm giàu liên hệ này rồi.', 'Đợi vài phút rồi bấm lại; bot không gọi bridge mỗi tin.', 'enrichment_throttled', 429 );
+		}
+		$res = BizCity_CRM_Contact_Enrichment::enrich_from_zalo( $id, $conversation_id, 'manual' );
+		if ( 'ok' !== $res['status'] ) {
+			$map = array(
+				'group_thread'     => array( 'Hội thoại nhóm không làm giàu hồ sơ cá nhân.', 'Mở một chat riêng với khách để làm giàu.', 'enrichment_group_thread' ),
+				'opted_out'        => array( 'Khách đã yêu cầu không thu thập thêm.', 'Chờ hết thời gian từ chối hoặc khách đồng ý lại.', 'enrichment_opted_out' ),
+				'not_zalo_personal'=> array( 'Chỉ làm giàu được từ kênh Zalo Cá nhân.', 'Chọn hội thoại Zalo Cá nhân của khách.', 'enrichment_channel' ),
+				'source_missing'   => array( 'Chưa xác định được UID Zalo của khách.', 'Chọn đúng hội thoại có tin nhắn của khách.', 'enrichment_source_missing' ),
+			);
+			$reason = (string) $res['reason'];
+			$row    = $map[ $reason ] ?? array( 'Không đọc được hồ sơ Zalo lúc này.', 'Kiểm tra bridge Zalo Cá nhân đã kết nối rồi thử lại.', 'enrichment_bridge_' . $reason );
+			return self::enrichment_error( 'degraded' === $res['status'] ? 'gateway_degraded' : 'invalid_param', $row[0], $row[1], $row[2], 'degraded' === $res['status'] ? 502 : 422 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'data' => $res ), 200 );
+	}
+
+	public static function put_contact_birthday( WP_REST_Request $req ) {
+		// [2026-09-23 04:30 PM Claude Fable 5.1] PHASE-0.60B §4.1 rule 1 — staff edit is the only forced write; '' clears.
+		$id   = (int) $req['id'];
+		$body = self::extract_json_body( $req );
+		$date = trim( (string) ( $body['date'] ?? '' ) );
+		$time = trim( (string) ( $body['time'] ?? '' ) );
+		if ( $date !== '' && ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) && ! preg_match( '/^\d{2}-\d{2}$/', $date ) ) {
+			return self::enrichment_error( 'invalid_param', 'Ngày sinh phải ở dạng YYYY-MM-DD hoặc MM-DD.', 'Nhập ví dụ 1990-03-12, hoặc 03-12 nếu chưa biết năm.', 'birthday_format', 422 );
+		}
+		if ( $date !== '' && preg_match( '/^(\d{4})-(\d{2})-(\d{2})$/', $date, $m ) && ! checkdate( (int) $m[2], (int) $m[3], (int) $m[1] ) ) {
+			return self::enrichment_error( 'invalid_param', 'Ngày sinh không tồn tại.', 'Kiểm tra lại ngày/tháng.', 'birthday_invalid', 422 );
+		}
+		if ( $time !== '' && ! preg_match( '/^([01]\d|2[0-3]):[0-5]\d$/', $time ) ) {
+			return self::enrichment_error( 'invalid_param', 'Giờ sinh phải ở dạng HH:MM.', 'Ví dụ 07:30.', 'birthday_time_format', 422 );
+		}
+		if ( ! class_exists( 'BizCity_CRM_Contact_Enrichment' ) ) {
+			return self::enrichment_error( 'module_not_loaded', 'Làm giàu liên hệ chưa sẵn sàng.', 'Bật module CRM enrichment rồi thử lại.', 'module_not_loaded', 503 );
+		}
+		$ok = BizCity_CRM_Contact_Enrichment::set_birthday( $id, $date, $time, array( 'source' => 'staff', 'force' => true, 'at' => gmdate( 'c' ) ) );
+		if ( ! $ok ) {
+			return self::enrichment_error( 'write_failed', 'Không lưu được ngày sinh.', 'Cột birthday có thể chưa được cài; chạy lại cập nhật CSDL CRM.', 'birthday_write_failed', 500 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'data' => array( 'contact_id' => $id, 'date' => $date, 'time' => $time ) ), 200 );
+	}
+
+	public static function delete_contact_enrichment( WP_REST_Request $req ) {
+		// [2026-09-23 04:30 PM Claude Fable 5.1] PHASE-0.60B rule 6 — withdrawal; no re-ask for N days.
+		$id   = (int) $req['id'];
+		$body = self::extract_json_body( $req );
+		$days = max( 1, min( 3650, (int) ( $body['opt_out_days'] ?? 90 ) ) );
+		if ( ! class_exists( 'BizCity_CRM_Contact_Enrichment' ) ) {
+			return self::enrichment_error( 'module_not_loaded', 'Làm giàu liên hệ chưa sẵn sàng.', 'Bật module CRM enrichment rồi thử lại.', 'module_not_loaded', 503 );
+		}
+		$ok = BizCity_CRM_Contact_Enrichment::clear_enrichment( $id, $days );
+		if ( ! $ok ) {
+			return self::enrichment_error( 'write_failed', 'Không xoá được dữ liệu làm giàu.', 'Thử lại; nếu vẫn lỗi hãy liên hệ quản trị viên.', 'enrichment_clear_failed', 500 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'data' => array( 'contact_id' => $id, 'opt_out_days' => $days ) ), 200 );
 	}
 
 	/* ───── Persona infra (PHASE-0.35-GURU-SERVICES) ───── */

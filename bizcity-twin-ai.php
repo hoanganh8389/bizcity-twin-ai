@@ -122,6 +122,13 @@ if ( ! class_exists( 'BizCity_Rewrite_Flush_Registry', false ) ) {
 if ( ! class_exists( 'BizCity_Schema_Registry', false ) ) {
     require_once __DIR__ . '/core/runtime/class-schema-registry.php';
 }
+// [2026-09-23 Claude] R-MSDB/R-DDV — single source of truth for the
+// "manage_options || (is_super_admin() && manage_network)" check every
+// channel-gateway/twin-llm/twin-crm REST permission_callback needs on the
+// mapped multisite network; must load before any module registers routes.
+if ( ! class_exists( 'BizCity_Network_Admin_Capability', false ) ) {
+    require_once __DIR__ . '/core/runtime/class-network-admin-capability.php';
+}
 
 // Infrastructure
 require_once __DIR__ . '/includes/helpers-table-cache.php';

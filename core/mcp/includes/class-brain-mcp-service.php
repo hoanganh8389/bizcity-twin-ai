@@ -38,6 +38,33 @@ final class BizCity_Brain_MCP_Service {
 		return self::$instance;
 	}
 
+	/** PHASE-0.41D-D4 — Context Bank pack through the shared Brain facade. */
+	public function context_search( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_Brain_Retrieval_Facade' ) ) {
+			return new WP_Error( BizCity_MCP_Error::RETRIEVAL_FAILED, 'Brain retrieval facade chưa sẵn sàng.', array( 'status' => 503 ) );
+		}
+		$args['mcp_context'] = $ctx;
+		return BizCity_Brain_Retrieval_Facade::pack( 'mcp', $args );
+	}
+
+	/** PHASE-0.41D-D4 — bounded evidence metadata through the shared facade. */
+	public function context_evidence( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_Brain_Retrieval_Facade' ) ) {
+			return new WP_Error( BizCity_MCP_Error::RETRIEVAL_FAILED, 'Brain retrieval facade chưa sẵn sàng.', array( 'status' => 503 ) );
+		}
+		$source_ref = sanitize_text_field( (string) ( $args['source_ref'] ?? '' ) );
+		return BizCity_Brain_Retrieval_Facade::evidence( $source_ref, array_merge( $args, array( 'mcp_context' => $ctx ) ) );
+	}
+
+	/** PHASE-0.41D-D4 — order lifecycle summary through the same approved pack. */
+	public function order_summary( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_Brain_Retrieval_Facade' ) ) {
+			return new WP_Error( BizCity_MCP_Error::RETRIEVAL_FAILED, 'Brain retrieval facade chưa sẵn sàng.', array( 'status' => 503 ) );
+		}
+		$order_ref = sanitize_text_field( (string) ( $args['order_ref'] ?? '' ) );
+		return BizCity_Brain_Retrieval_Facade::order_summary( $order_ref, array_merge( $args, array( 'mcp_context' => $ctx ) ) );
+	}
+
 	/**
 	 * brain.list_notebooks
 	 *

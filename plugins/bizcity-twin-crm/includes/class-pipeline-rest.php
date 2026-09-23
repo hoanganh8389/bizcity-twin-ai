@@ -64,6 +64,9 @@ final class BizCity_CRM_Pipeline_REST {
 			array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'open_run' ), 'permission_callback' => $write ),
 		) );
 		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/transition', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'transition_run' ), 'permission_callback' => $write ) );
+		// [2026-09-23 PHASE-0.69] Reschedule `appointment_at` — a moved/duplicated ca is a manual edit of
+		// one field, not a new stage transition (D69-4: no recurring bookings, only manual duplicate/edit).
+		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/appointment', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'set_appointment' ), 'permission_callback' => $write ) );
 		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/exceptions', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'transition_exception' ), 'permission_callback' => $write ) );
 		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/sla', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_run_sla' ), 'permission_callback' => $read ) );
 		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/sla-recipients', array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_run_sla_recipients' ), 'permission_callback' => $read ) );
@@ -241,6 +244,21 @@ final class BizCity_CRM_Pipeline_REST {
 		return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( array( 'run' => $result ) );
 	}
 
+	public static function set_appointment( WP_REST_Request $request ) {
+		// [2026-09-23 PHASE-0.69] Reschedule — same scoping/lock discipline as `transition_run()`.
+		$run = self::scoped_run( (int) $request['id'] );
+		if ( is_wp_error( $run ) ) {
+			return self::error_from( $run );
+		}
+		$body = self::body( $request );
+		$appointment_at = sanitize_text_field( (string) ( $body['appointment_at'] ?? '' ) );
+		if ( '' === $appointment_at ) {
+			return self::error( 'invalid_param', 'Thiếu thời điểm hẹn.', 422, 'Chọn ngày giờ hẹn.' );
+		}
+		$result = BizCity_CRM_Pipeline_Run_Service::set_appointment( (int) $run['id'], $appointment_at, $body );
+		return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( array( 'run' => $result ) );
+	}
+
 	public static function transition_exception( WP_REST_Request $request ) {
 		// [2026-09-21 09:30 PM OpenAI GPT-5.6 Luna] PHASE-0.63A WP-4 — keep exception mutations scoped to the run's contact.
 		$run = self::scoped_run( (int) $request['id'] );
@@ -287,7 +305,12 @@ final class BizCity_CRM_Pipeline_REST {
 		foreach ( (array) ( $definition['stages'] ?? array() ) as $item ) {
 			if ( is_array( $item ) && $stage === (string) ( $item['key'] ?? '' ) ) { $role = (string) ( $item['role'] ?? '' ); break; }
 		}
-		$recipients = $role && class_exists( 'BizCity_CRM_Pipeline_Roles' ) ? BizCity_CRM_Pipeline_Roles::resolve_role( $definition, $role, array( 'owner_id' => (int) ( $run['owner_id'] ?? 0 ) ) ) : array();
+		// [2026-09-23] Full role context (owner/creator/stage-assignee), not just owner_id — otherwise this
+		// debug endpoint disagrees with what the SLA runner actually resolves at fire time.
+		$ctx = class_exists( 'BizCity_CRM_Pipeline_Run_Service' ) && method_exists( 'BizCity_CRM_Pipeline_Run_Service', 'role_context' )
+			? BizCity_CRM_Pipeline_Run_Service::role_context( (int) $run['id'], $stage )
+			: array( 'owner_id' => (int) ( $run['owner_id'] ?? 0 ) );
+		$recipients = $role && class_exists( 'BizCity_CRM_Pipeline_Roles' ) ? BizCity_CRM_Pipeline_Roles::resolve_role( $definition, $role, $ctx ) : array();
 		if ( is_wp_error( $recipients ) ) { $recipients = array(); }
 		$status = class_exists( 'BizCity_CRM_Pipeline_Notify' ) ? BizCity_CRM_Pipeline_Notify::binding_status( (array) $recipients ) : array( 'bound' => array(), 'unbound' => array(), 'bound_count' => 0, 'unbound_count' => count( (array) $recipients ) );
 		return self::ok( array( 'run_id' => (int) $run['id'], 'role' => $role, 'recipient_user_ids' => array_values( array_map( 'intval', (array) $recipients ) ), 'binding' => $status ) );

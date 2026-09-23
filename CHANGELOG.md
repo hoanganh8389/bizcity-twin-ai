@@ -18,6 +18,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### PHASE-0.60A/B/C/D — Bot Studio: AI assistant replies on Zalo Personal - 2026-09-23
+
+> Stamp: `[2026-09-23 05:40 PM Claude Fable 5.1]` · docs: `core/channel-gateway/docs/PHASE-0.60A..D-*.md`
+
+- **0.60A (engine, `core/channel-gateway/includes/bot/`)** — turn claim at
+  `bizcity_channel_normalized` priority 0 turns the Automation Default_Reply net
+  off for that request only; a workflow enqueued in the same request makes the bot
+  yield; the turn runs on a debounced cron with a per-thread lock (park, never
+  queue), builds context from persona + source-labelled contact facts + N recent
+  CRM messages under a char budget, runs a bounded JSON tool plan, and sends
+  through `BizCity_CRM_Outbound_Dispatcher` with `responder_kind=auto` (Inbox 🤖,
+  zero ConversationDetail change). Provider dead → one honest sentence, never
+  silence. Hybrid mode stores a private-note draft instead of sending.
+- **0.60A REST** (`bizcity-channel/v1/bot/*`): runtime, tuning (registry-driven,
+  reset-to-default), tools, provider, queue/status, context/preview — four-field errors.
+- **0.60A UI**: GuruQuickEditSheet (AI-source cards, notebook bypass, context
+  source, tool table with capability toggles, 1API gap warning, real test call);
+  ZaloPersonalGuruPanel (office hours, pause-on-manual, @mention, per-number tool
+  policy, bridge-not-ready lock); SettingsRoute tuning card; HealthRoute queue card;
+  `/gpt/` MyChannels bot toggle + hours (member-scoped REST).
+- **0.60B (CRM)**: R-DCL drift fix for `bizcity_crm_contacts`; `birthday DATE` +
+  `birthday_md CHAR(5)` (indexed, MySQL 5.7-safe); Zalo profile enrichment on a
+  one-shot cron (fill-only-empty, source+time, 1/day throttle, group threads
+  skipped, opt-out); `contact_birthday` Scheduler event + adapter (staff note by
+  default, customer greeting opt-in under the bot's daily cap); ContactDrawer
+  "🤖 Ngữ cảnh cho trợ lý" RailSection; contacts REST bot-context/enrich/birthday/enrichment.
+- **0.60C**: site-level dual AI source (1API default / external) via the existing
+  `bizcity_llm_mode`; four-branch resolution contract with "missing key → ignore
+  override"; end-anchored host match; TTS/STT/music declared as 1API gaps.
+- **0.60D**: contact-scoped astro tool (ask once, VN date normaliser, save as
+  `customer_stated`, never the logged-in user); vertical tools from the canonical
+  registry ∩ `allowed_verticals` (sensitive/guest-blocked/plan-gated excluded,
+  disclaimers survive Zalo trimming); automation yield + `bizcity_bot_turn_completed`.
+- New generic hook `bizcity_crm_message_inserted` at the single CRM insertion point.
+- Tests: 8 new unit files (79 Bot* + 6 enrichment); probe `core.channel.bot_studio` extended.
+
 ### HOTFIX — CRM is a mandatory Twin AI bundled runtime - 2026-09-22
 
 - Removed the CRM entrypoint's silent early return for a missing/relocated

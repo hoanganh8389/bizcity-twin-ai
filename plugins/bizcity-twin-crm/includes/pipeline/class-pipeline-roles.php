@@ -76,6 +76,24 @@ final class BizCity_CRM_Pipeline_Roles {
 			}
 			return array();
 		}
+		// [2026-09-23] `owner_of_run`/`creator_of_run`/`assignee_of_stage` pass definition VALIDATION
+		// (registry check_role() has always accepted all four relation names) but were never resolved here —
+		// every shipped template (purchase/request/production) declares roles with these three, so every
+		// notify()/escalate() using them was silently failing with `role_resolver_invalid` at fire time.
+		// `$ctx` is built by `Pipeline_Run_Service::role_context()`, which resolves `assignee_id` to
+		// whoever actually worked the stage (`custom_json.stages[key].by`), falling back to the run owner.
+		if ( 'owner_of_run' === (string) ( $resolve['relation'] ?? '' ) ) {
+			$owner_id = (int) ( $ctx['owner_id'] ?? 0 );
+			return $owner_id > 0 ? array( $owner_id ) : array();
+		}
+		if ( 'creator_of_run' === (string) ( $resolve['relation'] ?? '' ) ) {
+			$creator_id = (int) ( $ctx['creator_id'] ?? 0 );
+			return $creator_id > 0 ? array( $creator_id ) : array();
+		}
+		if ( 'assignee_of_stage' === (string) ( $resolve['relation'] ?? '' ) ) {
+			$assignee_id = (int) ( $ctx['assignee_id'] ?? $ctx['owner_id'] ?? 0 );
+			return $assignee_id > 0 ? array( $assignee_id ) : array();
+		}
 		return self::error( 'role_resolver_invalid', 'Cấu hình phân giải vai trò không hợp lệ.', array( 'role' => $role ) );
 	}
 

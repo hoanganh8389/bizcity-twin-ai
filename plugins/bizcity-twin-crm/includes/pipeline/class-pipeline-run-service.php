@@ -35,8 +35,14 @@ final class BizCity_CRM_Pipeline_Run_Service {
 		}
 		global $wpdb;
 		$table = self::opportunities_table();
+		// [2026-09-23] Only reuse a run that is still OPEN. Before this fix the query ignored `status`
+		// entirely, so a second sales cycle (or a second service booking, or a second purchase request)
+		// for the same contact silently reattached to the first run's terminal (won/lost/closed) row
+		// forever — R-PIPE-4's "one run per contact per kind" means one *current* run, not one *lifetime*
+		// run. `service` needs this most directly: every ca is its own run, and the previous ca is closed
+		// (`status='won'`, set by `transition()` on a terminal stage) by the time the next one is booked.
 		$existing = $wpdb->get_row( $wpdb->prepare(
-			"SELECT id FROM `{$table}` WHERE contact_id = %d AND pipeline_kind = %s AND deleted_at IS NULL ORDER BY id DESC LIMIT 1",
+			"SELECT id FROM `{$table}` WHERE contact_id = %d AND pipeline_kind = %s AND status = 'open' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1",
 			$contact_id,
 			$kind
 		), ARRAY_A );
@@ -59,6 +65,23 @@ final class BizCity_CRM_Pipeline_Run_Service {
 			'exceptions'           => array(),
 			'_lock'                => 0,
 		);
+		// [2026-09-23 PHASE-0.69] `appointment_at` is a top-level custom_json field, not a per-stage one —
+		// the SLA clock's `field:`/literal `appointment_at` anchor (0.63 §2.1, registry FUTURE_ANCHORS)
+		// reads it from here. A service-kind run needs it from the moment it opens, since `depart_prep`/
+		// `checkin_prep` are both relative to it, not to any one stage. Any kind may set it — the field is
+		// generic, only `service.json` currently declares rules that anchor on it.
+		$appointment_at = self::parse_appointment_at( $args['appointment_at'] ?? '' );
+		if ( '' !== $appointment_at ) { $custom['appointment_at'] = $appointment_at; }
+		// [2026-09-23 PHASE-0.69 M-03] Which team offers this — the SLA `emit(service_reassign_needed)`
+		// listener needs it to call the matcher, and nothing else on a run says which team it belongs to
+		// (a run is per-contact, teams are not). Generic field, not `service`-specific, same reasoning as
+		// `appointment_at` above.
+		if ( isset( $args['team_id'] ) && (int) $args['team_id'] > 0 ) { $custom['team_id'] = (int) $args['team_id']; }
+		// [2026-09-23 PHASE-0.69 D69-5] Which `catalogs.services[]` entry this booking is — resolves the
+		// default duration (`Pipeline_Registry::catalog_service()`) without hardcoding it a second time at
+		// the REST layer. Generic field; only `service.json` declares a `catalogs.services[]` today.
+		$service_key = preg_match( '/^[a-z0-9_]{1,64}$/', (string) ( $args['service_key'] ?? '' ) ) ? (string) $args['service_key'] : '';
+		if ( '' !== $service_key ) { $custom['service_key'] = $service_key; }
 		$row = array(
 			'name'                 => isset( $args['name'] ) ? self::text( $args['name'], 255 ) : 'Pipeline · ' . $kind . ' · ' . $contact_id,
 			'contact_id'           => $contact_id,
@@ -142,6 +165,122 @@ final class BizCity_CRM_Pipeline_Run_Service {
 		return self::exception_transition( $run_id, $exception_key, 'resolved', $args );
 	}
 
+	/**
+	 * Reschedule the run's `appointment_at` (0.69 D69-4 — no recurring bookings; a moved/duplicated ca is
+	 * a manual edit of one run's appointment time). Re-syncs SLA so `depart_prep`/`checkin_prep` recompute
+	 * against the new time instead of firing against the stale one.
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function set_appointment( int $run_id, string $appointment_at, array $args = array() ) {
+		$row = self::load_row( $run_id );
+		if ( ! $row ) { return self::error( 'run_not_found', 'Không tìm thấy pipeline đang chạy.', 404, 'Tải lại pipeline.' ); }
+		$parsed = self::parse_appointment_at( $appointment_at );
+		if ( '' === $parsed ) { return self::error( 'appointment_at_invalid', 'Thời điểm hẹn không hợp lệ.', 422, 'Chọn lại ngày giờ hẹn.' ); }
+		$custom = self::decode( $row['custom_json'] ?? '' );
+		$definition = self::definition_for_row( $row );
+		$old_lock = (int) ( $custom['_lock'] ?? 0 );
+		if ( self::lock_enabled( $definition ) ) {
+			if ( ! array_key_exists( 'lock_version', $args ) ) { return self::error( 'lock_version_required', 'Thiếu phiên bản khóa của pipeline.', 409, 'Tải lại pipeline rồi gửi lại phiên bản khóa hiện tại.' ); }
+			if ( (int) $args['lock_version'] !== $old_lock ) { return self::error( 'stale_write', 'Pipeline đã được thay đổi bởi người khác.', 409, 'Tải lại pipeline trước khi ghi tiếp.' ); }
+		}
+		$before = $custom;
+		$custom['appointment_at'] = $parsed;
+		$custom['_lock'] = $old_lock + 1;
+		$now = function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' );
+		$updated = self::write_row( $row, $custom, (string) $row['status'], $now, $definition );
+		if ( is_wp_error( $updated ) ) { return $updated; }
+		self::audit( $run_id, 'appointment_rescheduled', $before, $custom );
+		self::sync_sla( $run_id );
+		return self::shape_run( $updated, $custom, $definition );
+	}
+
+	/** The id of the one OPEN run of `$kind` for a contact, or 0. Used by background writers that need a
+	 * target run without a UI-supplied run id (e.g. 0.69's passive location extraction from a message). */
+	public static function open_run_id_for_contact( int $contact_id, string $kind ): int {
+		if ( $contact_id <= 0 ) { return 0; }
+		global $wpdb;
+		$table = self::opportunities_table();
+		return (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM `{$table}` WHERE contact_id = %d AND pipeline_kind = %s AND status = 'open' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1",
+			$contact_id,
+			self::clean_kind( $kind )
+		) );
+	}
+
+	/**
+	 * Attach a customer's last-known coordinates to the run (0.69 §4.4 L3: `custom_json.service_address`).
+	 * Not a stage transition — no audit/SLA re-sync, no lock_version requirement, since this is a passive
+	 * background write triggered by message ingest, not a user-initiated edit with a UI to show a conflict.
+	 * A concurrent stage transition can never lose this data: `write_row()`'s CAS is keyed on the WHOLE
+	 * `custom_json` blob, so if it loses the race here it silently no-ops and the next inbound location
+	 * message retries — never corrupts, at worst briefly stale.
+	 *
+	 * @return bool
+	 */
+	public static function set_service_address( int $run_id, array $point, ?int $message_id = null ): bool {
+		$row = self::load_row( $run_id );
+		if ( ! $row ) { return false; }
+		$custom = self::decode( $row['custom_json'] ?? '' );
+		$custom['service_address'] = array(
+			'lat'             => (float) ( $point['lat'] ?? 0 ),
+			'lng'             => (float) ( $point['lng'] ?? 0 ),
+			'label'           => isset( $point['label'] ) ? self::text( $point['label'], 190 ) : null,
+			'from_message_id' => null !== $message_id ? (int) $message_id : null,
+		);
+		$custom['_lock'] = (int) ( $custom['_lock'] ?? 0 ) + 1;
+		$now = function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' );
+		global $wpdb;
+		$table = self::opportunities_table();
+		$updated = $wpdb->query( $wpdb->prepare(
+			"UPDATE `{$table}` SET custom_json = %s, updated_at = %s WHERE id = %d AND custom_json = %s",
+			self::json( $custom ),
+			$now,
+			$run_id,
+			(string) ( $row['custom_json'] ?? '' )
+		) );
+		return 1 === (int) $updated;
+	}
+
+	/**
+	 * Persist a "who could take this instead" suggestion (0.69 M-03) — never assigns anyone; the framework
+	 * proposes, a human picks (R-WORK-PIPE §0 "linh hoạt trước", same rule that keeps SLA breach from ever
+	 * moving a stage on its own). Same non-transition write shape as `set_service_address()` — passive,
+	 * triggered by an SLA `emit()` action, not a user click.
+	 *
+	 * @param array $suggestion Result of `BizCity_CRM_Service_Matcher::candidates()`.
+	 * @return bool
+	 */
+	public static function set_reassign_suggestion( int $run_id, array $suggestion ): bool {
+		$row = self::load_row( $run_id );
+		if ( ! $row ) { return false; }
+		$custom = self::decode( $row['custom_json'] ?? '' );
+		$candidates = array();
+		foreach ( (array) ( $suggestion['candidates'] ?? array() ) as $candidate ) {
+			if ( ! is_array( $candidate ) ) { continue; }
+			$candidates[] = array(
+				'user_id'      => (int) ( $candidate['user_id'] ?? 0 ),
+				'display_name' => self::text( $candidate['display_name'] ?? '', 120 ),
+			);
+		}
+		$custom['reassign_suggestion'] = array(
+			'at'         => function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ),
+			'candidates' => $candidates,
+		);
+		$custom['_lock'] = (int) ( $custom['_lock'] ?? 0 ) + 1;
+		$now = function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' );
+		global $wpdb;
+		$table = self::opportunities_table();
+		$updated = $wpdb->query( $wpdb->prepare(
+			"UPDATE `{$table}` SET custom_json = %s, updated_at = %s WHERE id = %d AND custom_json = %s",
+			self::json( $custom ),
+			$now,
+			$run_id,
+			(string) ( $row['custom_json'] ?? '' )
+		) );
+		return 1 === (int) $updated;
+	}
+
 	/** Runs of one contact — feeds the conversation target selector (D62-2). @return array|WP_Error */
 	public static function runs_for_contact( int $contact_id ) {
 		if ( $contact_id <= 0 ) { return array(); }
@@ -188,6 +327,13 @@ final class BizCity_CRM_Pipeline_Run_Service {
 		if ( 'doing' === $state || 'ready' === $state ) { $entry['started_at'] = 'doing' === $state ? $now_ts : ( $entry['started_at'] ?? null ); }
 		if ( 'done' === $state ) { $entry['done_at'] = $now_ts; }
 		$entry['by'] = isset( $args['actor_id'] ) ? (int) $args['actor_id'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 );
+		// [2026-09-23 PHASE-0.69 M-02] `by` is who PERFORMED the transition (the dispatcher clicking
+		// "Assign"), not necessarily who the stage is ABOUT — those are the same person for most pipeline
+		// kinds (whoever starts a stage is doing that stage's work) but not for `service`'s `assigned`
+		// stage, where a dispatcher assigns a *different* person. `role_context()` prefers this explicit
+		// field over `by` when present; every other kind never sets it, so `by` alone still decides
+		// `assignee_of_stage` for them — unchanged behaviour.
+		if ( isset( $args['stage_assignee_id'] ) && (int) $args['stage_assignee_id'] > 0 ) { $entry['assignee_id'] = (int) $args['stage_assignee_id']; }
 		if ( isset( $args['data'] ) && is_array( $args['data'] ) ) { $entry['data'] = $args['data']; }
 		$custom['stages'][ $stage_key ] = $entry;
 		if ( 'doing' === $state ) {
@@ -266,13 +412,110 @@ final class BizCity_CRM_Pipeline_Run_Service {
 	private static function blocking_exception( array $custom, string $stage_key ): bool { foreach ( (array) ( $custom['exceptions'] ?? array() ) as $exception ) { if ( is_array( $exception ) && in_array( (string) ( $exception['state'] ?? '' ), array( 'open', 'ack' ), true ) && ( empty( $exception['stage'] ) || (string) $exception['stage'] === $stage_key ) ) { return true; } } return false; }
 	private static function missing_requirements( array $step, array $args ): array { $requires = is_array( $step['requires'] ?? null ) ? $step['requires'] : array(); $data = is_array( $args['data'] ?? null ) ? $args['data'] : array(); $missing = array(); foreach ( (array) ( $requires['fields'] ?? array() ) as $field ) { if ( ! array_key_exists( $field, $data ) || '' === trim( (string) $data[ $field ] ) ) { $missing[] = 'field:' . $field; } } $evidence = is_array( $args['evidence'] ?? null ) ? $args['evidence'] : array(); $required_evidence = (array) ( $requires['evidence'] ?? array() ); $min_count = max( 0, (int) ( $requires['min_count'] ?? 0 ) ); if ( count( $evidence ) < $min_count ) { $missing[] = 'evidence:min_count'; } foreach ( $required_evidence as $kind ) { $found = false; foreach ( $evidence as $item ) { if ( ( is_string( $item ) && $item === $kind ) || ( is_array( $item ) && (string) ( $item['type'] ?? '' ) === $kind ) ) { $found = true; break; } } if ( ! $found ) { $missing[] = 'evidence:' . $kind; } } return $missing; }
 	private static function is_terminal( array $definition, string $key ): bool { $step = self::step_info( $definition, $key ); return is_array( $step ) && ! empty( $step['terminal'] ); }
-	private static function shape_run( array $row, array $custom, array $definition ): array { return array( 'id' => (int) $row['id'], 'contact_id' => (int) ( $row['contact_id'] ?? 0 ), 'owner_id' => (int) ( $row['owner_id'] ?? 0 ), 'pipeline_kind' => (string) ( $row['pipeline_kind'] ?? $definition['kind'] ?? '' ), 'pipeline_def_id' => isset( $row['pipeline_def_id'] ) ? (int) $row['pipeline_def_id'] : null, 'pipeline_def_version' => (int) ( $row['pipeline_def_version'] ?? 0 ), 'status' => (string) ( $row['status'] ?? 'open' ), 'stage' => (string) ( $custom['pipeline_stage'] ?? $row['stage'] ?? '' ), 'stages' => is_array( $custom['stages'] ?? null ) ? $custom['stages'] : array(), 'exceptions' => is_array( $custom['exceptions'] ?? null ) ? $custom['exceptions'] : array(), 'lock_version' => (int) ( $custom['_lock'] ?? 0 ), 'definition' => $definition ); }
+	/** Normalize a caller-supplied appointment time to `Y-m-d H:i:s`, or '' when unparseable/absent. */
+	private static function parse_appointment_at( $value ): string { $value = trim( (string) $value ); if ( '' === $value ) { return ''; } $ts = strtotime( $value ); return false === $ts ? '' : ( function_exists( 'wp_date' ) && function_exists( 'wp_timezone' ) ? (string) wp_date( 'Y-m-d H:i:s', $ts, wp_timezone() ) : gmdate( 'Y-m-d H:i:s', $ts ) ); }
+	private static function shape_run( array $row, array $custom, array $definition ): array { return array( 'id' => (int) $row['id'], 'contact_id' => (int) ( $row['contact_id'] ?? 0 ), 'owner_id' => (int) ( $row['owner_id'] ?? 0 ), 'created_by' => (int) ( $row['created_by'] ?? 0 ), 'pipeline_kind' => (string) ( $row['pipeline_kind'] ?? $definition['kind'] ?? '' ), 'pipeline_def_id' => isset( $row['pipeline_def_id'] ) ? (int) $row['pipeline_def_id'] : null, 'pipeline_def_version' => (int) ( $row['pipeline_def_version'] ?? 0 ), 'status' => (string) ( $row['status'] ?? 'open' ), 'stage' => (string) ( $custom['pipeline_stage'] ?? $row['stage'] ?? '' ), 'stages' => is_array( $custom['stages'] ?? null ) ? $custom['stages'] : array(), 'exceptions' => is_array( $custom['exceptions'] ?? null ) ? $custom['exceptions'] : array(), 'lock_version' => (int) ( $custom['_lock'] ?? 0 ),
+		// [2026-09-23 PHASE-0.69] Generic top-level custom_json fields, exposed whenever present — any kind
+		// may set them, only `service` does today. `null`/empty-array when unset, never a missing key, so a
+		// consumer never needs an `isset()` guard.
+		'appointment_at' => isset( $custom['appointment_at'] ) ? (string) $custom['appointment_at'] : null,
+		'service_key' => isset( $custom['service_key'] ) ? (string) $custom['service_key'] : null,
+		'service_address' => is_array( $custom['service_address'] ?? null ) ? $custom['service_address'] : null,
+		'team_id' => isset( $custom['team_id'] ) ? (int) $custom['team_id'] : null,
+		'reassign_suggestion' => is_array( $custom['reassign_suggestion'] ?? null ) ? $custom['reassign_suggestion'] : null,
+		'definition' => $definition ); }
+
+	/**
+	 * Recipient-resolution context for one stage of a run (0.63 §3.5 `roles{}`).
+	 *
+	 * `assignee_of_stage` means whoever actually worked THIS stage, not the run's overall owner — read
+	 * from `custom_json.stages[key].by` (set by every `transition()`), falling back to the run owner
+	 * when the stage has not been touched yet (e.g. a gate/SLA rule firing before anyone opened it).
+	 *
+	 * @return array{run_id:int,stage_key:string,owner_id:int,creator_id:int,assignee_id:int}
+	 */
+	public static function role_context( int $run_id, string $stage_key = '' ): array {
+		$row = self::load_row( $run_id );
+		if ( ! $row ) { return array( 'run_id' => $run_id, 'stage_key' => $stage_key, 'owner_id' => 0, 'creator_id' => 0, 'assignee_id' => 0 ); }
+		$custom = self::decode( $row['custom_json'] ?? '' );
+		$owner_id = (int) ( $row['owner_id'] ?? 0 );
+		$stage_entry = '' !== $stage_key && is_array( $custom['stages'][ $stage_key ] ?? null ) ? $custom['stages'][ $stage_key ] : array();
+		// `assignee_id` (explicit, set via `stage_assignee_id` — M-02) wins over `by` (who merely
+		// transitioned the stage) when both are present.
+		$stage_by = (int) ( $stage_entry['assignee_id'] ?? $stage_entry['by'] ?? 0 );
+		return array(
+			'run_id'      => $run_id,
+			'stage_key'   => $stage_key,
+			'owner_id'    => $owner_id,
+			'creator_id'  => (int) ( $row['created_by'] ?? 0 ),
+			'assignee_id' => $stage_by > 0 ? $stage_by : $owner_id,
+		);
+	}
 	private static function write_row( array $row, array $custom, string $status, string $now, array $definition ) { global $wpdb; $old_json = (string) ( $row['custom_json'] ?? '' ); $new_json = self::json( $custom ); $table = self::opportunities_table(); $sql = "UPDATE `{$table}` SET stage = %s, status = %s, custom_json = %s, updated_at = %s WHERE id = %d"; $params = array( (string) ( $custom['pipeline_stage'] ?? $row['stage'] ?? '' ), $status, $new_json, $now, (int) $row['id'] ); if ( self::lock_enabled( $definition ) ) { $sql .= ' AND custom_json = %s'; $params[] = $old_json; } $changed = $wpdb->query( $wpdb->prepare( $sql, $params ) ); if ( 1 !== (int) $changed ) { return self::error( 'stale_write', 'Pipeline đã được thay đổi bởi người khác.', 409, 'Tải lại pipeline trước khi ghi tiếp.' ); } $row['stage'] = $custom['pipeline_stage'] ?? $row['stage']; $row['status'] = $status; $row['custom_json'] = $new_json; $row['updated_at'] = $now; return $row; }
 	private static function audit( int $run_id, string $action, ?array $before, ?array $after ): void { if ( class_exists( 'BizCity_CRM_Audit_Log' ) ) { BizCity_CRM_Audit_Log::log( 'crm_opportunity', $run_id, $action, $before, $after, array( 'user_id' => function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0 ) ); } }
 	private static function sync_sla( int $run_id ): void { if ( class_exists( 'BizCity_CRM_Pipeline_SLA_Service' ) && method_exists( 'BizCity_CRM_Pipeline_SLA_Service', 'sync_for_run' ) ) { BizCity_CRM_Pipeline_SLA_Service::sync_for_run( $run_id ); } }
 	private static function cancel_open_sla( int $run_id, string $reason ): void { if ( class_exists( 'BizCity_CRM_Pipeline_SLA_Service' ) && method_exists( 'BizCity_CRM_Pipeline_SLA_Service', 'cancel_for_run' ) ) { BizCity_CRM_Pipeline_SLA_Service::cancel_for_run( $run_id, $reason ); } }
 	private static function ensure_sub_step_tasks( int $run_id, string $stage_key, array $step, array $entry, array $row, array $args ): void { if ( 'task' !== (string) ( $step['mode'] ?? '' ) || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) { return; } global $wpdb; $table = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks(); $existing = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND title = %s AND deleted_at IS NULL LIMIT 1", $run_id, self::text( $step['label'] ?? $stage_key, 180 ) ) ); if ( $existing ) { return; } $now = function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ); $assignee = isset( $args['assignee_id'] ) ? (int) $args['assignee_id'] : (int) ( $entry['by'] ?? $row['owner_id'] ?? 0 ); $wpdb->insert( $table, array( 'title' => self::text( $step['label'] ?? $stage_key, 180 ), 'status' => 'open', 'priority' => 'medium', 'due_date' => null, 'assignee_id' => $assignee > 0 ? $assignee : null, 'related_entity_type' => 'pipeline_run', 'related_entity_id' => $run_id, 'notes' => self::text( $step['key'] ?? $stage_key, 180 ), 'data_json' => isset( $args['data'] ) && is_array( $args['data'] ) ? self::json( $args['data'] ) : null, 'completed' => 0, 'created_by' => isset( $args['actor_id'] ) ? (int) $args['actor_id'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : null ), 'created_at' => $now, 'updated_at' => $now ) ); }
-	private static function persist_step_evidence( int $run_id, string $stage_key, array $step, array $args, array $row ) { if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) { return new WP_Error( 'crm_storage_unavailable', 'Kho dữ liệu CRM chưa sẵn sàng.', array( 'status' => 503, 'hint' => 'Thử lại khi CRM database đã sẵn sàng.', 'help_code' => 'pipeline_storage_unavailable' ) ); } $data = is_array( $args['data'] ?? null ) ? $args['data'] : array(); $evidence = is_array( $args['evidence'] ?? null ) ? $args['evidence'] : array(); $documents = is_array( $args['documents'] ?? null ) ? $args['documents'] : array(); if ( empty( $data ) && empty( $evidence ) && empty( $documents ) ) { return true; } global $wpdb; $task_table = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks(); $title = self::text( $step['label'] ?? $stage_key, 180 ); $task = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$task_table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND title = %s AND deleted_at IS NULL ORDER BY id DESC LIMIT 1", $run_id, $title ), ARRAY_A ); $payload = array( 'stage_key' => $stage_key, 'fields' => $data, 'evidence' => $evidence, 'updated_at' => function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ) ); $existing_data = $task && ! empty( $task['data_json'] ) ? self::decode( $task['data_json'] ) : array(); $payload['history'] = is_array( $existing_data['history'] ?? null ) ? $existing_data['history'] : array(); $payload['history'][] = array( 'at' => $payload['updated_at'], 'actor_id' => isset( $args['actor_id'] ) ? (int) $args['actor_id'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 ), 'fields' => $data, 'evidence' => $evidence ); if ( ! $task ) { $now = $payload['updated_at']; $created = $wpdb->insert( $task_table, array( 'title' => $title, 'status' => 'done', 'priority' => 'medium', 'assignee_id' => (int) ( $args['assignee_id'] ?? $row['owner_id'] ?? 0 ) ?: null, 'related_entity_type' => 'pipeline_run', 'related_entity_id' => $run_id, 'notes' => self::text( $step['key'] ?? $stage_key, 180 ), 'data_json' => self::json( $payload ), 'completed' => 1, 'completed_at' => $now, 'created_by' => (int) ( $args['actor_id'] ?? 0 ) ?: null, 'created_at' => $now, 'updated_at' => $now ) ); if ( ! $created ) { return new WP_Error( 'evidence_task_write_failed', 'Không thể lưu dữ liệu bằng chứng của bước.', array( 'status' => 500, 'hint' => 'Thử lại trước khi đóng bước.', 'help_code' => 'pipeline_evidence_write_failed' ) ); } } else { $updated = $wpdb->update( $task_table, array( 'data_json' => self::json( $payload ), 'status' => 'done', 'completed' => 1, 'completed_at' => $payload['updated_at'], 'updated_at' => $payload['updated_at'] ), array( 'id' => (int) $task['id'] ) ); if ( false === $updated ) { return new WP_Error( 'evidence_task_write_failed', 'Không thể cập nhật dữ liệu bằng chứng của bước.', array( 'status' => 500, 'hint' => 'Thử lại trước khi đóng bước.', 'help_code' => 'pipeline_evidence_write_failed' ) ); } } if ( ! empty( $documents ) ) { $doc_table = BizCity_CRM_DB_Installer_V2::tbl_crm_documents(); foreach ( $documents as $document ) { if ( ! is_array( $document ) || '' === trim( (string) ( $document['name'] ?? '' ) ) || '' === trim( (string) ( $document['path'] ?? '' ) ) ) { continue; } $name = self::text( $document['name'], 255 ); $path = function_exists( 'esc_url_raw' ) ? esc_url_raw( (string) $document['path'] ) : self::text( $document['path'], 512 ); $exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$doc_table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND name = %s AND path = %s LIMIT 1", $run_id, $name, $path ) ); if ( $exists ) { continue; } $wpdb->insert( $doc_table, array( 'name' => $name, 'type' => self::text( $document['type'] ?? 'file', 64 ), 'size_bytes' => max( 0, (int) ( $document['size_bytes'] ?? 0 ) ), 'path' => $path, 'uploaded_by' => (int) ( $args['actor_id'] ?? 0 ) ?: ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : null ), 'related_entity_type' => 'pipeline_run', 'related_entity_id' => $run_id, 'uploaded_at' => $payload['updated_at'] ) ); if ( ! $wpdb->insert_id ) { return new WP_Error( 'evidence_document_write_failed', 'Không thể gắn tài liệu bằng chứng cho pipeline.', array( 'status' => 500, 'hint' => 'Kiểm tra tài liệu rồi thử lại.', 'help_code' => 'pipeline_document_write_failed' ) ); } } } return true; }
+	private static function persist_step_evidence( int $run_id, string $stage_key, array $step, array $args, array $row ) { if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) { return new WP_Error( 'crm_storage_unavailable', 'Kho dữ liệu CRM chưa sẵn sàng.', array( 'status' => 503, 'hint' => 'Thử lại khi CRM database đã sẵn sàng.', 'help_code' => 'pipeline_storage_unavailable' ) ); } $data = is_array( $args['data'] ?? null ) ? $args['data'] : array(); $evidence = is_array( $args['evidence'] ?? null ) ? $args['evidence'] : array(); $documents = is_array( $args['documents'] ?? null ) ? $args['documents'] : array(); if ( empty( $data ) && empty( $evidence ) && empty( $documents ) ) { return true; } global $wpdb; $task_table = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks(); $title = self::text( $step['label'] ?? $stage_key, 180 ); $task = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$task_table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND title = %s AND deleted_at IS NULL ORDER BY id DESC LIMIT 1", $run_id, $title ), ARRAY_A ); $payload = array( 'stage_key' => $stage_key, 'fields' => $data, 'evidence' => $evidence, 'updated_at' => function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ) ); $existing_data = $task && ! empty( $task['data_json'] ) ? self::decode( $task['data_json'] ) : array(); $payload['history'] = is_array( $existing_data['history'] ?? null ) ? $existing_data['history'] : array(); $payload['history'][] = array( 'at' => $payload['updated_at'], 'actor_id' => isset( $args['actor_id'] ) ? (int) $args['actor_id'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 ), 'fields' => $data, 'evidence' => $evidence ); if ( ! $task ) { $now = $payload['updated_at']; $created = $wpdb->insert( $task_table, array( 'title' => $title, 'status' => 'done', 'priority' => 'medium', 'assignee_id' => (int) ( $args['assignee_id'] ?? $row['owner_id'] ?? 0 ) ?: null, 'related_entity_type' => 'pipeline_run', 'related_entity_id' => $run_id, 'notes' => self::text( $step['key'] ?? $stage_key, 180 ), 'data_json' => self::json( $payload ), 'completed' => 1, 'completed_at' => $now, 'created_by' => (int) ( $args['actor_id'] ?? 0 ) ?: null, 'created_at' => $now, 'updated_at' => $now ) ); if ( ! $created ) { return new WP_Error( 'evidence_task_write_failed', 'Không thể lưu dữ liệu bằng chứng của bước.', array( 'status' => 500, 'hint' => 'Thử lại trước khi đóng bước.', 'help_code' => 'pipeline_evidence_write_failed' ) ); } } else { $updated = $wpdb->update( $task_table, array( 'data_json' => self::json( $payload ), 'status' => 'done', 'completed' => 1, 'completed_at' => $payload['updated_at'], 'updated_at' => $payload['updated_at'] ), array( 'id' => (int) $task['id'] ) ); if ( false === $updated ) { return new WP_Error( 'evidence_task_write_failed', 'Không thể cập nhật dữ liệu bằng chứng của bước.', array( 'status' => 500, 'hint' => 'Thử lại trước khi đóng bước.', 'help_code' => 'pipeline_evidence_write_failed' ) ); } } if ( ! empty( $documents ) ) { $doc_table = BizCity_CRM_DB_Installer_V2::tbl_crm_documents(); foreach ( $documents as $document ) { if ( ! is_array( $document ) || '' === trim( (string) ( $document['name'] ?? '' ) ) || '' === trim( (string) ( $document['path'] ?? '' ) ) ) { continue; } $name = self::text( $document['name'], 255 ); $type = self::text( $document['type'] ?? 'file', 64 ); $original_path = (string) $document['path']; $path = function_exists( 'esc_url_raw' ) ? esc_url_raw( $original_path ) : self::text( $original_path, 512 ); $remote_only = false; if ( self::is_evidence_photo_type( $type ) && self::is_remote_evidence_url( $path ) ) { $mirrored = self::sideload_evidence_photo( $path, $name ); if ( null !== $mirrored ) { $path = $mirrored; } else { $remote_only = true; } } $exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$doc_table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND name = %s AND path = %s LIMIT 1", $run_id, $name, $path ) ); if ( $exists ) { continue; } $wpdb->insert( $doc_table, array( 'name' => $name, 'type' => $type, 'size_bytes' => max( 0, (int) ( $document['size_bytes'] ?? 0 ) ), 'path' => $path, 'uploaded_by' => (int) ( $args['actor_id'] ?? 0 ) ?: ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : null ), 'related_entity_type' => 'pipeline_run', 'related_entity_id' => $run_id, 'uploaded_at' => $payload['updated_at'] ) ); if ( ! $wpdb->insert_id ) { return new WP_Error( 'evidence_document_write_failed', 'Không thể gắn tài liệu bằng chứng cho pipeline.', array( 'status' => 500, 'hint' => 'Kiểm tra tài liệu rồi thử lại.', 'help_code' => 'pipeline_document_write_failed' ) ); } if ( $remote_only && class_exists( 'BizCity_CRM_Audit_Log' ) ) { BizCity_CRM_Audit_Log::log( 'crm_document', (int) $wpdb->insert_id, 'evidence_remote_only', null, array( 'run_id' => $run_id, 'stage_key' => $stage_key, 'name' => $name ), array( 'user_id' => (int) ( $args['actor_id'] ?? 0 ) ) ); } } } return true; }
+
+	/**
+	 * PHASE-0.69 §4.5/L-08 — a Zalo attachment's `data_url` is the provider's CDN, which is not durable
+	 * (`class-adapter-zalo.php:40-46`: nothing downloads it to WP Media). An evidence photo IS the record
+	 * of a completed step (booking check-in, QC pass, goods-received) — a broken image link there is a
+	 * broken audit trail, not a missing thumbnail. So a `photo`/`image` evidence document with a remote URL
+	 * gets mirrored into WP Media at the moment the step closes; only evidence documents, never the whole
+	 * chat's photos (that would be unbounded storage growth for no audit value).
+	 */
+	private static function is_evidence_photo_type( string $type ): bool {
+		return in_array( strtolower( $type ), array( 'photo', 'image' ), true );
+	}
+
+	/** A provider CDN link, not already a local WP Media URL (so re-running this on an already-mirrored
+	 * document is a no-op, not a re-download). */
+	private static function is_remote_evidence_url( string $path ): bool {
+		if ( ! preg_match( '#^https?://#i', $path ) ) { return false; }
+		$upload_base = function_exists( 'wp_upload_dir' ) ? (string) ( wp_upload_dir()['baseurl'] ?? '' ) : '';
+		return '' === $upload_base || 0 !== strpos( $path, $upload_base );
+	}
+
+	/**
+	 * @return string|null Local WP Media URL, or null when the download/attach failed — caller keeps the
+	 *                      original remote URL and flags `evidence_remote_only` (never blocks the step).
+	 */
+	private static function sideload_evidence_photo( string $url, string $name ) {
+		if ( ! self::ensure_media_includes() ) {
+			return null;
+		}
+		$tmp = download_url( $url, 15 );
+		if ( is_wp_error( $tmp ) ) {
+			return null;
+		}
+		$basename = '' !== trim( $name ) ? $name : ( (string) ( parse_url( $url, PHP_URL_PATH ) ?: 'evidence.jpg' ) );
+		$file_array = array( 'name' => function_exists( 'sanitize_file_name' ) ? sanitize_file_name( $basename ) : $basename, 'tmp_name' => $tmp );
+		$attachment_id = media_handle_sideload( $file_array, 0 );
+		if ( is_wp_error( $attachment_id ) ) {
+			if ( file_exists( $tmp ) ) { @unlink( $tmp ); }
+			return null;
+		}
+		$local_url = wp_get_attachment_url( $attachment_id );
+		return is_string( $local_url ) && '' !== $local_url ? $local_url : null;
+	}
+
+	/** WP Media functions are admin-only includes — load them on demand (this runs from a REST request,
+	 * never wp-admin). Degrades to "unavailable" rather than fatal when the install is unusually thin. */
+	private static function ensure_media_includes(): bool {
+		if ( function_exists( 'media_handle_sideload' ) && function_exists( 'download_url' ) ) {
+			return true;
+		}
+		if ( ! defined( 'ABSPATH' ) ) {
+			return false;
+		}
+		foreach ( array( 'wp-admin/includes/file.php', 'wp-admin/includes/media.php', 'wp-admin/includes/image.php' ) as $relative ) {
+			$file = ABSPATH . $relative;
+			if ( is_file( $file ) ) { require_once $file; }
+		}
+		return function_exists( 'media_handle_sideload' ) && function_exists( 'download_url' );
+	}
 	private static function emit_lifecycle( int $run_id, int $contact_id, string $kind, string $stage, string $event ): void { if ( class_exists( 'BizCity_CRM_Event_Emitter' ) ) { BizCity_CRM_Event_Emitter::emit( 'crm_pipeline_lifecycle', array( 'run_id' => $run_id, 'contact_id' => max( 0, $contact_id ), 'pipeline_kind' => sanitize_key( $kind ), 'stage_key' => self::text( $stage, 64 ), 'event' => sanitize_key( $event ), 'occurred_at' => function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ) ) ); } self::report_lifecycle_metric( $run_id, $contact_id, $event ); }
 	private static function report_lifecycle_metric( int $run_id, int $contact_id, string $event ): void { if ( ! class_exists( 'BizCity_CRM_Reporting_Rollup' ) ) { return; } $metric = array( 'stage_started' => 'pipeline_stage_changed', 'stage_done' => 'pipeline_step_done', 'stage_doing' => 'pipeline_stage_changed', 'stage_blocked' => 'pipeline_stage_changed', 'exception_open' => 'pipeline_exception_opened', 'exception_ack' => 'pipeline_exception_acknowledged', 'exception_resolved' => 'pipeline_exception_resolved' )[ $event ] ?? ''; if ( '' !== $metric ) { BizCity_CRM_Reporting_Rollup::record_fact( $metric, 0, gmdate( 'Y-m-d H:i:s' ), 1, 'pipeline:' . $run_id . ':' . $event . ':' . microtime( true ), $contact_id ); } }
 	private static function lock_enabled( array $definition ): bool { return ! empty( $definition['lock_version'] ); }

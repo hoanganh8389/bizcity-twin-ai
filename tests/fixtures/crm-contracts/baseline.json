@@ -1,0 +1,18 @@
+{
+    "schema": "bizcity-crm-contracts-baseline-v1",
+    "generated_at": "2026-09-19T09:03:06Z",
+    "owner": "WP5 - CRM Repository and Event Ownership",
+    "contract": "R-CRM-FRAMEWORK + R-B2B2C + R-ZONE + R-USER-INBOX-SPINE",
+    "note": "The canonical CRM contract, repository event path, Zone 2 AI policy guard, exact-owner/user-centric Inbox scope, and CRM/archive/channel correlation are source-verified and fixture-gated. New regressions fail immediately.",
+    "source_counts": {
+        "contract_files": 1,
+        "repository_files": 1,
+        "zone_files": 1,
+        "scope_files": 1,
+        "archive_files": 1,
+        "canonical_write_functions": 4,
+        "canonical_event_functions": 4
+    },
+    "total_findings": 0,
+    "known_findings": []
+}

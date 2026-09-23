@@ -159,7 +159,9 @@ class BizCity_ZNS_Automation_REST {
 	 * @return bool
 	 */
 	public static function can_manage() {
-		return current_user_can( 'manage_options' );
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	// ── 1. Settings ──────────────────────────────────────────────────────────

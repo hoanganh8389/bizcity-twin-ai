@@ -147,9 +147,12 @@ final class BizCity_CRM_Pipeline_SLA_Runner {
 		$ladder = self::ordered_ladder( $rule['on_miss'] ?? array(), $anchor_ts, $due_ts );
 		$level = (int) ( $deadline['level'] ?? 0 );
 		$rung = $ladder[ $level ] ?? array( 'at' => '0', 'do' => 'flag(breached)' );
-		$ctx = array( 'run_id' => $run_id, 'stage_key' => (string) ( $deadline['stage_key'] ?? '' ) );
-		$ctx['assignee_id'] = self::run_assignee_id( $run_id );
-		$ctx['owner_id'] = $ctx['assignee_id'];
+		// [2026-09-23] Use the run service's role context (owner/creator/stage-assignee) instead of
+		// collapsing everything onto `owner_id` — `owner_of_run`/`creator_of_run`/`assignee_of_stage`
+		// each need their own value, and assignee should be whoever worked THIS stage, not just the owner.
+		$ctx = class_exists( 'BizCity_CRM_Pipeline_Run_Service' ) && method_exists( 'BizCity_CRM_Pipeline_Run_Service', 'role_context' )
+			? BizCity_CRM_Pipeline_Run_Service::role_context( $run_id, (string) ( $deadline['stage_key'] ?? '' ) )
+			: array( 'run_id' => $run_id, 'stage_key' => (string) ( $deadline['stage_key'] ?? '' ), 'owner_id' => self::run_assignee_id( $run_id ), 'creator_id' => 0, 'assignee_id' => self::run_assignee_id( $run_id ) );
 		$deadline['assignee_id'] = $ctx['assignee_id'];
 		$deadline['owner_id'] = $ctx['owner_id'];
 		foreach ( preg_split( '/\s*\+\s*/', (string) ( $rung['do'] ?? '' ) ) as $action ) {

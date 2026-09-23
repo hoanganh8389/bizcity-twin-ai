@@ -379,6 +379,39 @@ require_once $gateway_dir . 'class-responder-stamper.php';
 require_once $gateway_dir . 'class-inbox-send-rest.php';
 require_once $gateway_dir . 'class-webhook-replay.php';
 
+// [2026-09-23 Claude Sonnet 5] PHASE-0.60A W1/W2/W3 — Bot Studio: settings.bot repo + tuning
+// option (W1), bizcity-channel/v1/bot/* REST (W2), turn engine (W3). Hook registration inside
+// each class's own init() only fires on the request types that actually reach these hooks
+// (REST init, the inbound-message hook chain, CLI/cron) — never on an arbitrary public page
+// load, satisfying B9.1 without a separate glob-based loader.
+// [2026-09-23 Claude Sonnet 5] R-SAFE-LOADER / B9.2 fix — these 12 files were bare `require_once`
+// with no is_file()/is_readable() guard and no BizCity_Safe_Loader, unlike every sibling loader
+// block in this file (see the stub-adapters loop above). A missing/corrupt file in a partial
+// deploy would have fataled the whole gateway instead of degrading just Bot Studio.
+$_bzc_bot_files = array(
+	$gateway_dir . 'bot/class-bot-config-repo.php'    => 'channel.bot.config_repo',
+	$gateway_dir . 'bot/class-bot-rest.php'           => 'channel.bot.rest',
+	$gateway_dir . 'bot/class-bot-office-hours.php'   => 'channel.bot.office_hours',
+	$gateway_dir . 'bot/class-bot-provider.php'       => 'channel.bot.provider',
+	$gateway_dir . 'bot/class-bot-vn-date.php'        => 'channel.bot.vn_date',
+	$gateway_dir . 'bot/class-bot-tool-registry.php'  => 'channel.bot.tool_registry',
+	$gateway_dir . 'bot/class-bot-vertical-tools.php' => 'channel.bot.vertical_tools',
+	$gateway_dir . 'bot/class-bot-astro-tool.php'     => 'channel.bot.astro_tool',
+	$gateway_dir . 'bot/class-bot-tools.php'          => 'channel.bot.tools',
+	$gateway_dir . 'bot/class-bot-context-builder.php' => 'channel.bot.context_builder',
+	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',
+	$gateway_dir . 'bot/class-bot-turn-runner.php'    => 'channel.bot.turn_runner',
+);
+foreach ( $_bzc_bot_files as $_bzc_bot_file => $_bzc_bot_label ) {
+	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+		BizCity_Safe_Loader::require_file( $_bzc_bot_file, $_bzc_bot_label );
+	} elseif ( is_file( $_bzc_bot_file ) && is_readable( $_bzc_bot_file ) ) {
+		// Safe Loader is normally provided by the main plugin; retain a guarded bootstrap fallback.
+		require_once $_bzc_bot_file;
+	}
+}
+unset( $_bzc_bot_files, $_bzc_bot_file, $_bzc_bot_label );
+
 // Phase CG-Listener S1 — live tail bus + SSE for Listener UI + Automation debug.
 require_once $gateway_dir . 'listener/class-listener-bus.php';
 require_once $gateway_dir . 'listener/class-listener-rest.php';
@@ -407,6 +440,13 @@ BizCity_Universal_Channel_Listener::init();
 
 // Boot the Webhook Inspector (Tools menu + REST namespace bizcity/cg/v1).
 BizCity_Webhook_Inspector::init();
+
+// [2026-09-23 Claude Sonnet 5] PHASE-0.60A W2/W3 — Bot Studio REST + turn engine.
+// Guarded like BizCity_Mabel_Wheel_Channel_Listener below: the loader above now degrades a
+// missing/corrupt bot file instead of fataling, so init() must not assume the class exists.
+if ( class_exists( 'BizCity_Bot_REST' ) ) { BizCity_Bot_REST::init(); }
+if ( class_exists( 'BizCity_Bot_Turn_Claim' ) ) { BizCity_Bot_Turn_Claim::init(); }
+if ( class_exists( 'BizCity_Bot_Turn_Runner' ) ) { BizCity_Bot_Turn_Runner::init(); }
 
 // Phase CG-Listener S1 — Listener Bus + REST (live tail SSE + polling fallback).
 BizCity_Listener_Bus::init();

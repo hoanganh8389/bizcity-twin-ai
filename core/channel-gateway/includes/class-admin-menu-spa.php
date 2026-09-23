@@ -95,7 +95,9 @@ final class BizCity_Gateway_Admin_SPA {
 		global $submenu;
 		$parent = 'bizcity-twin-workspace';
 		// [2026-09-19 Johnny Chu] HOTFIX — Network Super Admins can lack a local blog role; gate the deployed Gateway SPA with the network capability on multisite.
-		$capability = function_exists( 'is_super_admin' ) && is_super_admin() ? 'manage_network' : 'manage_options';
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: ( function_exists( 'is_super_admin' ) && is_super_admin() ? 'manage_network' : 'manage_options' );
 		// [2026-08-11 Johnny Chu] PHASE-1.26 — central registration owns the visible parent and slug.
 		if ( isset( $submenu[ $parent ] ) && is_array( $submenu[ $parent ] ) ) {
 			foreach ( $submenu[ $parent ] as $index => $item ) {
@@ -227,8 +229,17 @@ final class BizCity_Gateway_Admin_SPA {
 			'blogName'     => (string) get_bloginfo( 'name' ),
 			'version'      => defined( 'BIZCITY_TWIN_CORE_VERSION' ) ? BIZCITY_TWIN_CORE_VERSION : '1.0',
 			'caps'         => [
-				'manage' => current_user_can( 'manage_options' ),
-				'send'   => current_user_can( 'manage_options' ) || current_user_can( 'bizcity_channel_send' ),
+				// Mirror the same manage_network fallback used to gate this menu's own
+				// visibility above — a network Super Admin without a local blog row must
+				// see the same caps here, otherwise every REST call the SPA makes 403s
+				// while the page itself renders fine.
+				'manage' => class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' ),
+				'send'   => current_user_can( 'bizcity_channel_send' )
+					|| ( class_exists( 'BizCity_Network_Admin_Capability' )
+						? BizCity_Network_Admin_Capability::can_manage()
+						: current_user_can( 'manage_options' ) ),
 			],
 			'i18n'         => [
 				'plugin_title' => __( 'BizChat Channels', 'bizcity-twin-ai' ),

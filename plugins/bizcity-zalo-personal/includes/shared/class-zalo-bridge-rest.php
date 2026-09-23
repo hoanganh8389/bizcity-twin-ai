@@ -190,7 +190,11 @@ class BizCity_Zalo_Bridge_REST {
 	// ── Permission ────────────────────────────────────────────────────────
 
 	public static function can_manage(): bool {
-		return current_user_can( 'manage_options' );
+		// [HOTFIX-CHANNEL-SUPER-ADMIN] mirror class-channel-rest-api.php::require_manage_options() —
+		// a Network Super Admin must not be rejected merely because the current mapped blog has no
+		// local administrator role.
+		return current_user_can( 'manage_options' )
+			|| ( function_exists( 'is_super_admin' ) && is_super_admin() && current_user_can( 'manage_network' ) );
 	}
 
 	// ── Inbound handler ───────────────────────────────────────────────────

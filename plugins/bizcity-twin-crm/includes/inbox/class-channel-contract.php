@@ -97,8 +97,12 @@ final class BizCity_CRM_Channel_Contract {
 				continue;
 			}
 			$type = sanitize_key( (string) ( $attachment['file_type'] ?? $attachment['type'] ?? 'file' ) );
+			// [2026-09-23 PHASE-0.69 R2] 'location' added to the allowlist — a Zalo Personal "send location"
+			// share still arrives as a plain text message (0.69 §4.1); this only widens what the CONTRACT will
+			// accept for an attachment that something else (BizCity_CRM_Location_Service) explicitly builds
+			// with file_type='location'. No adapter emits this type today, so nothing changes for existing traffic.
 			$attachments[] = array(
-				'file_type' => in_array( $type, array( 'text', 'image', 'audio', 'video', 'file' ), true ) ? $type : 'file',
+				'file_type' => in_array( $type, array( 'text', 'image', 'audio', 'video', 'file', 'location' ), true ) ? $type : 'file',
 				'data_url'  => (string) ( $attachment['data_url'] ?? $attachment['url'] ?? '' ),
 				'thumb_url' => isset( $attachment['thumb_url'] ) ? (string) $attachment['thumb_url'] : null,
 				'meta'      => isset( $attachment['meta'] ) && is_array( $attachment['meta'] ) ? $attachment['meta'] : array(),

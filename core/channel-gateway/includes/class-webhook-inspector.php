@@ -522,7 +522,9 @@ class BizCity_Webhook_Inspector {
 	}
 
 	public static function can(): bool {
-		return current_user_can( 'manage_options' );
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	public static function rest_logs( WP_REST_Request $req ) {

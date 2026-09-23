@@ -1019,6 +1019,8 @@ bizcity_diagnostics_require_probe( 'class-probe-channel-broadcast-import-matrix.
 bizcity_diagnostics_require_probe( 'class-probe-zalo-personal.php' );
 // [2026-09-03 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — register focused QR operation readiness fixtures without provider transport.
 bizcity_diagnostics_require_probe( 'class-probe-zalo-personal-bridge-diagnostics.php' );
+// [2026-09-23 Claude Sonnet 5] PHASE-0.60A W3.5 — Bot Studio turn-engine readiness (disk/loader/hook-priority/office-hours/default-reply-safety/schema), no LLM or Zalo call.
+bizcity_diagnostics_require_probe( 'class-probe-bot-studio.php' );
 // [2026-09-03 03:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H6-GROUP-DDV — queue the read-only experimental group-history contract probe.
 bizcity_diagnostics_require_probe( 'class-probe-zalo-personal-group-history-contract.php' );
 // [2026-09-17 09:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39C-C8 — session retention/recovery hardening contract (restore retry, telemetry, restart policy, UI message split).

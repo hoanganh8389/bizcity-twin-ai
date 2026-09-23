@@ -694,6 +694,153 @@ class BizCity_CRM_Repository {
 		return $row ?: null;
 	}
 
+	/**
+	 * Enrich an EXISTING contact (PHASE-0.60B §4.1): fill only empty scalar slots,
+	 * merge additional_attributes, and write birthday only when it is still NULL.
+	 * Staff-entered values always win; this never overwrites.
+	 *
+	 * @param array $data { name?, email?, phone?, avatar_url?, additional_attributes?: array, birthday?: Y-m-d, birthday_md?: MM-DD, birthday_meta?: array }
+	 * @return array{updated:array,birthday_set:bool}
+	 */
+	public static function enrich_contact( int $contact_id, array $data ): array {
+		// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C3.3 — same fill-only-empty law as upsert_contact_by_identity(), keyed by contact_id.
+		global $wpdb;
+		$out = array( 'updated' => array(), 'birthday_set' => false );
+		$existing = self::get_contact( $contact_id );
+		if ( ! is_array( $existing ) || ! empty( $existing['deleted_at'] ) ) {
+			return $out;
+		}
+		$tbl    = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$update = array();
+		foreach ( array( 'name', 'email', 'phone', 'avatar_url' ) as $field ) {
+			$val = isset( $data[ $field ] ) ? trim( (string) $data[ $field ] ) : '';
+			if ( $val !== '' && trim( (string) ( $existing[ $field ] ?? '' ) ) === '' ) {
+				$update[ $field ] = 'email' === $field ? sanitize_email( $val ) : ( 'avatar_url' === $field ? esc_url_raw( $val ) : sanitize_text_field( $val ) );
+			}
+		}
+		$old_attrs = is_array( json_decode( (string) ( $existing['additional_attributes'] ?? '' ), true ) ) ? json_decode( (string) $existing['additional_attributes'], true ) : array();
+		$new_attrs = isset( $data['additional_attributes'] ) && is_array( $data['additional_attributes'] ) ? $data['additional_attributes'] : array();
+		$has_birthday_cols = function_exists( 'bizcity_column_exists' ) ? bizcity_column_exists( $tbl, 'birthday' ) : true;
+		if ( $has_birthday_cols ) {
+			$cur_birthday = (string) ( $existing['birthday'] ?? '' );
+			$cur_md       = (string) ( $existing['birthday_md'] ?? '' );
+			$new_birthday = isset( $data['birthday'] ) ? (string) $data['birthday'] : '';
+			$new_md       = isset( $data['birthday_md'] ) ? (string) $data['birthday_md'] : '';
+			if ( ( $cur_birthday === '' || $cur_birthday === '0000-00-00' ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $new_birthday ) ) {
+				$update['birthday']    = $new_birthday;
+				$update['birthday_md'] = substr( $new_birthday, 5 );
+				$out['birthday_set']   = true;
+			} elseif ( $cur_birthday === '' && $cur_md === '' && preg_match( '/^\d{2}-\d{2}$/', $new_md ) ) {
+				$update['birthday_md'] = $new_md;
+				$out['birthday_set']   = true;
+			}
+			if ( $out['birthday_set'] && isset( $data['birthday_meta'] ) && is_array( $data['birthday_meta'] ) ) {
+				$new_attrs['birthday_meta'] = $data['birthday_meta'];
+			}
+		}
+		if ( $new_attrs ) {
+			$update['additional_attributes'] = wp_json_encode( array_merge( $old_attrs, $new_attrs ), JSON_UNESCAPED_UNICODE );
+		}
+		if ( empty( $update ) ) {
+			return $out;
+		}
+		$update['updated_at'] = current_time( 'mysql' );
+		$ok = $wpdb->update( $tbl, $update, array( 'id' => $contact_id ) );
+		if ( false === $ok ) {
+			return array( 'updated' => array(), 'birthday_set' => false );
+		}
+		unset( $update['updated_at'] );
+		$out['updated'] = array_keys( $update );
+		self::invalidate_read_models();
+		if ( class_exists( 'BizCity_CRM_Event_Emitter' ) ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_contact_upserted', array( 'contact_id' => $contact_id, 'action' => 'enriched', 'fields' => $out['updated'] ) );
+		}
+		return $out;
+	}
+
+	/**
+	 * Write birthday (PHASE-0.60B §3). `$date` Y-m-d or '' (year unknown) with `$md` MM-DD.
+	 * Non-forced writers fill only an empty slot; `$force` (staff) may overwrite or clear (both '').
+	 */
+	public static function set_contact_birthday( int $contact_id, string $date, string $md, bool $force = false, array $attrs = array() ): bool {
+		// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C3.3/C4.3 — one writer for the real column pair.
+		global $wpdb;
+		$existing = self::get_contact( $contact_id );
+		if ( ! is_array( $existing ) || ! empty( $existing['deleted_at'] ) ) {
+			return false;
+		}
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		if ( function_exists( 'bizcity_column_exists' ) && ! bizcity_column_exists( $tbl, 'birthday' ) ) {
+			return false;
+		}
+		if ( $date !== '' && ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+			return false;
+		}
+		if ( $md !== '' && ! preg_match( '/^\d{2}-\d{2}$/', $md ) ) {
+			return false;
+		}
+		$cur_birthday = (string) ( $existing['birthday'] ?? '' );
+		$cur_md       = (string) ( $existing['birthday_md'] ?? '' );
+		$has_current  = ( $cur_birthday !== '' && $cur_birthday !== '0000-00-00' ) || $cur_md !== '';
+		if ( $has_current && ! $force ) {
+			return false; // rule 1: never overwrite without explicit staff intent.
+		}
+		$old_attrs = is_array( json_decode( (string) ( $existing['additional_attributes'] ?? '' ), true ) ) ? json_decode( (string) $existing['additional_attributes'], true ) : array();
+		$update = array(
+			'birthday'    => $date !== '' ? $date : null,
+			'birthday_md' => $md !== '' ? $md : ( $date !== '' ? substr( $date, 5 ) : null ),
+			'updated_at'  => current_time( 'mysql' ),
+		);
+		if ( $attrs ) {
+			$update['additional_attributes'] = wp_json_encode( array_merge( $old_attrs, $attrs ), JSON_UNESCAPED_UNICODE );
+		}
+		$ok = $wpdb->update( $tbl, $update, array( 'id' => $contact_id ) );
+		if ( false === $ok ) {
+			return false;
+		}
+		self::invalidate_read_models();
+		return true;
+	}
+
+	/** Customer withdrawal (PHASE-0.60B rule 6): drop enriched attributes + birthday, remember the opt-out window. */
+	public static function clear_contact_enrichment( int $contact_id, string $opt_out_until ): bool {
+		// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C3.8.
+		global $wpdb;
+		$existing = self::get_contact( $contact_id );
+		if ( ! is_array( $existing ) ) {
+			return false;
+		}
+		$tbl   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$attrs = is_array( json_decode( (string) ( $existing['additional_attributes'] ?? '' ), true ) ) ? json_decode( (string) $existing['additional_attributes'], true ) : array();
+		unset( $attrs['zalo_profile'], $attrs['birthday_meta'], $attrs['birth_time'], $attrs['birth_place'] );
+		$attrs['enrichment_opt_out_until'] = $opt_out_until;
+		$update = array( 'additional_attributes' => wp_json_encode( $attrs, JSON_UNESCAPED_UNICODE ), 'updated_at' => current_time( 'mysql' ) );
+		if ( ! function_exists( 'bizcity_column_exists' ) || bizcity_column_exists( $tbl, 'birthday' ) ) {
+			$update['birthday']    = null;
+			$update['birthday_md'] = null;
+		}
+		$ok = $wpdb->update( $tbl, $update, array( 'id' => $contact_id ) );
+		if ( false === $ok ) {
+			return false;
+		}
+		self::invalidate_read_models();
+		return true;
+	}
+
+	/** Contact ids whose birthday is on MM-DD (indexed read; used by diagnostics/reports). */
+	public static function contact_ids_with_birthday_md( string $md, int $limit = 500 ): array {
+		global $wpdb;
+		if ( ! preg_match( '/^\d{2}-\d{2}$/', $md ) ) {
+			return array();
+		}
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		if ( function_exists( 'bizcity_column_exists' ) && ! bizcity_column_exists( $tbl, 'birthday_md' ) ) {
+			return array();
+		}
+		$rows = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$tbl} WHERE birthday_md = %s AND deleted_at IS NULL ORDER BY id ASC LIMIT %d", $md, max( 1, min( 5000, $limit ) ) ) );
+		return array_map( 'intval', (array) $rows );
+	}
+
 	/* ============================================================
 	 * CONVERSATION
 	 * ============================================================ */
@@ -1403,6 +1550,12 @@ class BizCity_CRM_Repository {
 			return 0;
 		}
 		$msg_id = (int) $wpdb->insert_id;
+
+		// [2026-09-23 04:00 PM Claude Fable 5.1] PHASE-0.60A/0.60D Q-D2 — the ONE insertion point every message passes
+		// through (see the PHASE-0.56 D-1 note below). Outgoing rows written by the outbound dispatcher never reach
+		// `bizcity_crm_message_persisted` (ingestor-only), so this generic mark is what lets Bot Studio arm the
+		// "staff replied by hand → pause" window and lets automation run "after the bot replied" without polling.
+		do_action( 'bizcity_crm_message_inserted', $msg_id, $row );
 
 		// Insert attachments if any.
 		if ( ! empty( $data['attachments'] ) && is_array( $data['attachments'] ) ) {

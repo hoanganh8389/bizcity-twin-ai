@@ -704,7 +704,7 @@
     },
     {
       "id": "team-ops-board",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "schema": "team-ops-board.schema.json",
       "fixtures": {
         "valid": "fixtures/team-ops-board.valid.json",

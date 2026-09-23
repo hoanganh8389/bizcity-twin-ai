@@ -286,6 +286,8 @@ class BizCity_CRM_DB_Installer_V2 {
 			account_id BIGINT UNSIGNED NULL,
 			email VARCHAR(190) NULL,
 			phone VARCHAR(32) NULL,
+			birthday DATE NULL,
+			birthday_md CHAR(5) NULL,
 			avatar_url TEXT NULL,
 			additional_attributes LONGTEXT NULL,
 			wp_user_id BIGINT UNSIGNED NULL,
@@ -303,6 +305,7 @@ class BizCity_CRM_DB_Installer_V2 {
 			PRIMARY KEY  (id),
 			KEY idx_email (email),
 			KEY idx_phone (phone),
+			KEY idx_birthday_md (birthday_md),
 			KEY idx_wp_user (wp_user_id),
 			KEY idx_account (account_id),
 			KEY idx_owner (owner_id),
@@ -1250,8 +1253,41 @@ class BizCity_CRM_DB_Installer_V2 {
 		self::migrate_phase_057();
 		// [2026-09-21 PHASE-0.63A WP-0] Pipeline platform storage: run columns, the one deadline queue, two hot indexes.
 		self::migrate_phase_063();
+		// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C2.4 — contacts.birthday (real DATE column) + birthday_md (MM-DD, plain index; MySQL 5.7-safe).
+		self::migrate_phase_060b();
 
 		update_option( self::DB_VERSION_OPTION, BIZCITY_CRM_DB_VERSION );
+	}
+
+	/**
+	 * PHASE-0.60B — contact birthday storage (v1.36.0).
+	 *
+	 * `birthday DATE NULL` is a real column because the daily "who has a birthday today"
+	 * read must hit an index, not json_decode every contact (doc 0.60B §3). Q-B1 answered
+	 * conservatively: no expression index (MySQL 8 only); instead `birthday_md CHAR(5)`
+	 * (MM-DD) written together with `birthday` and indexed plainly, so 5.7 and MariaDB work.
+	 * ADD-only, idempotent; declared in core/diagnostics/changelog/modules.twin-crm.json (R-DCL).
+	 */
+	public static function migrate_phase_060b(): void {
+		// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C2.4/C2.5.
+		global $wpdb;
+		$contacts = self::tbl_contacts();
+		if ( ! self::column_exists( $contacts, 'birthday' ) ) {
+			$wpdb->query( "ALTER TABLE `{$contacts}` ADD COLUMN birthday DATE NULL AFTER phone" );
+		}
+		if ( ! self::column_exists( $contacts, 'birthday_md' ) ) {
+			$wpdb->query( "ALTER TABLE `{$contacts}` ADD COLUMN birthday_md CHAR(5) NULL AFTER birthday" );
+		}
+		if ( ! self::index_exists( $contacts, 'idx_birthday_md' ) ) {
+			$wpdb->query( "ALTER TABLE `{$contacts}` ADD KEY idx_birthday_md (birthday_md)" );
+		}
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $contacts );
+		}
+		if ( function_exists( 'bizcity_column_invalidate' ) ) {
+			bizcity_column_invalidate( $contacts, 'birthday' );
+			bizcity_column_invalidate( $contacts, 'birthday_md' );
+		}
 	}
 
 	/**

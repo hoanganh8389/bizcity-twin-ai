@@ -35,25 +35,77 @@ require $autoload;
 // Minimal WP function stubs so framework-pure helpers can be exercised
 // without booting WordPress. Extend ONLY when a stubbed function is
 // genuinely required by a unit under test.
+// [2026-09-23 Claude Sonnet 5] PHASE-0.60A W3-test — upgraded from a fixed-arity no-op to a
+// real minimal hook registry (global, priority-ordered) so tests can assert actual filter
+// behavior (e.g. "claiming a turn flips bizcity_automation_default_reply_enabled to false
+// for this request"), not just that the functions are callable. No existing test in this
+// suite calls add_filter/apply_filters, so this is purely additive.
+if ( ! isset( $GLOBALS['__bzc_hooks'] ) ) {
+    $GLOBALS['__bzc_hooks'] = array();
+}
+if ( ! function_exists( 'add_filter' ) ) {
+    function add_filter( $tag, $cb, $priority = 10, $accepted_args = 1 ) {
+        $GLOBALS['__bzc_hooks'][ $tag ][ $priority ][] = array( 'cb' => $cb, 'args' => $accepted_args );
+        return true;
+    }
+}
+if ( ! function_exists( 'add_action' ) ) {
+    function add_action( $tag, $cb, $priority = 10, $accepted_args = 1 ) {
+        return add_filter( $tag, $cb, $priority, $accepted_args );
+    }
+}
+if ( ! function_exists( 'remove_all_filters' ) ) {
+    function remove_all_filters( $tag = null ) {
+        if ( null === $tag ) {
+            $GLOBALS['__bzc_hooks'] = array();
+        } else {
+            unset( $GLOBALS['__bzc_hooks'][ $tag ] );
+        }
+        return true;
+    }
+}
 if ( ! function_exists( 'apply_filters' ) ) {
-    function apply_filters( $tag, $value ) {
+    function apply_filters( $tag, $value, ...$more ) {
+        if ( empty( $GLOBALS['__bzc_hooks'][ $tag ] ) ) {
+            return $value;
+        }
+        $by_priority = $GLOBALS['__bzc_hooks'][ $tag ];
+        ksort( $by_priority );
+        foreach ( $by_priority as $hooks ) {
+            foreach ( $hooks as $hook ) {
+                $args  = array_merge( array( $value ), $more );
+                $args  = array_slice( $args, 0, max( 1, (int) $hook['args'] ) );
+                $value = call_user_func_array( $hook['cb'], $args );
+            }
+        }
         return $value;
     }
 }
 if ( ! function_exists( 'do_action' ) ) {
-    function do_action( $tag /*, ...$args */ ) { /* noop */ }
-}
-if ( ! function_exists( 'add_filter' ) ) {
-    function add_filter( $tag, $cb, $priority = 10, $accepted = 1 ) { return true; }
-}
-if ( ! function_exists( 'add_action' ) ) {
-    function add_action( $tag, $cb, $priority = 10, $accepted = 1 ) { return true; }
+    function do_action( $tag, ...$more ) {
+        if ( empty( $GLOBALS['__bzc_hooks'][ $tag ] ) ) {
+            return;
+        }
+        $by_priority = $GLOBALS['__bzc_hooks'][ $tag ];
+        ksort( $by_priority );
+        foreach ( $by_priority as $hooks ) {
+            foreach ( $hooks as $hook ) {
+                call_user_func_array( $hook['cb'], array_slice( $more, 0, max( 1, (int) $hook['args'] ) ) );
+            }
+        }
+    }
 }
 if ( ! function_exists( 'esc_html' ) ) {
     function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES, 'UTF-8' ); }
 }
 if ( ! function_exists( 'sanitize_key' ) ) {
     function sanitize_key( $s ) { return strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', (string) $s ) ); }
+}
+if ( ! function_exists( '__return_false' ) ) {
+    function __return_false() { return false; }
+}
+if ( ! function_exists( '__return_true' ) ) {
+    function __return_true() { return true; }
 }
 if ( ! function_exists( 'wp_json_encode' ) ) {
     function wp_json_encode( $data, $options = 0, $depth = 512 ) {

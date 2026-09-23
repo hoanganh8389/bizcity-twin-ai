@@ -26,8 +26,16 @@ class BizCity_Channel_Binding {
 	 *   + mode VARCHAR(20)              ('auto'|'manual'|'hybrid'|'roundrobin')
 	 *   + responder_pool_json LONGTEXT  JSON array [{kind:'guru'|'user', id, weight}]
 	 *   + current_pool_index INT        rotation pointer for roundrobin
+	 *
+	 * // [2026-09-23 Claude Sonnet 5] PHASE-0.60A W1 (Q-2 option B) — 1.1.0 → 1.2.0:
+	 *   + office_hours_json LONGTEXT    Bot Studio per-binding office hours + pause/mention flags.
+	 *     A dedicated column, not meta_json — meta_json is unconditionally overwritten on every
+	 *     upsert() when the caller omits `meta` (see upsert() below), so anything stored there is
+	 *     lost the next time any other screen saves this binding. office_hours_json is written
+	 *     ONLY when the caller explicitly passes `office_hours`, so it never gets clobbered by an
+	 *     unrelated save.
 	 */
-	const SCHEMA_VERSION = '1.1.0';
+	const SCHEMA_VERSION = '1.2.0';
 	const OPTION_VERSION = 'bizcity_channel_bindings_schema';
 	// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — version the read cache independently
 	// from the schema so a resolution-contract change can invalidate old payloads.
@@ -72,6 +80,7 @@ class BizCity_Channel_Binding {
 			current_pool_index INT NOT NULL DEFAULT 0,
 			fallback_assignee BIGINT UNSIGNED NULL,
 			meta_json LONGTEXT NULL,
+			office_hours_json LONGTEXT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
@@ -197,6 +206,12 @@ class BizCity_Channel_Binding {
 			'meta_json'           => isset( $args['meta'] ) ? wp_json_encode( $args['meta'] ) : '',
 			'updated_at'          => current_time( 'mysql' ),
 		);
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60A W1 — write office_hours_json ONLY when the
+		// caller passes it, unlike meta_json above; keeps callers that don't know about Bot
+		// Studio (existing binding saves) from wiping it out.
+		if ( isset( $args['office_hours'] ) ) {
+			$row['office_hours_json'] = is_array( $args['office_hours'] ) ? wp_json_encode( $args['office_hours'] ) : '';
+		}
 		if ( $existing > 0 ) {
 			$updated = $wpdb->update( self::table(), $row, array( 'id' => $existing ) );
 			if ( false !== $updated ) {

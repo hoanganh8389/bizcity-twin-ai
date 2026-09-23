@@ -8,7 +8,7 @@
   "required": ["contract", "version", "range", "as_of", "thresholds", "kpi", "attention", "staff", "coverage"],
   "properties": {
     "contract": { "const": "team-ops-board" },
-    "version": { "const": "1.0.0" },
+    "version": { "const": "1.1.0" },
     "range": { "enum": ["today", "7d", "30d"] },
     "team_id": { "type": ["integer", "null"], "minimum": 1 },
     "as_of": { "type": "string", "format": "date-time" },

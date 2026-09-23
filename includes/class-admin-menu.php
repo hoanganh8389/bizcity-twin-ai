@@ -316,7 +316,9 @@ class BizCity_Admin_Menu {
 		// [2026-06-22 Johnny Chu] PHASE-TWINWEB — moved from TwinChat to SLUG_GATEWAY
 		if ( class_exists( 'BizCity_Gateway_Admin_SPA', false ) ) {
 			// [2026-09-21 09:35 AM Johnny Chu] HOTFIX-CHANNEL-SUPER-ADMIN — the SPA owner reconciles this existing submenu at priority 30, but WordPress checks the capability stored here before the callback runs. Keep Network Super Admin access aligned with the Gateway SPA owner instead of leaving the central registration at manage_options.
-			$channel_gateway_cap = function_exists( 'is_super_admin' ) && is_super_admin() ? 'manage_network' : 'manage_options';
+			$channel_gateway_cap = class_exists( 'BizCity_Network_Admin_Capability' )
+				? BizCity_Network_Admin_Capability::menu_cap()
+				: ( function_exists( 'is_super_admin' ) && is_super_admin() ? 'manage_network' : 'manage_options' );
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Channel Gateway', $td ), __( 'Channel Gateway', $td ),
 				$channel_gateway_cap, 'bizchat-gateway-spa',

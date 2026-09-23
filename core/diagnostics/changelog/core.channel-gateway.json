@@ -3,7 +3,7 @@
   "module_id": "core.channel-gateway",
   "owner": "core/channel-gateway",
   "installer_id": "blog_resolver_inbox",
-  "current_version": "1.6.0",
+  "current_version": "1.6.1",
   "version_option": "bizcity_blog_resolver_inbox_db_version",
   "tables": {
     "global_inbox_admin": {
@@ -93,6 +93,7 @@
         "current_pool_index":  { "type": "INT NOT NULL DEFAULT 0", "since": "1.2.0" },
         "fallback_assignee":   { "type": "BIGINT UNSIGNED NULL", "since": "1.1.0" },
         "meta_json":           { "type": "LONGTEXT NULL", "since": "1.1.0" },
+        "office_hours_json":   { "type": "LONGTEXT NULL", "since": "1.6.1", "note": "PHASE-0.60A Bot Studio — per-binding office hours + pause/mention flags. Written only when caller passes it (isset-gated), unlike meta_json which is unconditionally overwritten." },
         "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" },
         "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" }
       },
@@ -232,6 +233,11 @@
       "version": "1.6.0",
       "date": "2026-07-28",
       "change": "R-MSDB — move identity contacts, identity bindings, and Zone 1 channel links from base_prefix/network options to current tenant shard prefix/options. Existing sites require tenant-shard provisioning and any approved data migration before old Global DB copies are retired."
+    },
+    {
+      "version": "1.6.1",
+      "date": "2026-09-23",
+      "change": "PHASE-0.60A W1 — add bizcity_channel_bindings.office_hours_json (class-channel-binding.php SCHEMA_VERSION 1.1.0 → 1.2.0) for Bot Studio per-binding office hours + pause/mention flags. Isset-gated write in upsert(), never unconditionally overwritten like meta_json."
     }
   ]
 }

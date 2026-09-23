@@ -246,8 +246,9 @@ class BizCity_Channel_REST_API {
 
 	public function require_manage_options(): bool {
 		// [2026-09-21 09:35 AM Johnny Chu] HOTFIX-CHANNEL-SUPER-ADMIN — Channel Gateway is also a network-owned surface. A Network Super Admin must not be rejected merely because the current mapped blog has no local administrator role.
-		return current_user_can( 'manage_options' )
-			|| ( function_exists( 'is_super_admin' ) && is_super_admin() && current_user_can( 'manage_network' ) );
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	public function require_send_permission(): bool {
