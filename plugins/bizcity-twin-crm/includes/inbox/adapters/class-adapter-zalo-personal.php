@@ -55,6 +55,12 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 				'group_name' => (string) ( $raw['group_name'] ?? '' ),
 				'sender_user_id' => (string) ( $raw['from_user_id'] ?? '' ),
 				'sender_name' => (string) ( $raw['from_user_name'] ?? '' ),
+				// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-3.3 — passthrough from the same
+				// $message_data UCL already reads into the bizcity_channel_normalized envelope's
+				// mention_detected (class-universal-channel-listener.php:454); stamped per-message so
+				// Bot_Context_Builder::history() can filter non-@mention group rows out of context
+				// later without touching this ingest path (doc §6 EA-3.3 "lọc ở tầng đọc").
+				'mention_detected' => ! empty( $raw['mention_detected'] ),
 			) );
 		}
 		$normalized['inbox_name'] = 'Zalo Cá nhân ' . (string) ( $raw['account_name'] ?? $raw['conversation_id'] ?? '' );

@@ -290,4 +290,126 @@ final class BotTurnClaimTest extends TestCase {
 		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope(), 'trigger' );
 		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim() );
 	}
+
+	/* ── PHASE-0.60E EA-1 · ALLOWLIST người gửi (doc §6 EA-1, acceptance E-E6) ── */
+
+	public function test_allowlist_default_mode_is_all_and_still_claims(): void {
+		// EA-1.6 — a binding saved before this feature existed (no policy_json at all) must see
+		// no behavior change: the default() envelope() carries no allowlist overrides either.
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding(); // policy_json absent entirely.
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope(), 'trigger' );
+		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim() );
+	}
+
+	public function test_allowlist_explicit_all_mode_claims_regardless_of_sender(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'all' ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'identity_temporary' => true, 'user_id' => 'not-on-any-list' ) ), 'trigger' );
+		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim() );
+	}
+
+	public function test_allowlist_contacts_only_mode_rejects_temporary_identity(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'contacts_only' ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'identity_temporary' => true ) ), 'trigger' );
+		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim(), 'a throwaway/guest identity must not claim under contacts_only' );
+		$this->assertTrue( $this->default_reply_enabled(), 'EA-1.3 — rejection must leave the default-reply net on' );
+	}
+
+	public function test_allowlist_contacts_only_mode_accepts_durable_identity(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'contacts_only' ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'identity_temporary' => false ) ), 'trigger' );
+		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim() );
+	}
+
+	public function test_allowlist_list_mode_rejects_uid_not_on_list(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'list', 'allowlist_uids' => array( 'uid-1', 'uid-2' ) ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'user_id' => 'uid-9' ) ), 'trigger' );
+		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim() );
+		$this->assertTrue( $this->default_reply_enabled(), 'EA-1.3 — rejection must leave the default-reply net on' );
+	}
+
+	public function test_allowlist_list_mode_accepts_uid_on_list(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'list', 'allowlist_uids' => array( 'uid-1', 'uid-2' ) ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'user_id' => 'uid-2' ) ), 'trigger' );
+		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim() );
+	}
+
+	public function test_allowlist_list_mode_rejects_empty_sender_uid(): void {
+		// A sender UID must be present to ever match a list — an empty envelope user_id can
+		// never accidentally pass just because the list itself happens to contain ''.
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'list', 'allowlist_uids' => array() ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'user_id' => '' ) ), 'trigger' );
+		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim() );
+	}
+
+	/* ── PHASE-0.60E EA-2 · "Trả lời trong nhóm" bật/tắt riêng (doc §6 EA-2) ── */
+
+	public function test_reply_in_group_default_true_still_claims_group_with_mention(): void {
+		// EA-2.1 — a binding saved before this feature existed (key absent) must see no behavior
+		// change: the group @mention gate still runs on its own.
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding();
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'chat_kind' => 'group', 'mention_detected' => true ) ), 'trigger' );
+		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim() );
+	}
+
+	public function test_reply_in_group_false_rejects_group_message_even_with_mention(): void {
+		// EA-2.3 — reply_in_group=false wins over require_mention_in_group: the @mention gate
+		// becomes moot, so even an @mentioned group message must not claim.
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'reply_in_group' => false ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'chat_kind' => 'group', 'mention_detected' => true ) ), 'trigger' );
+		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim() );
+		$this->assertTrue( $this->default_reply_enabled(), 'EA-1.3-style guarantee also holds for EA-2 rejections' );
+	}
+
+	public function test_reply_in_group_false_still_claims_private_chat(): void {
+		// EA-2.2 — turning group replies off must not touch private chat on the same Zalo number.
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'reply_in_group' => false ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'chat_kind' => 'user' ) ), 'trigger' );
+		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim() );
+	}
+
+	/* ── PHASE-0.60E EA-3 · claim carries passive_listen_in_group for the context builder ── */
+
+	public function test_claim_carries_passive_listen_in_group_default_true(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding(); // policy_json absent entirely.
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope(), 'trigger' );
+		$claim = BizCity_Bot_Turn_Claim::consume_claim();
+		$this->assertTrue( $claim['passive_listen_in_group'] );
+	}
+
+	public function test_claim_carries_passive_listen_in_group_when_turned_off(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'passive_listen_in_group' => false ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope(), 'trigger' );
+		$claim = BizCity_Bot_Turn_Claim::consume_claim();
+		$this->assertFalse( $claim['passive_listen_in_group'] );
+	}
 }

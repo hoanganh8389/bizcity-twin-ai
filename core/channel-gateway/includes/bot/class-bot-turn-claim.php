@@ -77,6 +77,15 @@ final class BizCity_Bot_Turn_Claim {
 			return; // reuses existing binding fields — no separate "bot enabled" flag (doc §3.2).
 		}
 
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-1.2 — decoded once, reused below for EA-2's
+		// reply_in_group and EA-3's passive_listen_in_group (same policy_json blob, doc §3.2).
+		$bot_policy = self::decode_json_map( $binding['policy_json'] ?? '' );
+		if ( ! self::allowlist_pass( $bot_policy, $envelope ) ) {
+			return; // EA-1.3: not allowlisted → the bot does not take the turn, and — because we
+			        // return here before the default-reply filter below ever runs — the built-in
+			        // Default_Reply safety net stays ON, so the customer is never left in silence.
+		}
+
 		$policy = self::decode_office_hours( $binding['office_hours_json'] ?? '' );
 		if ( BizCity_Bot_Office_Hours::is_staff_on_duty( $policy ) ) {
 			return; // staff on duty → bot silent (E10 polarity).
@@ -86,9 +95,16 @@ final class BizCity_Bot_Turn_Claim {
 		}
 
 		$chat_kind = (string) ( $envelope['chat_kind'] ?? 'user' );
-		if ( 'group' === $chat_kind && ! empty( $policy['require_mention_in_group'] )
-			&& empty( $envelope['mention_detected'] ) ) {
-			return; // group chat requires @mention unless explicitly turned off.
+		if ( 'group' === $chat_kind ) {
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-2.1/EA-2.3 — reply_in_group=false wins over
+			// require_mention_in_group: the bot never answers in ANY group thread, so the @mention
+			// gate below would be moot and is skipped entirely (doc §6 EA-2.3).
+			if ( isset( $bot_policy['reply_in_group'] ) && ! $bot_policy['reply_in_group'] ) {
+				return; // EA-2.2: chat riêng của cùng số Zalo vẫn trả lời bình thường (not reached here).
+			}
+			if ( ! empty( $policy['require_mention_in_group'] ) && empty( $envelope['mention_detected'] ) ) {
+				return; // group chat requires @mention unless explicitly turned off.
+			}
 		}
 
 		$tuning = BizCity_Bot_Config_Repo::get_tuning();
@@ -105,6 +121,12 @@ final class BizCity_Bot_Turn_Claim {
 			'chat_id'          => $chat_id,
 			'chat_kind'        => $chat_kind,
 			'contact_id'       => $contact_id,
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-7 (D-E2) — the raw platform sender uid
+			// (distinct from `contact_id`, the CRM identity) and the binding's configured owner uid,
+			// so BizCity_Bot_Tool_Registry::effective_for_turn() can gate list_threads/read_thread
+			// to exactly the account owner, in a private chat, per turn.
+			'sender_uid'       => (string) ( $envelope['user_id'] ?? '' ),
+			'owner_uid'        => trim( (string) ( $bot_policy['owner_uid'] ?? '' ) ),
 			'mode'             => $mode, // auto = send · hybrid = draft only (doc B-04)
 			'text'             => (string) ( $envelope['message_text_clean'] ?? $envelope['message'] ?? '' ),
 			'external_message_id' => (string) ( $envelope['message_id'] ?? '' ),
@@ -113,6 +135,10 @@ final class BizCity_Bot_Turn_Claim {
 			'context_source'   => (string) $bot_settings['context_source'],
 			'character_off'    => (array) $bot_settings['disabled_tools'],
 			'binding_off'      => BizCity_Bot_Config_Repo::sanitize_tool_list( $policy['disabled_tools'] ?? array() ),
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-3.3 — carried to the runner so
+			// Bot_Context_Builder::build() can filter non-@mention group rows out of history
+			// when this is off (doc §6 EA-3.3); default true keeps today's behavior.
+			'passive_listen_in_group' => ! isset( $bot_policy['passive_listen_in_group'] ) || (bool) $bot_policy['passive_listen_in_group'],
 			'workflow_matched' => false,
 			'claimed_at'       => time(),
 		);
@@ -208,6 +234,11 @@ final class BizCity_Bot_Turn_Claim {
 	}
 
 	public static function decode_office_hours( $raw ): array {
+		return self::decode_json_map( $raw );
+	}
+
+	/** Shared decode for any binding *_json column: array passthrough, or a JSON string. */
+	private static function decode_json_map( $raw ): array {
 		if ( is_array( $raw ) ) {
 			return $raw;
 		}
@@ -218,5 +249,33 @@ final class BizCity_Bot_Turn_Claim {
 			}
 		}
 		return array();
+	}
+
+	/**
+	 * EA-1 · ALLOWLIST người gửi (doc §6 EA-1). Three modes:
+	 *   all           (default) — everyone, today's behavior.
+	 *   contacts_only — only senders whose identity is not a throwaway/guest one.
+	 *   list          — only the specific sender UIDs configured on the binding.
+	 */
+	private static function allowlist_pass( array $policy, array $envelope ): bool {
+		$mode = isset( $policy['allowlist_mode'] ) ? (string) $policy['allowlist_mode'] : 'all';
+		if ( ! in_array( $mode, array( 'all', 'contacts_only', 'list' ), true ) ) {
+			$mode = 'all'; // EA-1.6: unknown/unset value must never change today's behavior.
+		}
+		if ( 'all' === $mode ) {
+			return true;
+		}
+		if ( 'contacts_only' === $mode ) {
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-1.1 — "already a CRM contact" reuses the
+			// envelope's own identity-durability signal (identity_temporary, set by Identity_Hub
+			// at normalize time); there is no separate CRM contact-status field on this envelope
+			// to check instead. Revisit if that turns out to diverge from what a trưởng nhóm means
+			// by "contact".
+			return empty( $envelope['identity_temporary'] );
+		}
+		// list
+		$uids       = isset( $policy['allowlist_uids'] ) && is_array( $policy['allowlist_uids'] ) ? $policy['allowlist_uids'] : array();
+		$sender_uid = (string) ( $envelope['user_id'] ?? '' );
+		return $sender_uid !== '' && in_array( $sender_uid, $uids, true );
 	}
 }

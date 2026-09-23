@@ -33,11 +33,15 @@ class BizCity_Twin_Event_Inspector_Page {
 			return;
 		}
 		// [2026-08-11 Johnny Chu] PHASE-1.26 — central Diagnostics registry owns this page in the bundled runtime.
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_submenu_page(
 			'bizcity-twin-diagnostics',
 			'Twin Event Inspector',
 			'Event Inspector',
-			'manage_options',
+			$capability,
 			self::SLUG,
 			[ __CLASS__, 'render' ]
 		);

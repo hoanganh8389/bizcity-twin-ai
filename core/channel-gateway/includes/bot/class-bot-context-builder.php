@@ -37,13 +37,16 @@ final class BizCity_Bot_Context_Builder {
 	 * @param object $character       Character row (system_prompt).
 	 * @param int    $conversation_id CRM conversation.
 	 * @param int    $contact_id      CRM contact of that conversation (for the enrichment block ONLY).
-	 * @param array  $opts            { history_limit, char_budget, context_source, tools_block, extra_system[] }
+	 * @param array  $opts            { history_limit, char_budget, context_source, tools_block, extra_system[], passive_listen_in_group }
 	 * @return array{messages:array,meta:array}
 	 */
 	public static function build( $character, int $conversation_id, int $contact_id, array $opts = array() ): array {
 		$limit   = max( 1, (int) ( $opts['history_limit'] ?? 20 ) );
 		$budget  = max( 2000, (int) ( $opts['char_budget'] ?? 12000 ) );
 		$source  = (string) ( $opts['context_source'] ?? 'hybrid' );
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-3.3 — default true keeps today's behavior
+		// (non-@mention group messages still flow into history, doc §6 EA-3.1).
+		$passive_listen = ! isset( $opts['passive_listen_in_group'] ) || (bool) $opts['passive_listen_in_group'];
 
 		$system = trim( (string) ( $character->system_prompt ?? '' ) );
 		$blocks = array();
@@ -69,7 +72,7 @@ final class BizCity_Bot_Context_Builder {
 		}
 
 		$messages   = array( array( 'role' => 'system', 'content' => implode( "\n\n", $blocks ) ) );
-		$history    = self::history( $conversation_id, $limit, $source );
+		$history    = self::history( $conversation_id, $limit, $source, $passive_listen );
 		$trimmed    = self::trim_to_budget( $history, $budget );
 		foreach ( $trimmed['rows'] as $row ) {
 			$messages[] = array( 'role' => $row['role'], 'content' => $row['content'] );
@@ -90,8 +93,12 @@ final class BizCity_Bot_Context_Builder {
 	/**
 	 * Recent messages, oldest → newest, of this conversation only.
 	 * Row shape: { role: user|assistant, content, source: crm|filestore|summary, id }.
+	 *
+	 * @param bool $passive_listen_in_group EA-3.3 — when false, incoming group rows that were not
+	 *             @mentioned are excluded here (read-layer filter, doc §6 EA-3.3). The ingestor still
+	 *             writes them to CRM unconditionally — this never blocks ingest, only this projection.
 	 */
-	public static function history( int $conversation_id, int $limit, string $context_source = 'hybrid' ): array {
+	public static function history( int $conversation_id, int $limit, string $context_source = 'hybrid', bool $passive_listen_in_group = true ): array {
 		$rows = array();
 		if ( is_callable( self::$history_reader ) ) {
 			$rows = (array) call_user_func( self::$history_reader, $conversation_id, $limit );
@@ -101,6 +108,9 @@ final class BizCity_Bot_Context_Builder {
 				$type = (string) ( $r['message_type'] ?? '' );
 				if ( 'incoming' !== $type && 'outgoing' !== $type ) {
 					continue; // private_note / activity never reach the model.
+				}
+				if ( 'incoming' === $type && ! $passive_listen_in_group && self::is_unmentioned_group_row( $r ) ) {
+					continue; // EA-3.3 — passive listening turned off: this row never reaches the model.
 				}
 				$text = trim( (string) ( $r['content'] ?? $r['body'] ?? '' ) );
 				if ( $text === '' ) {
@@ -143,6 +153,21 @@ final class BizCity_Bot_Context_Builder {
 			}
 		}
 		return $rows;
+	}
+
+	/**
+	 * EA-3.3 — true only when the raw CRM row is a group message AND was explicitly recorded as
+	 * NOT @mentioned (class-adapter-zalo-personal.php stamps mention_detected into ai_metadata_json
+	 * for group sends). A row with no such flag (older message written before this field existed, or
+	 * a private-chat row) is never excluded — unknown must never turn into "drop it".
+	 */
+	private static function is_unmentioned_group_row( array $r ): bool {
+		$raw = $r['ai_metadata_json'] ?? null;
+		$meta = is_array( $raw ) ? $raw : ( is_string( $raw ) && $raw !== '' ? json_decode( $raw, true ) : null );
+		if ( ! is_array( $meta ) || 'group' !== ( $meta['thread_kind'] ?? '' ) ) {
+			return false;
+		}
+		return array_key_exists( 'mention_detected', $meta ) && ! $meta['mention_detected'];
 	}
 
 	/** Drop oldest rows until the whole history fits; never cut inside a message (B6.4). */

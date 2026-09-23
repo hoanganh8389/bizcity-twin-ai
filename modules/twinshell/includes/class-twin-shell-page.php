@@ -251,58 +251,16 @@ class BizCity_Twin_Shell_Page {
 			exit;
 		}
 
-		// [2026-09-16 12:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME — send operators to the native wp-admin wrapper so WordPress renders its own admin bar and sidebar; the embedded iframe carries bizcity_embed=1 and keeps rendering the standalone shell.
-		// [2026-09-16 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX2 — make the hand-off strictly ONE-WAY. A /twin/ -> admin.php redirect combined with any admin.php -> /twin/ redirect in the same install is an Apache internal redirect loop (AH00124 -> HTTP 500), which is exactly the reported failure. The wrapper must never send the top window back, and this side must never bounce a request that just came from the wrapper.
+		// [2026-09-16 12:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME — originally sent
+		// operators to the native wp-admin wrapper so WordPress renders its own admin bar/sidebar,
+		// with the embedded iframe carrying bizcity_embed=1 to keep rendering the standalone shell.
+		// [2026-09-23] Disabled by request — `/twin/` must stay `/twin/` for every visitor, admin
+		// or not; no hand-off to `admin.php?page=bizcity-twinchat`. `$is_embedded` is still computed
+		// (consumed by render()/embedded_args() below), the admin-wrapper redirect itself is gone.
 		$is_embedded = ! empty( $_GET['bizcity_embed'] )
 			|| ! empty( $_GET['bizcity_iframe'] )
 			|| ( isset( $_SERVER['HTTP_SEC_FETCH_DEST'] ) && 'iframe' === strtolower( (string) $_SERVER['HTTP_SEC_FETCH_DEST'] ) );
 		$this->is_embedded = $is_embedded;
-		$loop_breaker = '1' === (string) ( isset( $_GET['bizcity_admin_wrapper'] ) ? $_GET['bizcity_admin_wrapper'] : '' );
-		$referer      = isset( $_SERVER['HTTP_REFERER'] ) ? (string) $_SERVER['HTTP_REFERER'] : '';
-		$came_from_wrapper = '' !== $referer && false !== strpos( $referer, 'page=bizcity-twinchat' );
-		// [2026-09-16 Johnny Chu - Chu Hoang Anh] PHASE-0-SETTING-PANEL-G5-HOTFIX — /twin/panel/ fails open to this shell when the built artifact is absent. Without this breaker the fail-open lands on /twin/, which then bounces an operator to admin.php?page=bizcity-twinchat, so a missing Control Panel artifact looked like "the Setting Panel does not exist" instead of a deploy gap.
-		$panel_fallback = '1' === (string) ( isset( $_GET[ self::PANEL_FALLBACK_ARG ] ) ? $_GET[ self::PANEL_FALLBACK_ARG ] : '' );
-		// [2026-09-21 05:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-HOTFIX —
-		// keep the standalone /twin/ → wp-admin hand-off limited to site admins.
-		// Super Admins without a blog role must stay on standalone TwinShell; using
-		// the broader Control Panel gate here creates an admin-wrapper redirect loop.
-		if ( ! $is_embedded && ! $loop_breaker && ! $came_from_wrapper && ! $panel_fallback && current_user_can( 'manage_options' ) ) {
-			$target = add_query_arg(
-				array( 'page' => 'bizcity-twinchat', 'bizcity_admin_wrapper' => '1' ),
-				admin_url( 'admin.php' )
-			);
-			if ( isset( $_GET['plugin'] ) && '' !== $_GET['plugin'] ) {
-				$target = add_query_arg( 'plugin', sanitize_key( wp_unslash( $_GET['plugin'] ) ), $target );
-			}
-			$forward = array(
-				'notebook_id', 'notebook', 'session', 'session_id', 'thread', 'tab',
-				'id', 'task_id', 'inbox', 'contact_id', 'doc', 'instance_id', '_iurl',
-				// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — `r` is the
-				// canonical plugin-relative route (TRC v1); it replaces `_iurl` for any plugin
-				// that has opted into `route_mode`. Both are forwarded during the migration
-				// window so a plugin still on the legacy path keeps working unchanged.
-				'r',
-			);
-			foreach ( $forward as $key ) {
-				if ( isset( $_GET[ $key ] ) && '' !== $_GET[ $key ] ) {
-					$value = sanitize_text_field( wp_unslash( $_GET[ $key ] ) );
-					if ( '_iurl' === $key || 'r' === $key ) {
-						// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G5 — `_iurl` (and, since
-						// P1, `r`) is a same-origin path that can carry its own `?`, `&` and `#` (e.g. the
-						// Control Panel hash route). add_query_arg() does not encode values, so without
-						// rawurlencode the `#…` became this redirect's fragment and the wrapper reopened the
-						// panel on its default item.
-						if ( ! self::is_safe_route( $value ) ) {
-							continue;
-						}
-						$value = rawurlencode( $value );
-					}
-					$target = add_query_arg( $key, $value, $target );
-				}
-			}
-			wp_safe_redirect( $target, 302 );
-			exit;
-		}
 
 		$this->render();
 		exit;

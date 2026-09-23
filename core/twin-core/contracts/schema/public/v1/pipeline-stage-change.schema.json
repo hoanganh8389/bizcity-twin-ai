@@ -2,13 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://bizcity.vn/schema/twin/contracts/v1/pipeline-stage-change.schema.json",
   "title": "BizCity Pipeline Stage Change",
-  "description": "PHASE-0.52 R-PIPE-2/3: result of POST /crm-contacts/{id}/stage (B2) or /crm/pipeline/contacts/{id}/stage (C). Flexible: any manual stage incl. won without an order; only lost needs a reason (enforced server-side). Every change is audited; no customer PII in this DTO.",
+  "description": "PHASE-0.52 R-PIPE-2/3, bumped to 2.0.0 in PHASE-0.63C GC-1 (R-WORK-PIPE-2/7): result of POST /crm-contacts/{id}/stage (B2) or /crm/pipeline/contacts/{id}/stage (C), and any future pipeline_kind that reuses this contract. Flexible: any manual stage incl. won without an order; only lost needs a reason (enforced server-side). Every change is audited; no customer PII in this DTO. 2.0.0 replaces the 8-value sales enum on from/to/stage with a free-form stage key so purchase/request/production kinds are not blocked by a sales-only contract (0.62 §3 mục 1); FE no longer pattern-matches a fixed STAGE_ORDER (R-WORK-PIPE-10), so this is additive risk only.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "contract",
     "version",
     "contact_id",
+    "pipeline_kind",
     "from",
     "to",
     "stage",
@@ -25,7 +26,7 @@
       "const": "pipeline-stage-change"
     },
     "version": {
-      "const": "1.0.0"
+      "const": "2.0.0"
     },
     "surface": {
       "enum": [
@@ -37,41 +38,47 @@
       "type": "integer",
       "minimum": 1
     },
-    "from": {
+    "pipeline_kind": {
+      "description": "2.0.0 — which pipeline definition this run belongs to (R-WORK-PIPE-2). 'sales' for every producer today.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+    },
+    "subject_type": {
+      "description": "2.0.0 — R-WORK-PIPE-7. Omitted/absent means 'contact', the default subject.",
       "enum": [
-        "target",
-        "contacted",
-        "consult",
-        "quote",
-        "won",
-        "repeat",
-        "dormant",
-        "lost"
+        "contact",
+        "project"
       ]
+    },
+    "subject_id": {
+      "description": "2.0.0 — id of the subject row (contact_id or project/account_id) when subject_type is present.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "progress_pct": {
+      "description": "2.0.0 — position of `stage` within the pipeline_kind's definition.stages[], 0-100. Null when the kind has no linear ordering to compute one from (e.g. a gated/parallel stage set).",
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "gate_blocked": {
+      "description": "2.0.0 — true when the requested transition was rejected because an AND gate in definition.gates[] is not yet satisfied (R-WORK-PIPE-2). Always false for kinds without gates.",
+      "type": "boolean"
+    },
+    "from": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
     },
     "to": {
-      "enum": [
-        "target",
-        "contacted",
-        "consult",
-        "quote",
-        "won",
-        "repeat",
-        "dormant",
-        "lost"
-      ]
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
     },
     "stage": {
-      "enum": [
-        "target",
-        "contacted",
-        "consult",
-        "quote",
-        "won",
-        "repeat",
-        "dormant",
-        "lost"
-      ]
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
     },
     "moved": {
       "type": "boolean"

@@ -26,7 +26,7 @@ if ( class_exists( 'BizCity_CRM_Task_Handoff' ) ) { return; }
 final class BizCity_CRM_Task_Handoff {
 
 	const CONTRACT = 'leader-task-handoff';
-	const VERSION  = '1.1.0';
+	const VERSION  = '1.2.0';
 
 	const STATUS_SENT        = 'sent';
 	const STATUS_ACCEPTED    = 'accepted';
@@ -675,6 +675,7 @@ final class BizCity_CRM_Task_Handoff {
 			'updated_at'   => $row['updated_at'],
 			'can'          => $can,
 		);
+		$out += self::pipeline_fields( $row );
 		if ( $with_timeline ) {
 			$out['timeline'] = self::timeline( (int) $row['id'] );
 			$out['result']   = self::last_result( $out['timeline'] );
@@ -691,7 +692,7 @@ final class BizCity_CRM_Task_Handoff {
 		$seen_ids = null === $seen_ids ? self::seen_task_ids( $member_id, array( (int) $row['id'] ) ) : $seen_ids;
 		$creator = get_userdata( (int) $row['created_by'] );
 		$review = self::last_review( (int) $row['id'] );
-		return array(
+		return self::pipeline_fields( $row ) + array(
 			'task_id'      => (int) $row['id'],
 			'title'        => (string) $row['title'],
 			'instructions' => (string) ( $row['notes'] ?? '' ),
@@ -759,6 +760,35 @@ final class BizCity_CRM_Task_Handoff {
 			'comment'      => (string) ( $data['comment'] ?? '' ),
 			'reviewed_by'  => array( 'display_name' => $reviewer ? (string) $reviewer->display_name : '' ),
 			'at'           => (string) $row['created_at'],
+		);
+	}
+
+	/**
+	 * `pipeline_kind`/`stage_key`/`role_code`/`form_ref` — PHASE-0.71 F71-08 / 0.63C GC-02.
+	 *
+	 * `leader-task-handoff@1.2.0` declares these 4 fields (all nullable) on every task, but only a task
+	 * a pipeline run spawned actually has them: `Pipeline_Run_Service::ensure_sub_step_tasks()` writes
+	 * `pipeline_kind`/`stage_key`/`role_code` into `data_json` at creation, and
+	 * `persist_step_evidence()` carries them forward across its own overwrite of the same column when a
+	 * step closes with evidence. A leader-assigned task (no `data_json`, or `related_entity_type` other
+	 * than `pipeline_run`) simply has none of the four — never guessed, never backfilled.
+	 *
+	 * @return array{pipeline_kind:?string,stage_key:?string,role_code:?string,form_ref:?string}
+	 */
+	private static function pipeline_fields( array $row ): array {
+		$empty = array( 'pipeline_kind' => null, 'stage_key' => null, 'role_code' => null, 'form_ref' => null );
+		if ( 'pipeline_run' !== (string) ( $row['related_entity_type'] ?? '' ) ) {
+			return $empty;
+		}
+		$data = json_decode( (string) ( $row['data_json'] ?? '' ), true );
+		if ( ! is_array( $data ) ) {
+			return $empty;
+		}
+		return array(
+			'pipeline_kind' => isset( $data['pipeline_kind'] ) && '' !== $data['pipeline_kind'] ? (string) $data['pipeline_kind'] : null,
+			'stage_key'     => isset( $data['stage_key'] ) && '' !== $data['stage_key'] ? (string) $data['stage_key'] : null,
+			'role_code'     => isset( $data['role_code'] ) && '' !== $data['role_code'] ? (string) $data['role_code'] : null,
+			'form_ref'      => isset( $data['form_ref'] ) && '' !== $data['form_ref'] ? (string) $data['form_ref'] : null,
 		);
 	}
 

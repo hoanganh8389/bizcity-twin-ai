@@ -93,4 +93,45 @@ final class BotToolRegistryTest extends TestCase {
 		$this->assertSame( 'note', BizCity_Bot_Config_Repo::find_secret_like( array( 'note' => 'sk-abcdefghijklmnop' ) ) );
 		$this->assertNull( BizCity_Bot_Config_Repo::find_secret_like( array( 'history_limit' => 20, 'disabled_tools' => array( 'tts' ) ) ) );
 	}
+
+	/* ── PHASE-0.60E EA-7 · D-E2 cross-thread read gate (doc §6 EA-7, acceptance E-E10) ── */
+
+	private function claim_with( array $overrides ): array {
+		return array_merge( array(
+			'account_id' => 'acc-1',
+			'contact_id' => 42,
+			'owner_uid'  => 'owner-uid-1',
+			'sender_uid' => 'owner-uid-1',
+			'chat_kind'  => 'user',
+		), $overrides );
+	}
+
+	public function test_effective_for_turn_hides_cross_thread_tools_by_default(): void {
+		// Base tools() already includes list_threads/read_thread when the bridge class is missing
+		// from the unit runtime they report 'unconfigured', so simulate the two rows directly here —
+		// this test is specifically about the per-turn filter, not the catalog check.
+		$tools = array( array( 'id' => 'list_threads' ), array( 'id' => 'read_thread' ), array( 'id' => 'current_datetime' ) );
+		$ids = array_column( BizCity_Bot_Tool_Registry::effective_for_turn( $tools, $this->claim_with( array( 'owner_uid' => '' ) ) ), 'id' );
+		$this->assertNotContains( 'list_threads', $ids, 'EA-7.2 — empty owner_uid must mean fully off' );
+		$this->assertNotContains( 'read_thread', $ids );
+		$this->assertContains( 'current_datetime', $ids, 'unrelated tools must survive the filter untouched' );
+	}
+
+	public function test_effective_for_turn_rejects_wrong_sender(): void {
+		$tools = array( array( 'id' => 'list_threads' ), array( 'id' => 'read_thread' ) );
+		$ids = array_column( BizCity_Bot_Tool_Registry::effective_for_turn( $tools, $this->claim_with( array( 'sender_uid' => 'someone-else' ) ) ), 'id' );
+		$this->assertSame( array(), $ids, 'EA-7.5 negative branch — sai UID' );
+	}
+
+	public function test_effective_for_turn_rejects_group_chat(): void {
+		$tools = array( array( 'id' => 'list_threads' ), array( 'id' => 'read_thread' ) );
+		$ids = array_column( BizCity_Bot_Tool_Registry::effective_for_turn( $tools, $this->claim_with( array( 'chat_kind' => 'group' ) ) ), 'id' );
+		$this->assertSame( array(), $ids, 'EA-7.5 negative branch — trong nhóm' );
+	}
+
+	public function test_effective_for_turn_allows_owner_in_private_chat(): void {
+		$tools = array( array( 'id' => 'list_threads' ), array( 'id' => 'read_thread' ) );
+		$ids = array_column( BizCity_Bot_Tool_Registry::effective_for_turn( $tools, $this->claim_with( array() ) ), 'id' );
+		$this->assertSame( array( 'list_threads', 'read_thread' ), $ids, 'EA-7.5 positive branch — đúng UID, chat riêng, cờ bật' );
+	}
 }

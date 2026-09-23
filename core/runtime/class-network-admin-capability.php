@@ -59,4 +59,69 @@ final class BizCity_Network_Admin_Capability {
 	public static function menu_cap(): string {
 		return ( function_exists( 'is_super_admin' ) && is_super_admin() ) ? 'manage_network' : 'manage_options';
 	}
+
+	/**
+	 * [2026-09-23 Claude Sonnet 5] Network Super Admin capability gap — GLOBAL fix.
+	 *
+	 * self::can_manage()/self::menu_cap() only protect call sites that were
+	 * edited to use them. Every OTHER plugin on this network — sibling plugins
+	 * like bizcity-llm-router, bizcity-zalo-bot, bizcity-pagebuilder, and any
+	 * future one — still gates its own admin pages/AJAX/REST with the bare
+	 * `current_user_can( 'manage_options' )` / `add_menu_page( ..., 'manage_options', ... )`
+	 * pattern, and has no reason to know about or call into bizcity-twin-ai's
+	 * helper. Patching each of those call sites one repo at a time doesn't
+	 * scale and will always be one file behind.
+	 *
+	 * Hooking `user_has_cap` here fixes it at the one point WordPress itself
+	 * funnels every `current_user_can()`/`user_can()` check through — including
+	 * the capability check `add_menu_page()`/`add_submenu_page()` register and
+	 * WP core uses to decide whether a sidebar item renders at all. A Network
+	 * Super Admin with no local per-blog `administrator` row on the mapped
+	 * domain now transparently has `manage_options` true everywhere, in every
+	 * plugin, with zero code changes required in any of them.
+	 *
+	 * Deliberately narrow: only the single primitive capability `manage_options`
+	 * is injected, and only for confirmed Network Super Admins — this does not
+	 * grant any other capability (e.g. `edit_users`, `install_plugins`) that a
+	 * real site administrator role would separately carry.
+	 */
+	/**
+	 * [2026-09-23 Claude Sonnet 5] MUST be called from the require site
+	 * (bizcity-twin-ai.php), unconditionally, NOT from the bottom of this
+	 * file. PHP performs compile-time early binding for an unconditional
+	 * top-level class declaration, so `class_exists( __CLASS__, false )`
+	 * is already true by the time this file's own top-of-file idempotency
+	 * guard runs — even on the very first, only load — which made a
+	 * trailing `self::bootstrap()` call placed after the class in this
+	 * same file silently never execute (confirmed via ReflectionClass +
+	 * ad hoc CLI diagnostics: class fully defined and every method
+	 * individually callable, but add_filter() in bootstrap() never ran).
+	 */
+	private static $booted = false;
+
+	public static function bootstrap(): void {
+		if ( self::$booted ) {
+			return;
+		}
+		self::$booted = true;
+		add_filter( 'user_has_cap', array( __CLASS__, 'filter_user_has_cap' ), 10, 4 );
+	}
+
+	/**
+	 * @param array   $allcaps All capabilities of the user.
+	 * @param array   $caps    Required primitive capabilities for the requested capability.
+	 * @param array   $args    [0] Requested capability, [1] user ID, [2..] additional args.
+	 * @param WP_User $user    The user object.
+	 * @return array
+	 */
+	public static function filter_user_has_cap( $allcaps, $caps, $args, $user ) {
+		if ( ! empty( $allcaps['manage_options'] ) ) {
+			return $allcaps;
+		}
+		if ( ! function_exists( 'is_super_admin' ) || empty( $user->ID ) || ! is_super_admin( $user->ID ) ) {
+			return $allcaps;
+		}
+		$allcaps['manage_options'] = true;
+		return $allcaps;
+	}
 }

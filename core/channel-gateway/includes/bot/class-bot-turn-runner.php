@@ -261,6 +261,12 @@ final class BizCity_Bot_Turn_Runner {
 			$tools = class_exists( 'BizCity_Bot_Tool_Registry' )
 				? BizCity_Bot_Tool_Registry::effective( $character, (array) ( $claim['character_off'] ?? array() ), (array) ( $claim['binding_off'] ?? array() ) )
 				: array();
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-7 (D-E2) — a second, per-TURN filter on
+			// top of the character-level effective() above; list_threads/read_thread only survive
+			// this when the exact sender/private-chat/owner_uid conditions hold for THIS message.
+			if ( class_exists( 'BizCity_Bot_Tool_Registry' ) ) {
+				$tools = BizCity_Bot_Tool_Registry::effective_for_turn( $tools, $claim );
+			}
 			$tools_block = ! empty( $tools ) ? "=== CÔNG CỤ ĐÃ DÙNG ===\n(kết quả công cụ, nếu có, nằm trong các khối [DỮ LIỆU NGOÀI] bên dưới)" : '';
 			$max_steps   = (int) $tuning['max_tool_steps'];
 			$seen        = array();
@@ -268,6 +274,8 @@ final class BizCity_Bot_Turn_Runner {
 				'history_limit'  => (int) $claim['history_limit'],
 				'char_budget'    => (int) $tuning['history_char_budget'],
 				'context_source' => (string) ( $claim['context_source'] ?? 'hybrid' ),
+				// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-3.3
+				'passive_listen_in_group' => ! isset( $claim['passive_listen_in_group'] ) || (bool) $claim['passive_listen_in_group'],
 			);
 			for ( $step = 0; $step < $max_steps && ! empty( $tools ) && class_exists( 'BizCity_Bot_Tools' ); $step++ ) {
 				$probe = BizCity_Bot_Context_Builder::build( $character, $conversation_id, $contact_id, $context_opts + array( 'extra_system' => $extra_system ) );

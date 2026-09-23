@@ -265,6 +265,16 @@ class BizCity_CRM_REST_Controller {
 			'callback'            => array( __CLASS__, 'put_inbox_assignment_policy' ),
 			'permission_callback' => array( __CLASS__, 'can_manage_assignment_policy' ),
 		) );
+		// [2026-09-23] PHASE-0.71 F71-10 / 0.63C GC-6 — the update path `settings_json.purpose`
+		// never had: `upsert_inbox()` only writes settings once, at creation.
+		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/purpose', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'patch_inbox_purpose' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_inbox_settings' ),
+			'args'                => array(
+				'purpose' => array( 'type' => 'string', 'required' => true ),
+			),
+		) );
 		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/members', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_inbox_member' ),
@@ -2467,6 +2477,12 @@ class BizCity_CRM_REST_Controller {
 		return current_user_can( 'manage_options' ) || current_user_can( 'bizcity_crm_manage_assignment_policy' );
 	}
 
+	/** Same admin tier as inbox creation (`can_read()`'s two admin checks, minus the broader staff-scope leg). */
+	public static function can_manage_inbox_settings(): bool {
+		return current_user_can( 'manage_options' )
+			|| ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin() );
+	}
+
 	/**
 	 * Read permission for account-scoped customer-care resources.
 	 *
@@ -2734,6 +2750,24 @@ class BizCity_CRM_REST_Controller {
 			$ok = BizCity_CRM_Assignment_Manager::bind_policy( (int) $req['id'], (int) ( $body['assignment_policy_id'] ?? 0 ), (int) ( $body['team_id'] ?? 0 ) );
 			if ( ! $ok ) { throw new \RuntimeException( 'assignment_policy_bind_failed' ); }
 			return array( 'bound' => true, 'inbox_id' => (int) $req['id'] );
+		} );
+	}
+
+	/** PHASE-0.71 F71-10 / 0.63C GC-6 — `PATCH /inboxes/{id}/purpose`. */
+	public static function patch_inbox_purpose( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$inbox_id = (int) $req['id'];
+			$purpose  = sanitize_key( (string) $req->get_param( 'purpose' ) );
+			if ( ! in_array( $purpose, BizCity_CRM_Repository::INBOX_PURPOSES, true ) ) {
+				throw new \InvalidArgumentException( 'purpose_invalid: expected one of ' . implode( ', ', BizCity_CRM_Repository::INBOX_PURPOSES ) );
+			}
+			if ( ! BizCity_CRM_Repository::get_inbox( $inbox_id ) ) {
+				throw new \RuntimeException( 'inbox_not_found' );
+			}
+			if ( ! BizCity_CRM_Repository::set_inbox_purpose( $inbox_id, $purpose ) ) {
+				throw new \RuntimeException( 'inbox_purpose_save_failed' );
+			}
+			return array( 'inbox_id' => $inbox_id, 'purpose' => $purpose );
 		} );
 	}
 

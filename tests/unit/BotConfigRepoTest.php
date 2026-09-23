@@ -155,4 +155,48 @@ final class BotConfigRepoTest extends TestCase {
 		// Sibling tuning fields survive a partial save.
 		$this->assertSame( 30, $ok['pause_window_minutes'] );
 	}
+
+	/* ── PHASE-0.60E D-E1 — non-secret media config (tts/stt/music/apify) ── */
+
+	public function test_get_backfills_media_defaults_for_a_row_saved_before_media_existed(): void {
+		BizCity_Knowledge_Database::instance()->seed( 4, wp_json_encode( array( 'bot' => array( 'history_limit' => 10 ) ) ) );
+		$bot = BizCity_Bot_Config_Repo::get( 4 );
+		$this->assertSame( BizCity_Bot_Config_Repo::media_defaults(), $bot['media'] );
+	}
+
+	public function test_save_media_partial_patch_only_touches_named_fields(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		$first = BizCity_Bot_Config_Repo::save( 5, array( 'media' => array(
+			'tts' => array( 'model' => 'gemini-2.5-flash-tts-preview', 'voice' => 'Kore' ),
+		) ) );
+		$this->assertIsArray( $first );
+		$this->assertSame( 'gemini-2.5-flash-tts-preview', $first['media']['tts']['model'] );
+		$this->assertSame( 'Kore', $first['media']['tts']['voice'] );
+		$this->assertSame( 'google_ai_studio', $first['media']['tts']['provider'], 'untouched field keeps its default' );
+
+		$second = BizCity_Bot_Config_Repo::save( 5, array( 'media' => array(
+			'apify' => array( 'actor_facebook' => 'apify/facebook-pages-scraper' ),
+		) ) );
+		$this->assertSame( 'gemini-2.5-flash-tts-preview', $second['media']['tts']['model'], 'an unrelated media.apify save must not clobber media.tts' );
+		$this->assertSame( 'apify/facebook-pages-scraper', $second['media']['apify']['actor_facebook'] );
+	}
+
+	public function test_save_media_rejects_invalid_enum(): void {
+		BizCity_Knowledge_Database::instance()->seed( 6, '' );
+		$result = BizCity_Bot_Config_Repo::save( 6, array( 'media' => array(
+			'tts' => array( 'format' => 'ogg-not-allowed' ),
+		) ) );
+		$this->assertInstanceOf( WP_Error::class, $result );
+	}
+
+	public function test_save_media_rejects_a_key_nested_inside_media(): void {
+		// B1.9 must hold even through the new nested `media` shape — a caller (or a compromised
+		// client) sneaking a real key into media.tts.model must be refused, not silently stored.
+		BizCity_Knowledge_Database::instance()->seed( 7, '' );
+		$result = BizCity_Bot_Config_Repo::save( 7, array( 'media' => array(
+			'tts' => array( 'model' => 'AIzaSyDxxxxxxxxxxxxxxxxxxxxxxxxxxxx' ),
+		) ) );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'bot_secret_not_allowed', $result->get_error_code() );
+	}
 }

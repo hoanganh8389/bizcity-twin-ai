@@ -25,6 +25,8 @@ if ( class_exists( 'BizCity_CRM_Pipeline_Stage_Service', false ) ) {
 final class BizCity_CRM_Pipeline_Stage_Service {
 
 	const MANUAL_STAGES = array( 'target', 'contacted', 'consult', 'quote', 'won', 'repeat', 'lost' );
+	/** [2026-09-23 PHASE-0.63C GC-1] pipeline-stage-change@2.0.0 `progress_pct` — forward track only; dormant/lost have none. */
+	const PROGRESS_ORDER = array( 'target', 'contacted', 'consult', 'quote', 'won', 'repeat' );
 	/** care-outcome@1.0.0 — code => stage it moves to ('' = keep), reminder title, days. */
 	const OUTCOMES = array(
 		'interested' => array( 'to' => 'consult', 'next' => 'Gửi thêm thông tin', 'days' => 1 ),
@@ -168,11 +170,19 @@ final class BizCity_CRM_Pipeline_Stage_Service {
 		}
 
 		$after = BizCity_CRM_Customer_Pipeline::rows( array( $contact_id ), $settings );
+		$final_stage = (string) ( $after[ $contact_id ]['stage'] ?? ( $moving ? $to : $from ) );
 		$result = array(
 			'contact_id'     => $contact_id,
+			// [2026-09-23 PHASE-0.63C GC-1] pipeline-stage-change@2.0.0 — this service only ever runs the sales
+			// pipeline (R-WORK-PIPE-6); a kind other than 'sales' would need its own resolve()/change() pair.
+			'pipeline_kind'  => 'sales',
+			'subject_type'   => 'contact',
+			'subject_id'     => $contact_id,
 			'from'           => $from,
 			'to'             => $moving ? $to : $from,
-			'stage'          => (string) ( $after[ $contact_id ]['stage'] ?? ( $moving ? $to : $from ) ),
+			'stage'          => $final_stage,
+			'progress_pct'   => self::progress_pct( $final_stage ),
+			'gate_blocked'   => false, // sales has no gates[] to block on (R-WORK-PIPE-2).
 			'moved'          => $moving,
 			'opportunity_id' => $opp_id,
 			'note_message_id' => $note_id ?: null,
@@ -268,6 +278,18 @@ final class BizCity_CRM_Pipeline_Stage_Service {
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT c.inbox_id, ci.contact_id FROM `{$conv_t}` c INNER JOIN `{$ci_t}` ci ON ci.id = c.contact_inbox_id WHERE c.id = %d", $conv_id ), ARRAY_A );
 		if ( ! $row || (int) $row['contact_id'] !== $contact_id ) { return false; }
 		return null === $inbox_ids || in_array( (int) $row['inbox_id'], array_map( 'intval', (array) $inbox_ids ), true );
+	}
+
+	/**
+	 * pipeline-stage-change@2.0.0 `progress_pct` (0.62 §3 mục 1) — position of `$stage` in PROGRESS_ORDER.
+	 * `dormant`/`lost` sit outside the forward track (they are outcomes, not further-along steps), so they
+	 * report null rather than a misleading percentage.
+	 */
+	private static function progress_pct( string $stage ): ?float {
+		$i = array_search( $stage, self::PROGRESS_ORDER, true );
+		if ( false === $i ) { return null; }
+		$last = count( self::PROGRESS_ORDER ) - 1;
+		return 0 === $last ? 0.0 : round( $i / $last * 100, 1 );
 	}
 
 	/** @return string|WP_Error Y-m-d */

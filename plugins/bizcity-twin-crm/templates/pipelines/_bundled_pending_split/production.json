@@ -1,0 +1,253 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.0.0",
+  "kind": "production",
+  "label": "Sản xuất",
+  "subject": "contact",
+  "clock": "calendar:factory_shift_a",
+  "lock_version": true,
+  "pause_when": [
+    "flag(waiting_customer)",
+    "flag(machine_down)"
+  ],
+  "roles": {
+    "R01": { "label": "Ban Giám đốc", "resolve": { "relation": "owner_of_run" } },
+    "R02": { "label": "Quản lý dự án (PM)", "resolve": { "relation": "creator_of_run" } },
+    "R03": { "label": "Kinh tế Kế hoạch (KTKH)", "resolve": { "relation": "assignee_of_stage" } },
+    "R04": { "label": "Thiết kế", "resolve": { "relation": "assignee_of_stage" } },
+    "R05": { "label": "Kho", "resolve": { "relation": "assignee_of_stage" } },
+    "R06b": { "label": "Sản xuất (tổ trưởng xưởng)", "resolve": { "relation": "assignee_of_stage" } },
+    "R07": { "label": "Thương mại", "resolve": { "relation": "assignee_of_stage" } },
+    "R08": { "label": "Tài chính Kế toán", "resolve": { "relation": "assignee_of_stage" } },
+    "R09": { "label": "QAQC", "resolve": { "relation": "assignee_of_stage" } },
+    "R13": { "label": "Trang thiết bị", "resolve": { "relation": "assignee_of_stage" } },
+    "shift_lead": { "label": "Trưởng ca", "resolve": { "relation": "team_lead_of_assignee" } }
+  },
+  "calendars": {
+    "factory_shift_a": [
+      { "dow": [1, 2, 3, 4, 5, 6], "from": "06:00", "to": "14:00" }
+    ]
+  },
+  "tools": ["stage", "ops", "notes", "documents", "activity"],
+  "stages": [
+    {
+      "key": "GD1",
+      "label": "1 — Khởi tạo",
+      "role": "R02",
+      "sub_steps": [
+        { "key": "P1.1", "label": "Tạo dự án", "mode": "task", "role": "R02" },
+        { "key": "P1.1B", "label": "BGĐ phê duyệt triển khai", "mode": "task", "role": "R01" },
+        { "key": "P1.2A", "label": "PM lập kế hoạch kickoff, WBS, cột mốc", "mode": "task", "role": "R02" },
+        { "key": "P1.2", "label": "Xây dựng dự toán thi công", "mode": "task", "role": "R03" },
+        { "key": "P1.3", "label": "Phê duyệt kế hoạch và dự toán thi công", "mode": "task", "role": "R01" }
+      ]
+    },
+    {
+      "key": "GD2",
+      "label": "2 — Thiết kế & Dự toán",
+      "role": "R04",
+      "sub_steps": [
+        { "key": "P2.1", "label": "Thiết kế bản vẽ và đề xuất vật tư chính", "mode": "task", "role": "R04" },
+        { "key": "P2.2", "label": "PM đề xuất vật tư hàn và sơn", "mode": "task", "role": "R02" },
+        { "key": "P2.3", "label": "Kho đề xuất vật tư tiêu hao", "mode": "task", "role": "R05" },
+        { "key": "P2.1A", "label": "Lập kế hoạch dòng tiền", "mode": "task", "role": "R08" },
+        { "key": "P2.4", "label": "KTKH điều chỉnh dự toán", "mode": "task", "role": "R03" },
+        { "key": "P2.5", "label": "BGĐ phê duyệt kế hoạch SX và dự toán chính thức", "mode": "task", "role": "R01" }
+      ],
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+2d",
+          "on_miss": [
+            { "at": "-20%", "do": "flag(at_risk)" },
+            { "at": "0", "do": "escalate(role:shift_lead)" }
+          ]
+        }
+      }
+    },
+    {
+      "key": "GD3",
+      "label": "3 — Chuẩn bị vật tư",
+      "role": "R02",
+      "sub_steps": [
+        { "key": "P3.1", "label": "PM điều chỉnh kế hoạch, đẩy tiến độ cấp hàng", "mode": "task", "role": "R02" },
+        { "key": "P3.3", "label": "PM lập lệnh SX và đề nghị cấp vật tư — phần thuê ngoài", "mode": "task", "role": "R02" },
+        { "key": "P3.4", "label": "PM lập lệnh SX và đề nghị cấp vật tư — phần làm tại IBS", "mode": "task", "role": "R02" },
+        { "key": "P3.5", "label": "Thương mại tìm nhà cung cấp", "mode": "task", "role": "R07" },
+        { "key": "P3.6", "label": "BGĐ phê duyệt báo giá nhà cung cấp", "mode": "task", "role": "R01" }
+      ],
+      "sla": {
+        "pause_when": ["flag(waiting_vendor)"],
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+3d",
+          "on_miss": [{ "at": "0", "do": "notify(role:R02) + escalate(role:shift_lead)" }]
+        }
+      }
+    },
+    {
+      "key": "GD4",
+      "label": "4 — Nhận hàng & Nhập kho",
+      "role": "R05",
+      "sub_steps": [
+        { "key": "P4.1", "label": "Nhận hàng tại cổng — nhà cung cấp giao hàng (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R05" },
+        { "key": "P4.2", "label": "Đối chiếu phiếu giao hàng với đơn đặt hàng (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R05" },
+        { "key": "P4.3", "label": "QC nghiệm thu hàng nhập (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R09" },
+        { "key": "P4.4", "label": "Thanh toán nhà cung cấp (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R08" },
+        { "key": "P4.5", "label": "Kho đề nghị cấp vật tư cho PM và quản lý SX", "mode": "task", "role": "R05" }
+      ],
+      "requires": { "evidence": ["photo"], "min_count": 1 }
+    },
+    {
+      "key": "GD5",
+      "label": "5 — Sản xuất",
+      "role": "R06b",
+      "sub_steps": [
+        { "key": "P5.1A", "label": "Pha cắt — cập nhật khối lượng theo công đoạn (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R06b" },
+        { "key": "P5.1B", "label": "Gá — cập nhật khối lượng theo công đoạn (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R06b" },
+        { "key": "P5.1C", "label": "Hàn — cập nhật khối lượng theo công đoạn (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R06b" },
+        { "key": "P5.1D", "label": "Tổ hợp — cập nhật khối lượng theo công đoạn (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R06b" },
+        { "key": "P5.1E", "label": "Sơn — cập nhật khối lượng theo công đoạn (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R06b" },
+        { "key": "P5.1F", "label": "Bảo ôn — cập nhật khối lượng theo công đoạn (đặt tạm, chưa xác thực)", "mode": "status_only", "role": "R06b" },
+        { "key": "P5.2", "label": "Xưởng báo cáo khối lượng hoàn thành theo tuần", "mode": "task", "role": "R06b" },
+        { "key": "P5.3", "label": "QAQC nghiệm thu chất lượng và khối lượng", "mode": "task", "role": "R09" },
+        { "key": "P5.4", "label": "PM nghiệm thu chất lượng và khối lượng", "mode": "task", "role": "R02" },
+        { "key": "P5.5", "label": "Tổng hợp và tính lương khoán", "mode": "task", "role": "R03" }
+      ],
+      "sla": {
+        "start_within": {
+          "within": "+15m",
+          "on_miss": [{ "at": "0", "do": "notify(role:R09) + flag(breached)" }]
+        },
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+45m",
+          "on_miss": [
+            { "at": "-20%", "do": "flag(at_risk)" },
+            { "at": "0", "do": "escalate(role:shift_lead)" }
+          ]
+        }
+      },
+      "requires": { "fields": ["qc_result"], "evidence": ["photo"], "min_count": 1 }
+    },
+    {
+      "key": "GD6",
+      "label": "6 — Đóng dự án",
+      "role": "R02",
+      "terminal": true,
+      "sub_steps": [
+        { "key": "P6.1", "label": "QC tổng hợp hồ sơ chất lượng", "mode": "task", "role": "R09" },
+        { "key": "P6.2", "label": "Quyết toán chi phí trực tiếp", "mode": "task", "role": "R08" },
+        { "key": "P6.3", "label": "Quyết toán tổng hợp (lãi lỗ)", "mode": "task", "role": "R03" },
+        { "key": "P6.4", "label": "Tổ chức rút kinh nghiệm", "mode": "task", "role": "R02" },
+        { "key": "P6.5", "label": "BGĐ phê duyệt đóng dự án", "mode": "task", "role": "R01" }
+      ]
+    }
+  ],
+  "gates": [
+    { "stage": "P1.3", "requires": { "all_of": ["P1.2A", "P1.2"] } },
+    { "stage": "P2.4", "requires": { "all_of": ["P2.1", "P2.2", "P2.3", "P2.1A"] } },
+    { "stage": "P3.6", "requires": { "all_of": ["P3.3", "P3.4", "P3.5"] } },
+    { "stage": "GD5", "requires": { "all_of": ["GD3", "GD4"] } },
+    { "stage": "P6.5", "requires": { "all_of": ["P6.1", "P6.2", "P6.3", "P6.4"] } }
+  ],
+  "rules": [
+    {
+      "id": "qc_start",
+      "layer": "wait",
+      "anchor": "stage_ready(P5.3)",
+      "offset": "+15m",
+      "target": "stage_started(P5.3)",
+      "on_miss": [{ "at": "0", "do": "notify(role:R09) + flag(breached)" }]
+    },
+    {
+      "id": "qc_finish",
+      "layer": "step",
+      "anchor": "stage_ready(P5.3)",
+      "offset": "+45m",
+      "target": "stage_done(P5.3)",
+      "on_miss": [
+        { "at": "-20%", "do": "flag(at_risk)" },
+        { "at": "0", "do": "escalate(role:shift_lead)" }
+      ]
+    }
+  ],
+  "process_sla": {
+    "id": "production_lead_time",
+    "layer": "process",
+    "anchor": "run_created",
+    "offset": "+18h",
+    "target": "stage_done(GD6)",
+    "on_miss": [
+      { "at": "-10%", "do": "notify(role:R02)" },
+      { "at": "0", "do": "escalate(role:R01)" }
+    ]
+  },
+  "exceptions": [
+    {
+      "key": "qc_fail",
+      "label": "QC không đạt",
+      "raised_from": ["P5.3", "P6.1"],
+      "handler_role": "R06b",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+10m",
+          "target": "exception_ack",
+          "clock": "24x7",
+          "on_miss": [
+            { "at": "+10m", "do": "escalate(role:shift_lead)" },
+            { "at": "+35m", "do": "escalate(role:R01)" }
+          ]
+        },
+        {
+          "id": "resolve",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+2h",
+          "target": "exception_resolved",
+          "clock": "24x7",
+          "on_miss": [{ "at": "0", "do": "escalate(role:R01)" }]
+        }
+      ]
+    },
+    {
+      "key": "machine_down",
+      "label": "Máy hỏng",
+      "raised_from": ["P5.2"],
+      "handler_role": "R13",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+10m",
+          "target": "exception_ack",
+          "clock": "24x7",
+          "on_miss": [{ "at": "0", "do": "escalate(role:shift_lead)" }]
+        }
+      ]
+    },
+    {
+      "key": "material_short",
+      "label": "Thiếu vật tư",
+      "raised_from": ["P3.1", "P5.2"],
+      "handler_role": "R05",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+30m",
+          "target": "exception_ack",
+          "on_miss": [{ "at": "0", "do": "notify(role:R02) + escalate(role:shift_lead)" }]
+        }
+      ]
+    }
+  ]
+}

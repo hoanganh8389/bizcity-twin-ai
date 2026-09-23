@@ -68,7 +68,10 @@ final class BizCity_LLM_Gateway_Panel_REST {
 		if ( ! is_user_logged_in() ) {
 			return new WP_Error( 'rest_forbidden', 'Login required.', array( 'status' => 401 ) );
 		}
-		if ( ! current_user_can( 'manage_options' ) ) {
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( ! $can_manage ) {
 			return new WP_Error( 'rest_forbidden', 'You cannot manage the API gateway on this site.', array( 'status' => 403 ) );
 		}
 		return true;

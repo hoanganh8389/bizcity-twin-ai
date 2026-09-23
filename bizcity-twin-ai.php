@@ -129,6 +129,12 @@ if ( ! class_exists( 'BizCity_Schema_Registry', false ) ) {
 if ( ! class_exists( 'BizCity_Network_Admin_Capability', false ) ) {
     require_once __DIR__ . '/core/runtime/class-network-admin-capability.php';
 }
+// [2026-09-23 Claude Sonnet 5] Must be called unconditionally here, NOT from
+// inside class-network-admin-capability.php itself — PHP's compile-time early
+// binding of that file's unconditional class declaration made a trailing
+// self-bootstrap call in that file never actually execute. See the bootstrap()
+// docblock there for the full diagnosis.
+BizCity_Network_Admin_Capability::bootstrap();
 
 // Infrastructure
 require_once __DIR__ . '/includes/helpers-table-cache.php';
@@ -948,7 +954,19 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         BizCity_Safe_Loader::require_file( $_bundled_file, 'bundled.' . $_slug );
     }
     if ( $_bizcity_is_crm_bundle && ( ! defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' ) || ! class_exists( 'BizCity_CRM_Plugin', false ) || ! method_exists( 'BizCity_CRM_Admin_Menu', 'surfaces_for' ) ) ) {
-        error_log( '[BizCity_Twin_AI] CRM mandatory bundle contract is not ready; check for a stale or partial CRM artifact set.' );
+        // [2026-09-23 Claude Sonnet 5] HOTFIX — this was firing on nearly every single request
+        // (multiple times per second in bps_php_error.log). Root cause: `bizcity-twin-crm.php`
+        // early-returns on a `?page=bizcity-twinchat` admin request BEFORE it ever defines
+        // BizCity_CRM_Admin_Menu — and require_once dedupes by file path regardless of what that
+        // first run actually did. Any PHP-FPM worker whose first-ever require of that file was a
+        // twinchat-admin request is stuck never loading the CRM contract for the rest of its
+        // life. That's a real bug to fix in bizcity-twin-crm.php's own load order (load the
+        // admin-menu contract before the early return, not just the heavy bootstrap after it) —
+        // until then, throttle the log instead of spamming it every request.
+        if ( function_exists( 'get_transient' ) && function_exists( 'set_transient' ) && false === get_transient( 'bizcity_crm_mustload_warn' ) ) {
+            set_transient( 'bizcity_crm_mustload_warn', 1, 5 * MINUTE_IN_SECONDS );
+            error_log( '[BizCity_Twin_AI] CRM mandatory bundle contract is not ready; check for a stale or partial CRM artifact set.' );
+        }
     }
     unset( $_bizcity_is_crm_bundle, $_bizcity_crm_api_ready );
 }

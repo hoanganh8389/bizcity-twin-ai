@@ -5,7 +5,7 @@
  * Namespace bizcity-crm/v1:
  *   GET  /crm-pipeline/board              — L1 Pipeline đội (columns, KPIs, per-staff matrix)   customer-pipeline-board@1.0.0
  *   GET  /crm-pipeline/contacts/{id}      — stage detail for the Inbox toolbar / rail (steps, history, next step)
- *   POST /crm-contacts/{id}/stage         — change stage / tick steps / log an outcome        pipeline-stage-change@1.0.0
+ *   POST /crm-contacts/{id}/stage         — change stage / tick steps / log an outcome        pipeline-stage-change@2.0.0
  *   GET  /crm-pipeline/segments           — L2 customer sets for playbooks (≤ 200 ids, by owner)
  *   GET  /crm-tasks/load                  — L2 open tasks due per staff per day (7 days)
  *   GET|PUT /crm-settings/pipeline        — stuck days, steps per stage, lost reasons (R-PIPE-8)
@@ -512,7 +512,9 @@ final class BizCity_CRM_Pipeline_REST {
 		$result = BizCity_CRM_Pipeline_Stage_Service::change( (int) get_current_user_id(), (int) $req['id'], self::body( $req ), 'b2' );
 		if ( is_wp_error( $result ) ) { return self::error_from( $result ); }
 		self::bust_board_cache();
-		return new WP_REST_Response( array_merge( array( 'ok' => true, 'contract' => 'pipeline-stage-change', 'version' => '1.0.0' ), $result ), 200 );
+		// [2026-09-23 PHASE-0.63C GC-1] pipeline-stage-change bumped to 2.0.0 — enum stage vocabulary replaced by
+		// a free-form key + pipeline_kind/subject_type/subject_id/progress_pct/gate_blocked (0.62 §3 mục 1).
+		return new WP_REST_Response( array_merge( array( 'ok' => true, 'contract' => 'pipeline-stage-change', 'version' => '2.0.0' ), $result ), 200 );
 	}
 
 	// ── L2 planner ───────────────────────────────────────────────────────

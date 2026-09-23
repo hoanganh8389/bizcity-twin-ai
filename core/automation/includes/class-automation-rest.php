@@ -441,7 +441,10 @@ final class BizCity_Automation_REST {
 
 	// ─── Permission helper ───────────────────────────────────────────────
 	public static function admin_only(): bool {
-		return current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	public static function workflow_read_allowed(): bool {
@@ -451,12 +454,18 @@ final class BizCity_Automation_REST {
 
 	public static function workflow_write_allowed(): bool {
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers can author their own workflows; admin-only powers stay on template/must-use routes.
-		return current_user_can( 'manage_options' ) || current_user_can( 'read' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		return ( class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' ) ) || current_user_can( 'read' );
 	}
 
 	// [2026-06-07 Johnny Chu] CRM-PATH-1 — CRM-care OR admin (Path B routes).
 	public static function crm_care_or_admin(): bool {
-		return current_user_can( 'manage_options' ) || current_user_can( 'bizcity_crm_manage' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		return ( class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' ) ) || current_user_can( 'bizcity_crm_manage' );
 	}
 
 	private static function is_workflow_owner( array $row ): bool {

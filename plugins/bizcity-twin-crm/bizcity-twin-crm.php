@@ -113,11 +113,9 @@ $crm_public_assets = array();
 if ( class_exists( 'BizCity_CRM_Admin_Menu' ) ) {
 	$crm_public_assets = BizCity_CRM_Admin_Menu::instance()->enqueue_public_assets();
 }
+$crm_script_handle = ! empty( $crm_public_assets['script'] ) ? $crm_public_assets['script'] : '';
 if ( ! empty( $crm_public_assets['style'] ) ) {
 	wp_print_styles( array( $crm_public_assets['style'] ) );
-}
-if ( ! empty( $crm_public_assets['script'] ) ) {
-	wp_print_scripts( array( $crm_public_assets['script'] ) );
 }
 ?>
 <style>
@@ -131,6 +129,15 @@ body { padding-top: 0 !important; }
 </head>
 <body>
 <div id="bizcity-crm-inbox-root"></div>
+<?php
+if ( '' !== $crm_script_handle ) {
+	// [2026-09-23 05:30 PM OpenAI GPT-5.6 Luna] PHASE-CRM-MUSTLOAD — the
+	// bundle must execute after the mount element exists. Printing it in <head>
+	// loads the resource successfully but main.jsx sees no root and silently
+	// returns, producing the observed empty #bizcity-crm-inbox-root.
+	wp_print_scripts( array( $crm_script_handle ) );
+}
+?>
 </body>
 </html><?php
 	exit;

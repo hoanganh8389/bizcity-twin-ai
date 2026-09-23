@@ -132,6 +132,10 @@ if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2', false ) ) {
     final class BizCity_CRM_DB_Installer_V2 {
         public static function tbl_conversations(): string { return 'wp_bizcity_crm_conversations'; }
         public static function tbl_contact_inboxes(): string { return 'wp_bizcity_crm_contact_inboxes'; }
+        // [2026-09-23 PHASE-0.69] `final class` + directory-wide test discovery means whichever file loads
+        // first "wins" this class name for the whole PHPUnit process (tests/unit/CrmPipelineRunServiceRoleContextTest.php
+        // needs it too) — added here rather than duplicating a second, competing definition.
+        public static function tbl_crm_opportunities(): string { return 'wp_bizcity_crm_opportunities'; }
     }
 }
 

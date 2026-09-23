@@ -93,7 +93,10 @@ final class BizCity_Automation_Admin_SPA {
 	public function register_menu(): void {
 		global $submenu, $_wp_submenu_nopriv, $_wp_menu_nopriv;
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — Twin GPT embeds this page for customers; normal wp-admin navigation stays admin-only.
-		$page_cap = $this->is_iframe_context() ? 'read' : 'manage_options';
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$page_cap = $this->is_iframe_context() ? 'read' : ( class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options' );
 		if ( $this->is_iframe_context() ) {
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — central admin menu may have registered this slug earlier with manage_options; clear WP's nopriv marker for the iframe-only read surface.
 			unset( $_wp_menu_nopriv[ self::MENU_SLUG ] );

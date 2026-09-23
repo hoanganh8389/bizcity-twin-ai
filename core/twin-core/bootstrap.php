@@ -102,7 +102,9 @@ require_once $twin_event_stream . '/class-twin-event-store.php';
 
 // Phase 2 Priority 5 — Event Bus (milestone + context log recording + Phase 0.12 dispatch_v2)
 require_once $twin_event_stream . '/class-twin-event-bus.php';
-BizCity_Twin_Event_Bus::boot();
+if ( class_exists( 'BizCity_Twin_Event_Bus' ) ) {
+    BizCity_Twin_Event_Bus::boot();
+}
 
 // [2026-09-01 Johnny Chu] PHASE-CB4.1 — register the gated Event Stream projection after the canonical bus is booted.
 $_context_bank_event_adapter = dirname( __DIR__ ) . '/context-bank/includes/class-context-bank-event-stream-adapter.php';
@@ -122,7 +124,9 @@ unset( $_context_bank_event_adapter );
 
 // Phase 0.12 Wave B+ PR-B+1 — Trace projector (registered, NO-OP until Wave B+3 flip)
 require_once $twin_event_stream . '/class-twin-event-trace-projector.php';
-BizCity_Twin_Event_Trace_Projector::boot();
+if ( class_exists( 'BizCity_Twin_Event_Trace_Projector' ) ) {
+    BizCity_Twin_Event_Trace_Projector::boot();
+}
 
 // Phase 0.12 Wave C — Router event ingester (parses _twin_events from
 // bizcity-llm-router HTTP responses + ingest_remote into local stream).
@@ -130,12 +134,16 @@ require_once $twin_event_stream . '/class-router-event-ingester.php';
 
 // Phase 0.12 Wave F — Read-only REST for the Inspector drawer.
 require_once $twin_event_stream . '/class-twin-event-stream-rest.php';
-BizCity_Twin_Event_Stream_REST::boot();
+if ( class_exists( 'BizCity_Twin_Event_Stream_REST' ) ) {
+    BizCity_Twin_Event_Stream_REST::boot();
+}
 
 // Phase 0.12 Wave F — Admin page (Twin Event Inspector).
 if ( is_admin() ) {
 	require_once $twin_event_stream . '/class-twin-event-inspector-page.php';
-	BizCity_Twin_Event_Inspector_Page::boot();
+	if ( class_exists( 'BizCity_Twin_Event_Inspector_Page' ) ) {
+		BizCity_Twin_Event_Inspector_Page::boot();
+	}
 }
 
 // Phase 2 Priority 4 — Prompt Parser (write-only prompt specs)
@@ -184,7 +192,9 @@ require_once $twin_includes . '/class-twin-slo-store.php';
 require_once $twin_includes . '/class-twin-capability-guard.php';
 // [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load persistent extension consent before authorization.
 require_once $twin_includes . '/class-twin-capability-consent.php';
-BizCity_Twin_Capability_Consent::boot();
+if ( class_exists( 'BizCity_Twin_Capability_Consent' ) ) {
+    BizCity_Twin_Capability_Consent::boot();
+}
 // [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load shared SSRF and upload policy enforcement.
 require_once $twin_includes . '/class-twin-security-policy.php';
 require_once $twin_includes . '/class-twin-mutation-guard.php';
@@ -200,7 +210,9 @@ require_once $twin_includes . '/class-twin-runtime-reliability.php';
 require_once $twin_includes . '/class-twin-reliable-http.php';
 require_once $twin_includes . '/class-twin-content-registry.php';
 // [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — consume typed skill/source declarations through the single content registry.
-BizCity_Twin_Content_Registry::boot();
+if ( class_exists( 'BizCity_Twin_Content_Registry' ) ) {
+    BizCity_Twin_Content_Registry::boot();
+}
 require_once $twin_includes . '/class-twin-tool-registry.php';
 require_once $twin_includes . '/class-twin-citation-id-generator.php';
 require_once $twin_includes . '/class-twin-citation-validator.php';
@@ -222,13 +234,18 @@ add_filter( 'bizcity_twin_register_tool', function ( $registry ) use ( $twin_inc
 }, 5 );
 
 /* ── BizChat Menu — Unified Admin Menu Registry ───────────────── */
+// [2026-09-23 R-SAFE-LOADER] guard the call — this exact unguarded require_once +
+// immediate ::boot() is what produced "Class 'BizChat_Menu' not found" fatals in
+// bps_php_error.log when a deploy briefly left this file missing/truncated.
 require_once $twin_includes . '/class-bizchat-menu.php';
-BizChat_Menu::boot();
+if ( class_exists( 'BizChat_Menu' ) ) {
+    BizChat_Menu::boot();
+}
 
 // DB table + cron + AJAX
 // Memory migration is heavy (SHOW TABLES + RENAME) — run only on admin requests,
 // never on frontend AJAX/SSE which would block the chat stream for seconds.
-if ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
+if ( ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) ) && class_exists( 'BizCity_Memory_Table_Migration' ) ) {
     BizCity_Memory_Table_Migration::maybe_migrate();
 }
 // [2026-07-31 Johnny Chu] R-PERF/R-MSDB — defer tenant DDL to an explicit repair-capable context.
@@ -238,8 +255,8 @@ $bizcity_twin_schema_context = is_admin()
     || ( defined( 'DOING_CRON' ) && DOING_CRON )
     || ( defined( 'WP_CLI' ) && WP_CLI );
 if ( $bizcity_twin_schema_context ) {
-    BizCity_Twin_State_Schema::ensure_tables();  // Phase 2 — active state tables
-    BizCity_Twin_Event_Stream_Schema::ensure_table();  // Phase 0.12 Wave A — canonical event stream
+    if ( class_exists( 'BizCity_Twin_State_Schema' ) ) { BizCity_Twin_State_Schema::ensure_tables(); }  // Phase 2 — active state tables
+    if ( class_exists( 'BizCity_Twin_Event_Stream_Schema' ) ) { BizCity_Twin_Event_Stream_Schema::ensure_table(); }  // Phase 0.12 Wave A — canonical event stream
 }
 
 // NOTE 2026-05-06: Maturity Dashboard + Calculator subsystem removed entirely

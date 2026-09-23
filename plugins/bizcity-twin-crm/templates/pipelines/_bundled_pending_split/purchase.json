@@ -1,0 +1,236 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.0.0",
+  "kind": "purchase",
+  "label": "Mua hàng",
+  "subject": "contact",
+  "clock": "calendar:office",
+  "lock_version": true,
+  "pause_when": [
+    "flag(waiting_vendor)"
+  ],
+  "roles": {
+    "R01": { "label": "Ban giám đốc", "resolve": { "relation": "owner_of_run" } },
+    "R02": { "label": "Bộ phận đề nghị", "resolve": { "relation": "creator_of_run" } },
+    "R05": { "label": "Kho", "resolve": { "relation": "assignee_of_stage" } },
+    "R07": { "label": "Thương mại", "resolve": { "relation": "assignee_of_stage" } },
+    "lead": { "label": "Trưởng bộ phận", "resolve": { "relation": "team_lead_of_assignee" } }
+  },
+  "calendars": {
+    "office": [
+      { "dow": [1, 2, 3, 4, 5], "from": "08:00", "to": "17:30" },
+      { "dow": [6], "from": "08:00", "to": "12:00" }
+    ]
+  },
+  "tools": ["stage", "ops", "supplier", "contract", "documents", "activity"],
+  "stages": [
+    {
+      "key": "pr",
+      "label": "Đề nghị mua",
+      "role": "R02",
+      "sub_steps": [
+        { "key": "pr_form", "label": "Điền đề nghị mua", "mode": "task", "role": "R02" },
+        { "key": "pr_budget", "label": "Đối chiếu ngân sách", "mode": "status_only" }
+      ],
+      "sla": {
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+4h",
+          "on_miss": [
+            { "at": "-20%", "do": "flag(at_risk)" },
+            { "at": "0", "do": "notify(role:R02)" }
+          ]
+        }
+      },
+      "requires": { "fields": ["item_list", "needed_by"] }
+    },
+    {
+      "key": "approve_pr",
+      "label": "Duyệt đề nghị",
+      "role": "lead",
+      "return_to": "pr",
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+1d",
+          "on_miss": [
+            { "at": "0", "do": "notify(role:lead)" },
+            { "at": "+4h", "do": "escalate(role:R01)" }
+          ]
+        }
+      }
+    },
+    {
+      "key": "rfq",
+      "label": "Hỏi giá",
+      "role": "R07",
+      "sub_steps": [
+        { "key": "rfq_send", "label": "Gửi yêu cầu báo giá", "mode": "task", "role": "R07" },
+        { "key": "rfq_collect", "label": "Thu báo giá", "mode": "status_only" }
+      ],
+      "sla": {
+        "pause_when": ["flag(waiting_vendor)"],
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+4h",
+          "on_miss": [{ "at": "0", "do": "notify(role:R07)" }]
+        }
+      }
+    },
+    {
+      "key": "compare",
+      "label": "So giá",
+      "role": "R07",
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+1d",
+          "on_miss": [
+            { "at": "-20%", "do": "flag(at_risk)" },
+            { "at": "0", "do": "notify(role:lead)" }
+          ]
+        }
+      },
+      "requires": { "fields": ["quote_count"], "evidence": ["file"], "min_count": 1 }
+    },
+    {
+      "key": "approve_vendor",
+      "label": "Duyệt nhà cung cấp",
+      "role": "R01",
+      "return_to": "compare",
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+1d",
+          "on_miss": [
+            { "at": "0", "do": "notify(role:R01)" },
+            { "at": "+4h", "do": "escalate(role:R01)" }
+          ]
+        }
+      }
+    },
+    {
+      "key": "po",
+      "label": "Đơn đặt hàng",
+      "role": "R07",
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+4h",
+          "on_miss": [{ "at": "0", "do": "notify(role:R07)" }]
+        }
+      },
+      "requires": { "evidence": ["file"], "min_count": 1 }
+    },
+    {
+      "key": "receipt",
+      "label": "Nhận hàng & nhập kho",
+      "role": "R05",
+      "sub_steps": [
+        { "key": "receipt_check", "label": "Kiểm hàng", "mode": "task", "role": "R05" },
+        { "key": "receipt_stock", "label": "Nhập kho", "mode": "task", "role": "R05" }
+      ],
+      "requires": { "evidence": ["photo"], "min_count": 1 }
+    },
+    {
+      "key": "issue",
+      "label": "Cấp phát",
+      "role": "R05",
+      "terminal": true,
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+1d",
+          "on_miss": [{ "at": "0", "do": "notify(role:R02)" }]
+        }
+      },
+      "requires": { "fields": ["issued_to"], "evidence": ["signature"], "min_count": 1 }
+    }
+  ],
+  "gates": [
+    { "stage": "rfq", "requires": { "all_of": ["approve_pr"] } },
+    { "stage": "po", "requires": { "all_of": ["approve_vendor"] } },
+    { "stage": "issue", "requires": { "all_of": ["receipt"] } }
+  ],
+  "rules": [
+    {
+      "id": "vendor_quote_wait",
+      "layer": "wait",
+      "anchor": "stage_started(rfq)",
+      "offset": "+3d",
+      "target": "stage_done(rfq)",
+      "pause_when": ["flag(waiting_vendor)"],
+      "on_miss": [
+        { "at": "-20%", "do": "flag(at_risk)" },
+        { "at": "0", "do": "notify(role:R07) + escalate(role:lead)" }
+      ]
+    },
+    {
+      "id": "promised_delivery",
+      "layer": "step",
+      "anchor": "field:promised_delivery_at",
+      "offset": "+0d",
+      "target": "stage_done(receipt)",
+      "clock": "24x7",
+      "on_miss": [
+        { "at": "-1d", "do": "flag(at_risk) + notify(role:R07)" },
+        { "at": "0", "do": "escalate(role:lead)" }
+      ]
+    }
+  ],
+  "process_sla": {
+    "id": "purchase_lead_time",
+    "layer": "process",
+    "anchor": "run_created",
+    "offset": "+7d",
+    "target": "stage_done(issue)",
+    "on_miss": [
+      { "at": "-10%", "do": "notify(role:R07)" },
+      { "at": "0", "do": "escalate(role:R01)" }
+    ]
+  },
+  "exceptions": [
+    {
+      "key": "budget_exceeded",
+      "label": "Vượt ngân sách",
+      "raised_from": ["compare", "approve_vendor", "po"],
+      "handler_role": "R01",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+4h",
+          "target": "exception_ack",
+          "on_miss": [{ "at": "0", "do": "escalate(role:R01)" }]
+        },
+        {
+          "id": "resolve",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+1d",
+          "target": "exception_resolved",
+          "on_miss": [{ "at": "0", "do": "escalate(role:R01)" }]
+        }
+      ]
+    },
+    {
+      "key": "vendor_no_reply",
+      "label": "Nhà cung cấp không phản hồi",
+      "raised_from": ["rfq"],
+      "handler_role": "R07",
+      "blocks_stage": false,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+4h",
+          "target": "exception_ack",
+          "on_miss": [{ "at": "0", "do": "notify(role:lead)" }]
+        }
+      ]
+    }
+  ]
+}

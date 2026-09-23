@@ -41,7 +41,9 @@ require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-route.php';
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-rest.php';
 // [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-03 — value owner + REST for Appearance (site) and User Preferences (user).
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-appearance.php';
-BizCity_Twin_Shell_Appearance::boot();
+if ( class_exists( 'BizCity_Twin_Shell_Appearance' ) ) {
+	BizCity_Twin_Shell_Appearance::boot();
+}
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-bridge.php';
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-primitives.php';
 
@@ -130,26 +132,44 @@ if ( ! defined( 'BIZCITY_TWIN_SHELL_SETTING_PANEL_REGISTERED' )
 	define( 'BIZCITY_TWIN_SHELL_SETTING_PANEL_REGISTERED', true );
 }
 
+// [2026-09-23 R-SAFE-LOADER] guard every ::instance()->register() below — same
+// anti-pattern (bare require_once + unconditional call) that produced the
+// "/twin/" 500s traced to core/twin-core/bootstrap.php; a partial deploy that
+// momentarily loses one of these classes must not take the whole shell down.
 // Public page /twin/ — registers rewrite + render handler.
-BizCity_Twin_Shell_Page::instance()->register();
+if ( class_exists( 'BizCity_Twin_Shell_Page' ) ) {
+	BizCity_Twin_Shell_Page::instance()->register();
+}
 
 // REST: GET /bizcity-twinchat/v1/shell/plugins.
-BizCity_Twin_Shell_REST::instance()->register();
+if ( class_exists( 'BizCity_Twin_Shell_REST' ) ) {
+	BizCity_Twin_Shell_REST::instance()->register();
+}
 
 // REST: bizcity-twin-shell/v1/{notebooks,host/bind-notebook,...} (Phase 0.13).
-BizCity_Twin_Shell_Primitives::instance()->register();
+if ( class_exists( 'BizCity_Twin_Shell_Primitives' ) ) {
+	BizCity_Twin_Shell_Primitives::instance()->register();
+}
 
 if ( $bz_twinshell_load_learning ) {
 	// Phase 0.7 Wave D — Learning Hub cortex SDK + REST proxy.
-	BizCity_Twin_Shell_Learning_SDK::instance()->bind();
-	BizCity_Twin_Shell_Learning_REST::instance()->register();
+	if ( class_exists( 'BizCity_Twin_Shell_Learning_SDK' ) ) {
+		BizCity_Twin_Shell_Learning_SDK::instance()->bind();
+	}
+	if ( class_exists( 'BizCity_Twin_Shell_Learning_REST' ) ) {
+		BizCity_Twin_Shell_Learning_REST::instance()->register();
+	}
 
 	// Phase 0.7 Wave E — public page /learning-hub/.
-	BizCity_Twin_Shell_Learning_Page::instance()->register();
+	if ( class_exists( 'BizCity_Twin_Shell_Learning_Page' ) ) {
+		BizCity_Twin_Shell_Learning_Page::instance()->register();
+	}
 }
 
 // Auto-inject bridge JS into any page whose URL matches a registered plugin slug.
-BizCity_Twin_Shell_Bridge::instance()->register();
+if ( class_exists( 'BizCity_Twin_Shell_Bridge' ) ) {
+	BizCity_Twin_Shell_Bridge::instance()->register();
+}
 
 // [2026-06-09 Johnny Chu] R-CR — migrated to Central Rewrite Flush Registry.
 // [2026-06-26 Johnny Chu] R-PERF — removed legacy admin_init guards (2× non-autoloaded

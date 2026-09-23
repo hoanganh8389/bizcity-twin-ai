@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "catalog_id": "bizcity-twin-public-contracts",
-  "catalog_version": "1.17.0",
+  "catalog_version": "1.19.0",
   "namespace": "bizcity.twin.contracts.public.v1",
   "semver_policy": "semver",
   "stability": "stable",
@@ -542,7 +542,7 @@
     },
     {
       "id": "leader-task-handoff",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "schema": "leader-task-handoff.schema.json",
       "fixtures": {
         "valid": "fixtures/leader-task-handoff.valid.json",
@@ -636,15 +636,15 @@
     },
     {
       "id": "pipeline-stage-change",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "schema": "pipeline-stage-change.schema.json",
       "fixtures": {
         "valid": "fixtures/pipeline-stage-change.valid.json",
         "invalid": "fixtures/pipeline-stage-change.invalid.json"
       },
       "compatibility": {
-        "producer": "1.x",
-        "consumer": "1.x"
+        "producer": "2.x",
+        "consumer": "2.x"
       },
       "deprecation": {
         "grace_versions": 3,

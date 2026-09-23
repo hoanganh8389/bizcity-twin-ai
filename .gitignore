@@ -5,6 +5,7 @@ vendor/
 # Ignore specific plugin
 /docs/ip-registration/
 /docs/roadmaps/*
+/webchat__/
 # Roadmaps, audit material, and implementation planning remain private. The
 # local canonical files are retained for approved deployment/review work.
 /docs/audits/

@@ -155,8 +155,39 @@ require_once $gateway_dir . 'class-channel-menu-migrate.php';
 // 2026-06-04 — Unified Google Hub admin page (group=integrations,sub=google-hub).
 require_once $gateway_dir . 'class-google-hub-page.php';
 
-require_once $gateway_dir . 'class-admin-menu.php';
-require_once $gateway_dir . 'class-admin-menu-spa.php';
+// [2026-09-23 R-SAFE-LOADER] guard each file individually — a partial deploy
+// missing/truncating one of these three must not fatal the whole gateway
+// bootstrap (this is exactly what produced the "/gateway/" and "/twin/" 500s:
+// bare require_once + an unconditional call right after it, no class_exists
+// guard, same anti-pattern the bot-files loop above was already fixed for).
+$_bzc_gw_page_files = array(
+	$gateway_dir . 'class-admin-menu.php',
+	$gateway_dir . 'class-admin-menu-spa.php',
+	$gateway_dir . 'class-public-gateway-page.php',
+);
+foreach ( $_bzc_gw_page_files as $_bzc_gw_page_file ) {
+	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+		BizCity_Safe_Loader::require_file( $_bzc_gw_page_file, 'channel_gateway.admin_menu_pages' );
+	} elseif ( is_file( $_bzc_gw_page_file ) && is_readable( $_bzc_gw_page_file ) ) {
+		require_once $_bzc_gw_page_file;
+	}
+}
+unset( $_bzc_gw_page_files, $_bzc_gw_page_file );
+
+// [2026-09-23 07:05 PM GitHub Copilot] BOT-STUDIO-PUBLIC-ROUTE — /gateway/
+// is a public-path shell, while all Bot Studio data remains owned by the
+// existing channel/character/tuning REST owners.
+// [2026-09-23 re-added] this registration + the flush-version bump were dropped by a
+// later overwrite of this file — restored so `/gateway/` (currently 404 because its
+// rewrite rule was never in the saved rewrite_rules option) comes back and self-heals.
+if ( class_exists( 'BizCity_Public_Gateway_Page' ) ) {
+	BizCity_Public_Gateway_Page::instance()->register();
+}
+if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
+	// Version bump (not '1.0.0') forces an automatic flush on the next admin_init/wp_loaded —
+	// no manual "Save Permalinks" needed, and it self-heals on every site in the network.
+	BizCity_Rewrite_Flush_Registry::register( 'channel-gateway-public', '1.0.1' );
+}
 
 // PHASE 0.31 Sprint 6 — T-S4.3 / T-S6.1 / T-S6.3 always-load.
 require_once $gateway_dir . 'class-network-oauth-page.php';
@@ -347,7 +378,7 @@ require_once $gateway_dir . 'class-woo-order-handler.php';
 
 // [2026-06-07 Johnny Chu] PHASE-0.38.W3.5 — Public order tracking REST (bizcity-channel/v1 GET+POST /order-tracking/{token}).
 require_once $gateway_dir . 'class-cg-order-tracking-rest.php';
-BizCity_CG_Order_Tracking_REST::init();
+if ( class_exists( 'BizCity_CG_Order_Tracking_REST' ) ) { BizCity_CG_Order_Tracking_REST::init(); }
 
 // [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — Per-channel JSONL file logger.
 // MUST load before class-cg-debug-logger so ::log() can delegate to it.
@@ -362,7 +393,7 @@ if ( class_exists( 'BizCity_Channel_Conversation_Archive' ) ) {
 
 // Debug Logger — JSON-Lines pipeline tracer (uploads/[sites/{id}/]bizcity-cg-logs/).
 require_once $gateway_dir . 'class-cg-debug-logger.php';
-BizCity_CG_Debug_Logger::init();
+if ( class_exists( 'BizCity_CG_Debug_Logger' ) ) { BizCity_CG_Debug_Logger::init(); }
 
 // PHASE-N (2026-05-25) — Flows sub-module (port of bizgpt-custom-flows).
 // Schema: core/diagnostics/changelog/modules.flows.json
@@ -390,7 +421,15 @@ require_once $gateway_dir . 'class-webhook-replay.php';
 // deploy would have fataled the whole gateway instead of degrading just Bot Studio.
 $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-config-repo.php'    => 'channel.bot.config_repo',
+	// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — loaded before class-bot-rest.php, which reads them.
+	$gateway_dir . 'bot/class-bot-secrets-repo.php'   => 'channel.bot.secrets_repo',
+	$gateway_dir . 'bot/class-bot-media-client.php'   => 'channel.bot.media_client',
+	// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 — loaded before class-bot-tools.php, which calls it.
+	$gateway_dir . 'bot/class-bot-apify-client.php'   => 'channel.bot.apify_client',
 	$gateway_dir . 'bot/class-bot-rest.php'           => 'channel.bot.rest',
+	// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-1 — loaded after class-bot-rest.php, whose public
+	// policy_defaults_merged() it reuses (read-only projection, doc §4.1).
+	$gateway_dir . 'bot/class-bot-studio-rest.php'    => 'channel.bot.studio_rest',
 	$gateway_dir . 'bot/class-bot-office-hours.php'   => 'channel.bot.office_hours',
 	$gateway_dir . 'bot/class-bot-provider.php'       => 'channel.bot.provider',
 	$gateway_dir . 'bot/class-bot-vn-date.php'        => 'channel.bot.vn_date',
@@ -426,32 +465,42 @@ if ( is_file( $mabel_wheel_listener ) && is_readable( $mabel_wheel_listener ) &&
 add_action( 'admin_init', array( 'BizCity_Channel_Messages', 'maybe_install' ) );
 add_action( 'admin_init', array( 'BizCity_Channel_Binding',  'maybe_install' ) );
 add_action( 'admin_init', array( 'BizCity_Identity_Hub', 'maybe_install' ) );
+// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1.
+if ( class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+	add_action( 'admin_init', array( 'BizCity_Bot_Secrets_Repo', 'maybe_install' ) );
+}
 // [2026-08-02 Johnny Chu] HOTFIX — tolerate a partial deploy without crashing the entire Channel Gateway.
 if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
 	add_action( 'admin_init', array( 'BizCity_Channel_User_Linker', 'maybe_install' ) );
 	BizCity_Channel_User_Linker::init();
 }
 
+// [2026-09-23 R-SAFE-LOADER] these three used to be bare, unconditional calls right
+// after their require_once above — a partial/mid-write deploy that momentarily lost
+// one of these classes fatalled the whole gateway (this is the exact trace seen in
+// bps_php_error.log: "Class 'BizCity_Webhook_Inspector' not found ... bootstrap.php").
 // Boot the Webhook Router (rewrite rules + parse_request intake).
-BizCity_Webhook_Router::init();
+if ( class_exists( 'BizCity_Webhook_Router' ) ) { BizCity_Webhook_Router::init(); }
 
 // Boot the universal channel listener (taps known triggers @ priority 5).
-BizCity_Universal_Channel_Listener::init();
+if ( class_exists( 'BizCity_Universal_Channel_Listener' ) ) { BizCity_Universal_Channel_Listener::init(); }
 
 // Boot the Webhook Inspector (Tools menu + REST namespace bizcity/cg/v1).
-BizCity_Webhook_Inspector::init();
+if ( class_exists( 'BizCity_Webhook_Inspector' ) ) { BizCity_Webhook_Inspector::init(); }
 
 // [2026-09-23 Claude Sonnet 5] PHASE-0.60A W2/W3 — Bot Studio REST + turn engine.
 // Guarded like BizCity_Mabel_Wheel_Channel_Listener below: the loader above now degrades a
 // missing/corrupt bot file instead of fataling, so init() must not assume the class exists.
 if ( class_exists( 'BizCity_Bot_REST' ) ) { BizCity_Bot_REST::init(); }
+// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-1 — unified read-only Accounts/Gurus projection.
+if ( class_exists( 'BizCity_Bot_Studio_REST' ) ) { BizCity_Bot_Studio_REST::init(); }
 if ( class_exists( 'BizCity_Bot_Turn_Claim' ) ) { BizCity_Bot_Turn_Claim::init(); }
 if ( class_exists( 'BizCity_Bot_Turn_Runner' ) ) { BizCity_Bot_Turn_Runner::init(); }
 
 // Phase CG-Listener S1 — Listener Bus + REST (live tail SSE + polling fallback).
-BizCity_Listener_Bus::init();
-BizCity_Listener_REST::init();
-BizCity_Listener_Automation_Bridge::init();
+if ( class_exists( 'BizCity_Listener_Bus' ) ) { BizCity_Listener_Bus::init(); }
+if ( class_exists( 'BizCity_Listener_REST' ) ) { BizCity_Listener_REST::init(); }
+if ( class_exists( 'BizCity_Listener_Automation_Bridge' ) ) { BizCity_Listener_Automation_Bridge::init(); }
 if ( class_exists( 'BizCity_Mabel_Wheel_Channel_Listener' ) ) {
 	BizCity_Mabel_Wheel_Channel_Listener::init();
 }
@@ -493,25 +542,25 @@ if ( is_admin() ) {
 }
 
 // PHASE 0.34 M4.2 — Trace manifesto runtime: stamp every outbound with responder.
-BizCity_Responder_Stamper::init();
-BizCity_Inbox_Send_REST::init();
-BizCity_Webhook_Replay::init();
+if ( class_exists( 'BizCity_Responder_Stamper' ) ) { BizCity_Responder_Stamper::init(); }
+if ( class_exists( 'BizCity_Inbox_Send_REST' ) ) { BizCity_Inbox_Send_REST::init(); }
+if ( class_exists( 'BizCity_Webhook_Replay' ) ) { BizCity_Webhook_Replay::init(); }
 
 // PHASE CG-SCHEDULER v0.2 — FB Publisher subscribes to bizcity_scheduler_reminder_fire.
 // Idempotent + safe to call multiple times (priority 20 → runs after scheduler internals).
-BizCity_FB_Publisher::init();
+if ( class_exists( 'BizCity_FB_Publisher' ) ) { BizCity_FB_Publisher::init(); }
 
 // PHASE CG-TASK-UNIFY v0.1 — Web Post Publisher subscribes at priority 25.
-BizCity_Web_Post_Publisher::init();
+if ( class_exists( 'BizCity_Web_Post_Publisher' ) ) { BizCity_Web_Post_Publisher::init(); }
 
 // PHASE CG-TASK-UNIFY v0.2 — Zalo Reminder + Admin Router.
-BizCity_Zalo_Reminder::init();
-BizCity_CG_Admin_Router::init();
+if ( class_exists( 'BizCity_Zalo_Reminder' ) ) { BizCity_Zalo_Reminder::init(); }
+if ( class_exists( 'BizCity_CG_Admin_Router' ) ) { BizCity_CG_Admin_Router::init(); }
 
 // PHASE CG-TASK-UNIFY v0.3 — Phase 3 handlers.
-BizCity_Woo_Product_Handler::init();
-BizCity_Lead_Report_Handler::init();
-BizCity_Woo_Order_Handler::init();
+if ( class_exists( 'BizCity_Woo_Product_Handler' ) ) { BizCity_Woo_Product_Handler::init(); }
+if ( class_exists( 'BizCity_Lead_Report_Handler' ) ) { BizCity_Lead_Report_Handler::init(); }
+if ( class_exists( 'BizCity_Woo_Order_Handler' ) ) { BizCity_Woo_Order_Handler::init(); }
 
 // PHASE-0.35 GURU-ZALO-BOT §1.3/§1.5 (2026-05-26) — Channel formatter base +
 // Zalo concrete + REST controller fronting BizCity_Guru_Runtime. R-CH-NS
@@ -519,12 +568,12 @@ BizCity_Woo_Order_Handler::init();
 require_once $gateway_dir . 'formatters/class-channel-formatter.php';
 require_once $gateway_dir . 'formatters/class-zalo-formatter.php';
 require_once $gateway_dir . 'class-guru-turn-controller.php';
-BizCity_Guru_Turn_Controller::init();
+if ( class_exists( 'BizCity_Guru_Turn_Controller' ) ) { BizCity_Guru_Turn_Controller::init(); }
 
 // Register prune cron (TTL 3 days).
-BizCity_Webhook_Log::register_cron();
+if ( class_exists( 'BizCity_Webhook_Log' ) ) { BizCity_Webhook_Log::register_cron(); }
 add_action( 'admin_init', function () {
-	if ( ! wp_next_scheduled( BizCity_Webhook_Log::CRON_HOOK ) ) {
+	if ( class_exists( 'BizCity_Webhook_Log' ) && ! wp_next_scheduled( BizCity_Webhook_Log::CRON_HOOK ) ) {
 		BizCity_Webhook_Log::register_cron();
 	}
 } );
@@ -532,7 +581,7 @@ add_action( 'admin_init', function () {
 // One-time cleanup: DROP legacy wp_{date}_webhook_log tables left over from
 // the DB-based ledger (PHASE 0.33 M1.5 file-based refactor).
 add_action( 'admin_init', function () {
-	if ( get_option( 'bizcity_webhook_log_legacy_dropped' ) === '1' ) {
+	if ( ! class_exists( 'BizCity_Webhook_Log' ) || get_option( 'bizcity_webhook_log_legacy_dropped' ) === '1' ) {
 		return;
 	}
 	$dropped = BizCity_Webhook_Log::drop_legacy_tables();
@@ -560,16 +609,18 @@ if ( is_admin() ) {
 // Sprint 5.5 (T-S5b.2) — Test-Run single block AJAX endpoint.
 require_once $gateway_dir . 'class-test-run-block-api.php';
 // [2026-06-10 Johnny Chu] PHASE-0.31 T-S5b.2a — register wp_ajax_waic_test_run_block hook (was missing, causing T-S5b.2a FAIL).
-BizCity_Test_Run_Block_API::init();
+if ( class_exists( 'BizCity_Test_Run_Block_API' ) ) { BizCity_Test_Run_Block_API::init(); }
 
 // PHASE 0.37 — Channel REST API (bizcity-channel/v1).
 require_once $gateway_dir . 'class-channel-rest-api.php';
-add_action( 'rest_api_init', [ 'BizCity_Channel_REST_API', 'init' ] );
+if ( class_exists( 'BizCity_Channel_REST_API' ) ) {
+	add_action( 'rest_api_init', [ 'BizCity_Channel_REST_API', 'init' ] );
+}
 
 // Boot admin UI (hooks into bizchat_register_menus).
 if ( is_admin() ) {
-	BizCity_Gateway_Admin::instance();
-	BizCity_Gateway_Admin_SPA::instance();
+	if ( class_exists( 'BizCity_Gateway_Admin' ) ) { BizCity_Gateway_Admin::instance(); }
+	if ( class_exists( 'BizCity_Gateway_Admin_SPA' ) ) { BizCity_Gateway_Admin_SPA::instance(); }
 }
 
 // [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — register Zone 1/Zone 2 channel groups with exact-account scope metadata.

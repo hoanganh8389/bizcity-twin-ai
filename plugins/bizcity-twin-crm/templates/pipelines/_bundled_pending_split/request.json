@@ -1,0 +1,152 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.0.0",
+  "kind": "request",
+  "label": "Yêu cầu nội bộ",
+  "subject": "contact",
+  "clock": "calendar:office",
+  "lock_version": true,
+  "roles": {
+    "R01": { "label": "Ban giám đốc", "resolve": { "relation": "owner_of_run" } },
+    "R08": { "label": "Bộ phận thực hiện", "resolve": { "relation": "assignee_of_stage" } },
+    "lead": { "label": "Trưởng bộ phận", "resolve": { "relation": "team_lead_of_assignee" } },
+    "requester": { "label": "Người yêu cầu", "resolve": { "relation": "creator_of_run" } }
+  },
+  "calendars": {
+    "office": [
+      { "dow": [1, 2, 3, 4, 5], "from": "08:00", "to": "17:30" }
+    ]
+  },
+  "tools": ["stage", "ops", "work", "documents", "activity"],
+  "stages": [
+    {
+      "key": "create",
+      "label": "Tạo yêu cầu",
+      "role": "requester",
+      "sub_steps": [
+        { "key": "create_form", "label": "Điền biểu mẫu yêu cầu", "mode": "task", "role": "requester" }
+      ],
+      "requires": { "fields": ["request_type", "reason", "needed_by"] }
+    },
+    {
+      "key": "approve_tbp",
+      "label": "Trưởng bộ phận duyệt",
+      "role": "lead",
+      "return_to": "create",
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+4h",
+          "on_miss": [
+            { "at": "-20%", "do": "flag(at_risk)" },
+            { "at": "0", "do": "notify(role:lead)" }
+          ]
+        }
+      }
+    },
+    {
+      "key": "approve_bgd",
+      "label": "Ban giám đốc duyệt",
+      "role": "R01",
+      "return_to": "approve_tbp",
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+1d",
+          "on_miss": [
+            { "at": "0", "do": "notify(role:R01)" },
+            { "at": "+4h", "do": "escalate(role:R01)" }
+          ]
+        }
+      }
+    },
+    {
+      "key": "doing",
+      "label": "Đang thực hiện",
+      "role": "R08",
+      "sub_steps": [
+        { "key": "doing_plan", "label": "Lên phương án", "mode": "task", "role": "R08" },
+        { "key": "doing_exec", "label": "Thực hiện", "mode": "task", "role": "R08" }
+      ],
+      "sla": {
+        "start_within": {
+          "within": "+4h",
+          "on_miss": [{ "at": "0", "do": "notify(role:R08) + flag(breached)" }]
+        },
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+3d",
+          "on_miss": [
+            { "at": "-20%", "do": "flag(at_risk)" },
+            { "at": "0", "do": "escalate(role:lead)" }
+          ]
+        }
+      }
+    },
+    {
+      "key": "accept",
+      "label": "Nghiệm thu",
+      "role": "requester",
+      "return_to": "doing",
+      "sla": {
+        "finish_within": {
+          "from": "stage_ready",
+          "within": "+2d",
+          "on_miss": [{ "at": "0", "do": "notify(role:requester)" }]
+        }
+      },
+      "requires": { "fields": ["acceptance_note"], "evidence": ["photo", "file"], "min_count": 1 }
+    },
+    {
+      "key": "close",
+      "label": "Đóng yêu cầu",
+      "role": "lead",
+      "terminal": true
+    }
+  ],
+  "gates": [
+    { "stage": "approve_bgd", "requires": { "all_of": ["approve_tbp"] } },
+    { "stage": "doing", "requires": { "all_of": ["approve_bgd"] } },
+    { "stage": "close", "requires": { "all_of": ["accept"] } }
+  ],
+  "rules": [
+    {
+      "id": "pickup",
+      "layer": "wait",
+      "anchor": "run_created",
+      "offset": "+2h",
+      "target": "assigned",
+      "on_miss": [{ "at": "0", "do": "notify(role:lead)" }]
+    }
+  ],
+  "process_sla": {
+    "id": "request_lead_time",
+    "layer": "process",
+    "anchor": "run_created",
+    "offset": "+7d",
+    "target": "stage_done(close)",
+    "on_miss": [
+      { "at": "-10%", "do": "notify(role:lead)" },
+      { "at": "0", "do": "escalate(role:R01)" }
+    ]
+  },
+  "exceptions": [
+    {
+      "key": "missing_info",
+      "label": "Thiếu thông tin",
+      "raised_from": ["approve_tbp", "approve_bgd", "doing"],
+      "handler_role": "requester",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+4h",
+          "target": "exception_ack",
+          "on_miss": [{ "at": "0", "do": "notify(role:requester) + escalate(role:lead)" }]
+        }
+      ]
+    }
+  ]
+}

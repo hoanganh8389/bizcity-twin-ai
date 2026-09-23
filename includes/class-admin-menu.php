@@ -54,6 +54,27 @@ class BizCity_Admin_Menu {
 	const SLUG_DIAGNOSTICS  = 'bizcity-twin-diagnostics';   // Twin Diagnostics — Control Panel
 
 	/**
+	 * [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — this is the
+	 * CENTRALIZED admin menu registrar for the whole plugin (every add_menu_page/
+	 * add_submenu_page below routes through here), living at the plugin root's includes/
+	 * rather than under core/, which is why an earlier "core/ only" audit pass missed it
+	 * entirely — a Network Super Admin with no local administrator row got a hard 403 on
+	 * every page registered here (e.g. bizcity-knowledge-character-edit, reported live).
+	 * See docs/audits/FRAMEWORK-CONTRACT-AUDIT-2026-07-30.md.
+	 */
+	private static function menu_cap(): string {
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
+	}
+
+	private static function can_manage(): bool {
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+	}
+
+	/**
 	 * Boot — wire all admin_menu hooks.
 	 */
 	public static function boot(): void {
@@ -77,7 +98,7 @@ class BizCity_Admin_Menu {
 		add_menu_page(
 			__( 'Control Panel', $td ),
 			__( 'Control Panel', $td ),
-			'manage_options',
+			self::menu_cap(),
 			self::SLUG_CONTROL_PANEL,
 			[ __CLASS__, 'render_control_panel_page' ],
 			'dashicons-admin-generic',
@@ -135,7 +156,7 @@ class BizCity_Admin_Menu {
 		add_menu_page(
 			__( 'Cài đặt Twin AI', $td ),
 			__( 'Cài đặt Twin AI', $td ),
-			'manage_options',
+			self::menu_cap(),
 			self::SLUG_ADMIN,
 			[ __CLASS__, 'render_overview_page' ],
 			'dashicons-admin-generic',
@@ -147,7 +168,7 @@ class BizCity_Admin_Menu {
 		add_management_page(
 			__( 'Twin Diagnostics', $td ),
 			__( 'Twin Diagnostics', $td ),
-			'manage_options',
+			self::menu_cap(),
 			self::SLUG_DIAGNOSTICS,
 			[ __CLASS__, 'render_diagnostics_hub_page' ]
 		);
@@ -156,7 +177,7 @@ class BizCity_Admin_Menu {
 			add_management_page(
 				__( 'Twin Event Inspector', $td ),
 				__( 'Twin Event Inspector', $td ),
-				'manage_options',
+				self::menu_cap(),
 				'bizcity-twin-event-inspector',
 				[ 'BizCity_Twin_Event_Inspector_Page', 'render' ]
 			);
@@ -196,7 +217,7 @@ class BizCity_Admin_Menu {
 			self::SLUG_ADMIN,
 			__( 'Cài đặt Twin AI — Tổng quan', $td ),
 			__( 'Tổng quan', $td ),
-			'manage_options',
+			self::menu_cap(),
 			self::SLUG_ADMIN,
 			[ __CLASS__, 'render_overview_page' ]
 		);
@@ -206,31 +227,31 @@ class BizCity_Admin_Menu {
 			$wc = BizCity_WebChat_Admin_Menu::instance();
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Cài đặt Chatbot', $td ), __( 'Cài đặt Chatbot', $td ),
-				'manage_options', 'bizcity-webchat',
+				self::menu_cap(), 'bizcity-webchat',
 				[ $wc, 'render_settings_page' ] );
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Giao diện Widget', $td ), __( 'Giao diện Widget', $td ),
-				'manage_options', 'bizcity-webchat-appearance',
+				self::menu_cap(), 'bizcity-webchat-appearance',
 				[ $wc, 'render_appearance_page' ] );
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Chat Logs', $td ), __( 'Chat Logs', $td ),
-				'manage_options', 'bizcity-webchat-logs',
+				self::menu_cap(), 'bizcity-webchat-logs',
 				[ $wc, 'render_logs_page' ] );
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Timeline', $td ), __( 'Timeline', $td ),
-				'manage_options', 'bizcity-webchat-timeline',
+				self::menu_cap(), 'bizcity-webchat-timeline',
 				[ $wc, 'render_timeline_page' ] );
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Session Memory', $td ), __( 'Memory', $td ),
-				'manage_options', 'bizcity-webchat-memory',
+				self::menu_cap(), 'bizcity-webchat-memory',
 				[ $wc, 'render_memory_page' ] );
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Trigger Guide', $td ), __( 'Trigger Guide', $td ),
-				'manage_options', 'bizcity-webchat-trigger-guide',
+				self::menu_cap(), 'bizcity-webchat-trigger-guide',
 				[ $wc, 'render_trigger_guide_page' ] );
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Shortcode Guide', $td ), __( 'Shortcode Guide', $td ),
-				'manage_options', 'bizcity-webchat-shortcode-guide',
+				self::menu_cap(), 'bizcity-webchat-shortcode-guide',
 				[ $wc, 'render_shortcode_guide_page' ] );
 		}
 
@@ -238,7 +259,7 @@ class BizCity_Admin_Menu {
 		if ( class_exists( 'BizCity_LLM_Settings', false ) ) {
 			add_submenu_page( self::SLUG_WORKSPACE,
 				'BizCity LLM — ' . __( 'AI Gateway', $td ), 'LLM Settings',
-				'manage_options', 'bizcity-llm',
+				self::menu_cap(), 'bizcity-llm',
 				[ BizCity_LLM_Settings::instance(), 'render_page' ] );
 		}
 
@@ -246,11 +267,11 @@ class BizCity_Admin_Menu {
 		if ( class_exists( 'BZCC_Admin_Menu', false ) ) {
 			add_submenu_page( self::SLUG_PLUGINS,
 				'Templates', 'Templates',
-				'manage_options', 'bizcity-creator-templates',
+				self::menu_cap(), 'bizcity-creator-templates',
 				[ 'BZCC_Admin_Menu', 'render_templates_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				'Danh mục nội dung', 'Danh mục',
-				'manage_options', 'bizcity-creator-categories',
+				self::menu_cap(), 'bizcity-creator-categories',
 				[ 'BZCC_Admin_Menu', 'render_categories_page' ] );
 		}
 
@@ -267,7 +288,7 @@ class BizCity_Admin_Menu {
 			self::SLUG_PLUGINS,
 			__( 'Twin Plugins', $td ),
 			__( 'Tổng quan', $td ),
-			'manage_options',
+			self::menu_cap(),
 			self::SLUG_PLUGINS,
 			[ __CLASS__, 'render_plugins_page' ]
 		);
@@ -276,7 +297,7 @@ class BizCity_Admin_Menu {
 				self::SLUG_WORKSPACE,
 				__( 'Twin Membership', $td ),
 				__( 'Account & Usage', $td ),
-				'manage_options',
+				self::menu_cap(),
 				'bizcity-membership',
 				[ 'BizCity_Membership_Admin_Page', 'render' ]
 			);
@@ -308,7 +329,7 @@ class BizCity_Admin_Menu {
 			self::SLUG_WORKSPACE,
 			__( 'Tích hợp bên ngoài', $td ),
 			__( 'Tích hợp', $td ),
-			'manage_options',
+			self::menu_cap(),
 			self::SLUG_INTEGRATIONS,
 			[ __CLASS__, 'render_integrations_page' ]
 		);
@@ -327,7 +348,8 @@ class BizCity_Admin_Menu {
 
 		if ( class_exists( 'BizCity_Automation_Admin_SPA', false ) ) {
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — allow customer iframe entry only for the Automation SPA; full admin menu remains manage_options.
-			$automation_cap = ( isset( $_GET['page'], $_GET['bizcity_iframe'] ) && $_GET['page'] === 'bizcity-automation' ) ? 'read' : 'manage_options';
+			// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — the non-iframe branch was bare manage_options.
+			$automation_cap = ( isset( $_GET['page'], $_GET['bizcity_iframe'] ) && $_GET['page'] === 'bizcity-automation' ) ? 'read' : self::menu_cap();
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Twin Workflow', $td ), __( 'Twin Workflow', $td ),
 				$automation_cap, 'bizcity-automation',
@@ -337,7 +359,7 @@ class BizCity_Admin_Menu {
 		if ( class_exists( 'BizCity_CG_Flow_Admin_Page', false ) ) {
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'CG · Flows (Kịch bản trả lời)', $td ), __( 'Flows (Kịch bản)', $td ),
-				'manage_options', 'bizcity-cg-flows',
+				self::menu_cap(), 'bizcity-cg-flows',
 				[ 'BizCity_CG_Flow_Admin_Page', 'render' ] );
 		}
 
@@ -347,7 +369,7 @@ class BizCity_Admin_Menu {
 			self::SLUG_WORKSPACE,
 			__( 'Twin CRM and Channels', $td ),
 			__( 'Channels', $td ),
-			'manage_options',
+			self::menu_cap(),
 			self::SLUG_CHANNELS,
 			[ __CLASS__, 'render_channels_page' ]
 		);
@@ -374,11 +396,11 @@ class BizCity_Admin_Menu {
 			$zalo_dashboard = BizCity_Zalo_Bot_Dashboard::instance();
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Bot Dashboard', $td ), __( 'Zalo Bot', $td ),
-				'manage_options', 'bizcity-zalo-bot-dashboard',
+				self::menu_cap(), 'bizcity-zalo-bot-dashboard',
 				[ $zalo_dashboard, 'render_dashboard' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Bot Assign', $td ), __( 'Zalo Connections', $td ),
-				'manage_options', 'bizcity-zalo-bot-assign',
+				self::menu_cap(), 'bizcity-zalo-bot-assign',
 				[ $zalo_dashboard, 'render_assign_page' ] );
 		}
 
@@ -387,48 +409,48 @@ class BizCity_Admin_Menu {
 			$zb = BizCity_Zalo_Bot_Admin_Menu::instance();
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'All Zalo Bots', $td ), __( 'Zalo Bots', $td ),
-				'manage_options', 'bizcity-zalo-bots',
+				self::menu_cap(), 'bizcity-zalo-bots',
 				[ $zb, 'render_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Listener', $td ), __( 'Zalo Webhook', $td ),
-				'manage_options', 'bizcity-zalo-bot-listener',
+				self::menu_cap(), 'bizcity-zalo-bot-listener',
 				[ $zb, 'render_listener_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Test API', $td ), __( 'Zalo Test API', $td ),
-				'manage_options', 'bizcity-zalo-bot-test-api',
+				self::menu_cap(), 'bizcity-zalo-bot-test-api',
 				[ $zb, 'render_test_api_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Logs', $td ), __( 'Zalo Logs', $td ),
-				'manage_options', 'bizcity-zalo-bot-logs',
+				self::menu_cap(), 'bizcity-zalo-bot-logs',
 				[ $zb, 'render_logs_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Connections', $td ), __( 'Zalo Connections', $td ),
-				'manage_options', 'bizcity-zalobot-connections',
+				self::menu_cap(), 'bizcity-zalobot-connections',
 				[ $zb, 'render_connections_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Guru', $td ), __( 'Guru AI', $td ),
-				'manage_options', 'bizcity-zalo-bot-guru',
+				self::menu_cap(), 'bizcity-zalo-bot-guru',
 				[ $zb, 'render_guru_page' ] );
 		}
 
 		if ( function_exists( 'bizcity_guides_admin_page' ) ) {
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo BizCity Guide', $td ), __( 'Zalo BizCity', $td ),
-				'manage_options', 'zalo-video-guider',
+				self::menu_cap(), 'zalo-video-guider',
 				'bizcity_guides_admin_page' );
 		}
 
 		if ( function_exists( 'twf_zalo_users_admin_page' ) ) {
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo BizCity Users', $td ), __( 'Zalo User Mapping', $td ),
-				'manage_options', 'zalo-users-admin',
+				self::menu_cap(), 'zalo-users-admin',
 				'twf_zalo_users_admin_page' );
 		}
 
 		if ( function_exists( 'twf_telegram_command_widget_content' ) ) {
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo BizCity Connection Guide', $td ), __( 'Zalo Legacy Guide', $td ),
-				'manage_options', 'zalo-guider',
+				self::menu_cap(), 'zalo-guider',
 				'twf_telegram_command_widget_content' );
 		}
 
@@ -436,53 +458,53 @@ class BizCity_Admin_Menu {
 			$fb = BizCity_Facebook_Bot_Admin_Menu::instance();
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Bots', $td ), __( 'Facebook Bots', $td ),
-				'manage_options', 'bizcity-facebook-bots',
+				self::menu_cap(), 'bizcity-facebook-bots',
 				[ $fb, 'render_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'FB Connect Legacy', $td ), __( 'FB Connect', $td ),
-				'manage_options', 'bizcity-facebook-bot-connect',
+				self::menu_cap(), 'bizcity-facebook-bot-connect',
 				[ $fb, 'render_connect_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Posts', $td ), __( 'Facebook Posts', $td ),
-				'manage_options', 'bizcity-facebook-bot-posts',
+				self::menu_cap(), 'bizcity-facebook-bot-posts',
 				[ $fb, 'render_fanpage_posts_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Comments', $td ), __( 'Facebook Comments', $td ),
-				'manage_options', 'bizcity-facebook-bot-comments',
+				self::menu_cap(), 'bizcity-facebook-bot-comments',
 				[ $fb, 'render_comments_manager_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Business', $td ), __( 'Facebook Business', $td ),
-				'manage_options', 'bizcity-facebook-bot-business',
+				self::menu_cap(), 'bizcity-facebook-bot-business',
 				[ $fb, 'render_business_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Webhook', $td ), __( 'Facebook Webhook', $td ),
-				'manage_options', 'bizcity-facebook-bot-listener',
+				self::menu_cap(), 'bizcity-facebook-bot-listener',
 				[ $fb, 'render_listener_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Test API', $td ), __( 'Facebook Test API', $td ),
-				'manage_options', 'bizcity-facebook-bot-test-api',
+				self::menu_cap(), 'bizcity-facebook-bot-test-api',
 				[ $fb, 'render_test_api_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Inbox', $td ), __( 'Facebook Inbox', $td ),
-				'manage_options', 'bizcity-facebook-bot-inbox',
+				self::menu_cap(), 'bizcity-facebook-bot-inbox',
 				[ $fb, 'render_inbox_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Logs', $td ), __( 'Facebook Logs', $td ),
-				'manage_options', 'bizcity-facebook-bot-logs',
+				self::menu_cap(), 'bizcity-facebook-bot-logs',
 				[ $fb, 'render_logs_page' ] );
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Facebook Migration Tools', $td ), __( 'Migration Tools', $td ),
-				'manage_options', 'bizcity-facebook-bot-migration',
+				self::menu_cap(), 'bizcity-facebook-bot-migration',
 				[ $fb, 'render_migration_page' ] );
 			if ( ! function_exists( 'bztfb_render_settings_page' ) ) {
 				add_submenu_page( self::SLUG_PLUGINS,
 					__( 'Facebook Settings', $td ), __( 'Facebook Settings', $td ),
-					'manage_options', 'bizcity-facebook-settings',
+					self::menu_cap(), 'bizcity-facebook-settings',
 					[ $fb, 'render_settings_page' ] );
 			}
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Messenger Inbox', $td ), __( 'Messenger Inbox', $td ),
-				'manage_options', 'messenger-inbox-page',
+				self::menu_cap(), 'messenger-inbox-page',
 				[ $fb, 'render_legacy_messenger_inbox_page' ] );
 		}
 
@@ -490,7 +512,7 @@ class BizCity_Admin_Menu {
 		if ( class_exists( 'BizCity_Zalo_Hotline_Admin_Menu', false ) ) {
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Hotline (ZNS)', $td ), __( 'Zalo Hotline', $td ),
-				'manage_options', 'bizcity-zalo-hotline',
+				self::menu_cap(), 'bizcity-zalo-hotline',
 				[ BizCity_Zalo_Hotline_Admin_Menu::instance(), 'render_page' ] );
 		}
 
@@ -515,7 +537,7 @@ class BizCity_Admin_Menu {
 			$km = BizCity_Knowledge_Admin_Menu::instance();
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Chat Monitor', $td ), __( 'Chat Monitor', $td ),
-				'manage_options', 'bizcity-knowledge-monitor',
+				self::menu_cap(), 'bizcity-knowledge-monitor',
 				[ $km, 'render_monitor_page' ] );
 		}
 
@@ -527,26 +549,26 @@ class BizCity_Admin_Menu {
 
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Twin Knowledge', $td ), __( 'Tổng quan', $td ),
-				'manage_options', self::SLUG_KNOWLEDGE,
+				self::menu_cap(), self::SLUG_KNOWLEDGE,
 				[ $km, 'render_training_page' ] );
 
 			// [2026-06-11 Johnny Chu] HOTFIX — renamed Twin Connector → Bind Connectors; moved under SLUG_KNOWLEDGE.
 			// slug `bizcity-knowledge-characters` giữ nguyên để không vỡ bookmark/URL cũ.
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Guru / Trợ lý AI', $td ), __( 'Guru / Trợ lý AI', $td ),
-				'manage_options', 'bizcity-knowledge-characters',
+				self::menu_cap(), 'bizcity-knowledge-characters',
 				[ $km, 'render_characters_page' ] );
 
 			// [2026-06-24 Johnny Chu] GURU-KPI — Guru KPI dashboard submenu
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Guru KPI', $td ), __( 'Guru KPI', $td ),
-				'manage_options', 'bizcity-guru-kpi',
+				self::menu_cap(), 'bizcity-guru-kpi',
 				[ $km, 'render_guru_kpi_page' ] );
 
 			// [2026-06-11 Johnny Chu] HOTFIX — bizcity-knowledge-memory-hub moved back here as "Twin Memory".
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Twin Memory', $td ), __( 'Twin Memory', $td ),
-				'manage_options', 'bizcity-knowledge-memory-hub',
+				self::menu_cap(), 'bizcity-knowledge-memory-hub',
 				[ $km, 'render_memory_hub_page' ] );
 
 			// [2026-06-22 Johnny Chu] PHASE-TWINWEB — KG Hub moved from TwinChat to Đào tạo kiến thức.
@@ -554,17 +576,17 @@ class BizCity_Admin_Menu {
 			if ( class_exists( 'BizCity_KG_Admin_Menu', false ) ) {
 				add_submenu_page( self::SLUG_WORKSPACE,
 					__( 'Knowledge Graph', $td ), __( 'Knowledge Graph', $td ),
-					'manage_options', 'bizcity-kg-hub',
+					self::menu_cap(), 'bizcity-kg-hub',
 					[ BizCity_KG_Admin_Menu::instance(), 'render_page' ] );
 			}
 
 			// Hidden legacy direct-URL pages
 			add_submenu_page( null, __( 'Training FAQ', $td ), __( 'Training FAQ', $td ),
-				'manage_options', 'bizcity-knowledge-training', [ $km, 'render_training_page' ] );
+				self::menu_cap(), 'bizcity-knowledge-training', [ $km, 'render_training_page' ] );
 			add_submenu_page( null, __( 'Dạy AI bằng sổ tay', $td ), __( 'Dạy AI bằng sổ tay', $td ),
 				'read', 'bizcity-knowledge-notebook', [ $km, 'render_notebook_page' ] );
 			add_submenu_page( null, __( 'Edit Bind Connector', $td ), __( 'Edit Bind Connector', $td ),
-				'manage_options', 'bizcity-knowledge-character-edit', [ $km, 'render_character_edit_page' ] );
+				self::menu_cap(), 'bizcity-knowledge-character-edit', [ $km, 'render_character_edit_page' ] );
 		}
 
 		// Memory Specs — [2026-06-10 Johnny Chu] HOTFIX — bizcity-memory menu removed per user request.
@@ -577,7 +599,7 @@ class BizCity_Admin_Menu {
 
 		add_submenu_page( self::SLUG_WORKSPACE,
 			__( 'Đào tạo kỹ năng', $td ), __( 'Tổng quan', $td ),
-			'manage_options', self::SLUG_SKILLS,
+			self::menu_cap(), self::SLUG_SKILLS,
 			[ __CLASS__, 'render_skills_hub_page' ] );
 
 		// Notebook (end-user page accessible from Skills admin)
@@ -602,7 +624,7 @@ class BizCity_Admin_Menu {
 		if ( class_exists( 'BizCity_Skill_Admin_Page', false ) ) {
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Kỹ năng chia việc', $td ), __( 'Kỹ năng chia việc', $td ),
-				'manage_options', 'bizcity-skills',
+				self::menu_cap(), 'bizcity-skills',
 				[ BizCity_Skill_Admin_Page::instance(), 'render_page' ] );
 		}
 
@@ -659,7 +681,7 @@ class BizCity_Admin_Menu {
 				'index.php',
 				'Ứng dụng mặc định',
 				'Ứng dụng mặc định',
-				'manage_options',
+				self::menu_cap(),
 				'bizcity-site-apps',
 				[ 'BizCity_Market_Site_Apps', 'render_site_apps_page' ],
 				61
@@ -952,7 +974,8 @@ class BizCity_Admin_Menu {
 	 */
 	public static function render_control_panel_page(): void {
 		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — fail closed on capability and retain a non-React deep-link fallback.
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit.
+		if ( ! self::can_manage() ) {
 			wp_die( esc_html__( 'You do not have permission to access the Control Panel.', 'bizcity-twin-ai' ) );
 		}
 
@@ -1079,7 +1102,8 @@ class BizCity_Admin_Menu {
 		if ( ! isset( $_POST['bizcity_smtp_settings_submit'] ) ) {
 			return;
 		}
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit.
+		if ( ! self::can_manage() ) {
 			return;
 		}
 		if ( ! isset( $_POST['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'bizcity_smtp_settings' ) ) {

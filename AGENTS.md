@@ -990,7 +990,7 @@ _Rule documents are not published in this repository — see the local environme
 |---|---|---|
 | `core/automation/docs` | 16 | 12 |
 | `core/bizcity-llm/docs` | 2 | 1 |
-| `core/channel-gateway/docs` | 4 | 54 |
+| `core/channel-gateway/docs` | 4 | 56 |
 | `core/cron/docs` | 0 | 5 |
 | `core/diagnostics/docs` | 3 | 7 |
 | `core/docs` | 4 | 0 |
@@ -1008,7 +1008,7 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/analysis` | 0 | 20 |
 | `docs/api` | 1 | 0 |
 | `docs/architecture` | 3 | 0 |
-| `docs/audits` | 0 | 1 |
+| `docs/audits` | 0 | 2 |
 | `docs/automation` | 1 | 0 |
 | `docs/channels` | 5 | 0 |
 | `docs/clients` | 4 | 0 |
@@ -1038,10 +1038,10 @@ _Rule documents are not published in this repository — see the local environme
 | `modules/webchat/docs` | 1 | 0 |
 | `plugins/bizcity-pagebuilder/docs` | 8 | 3 |
 | `plugins/bizcity-profile/docs` | 1 | 4 |
-| `plugins/bizcity-twin-crm/docs` | 13 | 41 |
+| `plugins/bizcity-twin-crm/docs` | 13 | 44 |
 | `plugins/bizcity-video-kling/docs` | 0 | 8 |
 | `plugins/bizcity-zalo-bot/docs` | 1 | 0 |
-| `plugins/bizcity-zalo-personal/docs` | 4 | 1 |
+| `plugins/bizcity-zalo-personal/docs` | 6 | 1 |
 | `plugins/ibs-hi/docs` | 0 | 19 |
 
 ## Scoped: `.github/instructions/diagnostics-vps-ssh-runbook.instructions.md`

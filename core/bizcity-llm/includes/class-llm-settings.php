@@ -72,11 +72,16 @@ class BizCity_LLM_Settings {
 
     public function add_menu_single(): void {
         // Submenu under "Bots - Web Chat" for site-level admins
+        // [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — a Network Super
+        // Admin with no local administrator row was getting this menu item silently hidden.
+        $capability = class_exists( 'BizCity_Network_Admin_Capability' )
+            ? BizCity_Network_Admin_Capability::menu_cap()
+            : 'manage_options';
         add_submenu_page(
             'bizcity-webchat',
             'BizCity LLM — ' . __( 'AI Gateway Configuration', 'bizcity-twin-ai' ),
             '⚡ LLM Settings',
-            'manage_options',
+            $capability,
             'bizcity-llm',
             [ $this, 'render_page' ]
         );

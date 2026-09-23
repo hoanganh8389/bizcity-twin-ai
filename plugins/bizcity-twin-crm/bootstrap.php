@@ -120,6 +120,14 @@ final class BizCity_CRM_Plugin {
 			BizCity_CRM_Pipeline_Sync::sync_for_contact( (int) $contact_id );
 		}, 20, 1 );
 
+		// [2026-09-23] PHASE-0.71 F71-13 / 0.63C GC-9 — auto-link this message's attachments
+		// to the contact's one open pipeline run, if there is exactly one (D71-3 heuristic).
+		add_action( 'bizcity_crm_message_persisted', static function ( $ctx ) {
+			if ( class_exists( 'BizCity_CRM_Pipeline_Document_Link' ) ) {
+				BizCity_CRM_Pipeline_Document_Link::on_message_persisted( $ctx );
+			}
+		}, 20, 1 );
+
 		// Subscribe inbound from existing Facebook plugin.
 		BizCity_CRM_Facebook_Ingestor::instance();
 
@@ -285,18 +293,29 @@ final class BizCity_CRM_Plugin {
 		// under includes/pipeline/ or includes/context/ and they load themselves — this line never changes again.
 		require_once $inc . 'pipeline/bootstrap-pipeline.php';
 		// [2026-09-23 PHASE-0.69] Service dispatch — location extraction/storage, staff routing profile,
-		// matcher, and REST. Consumers of the pipeline platform above, not part of it (own directory,
-		// plain `require_once` like the rest of this file's non-pipeline includes, not the pipeline
-		// loader's glob — this is a CRM feature module, not a Context App or a pipeline-kind plugin).
-		require_once $inc . 'service/class-crm-location-service.php';
-		require_once $inc . 'service/class-crm-staff-profile.php';
-		require_once $inc . 'service/class-crm-service-matcher.php';
-		require_once $inc . 'service/class-service-rest.php';
-		require_once $inc . 'service/class-location-link-handler.php';
-		require_once $inc . 'service/class-service-sla-listener.php';
-		BizCity_CRM_Location_Service::register();
-		BizCity_CRM_Location_Link_Handler::register();
-		BizCity_CRM_Service_SLA_Listener::register();
+		// matcher, and REST. Consumers of the pipeline platform above, not part of it (own directory, not
+		// the pipeline loader's glob — this is a CRM feature module, not a Context App or a pipeline-kind
+		// plugin). Loaded through BizCity_Safe_Loader: a hard require_once here already white-screened the
+		// whole CRM bundle in production tonight when a partial deploy hadn't shipped one of these files
+		// yet — class-admin-menu.php loads further down this same method, so a fatal here also takes out
+		// the CRM admin menu contract (see the "not ready" diagnostic in bizcity-twin-ai.php).
+		if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+			BizCity_Safe_Loader::require_file( $inc . 'service/class-crm-location-service.php', 'crm.service.location_service' );
+			BizCity_Safe_Loader::require_file( $inc . 'service/class-crm-staff-profile.php', 'crm.service.staff_profile' );
+			BizCity_Safe_Loader::require_file( $inc . 'service/class-crm-service-matcher.php', 'crm.service.service_matcher' );
+			BizCity_Safe_Loader::require_file( $inc . 'service/class-service-rest.php', 'crm.service.service_rest' );
+			BizCity_Safe_Loader::require_file( $inc . 'service/class-location-link-handler.php', 'crm.service.location_link_handler' );
+			BizCity_Safe_Loader::require_file( $inc . 'service/class-service-sla-listener.php', 'crm.service.service_sla_listener' );
+		}
+		if ( class_exists( 'BizCity_CRM_Location_Service' ) ) {
+			BizCity_CRM_Location_Service::register();
+		}
+		if ( class_exists( 'BizCity_CRM_Location_Link_Handler' ) ) {
+			BizCity_CRM_Location_Link_Handler::register();
+		}
+		if ( class_exists( 'BizCity_CRM_Service_SLA_Listener' ) ) {
+			BizCity_CRM_Service_SLA_Listener::register();
+		}
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — load account-backed CRM inbox policy before REST routes.
 		// [2026-08-25 Johnny Chu] PHASE-1.24 — accept the canonical flat path and the legacy reorganized path during partial deploys.
 		$inbox_access_file = $inc . 'class-inbox-access.php';
@@ -311,12 +330,29 @@ final class BizCity_CRM_Plugin {
 		require_once $inc . 'class-assignment-manager.php';
 		require_once $inc . 'class-event-emitter.php';
 		require_once $inc . 'class-repository.php';
+		// [2026-09-23] PHASE-0.71 F71-10 / 0.63C GC-5 — role:* contact tags, own namespace inside tags_json.
+		// [2026-09-23 R-SAFE-LOADER] this bare require_once (no guard, not deployed on the live
+		// server yet) is exactly the fatal in bps_php_error.log: "Failed opening required
+		// class-contact-roles.php" on this line, firing on every single request that loads CRM
+		// (i.e. nearly every request site-wide) since `includes()` runs unconditionally on
+		// plugins_loaded. Guarded like every sibling optional file in this bootstrap.
+		$_crm_contact_roles_file = $inc . 'class-contact-roles.php';
+		if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+			BizCity_Safe_Loader::require_file( $_crm_contact_roles_file, 'crm.contact_roles' );
+		} elseif ( is_file( $_crm_contact_roles_file ) && is_readable( $_crm_contact_roles_file ) ) {
+			require_once $_crm_contact_roles_file;
+		}
+		unset( $_crm_contact_roles_file );
 		// [2026-09-23 04:25 PM Claude Fable 5.1] PHASE-0.60B — Zalo contact enrichment + birthday reminder (adapter needs the Scheduler base class; guarded inside the file).
+		// [2026-09-23 R-SAFE-LOADER] guard the call — same partial-deploy fatal risk already
+		// flagged elsewhere in this bootstrap (bare require_once + unconditional static call).
 		require_once $inc . 'class-contact-enrichment.php';
 		if ( class_exists( 'BizCity_Scheduler_Adapter_Base' ) ) {
 			require_once $inc . 'class-scheduler-adapter-contact-birthday.php';
 		}
-		BizCity_CRM_Contact_Enrichment::init();
+		if ( class_exists( 'BizCity_CRM_Contact_Enrichment' ) ) {
+			BizCity_CRM_Contact_Enrichment::init();
+		}
 		// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.56 I-1 — deterministic aggregate-only Team Ops insights.
 		require_once $inc . 'class-team-insights.php';
 		$reconciliation_preview = $inc . 'admin/class-conversation-reconciliation-preview.php';
@@ -412,6 +448,17 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'inbox/sources/class-source-dino-tichdiem.php';
 		require_once $inc . 'inbox/sources/class-source-user-points.php';
 		require_once $inc . 'inbox/class-pipeline-sync.php';
+		// [2026-09-23] PHASE-0.71 F71-13 / 0.63C GC-9 — auto-link inbound attachments to the
+		// contact's one open pipeline run (heuristic, D71-3).
+		// [2026-09-23 R-SAFE-LOADER] same missing-file fatal as class-contact-roles.php above —
+		// confirmed in bps_php_error.log ("Failed opening required ... class-pipeline-document-link.php").
+		$_crm_pipeline_doc_link_file = $inc . 'inbox/class-pipeline-document-link.php';
+		if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+			BizCity_Safe_Loader::require_file( $_crm_pipeline_doc_link_file, 'crm.pipeline_document_link' );
+		} elseif ( is_file( $_crm_pipeline_doc_link_file ) && is_readable( $_crm_pipeline_doc_link_file ) ) {
+			require_once $_crm_pipeline_doc_link_file;
+		}
+		unset( $_crm_pipeline_doc_link_file );
 
 		require_once $inc . 'class-rest-controller.php';
 		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48F F6 — separate REST file (pattern already used by woo/class-woo-order-recap-rest.php) instead of growing the monolithic controller further.
@@ -471,8 +518,15 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 			require_once $inc . 'woo/class-order-public-controller.php';
 			add_action( 'init', array( 'BizCity_CRM_Order_Public_Controller', 'boot' ), 11 );
 			// [2026-06-07 Johnny Chu] PHASE-0.38.W4.1 — Shipping tracker cron (30-min poll for status changes).
+			// [2026-09-23 R-SAFE-LOADER] boot() used to run synchronously right after require_once, unlike
+			// every sibling in this block (they all defer to `init`) — a transient load miss here threw an
+			// uncaught Error straight out of plugins_loaded and blanked every request site-wide, not just
+			// /crm/. Deferring + guarding matches the rest of this Woo block and the "degrade, don't
+			// white-screen" rule the pipeline loader documents.
 			require_once $inc . 'woo/class-shipping-tracker.php';
-			BizCity_CRM_Shipping_Tracker::boot();
+			if ( class_exists( 'BizCity_CRM_Shipping_Tracker' ) ) {
+				add_action( 'init', array( 'BizCity_CRM_Shipping_Tracker', 'boot' ), 5 );
+			}
 			// [2026-06-07 Johnny Chu] PHASE-0.38.W4.2 — Loyalty bridge (order events → points award).
 			require_once $inc . 'woo/class-woo-loyalty-bridge.php';
 			add_action( 'init', array( 'BizCity_CRM_Woo_Loyalty_Bridge', 'boot' ), 15 );

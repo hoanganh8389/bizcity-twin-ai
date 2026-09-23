@@ -31,6 +31,8 @@ final class BizCity_Bot_Tools {
 
 	/** @var callable|null test seam: fn(array $messages, array $opts): array LLM result */
 	public static $planner_llm = null;
+	/** @var callable|null test seam: fn(string $event, array $ctx): void — EA-7.4 cross-thread-read logging */
+	public static $log_writer = null;
 
 	/**
 	 * Ask the model whether a tool is needed. Returns null when none.
@@ -116,6 +118,10 @@ final class BizCity_Bot_Tools {
 					return self::read_url( (string) ( $args['url'] ?? $args['query'] ?? '' ) );
 				case 'astro_profile':
 					return class_exists( 'BizCity_Bot_Astro_Tool' ) ? BizCity_Bot_Astro_Tool::run( $args, $claim ) : array( 'ok' => false, 'content' => '', 'error' => 'tool_unavailable' );
+				case 'list_threads':
+					return self::list_threads( $claim );
+				case 'read_thread':
+					return self::read_thread( (int) ( $args['index'] ?? 0 ), $claim );
 				default:
 					return array( 'ok' => false, 'content' => '', 'error' => 'tool_unknown' );
 			}
@@ -181,5 +187,128 @@ final class BizCity_Bot_Tools {
 			return array( 'ok' => false, 'content' => '', 'error' => 'empty_page' );
 		}
 		return array( 'ok' => true, 'content' => self::fence( 'Nội dung trang ' . (string) parse_url( $url, PHP_URL_HOST ), $text ), 'error' => '' );
+	}
+
+	/**
+	 * EA-7 (doc §6, D-E2) — count the account owner's OTHER group threads. The bridge's
+	 * experimental group-discovery route returns only opaque, hash-based tokens — no group
+	 * name — so this can only ever offer "Nhóm 1, Nhóm 2, …", never a human label. That is a
+	 * real limit of the underlying sidecar capability, not something to paper over here.
+	 * BizCity_Bot_Tool_Registry::effective_for_turn() must already have gated the caller down
+	 * to (owner_uid matches sender, private chat) before this ever runs — this method does not
+	 * re-check that, it trusts the tool list it was offered from.
+	 */
+	private static function list_threads( array $claim ): array {
+		if ( ! class_exists( 'BizCity_Zalo_Bridge_Client' ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'bridge_unavailable' );
+		}
+		$account_id = (string) ( $claim['account_id'] ?? '' );
+		if ( '' === $account_id ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'account_missing' );
+		}
+		$result = BizCity_Zalo_Bridge_Client::instance()->get_group_candidates( $account_id );
+		if ( empty( $result['success'] ) && empty( $result['ok'] ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => (string) ( $result['error'] ?? $result['code'] ?? 'list_threads_failed' ) );
+		}
+		$refs = array();
+		foreach ( (array) ( $result['groups'] ?? array() ) as $g ) {
+			$ref = (string) ( $g['thread_ref'] ?? '' );
+			if ( '' !== $ref ) {
+				$refs[] = $ref;
+			}
+		}
+		self::remember_threads( (int) ( $claim['contact_id'] ?? 0 ), $refs );
+		self::log_cross_thread_read( $claim, 'list_threads', 0, count( $refs ) );
+		if ( empty( $refs ) ) {
+			return array( 'ok' => true, 'content' => self::fence( 'Danh sách nhóm khác', 'Không có nhóm nào khác.' ), 'error' => '' );
+		}
+		$lines = array();
+		for ( $i = 1; $i <= count( $refs ); $i++ ) {
+			$lines[] = 'Nhóm ' . $i . ' (không có tên do bridge chỉ trả token ẩn danh).';
+		}
+		$lines[] = 'Gọi read_thread với đúng số thứ tự ở trên để đọc nội dung.';
+		return array( 'ok' => true, 'content' => self::fence( 'Danh sách nhóm khác (' . count( $refs ) . ')', implode( "\n", $lines ) ), 'error' => '' );
+	}
+
+	/** EA-7 read: `index` must be a number the model just saw from list_threads THIS session — never an arbitrary thread id (prompt injection cannot name a group directly). */
+	private static function read_thread( int $index, array $claim ): array {
+		if ( $index <= 0 ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'index_required' );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_Bridge_Client' ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'bridge_unavailable' );
+		}
+		$contact_id = (int) ( $claim['contact_id'] ?? 0 );
+		$refs       = self::recall_threads( $contact_id );
+		$ref        = $refs[ $index - 1 ] ?? '';
+		if ( '' === $ref ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'thread_index_unknown' );
+		}
+		$account_id = (string) ( $claim['account_id'] ?? '' );
+		$result     = BizCity_Zalo_Bridge_Client::instance()->get_group_history( $account_id, $ref, 20 );
+		$messages   = (array) ( $result['messages'] ?? array() );
+		self::log_cross_thread_read( $claim, 'read_thread', $index, count( $messages ) );
+		if ( empty( $result['success'] ) && empty( $result['ok'] ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => (string) ( $result['error'] ?? $result['code'] ?? 'read_thread_failed' ) );
+		}
+		if ( empty( $messages ) ) {
+			return array( 'ok' => true, 'content' => self::fence( 'Nội dung nhóm ' . $index, 'Chưa có tin nhắn.' ), 'error' => '' );
+		}
+		$lines = array();
+		foreach ( $messages as $m ) {
+			$text = trim( (string) ( $m['content'] ?? '' ) );
+			if ( '' === $text ) {
+				continue;
+			}
+			$lines[] = ( ! empty( $m['is_self'] ) ? '[bạn] ' : '[thành viên] ' ) . $text;
+		}
+		return array( 'ok' => true, 'content' => self::fence( 'Nội dung nhóm ' . $index, implode( "\n", $lines ) ), 'error' => '' );
+	}
+
+	const THREAD_INDEX_TTL = 900; // 15 minutes — long enough for one back-and-forth, short enough not to linger.
+
+	private static function remember_threads( int $contact_id, array $refs ): void {
+		if ( $contact_id <= 0 ) {
+			return;
+		}
+		set_transient( self::thread_index_key( $contact_id ), $refs, self::THREAD_INDEX_TTL );
+	}
+
+	private static function recall_threads( int $contact_id ): array {
+		if ( $contact_id <= 0 ) {
+			return array();
+		}
+		$val = get_transient( self::thread_index_key( $contact_id ) );
+		return is_array( $val ) ? $val : array();
+	}
+
+	private static function thread_index_key( int $contact_id ): string {
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		return 'bzbot_threads_' . $blog . '_' . $contact_id;
+	}
+
+	/** EA-7.4 — every cross-read logged: who (account), which slot, how many messages. Never the content. */
+	private static function log_cross_thread_read( array $claim, string $action, int $index, int $count ): void {
+		$event = 'bot_cross_thread_' . $action;
+		$ctx   = array(
+			'account_id'    => (string) ( $claim['account_id'] ?? '' ),
+			'contact_id'    => (int) ( $claim['contact_id'] ?? 0 ),
+			'thread_index'  => $index,
+			'message_count' => $count,
+		);
+		if ( is_callable( self::$log_writer ) ) {
+			call_user_func( self::$log_writer, $event, $ctx );
+			return;
+		}
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return;
+		}
+		BizCity_Channel_File_Logger::write(
+			BizCity_Channel_File_Logger::CH_ZALO_PERSONAL,
+			BizCity_Channel_File_Logger::LEVEL_INFO,
+			$event,
+			'Chủ tài khoản đọc chéo nội dung nhóm khác qua bot.',
+			$ctx
+		);
 	}
 }

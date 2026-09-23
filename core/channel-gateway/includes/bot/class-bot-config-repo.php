@@ -43,6 +43,18 @@ final class BizCity_Bot_Config_Repo {
 			'disabled_tools'  => array(),
 			// [2026-09-23 03:05 PM Claude Fable 5.1] PHASE-0.60A B6.2 — 'crm' (fast) | 'hybrid' (CRM + Context Bank fill).
 			'context_source'  => 'hybrid',
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — NON-secret media config only (mockup B-03
+			// blocks 5·6·7·9). Keys live in BizCity_Bot_Secrets_Repo, never here — this stays exportable.
+			'media'           => self::media_defaults(),
+		);
+	}
+
+	public static function media_defaults(): array {
+		return array(
+			'tts'   => array( 'provider' => 'google_ai_studio', 'model' => '', 'voice' => '', 'format' => 'mp3' ),
+			'stt'   => array( 'enabled' => false, 'base_url' => '', 'model' => '' ),
+			'music' => array( 'provider' => 'openrouter', 'model' => '', 'format' => 'mp3' ),
+			'apify' => array( 'actor_facebook' => '', 'actor_tiktok' => '', 'actor_youtube' => '', 'actor_shopee' => '' ),
 		);
 	}
 
@@ -61,6 +73,17 @@ final class BizCity_Bot_Config_Repo {
 		$merged   = array_merge( self::defaults(), $bot );
 		$merged['disabled_tools'] = self::sanitize_tool_list( $merged['disabled_tools'] );
 		$merged['context_source'] = in_array( $merged['context_source'], array( 'crm', 'hybrid' ), true ) ? $merged['context_source'] : 'hybrid';
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — a plain array_merge() above already
+		// replaced the whole 'media' key wholesale with whatever was stored; deep-merge each
+		// service block so a row saved before a new media sub-field existed still gets it.
+		$stored_media = isset( $bot['media'] ) && is_array( $bot['media'] ) ? $bot['media'] : array();
+		$media        = self::media_defaults();
+		foreach ( $media as $svc => $fields ) {
+			if ( isset( $stored_media[ $svc ] ) && is_array( $stored_media[ $svc ] ) ) {
+				$media[ $svc ] = array_merge( $fields, $stored_media[ $svc ] );
+			}
+		}
+		$merged['media'] = $media;
 		return $merged;
 	}
 
@@ -109,6 +132,23 @@ final class BizCity_Bot_Config_Repo {
 			}
 			$bot['context_source'] = $src;
 		}
+		if ( array_key_exists( 'media', $patch ) ) {
+			if ( ! is_array( $patch['media'] ) ) {
+				return new WP_Error( 'invalid_param', 'media phải là object.', array( 'status' => 422, 'hint' => 'Gửi các khối tts/stt/music/apify cần sửa.', 'help_code' => 'bot_media_shape' ) );
+			}
+			$media = self::media_defaults();
+			$stored_media = isset( $bot['media'] ) && is_array( $bot['media'] ) ? $bot['media'] : array();
+			foreach ( $media as $svc => $fields ) {
+				if ( isset( $stored_media[ $svc ] ) && is_array( $stored_media[ $svc ] ) ) {
+					$media[ $svc ] = array_merge( $fields, $stored_media[ $svc ] );
+				}
+			}
+			$media_result = self::merge_media_patch( $media, (array) $patch['media'] );
+			if ( is_wp_error( $media_result ) ) {
+				return $media_result;
+			}
+			$bot['media'] = $media_result;
+		}
 
 		$settings['bot'] = $bot;
 
@@ -124,6 +164,79 @@ final class BizCity_Bot_Config_Repo {
 		return $bot;
 	}
 
+	const TTS_PROVIDERS   = array( 'google_ai_studio', 'openai_compatible', 'elevenlabs', 'vbee' );
+	const TTS_FORMATS     = array( 'mp3', 'wav' );
+	const MUSIC_PROVIDERS = array( 'openrouter', 'google_ai_studio' );
+	const MUSIC_FORMATS   = array( 'mp3', 'wav', 'flac' );
+	const MEDIA_STRING_MAX = 300;
+
+	/**
+	 * Validate + merge a `media` patch onto the current (already-defaulted) media block.
+	 * Non-secret fields only (mockup B-03/5·6·7·9 minus every API-key field — those go through
+	 * BizCity_Bot_Secrets_Repo, never here).
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function merge_media_patch( array $media, array $patch ) {
+		if ( isset( $patch['tts'] ) && is_array( $patch['tts'] ) ) {
+			$p = $patch['tts'];
+			if ( array_key_exists( 'provider', $p ) ) {
+				$provider = sanitize_key( (string) $p['provider'] );
+				if ( ! in_array( $provider, self::TTS_PROVIDERS, true ) ) {
+					return new WP_Error( 'invalid_param', 'Nhà cung cấp TTS không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_tts_provider' ) );
+				}
+				$media['tts']['provider'] = $provider;
+			}
+			if ( array_key_exists( 'model', $p ) ) { $media['tts']['model'] = self::clean_string( $p['model'] ); }
+			if ( array_key_exists( 'voice', $p ) ) { $media['tts']['voice'] = self::clean_string( $p['voice'] ); }
+			if ( array_key_exists( 'format', $p ) ) {
+				$format = sanitize_key( (string) $p['format'] );
+				if ( ! in_array( $format, self::TTS_FORMATS, true ) ) {
+					return new WP_Error( 'invalid_param', 'Định dạng TTS chỉ nhận mp3 hoặc wav.', array( 'status' => 422, 'help_code' => 'bot_media_tts_format' ) );
+				}
+				$media['tts']['format'] = $format;
+			}
+		}
+		if ( isset( $patch['stt'] ) && is_array( $patch['stt'] ) ) {
+			$p = $patch['stt'];
+			if ( array_key_exists( 'enabled', $p ) ) { $media['stt']['enabled'] = ! empty( $p['enabled'] ); }
+			if ( array_key_exists( 'base_url', $p ) ) { $media['stt']['base_url'] = self::clean_string( $p['base_url'] ); }
+			if ( array_key_exists( 'model', $p ) ) { $media['stt']['model'] = self::clean_string( $p['model'] ); }
+		}
+		if ( isset( $patch['music'] ) && is_array( $patch['music'] ) ) {
+			$p = $patch['music'];
+			if ( array_key_exists( 'provider', $p ) ) {
+				$provider = sanitize_key( (string) $p['provider'] );
+				if ( ! in_array( $provider, self::MUSIC_PROVIDERS, true ) ) {
+					return new WP_Error( 'invalid_param', 'Nhà cung cấp tạo nhạc không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_music_provider' ) );
+				}
+				$media['music']['provider'] = $provider;
+			}
+			if ( array_key_exists( 'model', $p ) ) { $media['music']['model'] = self::clean_string( $p['model'] ); }
+			if ( array_key_exists( 'format', $p ) ) {
+				$format = sanitize_key( (string) $p['format'] );
+				if ( ! in_array( $format, self::MUSIC_FORMATS, true ) ) {
+					return new WP_Error( 'invalid_param', 'Định dạng nhạc chỉ nhận mp3/wav/flac.', array( 'status' => 422, 'help_code' => 'bot_media_music_format' ) );
+				}
+				$media['music']['format'] = $format;
+			}
+		}
+		if ( isset( $patch['apify'] ) && is_array( $patch['apify'] ) ) {
+			$p = $patch['apify'];
+			foreach ( array( 'actor_facebook', 'actor_tiktok', 'actor_youtube', 'actor_shopee' ) as $k ) {
+				if ( array_key_exists( $k, $p ) ) {
+					$media['apify'][ $k ] = self::clean_string( $p[ $k ] );
+				}
+			}
+		}
+		return $media;
+	}
+
+	private static function clean_string( $value ): string {
+		$value = sanitize_text_field( (string) $value );
+		return mb_substr( $value, 0, self::MEDIA_STRING_MAX );
+	}
+
 	/** Reject values that look like credentials, and keys that name one (B1.9). */
 	public static function find_secret_like( array $patch ) {
 		foreach ( $patch as $key => $value ) {
@@ -133,6 +246,15 @@ final class BizCity_Bot_Config_Repo {
 			}
 			if ( is_string( $value ) && preg_match( '/^(sk-[A-Za-z0-9]{8,}|AIza[0-9A-Za-z_-]{20,}|AQ\.[A-Za-z0-9_-]{20,}|Bearer\s+\S{16,})/', trim( $value ) ) ) {
 				return (string) $key;
+			}
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — `media` is now a nested patch (tts/stt/
+			// music/apify sub-objects); a top-level-only scan would let a real key slip through inside
+			// e.g. media.tts.model. Recurse so the guard covers any current or future nested shape.
+			if ( is_array( $value ) ) {
+				$nested = self::find_secret_like( $value );
+				if ( null !== $nested ) {
+					return $nested;
+				}
 			}
 		}
 		return null;

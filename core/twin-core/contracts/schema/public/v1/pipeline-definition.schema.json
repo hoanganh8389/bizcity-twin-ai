@@ -83,6 +83,38 @@
         "pattern": "^[a-z][a-z0-9_]{0,63}$"
       }
     },
+    "catalogs": {
+      "description": "PHASE-0.69 S-04 — tenant-configured vocabulary a kind's own tools read from (staff skills/areas, service durations). Never hardcoded per-industry in code; a team lead edits this like any other part of the definition. Optional — a kind that does not need one (sales/purchase/request/production) simply omits it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "description": "Valid `BizCity_CRM_Staff_Profile.skills[]` slugs for this kind, shown as a picker instead of free text.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" }
+        },
+        "areas": {
+          "description": "Valid `BizCity_CRM_Staff_Profile.areas[]` slugs for this kind.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" }
+        },
+        "services": {
+          "description": "Service types offered under this kind — D69-5: `duration_minutes` is the default when opening a run, overridable per booking.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "label", "duration_minutes"],
+            "properties": {
+              "key": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+              "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "duration_minutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+              "required_skill": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" }
+            }
+          }
+        }
+      }
+    },
     "stages": {
       "description": "Main steps, in display order on the stage rail.",
       "type": "array",

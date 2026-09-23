@@ -70,6 +70,30 @@ final class BizCity_Bot_REST {
 			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_context_preview' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 			'args' => array( 'conversation_id' => array( 'type' => 'integer', 'default' => 0 ), 'limit' => array( 'type' => 'integer', 'default' => 20 ) ),
 		) );
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-1 (doc §5) — per-binding behavior policy
+		// (allowlist for now). Deliberately its own route, not folded into POST /inspector/bindings
+		// (class-webhook-inspector.php owns binding identity/routing; this owns bot behavior on it).
+		register_rest_route( self::NAMESPACE_V1, '/bot/policy/(?P<binding_id>\d+)', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_policy' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
+			array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_save_policy' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
+		) );
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 (user-approved) — TTS/STT/tạo nhạc/Apify/
+		// Tavily. Non-secret config lives in BizCity_Bot_Config_Repo (settings.bot.media); keys
+		// live in BizCity_Bot_Secrets_Repo and are NEVER returned in plaintext by any route here.
+		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_media' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
+			array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_save_media' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
+		) );
+		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/keys', array(
+			array( 'methods' => 'POST',   'callback' => array( __CLASS__, 'rest_add_media_key' ),    'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
+			array( 'methods' => 'DELETE', 'callback' => array( __CLASS__, 'rest_clear_media_keys' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
+		) );
+		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/keys/(?P<index>\d+)', array(
+			'methods' => 'DELETE', 'callback' => array( __CLASS__, 'rest_remove_media_key' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
+		) );
+		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/test/(?P<kind>tts|stt|music)', array(
+			'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_test_media' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
+		) );
 	}
 
 	/* ── /bot/runtime/{character_id} ─────────────────────────────────── */
@@ -246,6 +270,249 @@ final class BizCity_Bot_REST {
 			'rows'            => BizCity_Bot_Context_Builder::preview( $conversation_id, $limit ),
 			'contact_block'   => BizCity_Bot_Context_Builder::contact_block( $contact_id ),
 		) );
+	}
+
+	/* ── /bot/policy/{binding_id} (PHASE-0.60E EA-1) ─────────────────── */
+
+	const ALLOWLIST_MODES  = array( 'all', 'contacts_only', 'list' );
+	const ALLOWLIST_MAX_UIDS = 500;
+
+	public static function rest_get_policy( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Channel_Binding' ) ) {
+			return self::not_loaded();
+		}
+		$binding = BizCity_Channel_Binding::find( (int) $req['binding_id'] );
+		if ( ! $binding ) {
+			return self::err( 'not_found', 'Kênh không tồn tại.', 404, 'Chọn lại kênh Zalo rồi thử lại.', 'bot_binding_missing' );
+		}
+		return self::ok( self::policy_defaults_merged( $binding['policy_json'] ?? '' ) );
+	}
+
+	public static function rest_save_policy( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Channel_Binding' ) ) {
+			return self::not_loaded();
+		}
+		$binding_id = (int) $req['binding_id'];
+		$binding    = BizCity_Channel_Binding::find( $binding_id );
+		if ( ! $binding ) {
+			return self::err( 'not_found', 'Kênh không tồn tại.', 404, 'Chọn lại kênh Zalo rồi thử lại.', 'bot_binding_missing' );
+		}
+		$body = $req->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+
+		$policy = self::policy_defaults_merged( $binding['policy_json'] ?? '' );
+		if ( array_key_exists( 'allowlist_mode', $body ) ) {
+			$mode = sanitize_key( (string) $body['allowlist_mode'] );
+			if ( ! in_array( $mode, self::ALLOWLIST_MODES, true ) ) {
+				return self::err( 'invalid_param', 'Chế độ allowlist không hợp lệ.', 422, 'Chọn all, contacts_only hoặc list.', 'bot_policy_allowlist_mode' );
+			}
+			$policy['allowlist_mode'] = $mode;
+		}
+		if ( array_key_exists( 'allowlist_uids', $body ) ) {
+			if ( ! is_array( $body['allowlist_uids'] ) ) {
+				return self::err( 'invalid_param', 'allowlist_uids phải là danh sách.', 422, 'Gửi một mảng UID dạng chuỗi.', 'bot_policy_allowlist_uids_shape' );
+			}
+			$policy['allowlist_uids'] = self::sanitize_uid_list( $body['allowlist_uids'] );
+		}
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-2/EA-3 (doc §6) — same route, two more boolean
+		// keys in the same policy_json blob; no new endpoint (doc §5 table).
+		if ( array_key_exists( 'reply_in_group', $body ) ) {
+			$policy['reply_in_group'] = (bool) $body['reply_in_group'];
+		}
+		if ( array_key_exists( 'passive_listen_in_group', $body ) ) {
+			$policy['passive_listen_in_group'] = (bool) $body['passive_listen_in_group'];
+		}
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-7 (D-E2, user-approved) — blank clears it,
+		// which is also how the feature is turned fully off (EA-7.2).
+		if ( array_key_exists( 'owner_uid', $body ) ) {
+			$policy['owner_uid'] = sanitize_text_field( trim( (string) $body['owner_uid'] ) );
+		}
+
+		if ( ! BizCity_Channel_Binding::save_policy( $binding_id, $policy ) ) {
+			return self::err( 'save_failed', 'Không lưu được cấu hình.', 500, 'Thử lại; nếu vẫn lỗi hãy kiểm tra log.', 'bot_policy_save_failed' );
+		}
+		return self::ok( $policy );
+	}
+
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-1 — bumped from private to public so the
+	 * read-only `/bot-studio/accounts` projection (class-bot-studio-rest.php) can reuse the exact
+	 * same policy-default rules instead of re-implementing them and risking drift (doc §4.1).
+	 */
+	public static function policy_defaults_merged( $raw ): array {
+		$decoded = array();
+		if ( is_array( $raw ) ) {
+			$decoded = $raw;
+		} elseif ( is_string( $raw ) && $raw !== '' ) {
+			$tmp = json_decode( $raw, true );
+			$decoded = is_array( $tmp ) ? $tmp : array();
+		}
+		$mode = isset( $decoded['allowlist_mode'] ) && in_array( $decoded['allowlist_mode'], self::ALLOWLIST_MODES, true )
+			? (string) $decoded['allowlist_mode']
+			: 'all';
+		$uids = isset( $decoded['allowlist_uids'] ) && is_array( $decoded['allowlist_uids'] ) ? $decoded['allowlist_uids'] : array();
+		return array(
+			'allowlist_mode' => $mode,
+			'allowlist_uids' => array_values( $uids ),
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-2.1/EA-3.1 — both default true: a binding
+			// saved before this feature existed (key absent) must see no behavior change.
+			'reply_in_group'           => ! isset( $decoded['reply_in_group'] ) || (bool) $decoded['reply_in_group'],
+			'passive_listen_in_group'  => ! isset( $decoded['passive_listen_in_group'] ) || (bool) $decoded['passive_listen_in_group'],
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-7.2 — empty string = feature fully off (default).
+			'owner_uid' => isset( $decoded['owner_uid'] ) ? (string) $decoded['owner_uid'] : '',
+		);
+	}
+
+	private static function sanitize_uid_list( array $list ): array {
+		$out = array();
+		foreach ( $list as $uid ) {
+			$uid = sanitize_text_field( (string) $uid );
+			if ( $uid !== '' && ! in_array( $uid, $out, true ) ) {
+				$out[] = $uid;
+			}
+			if ( count( $out ) >= self::ALLOWLIST_MAX_UIDS ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/* ── /bot/media/{character_id} + /keys (PHASE-0.60E D-E1) ────────── */
+
+	public static function rest_get_media( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+			return self::not_loaded();
+		}
+		$character_id = (int) $req['character_id'];
+		$media        = BizCity_Bot_Config_Repo::get( $character_id )['media'];
+		return self::ok( array(
+			'config'  => $media,
+			'secrets' => self::media_secret_status( $character_id ),
+		) );
+	}
+
+	public static function rest_save_media( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+			return self::not_loaded();
+		}
+		$character_id = (int) $req['character_id'];
+		$body         = $req->get_json_params();
+		$body         = is_array( $body ) ? $body : array();
+		$result       = BizCity_Bot_Config_Repo::save( $character_id, array( 'media' => $body ) );
+		if ( is_wp_error( $result ) ) {
+			return self::err_from( $result );
+		}
+		return self::ok( array(
+			'config'  => $result['media'],
+			'secrets' => self::media_secret_status( $character_id ),
+		) );
+	}
+
+	/** EB-6: `field` = one of BizCity_Bot_Secrets_Repo::FIELDS. Multi fields append; single fields replace. */
+	public static function rest_add_media_key( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+			return self::not_loaded();
+		}
+		$character_id = (int) $req['character_id'];
+		$body         = $req->get_json_params();
+		$body         = is_array( $body ) ? $body : array();
+		$field        = sanitize_key( (string) ( $body['field'] ?? '' ) );
+		$value        = (string) ( $body['value'] ?? '' );
+		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) ) {
+			return self::err( 'invalid_param', 'Trường khóa không hợp lệ.', 422, 'field phải là một trong: ' . implode( ', ', array_keys( BizCity_Bot_Secrets_Repo::FIELDS ) ) . '.', 'bot_secret_field_unknown' );
+		}
+		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		if ( BizCity_Bot_Secrets_Repo::is_multi( $field ) ) {
+			$result = BizCity_Bot_Secrets_Repo::add_key( $character_id, $field, $value, $user_id );
+			if ( is_wp_error( $result ) ) {
+				return self::err_from( $result );
+			}
+			return self::ok( array( 'field' => $field, 'masked_keys' => $result ) );
+		}
+		if ( '' === trim( $value ) ) {
+			return self::err( 'invalid_param', 'Khóa không được để trống.', 422, '', 'bot_secret_empty' );
+		}
+		if ( ! BizCity_Bot_Secrets_Repo::set_value( $character_id, $field, $value, $user_id ) ) {
+			return self::err( 'save_failed', 'Không lưu được khóa.', 500, '', 'bot_secret_save_failed' );
+		}
+		return self::ok( array( 'field' => $field, 'masked_keys' => BizCity_Bot_Secrets_Repo::masked_keys( $character_id, $field ) ) );
+	}
+
+	/** EB-6.3 "xoá từng khóa" — multi fields only; index is the position in the ordered list. */
+	public static function rest_remove_media_key( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+			return self::not_loaded();
+		}
+		$character_id = (int) $req['character_id'];
+		$index        = (int) $req['index'];
+		$field        = sanitize_key( (string) $req->get_param( 'field' ) );
+		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) || ! BizCity_Bot_Secrets_Repo::is_multi( $field ) ) {
+			return self::err( 'invalid_param', 'Trường khóa không hợp lệ hoặc không hỗ trợ xoá từng khóa.', 422, '', 'bot_secret_field_unknown' );
+		}
+		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		if ( ! BizCity_Bot_Secrets_Repo::remove_key( $character_id, $field, $index, $user_id ) ) {
+			return self::err( 'not_found', 'Không tìm thấy khóa ở vị trí này.', 404, '', 'bot_secret_index_missing' );
+		}
+		return self::ok( array( 'field' => $field, 'masked_keys' => BizCity_Bot_Secrets_Repo::masked_keys( $character_id, $field ) ) );
+	}
+
+	/** EB-6.3 "xoá toàn bộ" — also how a single-value field is cleared back to unset. */
+	public static function rest_clear_media_keys( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+			return self::not_loaded();
+		}
+		$character_id = (int) $req['character_id'];
+		$field        = sanitize_key( (string) $req->get_param( 'field' ) );
+		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) ) {
+			return self::err( 'invalid_param', 'Trường khóa không hợp lệ.', 422, '', 'bot_secret_field_unknown' );
+		}
+		BizCity_Bot_Secrets_Repo::clear( $character_id, $field );
+		return self::ok( array( 'field' => $field, 'masked_keys' => array() ) );
+	}
+
+	/** { has_*, *_masked } for every media field — the ONLY shape a secret field is ever returned in. */
+	private static function media_secret_status( int $character_id ): array {
+		$out = array();
+		foreach ( BizCity_Bot_Secrets_Repo::FIELDS as $field => $spec ) {
+			$masked = BizCity_Bot_Secrets_Repo::masked_keys( $character_id, $field );
+			$out[ $field ] = array(
+				'has'    => array() !== $masked,
+				'masked' => ! empty( $spec['multi'] ) ? $masked : ( $masked[0] ?? '' ),
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * Real minimal call through the same provider path the bot would use — never a mock (D4.4).
+	 * Costs real money for `music` (doc EB-3.1) — the FE must show a cost warning before calling this.
+	 */
+	public static function rest_test_media( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Bot_Media_Client' ) ) {
+			return self::not_loaded();
+		}
+		$character_id = (int) $req['character_id'];
+		$kind         = sanitize_key( (string) $req['kind'] );
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — 'stt' test uploads a recording as
+		// multipart/form-data ("giữ để ghi âm test", B-03/6), so it has no JSON body; every other
+		// kind sends JSON. Read whichever one is actually present rather than assuming.
+		$body = $req->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		if ( 'stt' === $kind ) {
+			$files = $req->get_file_params();
+			$file  = is_array( $files['file'] ?? null ) ? $files['file'] : array();
+			if ( empty( $file['error'] ) && ! empty( $file['tmp_name'] ) ) {
+				$body['file_path'] = (string) $file['tmp_name'];
+			}
+			foreach ( $req->get_body_params() as $k => $v ) {
+				$body[ $k ] = $v; // e.g. confirm_cost sent alongside the multipart file.
+			}
+		}
+		$result = BizCity_Bot_Media_Client::test( $character_id, $kind, $body );
+		if ( is_wp_error( $result ) ) {
+			return self::err_from( $result );
+		}
+		return self::ok( $result );
 	}
 
 	/* ── envelope helpers (4-field errors, B8.4) ─────────────────────── */

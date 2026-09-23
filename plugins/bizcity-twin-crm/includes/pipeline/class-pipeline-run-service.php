@@ -455,8 +455,163 @@ final class BizCity_CRM_Pipeline_Run_Service {
 	private static function audit( int $run_id, string $action, ?array $before, ?array $after ): void { if ( class_exists( 'BizCity_CRM_Audit_Log' ) ) { BizCity_CRM_Audit_Log::log( 'crm_opportunity', $run_id, $action, $before, $after, array( 'user_id' => function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0 ) ); } }
 	private static function sync_sla( int $run_id ): void { if ( class_exists( 'BizCity_CRM_Pipeline_SLA_Service' ) && method_exists( 'BizCity_CRM_Pipeline_SLA_Service', 'sync_for_run' ) ) { BizCity_CRM_Pipeline_SLA_Service::sync_for_run( $run_id ); } }
 	private static function cancel_open_sla( int $run_id, string $reason ): void { if ( class_exists( 'BizCity_CRM_Pipeline_SLA_Service' ) && method_exists( 'BizCity_CRM_Pipeline_SLA_Service', 'cancel_for_run' ) ) { BizCity_CRM_Pipeline_SLA_Service::cancel_for_run( $run_id, $reason ); } }
-	private static function ensure_sub_step_tasks( int $run_id, string $stage_key, array $step, array $entry, array $row, array $args ): void { if ( 'task' !== (string) ( $step['mode'] ?? '' ) || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) { return; } global $wpdb; $table = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks(); $existing = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND title = %s AND deleted_at IS NULL LIMIT 1", $run_id, self::text( $step['label'] ?? $stage_key, 180 ) ) ); if ( $existing ) { return; } $now = function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ); $assignee = isset( $args['assignee_id'] ) ? (int) $args['assignee_id'] : (int) ( $entry['by'] ?? $row['owner_id'] ?? 0 ); $wpdb->insert( $table, array( 'title' => self::text( $step['label'] ?? $stage_key, 180 ), 'status' => 'open', 'priority' => 'medium', 'due_date' => null, 'assignee_id' => $assignee > 0 ? $assignee : null, 'related_entity_type' => 'pipeline_run', 'related_entity_id' => $run_id, 'notes' => self::text( $step['key'] ?? $stage_key, 180 ), 'data_json' => isset( $args['data'] ) && is_array( $args['data'] ) ? self::json( $args['data'] ) : null, 'completed' => 0, 'created_by' => isset( $args['actor_id'] ) ? (int) $args['actor_id'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : null ), 'created_at' => $now, 'updated_at' => $now ) ); }
-	private static function persist_step_evidence( int $run_id, string $stage_key, array $step, array $args, array $row ) { if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) { return new WP_Error( 'crm_storage_unavailable', 'Kho dữ liệu CRM chưa sẵn sàng.', array( 'status' => 503, 'hint' => 'Thử lại khi CRM database đã sẵn sàng.', 'help_code' => 'pipeline_storage_unavailable' ) ); } $data = is_array( $args['data'] ?? null ) ? $args['data'] : array(); $evidence = is_array( $args['evidence'] ?? null ) ? $args['evidence'] : array(); $documents = is_array( $args['documents'] ?? null ) ? $args['documents'] : array(); if ( empty( $data ) && empty( $evidence ) && empty( $documents ) ) { return true; } global $wpdb; $task_table = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks(); $title = self::text( $step['label'] ?? $stage_key, 180 ); $task = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$task_table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND title = %s AND deleted_at IS NULL ORDER BY id DESC LIMIT 1", $run_id, $title ), ARRAY_A ); $payload = array( 'stage_key' => $stage_key, 'fields' => $data, 'evidence' => $evidence, 'updated_at' => function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ) ); $existing_data = $task && ! empty( $task['data_json'] ) ? self::decode( $task['data_json'] ) : array(); $payload['history'] = is_array( $existing_data['history'] ?? null ) ? $existing_data['history'] : array(); $payload['history'][] = array( 'at' => $payload['updated_at'], 'actor_id' => isset( $args['actor_id'] ) ? (int) $args['actor_id'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 ), 'fields' => $data, 'evidence' => $evidence ); if ( ! $task ) { $now = $payload['updated_at']; $created = $wpdb->insert( $task_table, array( 'title' => $title, 'status' => 'done', 'priority' => 'medium', 'assignee_id' => (int) ( $args['assignee_id'] ?? $row['owner_id'] ?? 0 ) ?: null, 'related_entity_type' => 'pipeline_run', 'related_entity_id' => $run_id, 'notes' => self::text( $step['key'] ?? $stage_key, 180 ), 'data_json' => self::json( $payload ), 'completed' => 1, 'completed_at' => $now, 'created_by' => (int) ( $args['actor_id'] ?? 0 ) ?: null, 'created_at' => $now, 'updated_at' => $now ) ); if ( ! $created ) { return new WP_Error( 'evidence_task_write_failed', 'Không thể lưu dữ liệu bằng chứng của bước.', array( 'status' => 500, 'hint' => 'Thử lại trước khi đóng bước.', 'help_code' => 'pipeline_evidence_write_failed' ) ); } } else { $updated = $wpdb->update( $task_table, array( 'data_json' => self::json( $payload ), 'status' => 'done', 'completed' => 1, 'completed_at' => $payload['updated_at'], 'updated_at' => $payload['updated_at'] ), array( 'id' => (int) $task['id'] ) ); if ( false === $updated ) { return new WP_Error( 'evidence_task_write_failed', 'Không thể cập nhật dữ liệu bằng chứng của bước.', array( 'status' => 500, 'hint' => 'Thử lại trước khi đóng bước.', 'help_code' => 'pipeline_evidence_write_failed' ) ); } } if ( ! empty( $documents ) ) { $doc_table = BizCity_CRM_DB_Installer_V2::tbl_crm_documents(); foreach ( $documents as $document ) { if ( ! is_array( $document ) || '' === trim( (string) ( $document['name'] ?? '' ) ) || '' === trim( (string) ( $document['path'] ?? '' ) ) ) { continue; } $name = self::text( $document['name'], 255 ); $type = self::text( $document['type'] ?? 'file', 64 ); $original_path = (string) $document['path']; $path = function_exists( 'esc_url_raw' ) ? esc_url_raw( $original_path ) : self::text( $original_path, 512 ); $remote_only = false; if ( self::is_evidence_photo_type( $type ) && self::is_remote_evidence_url( $path ) ) { $mirrored = self::sideload_evidence_photo( $path, $name ); if ( null !== $mirrored ) { $path = $mirrored; } else { $remote_only = true; } } $exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$doc_table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND name = %s AND path = %s LIMIT 1", $run_id, $name, $path ) ); if ( $exists ) { continue; } $wpdb->insert( $doc_table, array( 'name' => $name, 'type' => $type, 'size_bytes' => max( 0, (int) ( $document['size_bytes'] ?? 0 ) ), 'path' => $path, 'uploaded_by' => (int) ( $args['actor_id'] ?? 0 ) ?: ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : null ), 'related_entity_type' => 'pipeline_run', 'related_entity_id' => $run_id, 'uploaded_at' => $payload['updated_at'] ) ); if ( ! $wpdb->insert_id ) { return new WP_Error( 'evidence_document_write_failed', 'Không thể gắn tài liệu bằng chứng cho pipeline.', array( 'status' => 500, 'hint' => 'Kiểm tra tài liệu rồi thử lại.', 'help_code' => 'pipeline_document_write_failed' ) ); } if ( $remote_only && class_exists( 'BizCity_CRM_Audit_Log' ) ) { BizCity_CRM_Audit_Log::log( 'crm_document', (int) $wpdb->insert_id, 'evidence_remote_only', null, array( 'run_id' => $run_id, 'stage_key' => $stage_key, 'name' => $name ), array( 'user_id' => (int) ( $args['actor_id'] ?? 0 ) ) ); } } } return true; }
+	private static function ensure_sub_step_tasks( int $run_id, string $stage_key, array $step, array $entry, array $row, array $args ): void {
+		if ( 'task' !== (string) ( $step['mode'] ?? '' ) || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			return;
+		}
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+		$title = self::text( $step['label'] ?? $stage_key, 180 );
+		$existing = $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM `{$table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND title = %s AND deleted_at IS NULL LIMIT 1",
+			$run_id, $title
+		) );
+		if ( $existing ) {
+			return;
+		}
+		$now = function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' );
+		$assignee = isset( $args['assignee_id'] ) ? (int) $args['assignee_id'] : (int) ( $entry['by'] ?? $row['owner_id'] ?? 0 );
+		// PHASE-0.71 F71-08 / 0.63C GC-02 — every task a pipeline run spawns carries the run's
+		// kind/stage/role so `leader-task-handoff@1.2.0` (`class-task-handoff.php::shape_b2()`/`shape_c()`)
+		// can surface them. `persist_step_evidence()` must keep these 3 fields alive across its own
+		// wholesale overwrite of `data_json` when the step later closes with evidence (F71-6).
+		$task_data = array(
+			'pipeline_kind' => (string) ( $row['pipeline_kind'] ?? '' ),
+			'stage_key'     => $stage_key,
+			'role_code'     => (string) ( $step['role'] ?? '' ),
+		);
+		if ( isset( $args['data'] ) && is_array( $args['data'] ) ) {
+			$task_data['fields'] = $args['data'];
+		}
+		$wpdb->insert( $table, array(
+			'title'               => $title,
+			'status'              => 'open',
+			'priority'            => 'medium',
+			'due_date'            => null,
+			'assignee_id'         => $assignee > 0 ? $assignee : null,
+			'related_entity_type' => 'pipeline_run',
+			'related_entity_id'   => $run_id,
+			'notes'               => self::text( $step['key'] ?? $stage_key, 180 ),
+			'data_json'           => self::json( $task_data ),
+			'completed'           => 0,
+			'created_by'          => isset( $args['actor_id'] ) ? (int) $args['actor_id'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : null ),
+			'created_at'          => $now,
+			'updated_at'          => $now,
+		) );
+	}
+	private static function persist_step_evidence( int $run_id, string $stage_key, array $step, array $args, array $row ) {
+		if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			return new WP_Error( 'crm_storage_unavailable', 'Kho dữ liệu CRM chưa sẵn sàng.', array( 'status' => 503, 'hint' => 'Thử lại khi CRM database đã sẵn sàng.', 'help_code' => 'pipeline_storage_unavailable' ) );
+		}
+		$data      = is_array( $args['data'] ?? null ) ? $args['data'] : array();
+		$evidence  = is_array( $args['evidence'] ?? null ) ? $args['evidence'] : array();
+		$documents = is_array( $args['documents'] ?? null ) ? $args['documents'] : array();
+		if ( empty( $data ) && empty( $evidence ) && empty( $documents ) ) {
+			return true;
+		}
+		global $wpdb;
+		$task_table = BizCity_CRM_DB_Installer_V2::tbl_crm_tasks();
+		$title = self::text( $step['label'] ?? $stage_key, 180 );
+		$task = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM `{$task_table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND title = %s AND deleted_at IS NULL ORDER BY id DESC LIMIT 1",
+			$run_id, $title
+		), ARRAY_A );
+		$existing_data = $task && ! empty( $task['data_json'] ) ? self::decode( $task['data_json'] ) : array();
+		// PHASE-0.71 F71-08 / F71-6 — this write REPLACES data_json wholesale (never merges), so anything
+		// `ensure_sub_step_tasks()` set at task-creation time must be re-declared here or it vanishes the
+		// moment the step closes with evidence. Carry pipeline_kind/stage_key/role_code forward from
+		// whatever the task already had — never recomputed here, so a step that somehow has no task yet
+		// degrades to empty strings instead of guessing.
+		$payload = array(
+			'pipeline_kind' => (string) ( $existing_data['pipeline_kind'] ?? '' ),
+			'stage_key'     => (string) ( $existing_data['stage_key'] ?? $stage_key ),
+			'role_code'     => (string) ( $existing_data['role_code'] ?? '' ),
+			'fields'        => $data,
+			'evidence'      => $evidence,
+			'updated_at'    => function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ),
+		);
+		$payload['history'] = is_array( $existing_data['history'] ?? null ) ? $existing_data['history'] : array();
+		$payload['history'][] = array(
+			'at'       => $payload['updated_at'],
+			'actor_id' => isset( $args['actor_id'] ) ? (int) $args['actor_id'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 ),
+			'fields'   => $data,
+			'evidence' => $evidence,
+		);
+		if ( ! $task ) {
+			$now = $payload['updated_at'];
+			$created = $wpdb->insert( $task_table, array(
+				'title'               => $title,
+				'status'              => 'done',
+				'priority'            => 'medium',
+				'assignee_id'         => (int) ( $args['assignee_id'] ?? $row['owner_id'] ?? 0 ) ?: null,
+				'related_entity_type' => 'pipeline_run',
+				'related_entity_id'   => $run_id,
+				'notes'               => self::text( $step['key'] ?? $stage_key, 180 ),
+				'data_json' => self::json( $payload ),
+				'completed'           => 1,
+				'completed_at'        => $now,
+				'created_by'          => (int) ( $args['actor_id'] ?? 0 ) ?: null,
+				'created_at'          => $now,
+				'updated_at'          => $now,
+			) );
+			if ( ! $created ) {
+				return new WP_Error( 'evidence_task_write_failed', 'Không thể lưu dữ liệu bằng chứng của bước.', array( 'status' => 500, 'hint' => 'Thử lại trước khi đóng bước.', 'help_code' => 'pipeline_evidence_write_failed' ) );
+			}
+		} else {
+			$updated = $wpdb->update( $task_table, array(
+				'data_json' => self::json( $payload ),
+				'status'       => 'done',
+				'completed'    => 1,
+				'completed_at' => $payload['updated_at'],
+				'updated_at'   => $payload['updated_at'],
+			), array( 'id' => (int) $task['id'] ) );
+			if ( false === $updated ) {
+				return new WP_Error( 'evidence_task_write_failed', 'Không thể cập nhật dữ liệu bằng chứng của bước.', array( 'status' => 500, 'hint' => 'Thử lại trước khi đóng bước.', 'help_code' => 'pipeline_evidence_write_failed' ) );
+			}
+		}
+		if ( ! empty( $documents ) ) {
+			$doc_table = BizCity_CRM_DB_Installer_V2::tbl_crm_documents();
+			foreach ( $documents as $document ) {
+				if ( ! is_array( $document ) || '' === trim( (string) ( $document['name'] ?? '' ) ) || '' === trim( (string) ( $document['path'] ?? '' ) ) ) {
+					continue;
+				}
+				$name = self::text( $document['name'], 255 );
+				$type = self::text( $document['type'] ?? 'file', 64 );
+				$original_path = (string) $document['path'];
+				$path = function_exists( 'esc_url_raw' ) ? esc_url_raw( $original_path ) : self::text( $original_path, 512 );
+				$remote_only = false;
+				if ( self::is_evidence_photo_type( $type ) && self::is_remote_evidence_url( $path ) ) {
+					$mirrored = self::sideload_evidence_photo( $path, $name );
+					if ( null !== $mirrored ) {
+						$path = $mirrored;
+					} else {
+						$remote_only = true;
+					}
+				}
+				$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$doc_table}` WHERE related_entity_type = 'pipeline_run' AND related_entity_id = %d AND name = %s AND path = %s LIMIT 1", $run_id, $name, $path ) );
+				if ( $exists ) {
+					continue;
+				}
+				$wpdb->insert( $doc_table, array(
+					'name'                => $name,
+					'type'                => $type,
+					'size_bytes'          => max( 0, (int) ( $document['size_bytes'] ?? 0 ) ),
+					'path'                => $path,
+					'uploaded_by'         => (int) ( $args['actor_id'] ?? 0 ) ?: ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : null ),
+					'related_entity_type' => 'pipeline_run',
+					'related_entity_id'   => $run_id,
+					'uploaded_at'         => $payload['updated_at'],
+				) );
+				if ( ! $wpdb->insert_id ) {
+					return new WP_Error( 'evidence_document_write_failed', 'Không thể gắn tài liệu bằng chứng cho pipeline.', array( 'status' => 500, 'hint' => 'Kiểm tra tài liệu rồi thử lại.', 'help_code' => 'pipeline_document_write_failed' ) );
+				}
+				if ( $remote_only && class_exists( 'BizCity_CRM_Audit_Log' ) ) {
+					BizCity_CRM_Audit_Log::log( 'crm_document', (int) $wpdb->insert_id, 'evidence_remote_only', null, array( 'run_id' => $run_id, 'stage_key' => $stage_key, 'name' => $name ), array( 'user_id' => (int) ( $args['actor_id'] ?? 0 ) ) );
+				}
+			}
+		}
+		return true;
+	}
 
 	/**
 	 * PHASE-0.69 §4.5/L-08 — a Zalo attachment's `data_url` is the provider's CDN, which is not durable

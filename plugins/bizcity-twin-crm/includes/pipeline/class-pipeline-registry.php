@@ -59,7 +59,7 @@ final class BizCity_CRM_Pipeline_Registry {
 
 		$out = array();
 
-		foreach ( self::registered_kinds() as $kind => $entry ) {
+		foreach ( BizCity_CRM_Pipeline_Kind_Registry::all() as $kind => $entry ) {
 			$definition = self::definition_from_registration( $entry );
 			if ( is_array( $definition ) && true === self::validate( $definition ) ) {
 				$out[ $kind ] = $definition;
@@ -203,40 +203,25 @@ final class BizCity_CRM_Pipeline_Registry {
 	 * Invalid registrations, surfaced instead of hidden — same contract as
 	 * `BizCity_CRM_Channel_Registry::registration_issues()`.
 	 *
+	 * Structural problems (empty/duplicate key, a `kind` that does not match
+	 * the array key it registered under) are `Pipeline_Kind_Registry`'s job
+	 * (PHASE-0.71 F71-09 / 0.63C GC-04); this method only adds the semantic
+	 * check that a structurally clean kind's definition actually validates.
+	 *
 	 * @return string[]
 	 */
 	public static function registration_issues(): array {
-		$issues = array();
+		$issues = BizCity_CRM_Pipeline_Kind_Registry::registration_issues();
 
-		if ( function_exists( 'apply_filters' ) ) {
-			$kinds = apply_filters( 'bizcity_crm_register_pipeline_kinds', array() );
-			if ( ! is_array( $kinds ) ) {
-				return array( 'pipeline_kind_filter_not_array' );
+		foreach ( BizCity_CRM_Pipeline_Kind_Registry::all() as $key => $entry ) {
+			$definition = self::definition_from_registration( $entry );
+			if ( ! is_array( $definition ) ) {
+				$issues[] = $key . ':no_definition';
+				continue;
 			}
-			foreach ( $kinds as $kind => $entry ) {
-				$key = self::sanitize_kind( (string) $kind );
-				if ( '' === $key ) {
-					$issues[] = 'empty_kind';
-					continue;
-				}
-				if ( ! is_array( $entry ) ) {
-					$issues[] = $key . ':invalid_registration';
-					continue;
-				}
-				$declared = self::sanitize_kind( (string) ( $entry['kind'] ?? '' ) );
-				if ( $declared !== $key ) {
-					$issues[] = $key . ':kind_mismatch:' . $declared;
-					continue;
-				}
-				$definition = self::definition_from_registration( $entry );
-				if ( ! is_array( $definition ) ) {
-					$issues[] = $key . ':no_definition';
-					continue;
-				}
-				$valid = self::validate( $definition );
-				if ( true !== $valid ) {
-					$issues[] = $key . ':invalid_definition:' . implode( ';', self::error_reasons( $valid ) );
-				}
+			$valid = self::validate( $definition );
+			if ( true !== $valid ) {
+				$issues[] = $key . ':invalid_definition:' . implode( ';', self::error_reasons( $valid ) );
 			}
 		}
 
@@ -367,12 +352,25 @@ final class BizCity_CRM_Pipeline_Registry {
 	}
 
 	/** Read one of the three shipped templates from disk. */
+	/**
+	 * PHASE-0.71 D63C-1 (phương án B, 0.63C GC-3) — `purchase`/`request`/`production`/`service` are
+	 * business-specific kinds living in this CORE plugin, the exact anti-pattern R-WORK-PIPE-14 forbids
+	 * ("3+ kind nghiệp vụ sống trong core, chưa từng là plugin riêng"). Tách 4 kind này thành plugin
+	 * riêng (`bizcity-crm-pipeline-<kind>`, phương án A) chỉ đáng làm khi có đội ngoài thật cần code một
+	 * kind mới — chưa có ai ngoài đội core cần điều đó hôm nay. Cho tới lúc đó, nợ này bị khoanh (không
+	 * xoá) ở đúng một chỗ dễ thấy: thư mục `_bundled_pending_split/` dưới đây. **Không thêm JSON kind thứ
+	 * 5/6/... nào vào thư mục này** — một kind mới thật sự thuộc về một plugin riêng ngay từ đầu, đăng ký
+	 * qua filter `bizcity_crm_register_pipeline_kinds` (xem `BizCity_CRM_Pipeline_Kind_Registry`), không
+	 * phải thêm file JSON vào đây.
+	 */
+	const BUNDLED_PENDING_SPLIT_DIR = 'templates/pipelines/_bundled_pending_split';
+
 	public static function template( string $name ): ?array {
 		$name = self::sanitize_kind( $name );
 		if ( '' === $name || ! defined( 'BIZCITY_CRM_DIR' ) ) {
 			return null;
 		}
-		$path = BIZCITY_CRM_DIR . '/templates/pipelines/' . $name . '.json';
+		$path = BIZCITY_CRM_DIR . '/' . self::BUNDLED_PENDING_SPLIT_DIR . '/' . $name . '.json';
 		if ( ! is_file( $path ) || ! is_readable( $path ) ) {
 			return null;
 		}
@@ -386,7 +384,7 @@ final class BizCity_CRM_Pipeline_Registry {
 			return array();
 		}
 		$out = array();
-		foreach ( (array) glob( BIZCITY_CRM_DIR . '/templates/pipelines/*.json' ) as $path ) {
+		foreach ( (array) glob( BIZCITY_CRM_DIR . '/' . self::BUNDLED_PENDING_SPLIT_DIR . '/*.json' ) as $path ) {
 			$out[] = basename( (string) $path, '.json' );
 		}
 		sort( $out );
@@ -880,31 +878,6 @@ final class BizCity_CRM_Pipeline_Registry {
 	/* ------------------------------------------------------------------
 	 * Internals
 	 * ------------------------------------------------------------------ */
-
-	/** @return array<string,array> */
-	private static function registered_kinds(): array {
-		if ( ! function_exists( 'apply_filters' ) ) {
-			return array();
-		}
-		$registered = apply_filters( 'bizcity_crm_register_pipeline_kinds', array() );
-		if ( ! is_array( $registered ) ) {
-			return array();
-		}
-
-		$out = array();
-		foreach ( $registered as $kind => $entry ) {
-			$key = self::sanitize_kind( (string) $kind );
-			if ( '' === $key || ! is_array( $entry ) ) {
-				continue;
-			}
-			// A registration may not claim a kind other than its own key (Channel Registry precedent).
-			if ( self::sanitize_kind( (string) ( $entry['kind'] ?? '' ) ) !== $key ) {
-				continue;
-			}
-			$out[ $key ] = $entry;
-		}
-		return $out;
-	}
 
 	/** @return array|null */
 	private static function definition_from_registration( array $entry ) {

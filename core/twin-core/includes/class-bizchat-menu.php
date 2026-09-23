@@ -66,10 +66,13 @@ class BizChat_Menu {
 	 * }
 	 */
 	public static function add_submenu( string $slug, array $args ): void {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
 		self::$items[ $slug ] = wp_parse_args( $args, [
 			'title'      => '',
 			'menu_title' => '',
-			'capability' => 'manage_options',
+			'capability' => class_exists( 'BizCity_Network_Admin_Capability' )
+				? BizCity_Network_Admin_Capability::menu_cap()
+				: 'manage_options',
 			'callback'   => '__return_null',
 			'position'   => 100,
 		] );

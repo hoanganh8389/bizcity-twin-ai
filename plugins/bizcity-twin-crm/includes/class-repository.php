@@ -218,6 +218,50 @@ class BizCity_CRM_Repository {
 		return $row ?: null;
 	}
 
+	/** The enum PHASE-0.71 F71-10 / 0.63C GC-6 (§4.4) declares for `inboxes.settings_json.purpose`. */
+	const INBOX_PURPOSES = array( 'sales', 'purchasing', 'backoffice', 'production', 'mixed' );
+
+	/**
+	 * Set (or clear) `settings_json.purpose` on an existing inbox — 0.63C GC-6: "định vị số điện
+	 * thoại đó dùng để làm gì". `upsert_inbox()` only ever writes `settings_json` once, at
+	 * creation; this is the update path that never existed. Merges into whatever `settings_json`
+	 * already holds — every other settings key on the inbox is preserved untouched.
+	 *
+	 * @return bool
+	 */
+	public static function set_inbox_purpose( int $inbox_id, string $purpose ): bool {
+		if ( ! in_array( $purpose, self::INBOX_PURPOSES, true ) ) {
+			return false;
+		}
+		$inbox = self::get_inbox( $inbox_id );
+		if ( null === $inbox ) {
+			return false;
+		}
+		$settings = json_decode( (string) ( $inbox['settings_json'] ?? '' ), true );
+		if ( ! is_array( $settings ) ) {
+			$settings = array();
+		}
+		$settings['purpose'] = $purpose;
+
+		global $wpdb;
+		$updated = $wpdb->update(
+			BizCity_CRM_DB_Installer_V2::tbl_inboxes(),
+			array(
+				'settings_json' => wp_json_encode( $settings ),
+				'updated_at'    => current_time( 'mysql' ),
+			),
+			array( 'id' => $inbox_id )
+		);
+		if ( false === $updated ) {
+			return false;
+		}
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::flush_group( 'crm_repository' );
+		}
+		self::invalidate_read_models();
+		return true;
+	}
+
 	/**
 	 * Read one active inbox by its exact channel and account reference.
 	 *
@@ -939,6 +983,7 @@ class BizCity_CRM_Repository {
 		$sql = "SELECT
 					c.id, c.inbox_id, c.contact_inbox_id, c.status, c.assignee_id,
 					i.channel_type,
+					c.platform, c.account_id, c.character_id, c.chat_id,
 					c.notebook_id, c.priority,
 					c.snoozed_until, c.waiting_since, c.first_reply_at, c.cached_label_list,
 					c.sla_policy_id, c.team_id,
@@ -1040,6 +1085,12 @@ class BizCity_CRM_Repository {
 		if ( isset( $args['thread_kind'] ) && in_array( (string) $args['thread_kind'], array( 'group', 'personal' ), true ) ) {
 			$where[] = 'group' === (string) $args['thread_kind'] ? "ci.source_id LIKE 'group:%'" : "ci.source_id NOT LIKE 'group:%'";
 		}
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-2 §4.2 — Bot Studio Sessions projection filters.
+		// `conversations.account_id`/`character_id` already exist on the row (set at ingest time);
+		// this just exposes them as filter predicates alongside the ones already here.
+		if ( ! empty( $args['account_id'] ) ) { $where[] = 'c.account_id = %s'; $params[] = (string) $args['account_id']; }
+		if ( ! empty( $args['character_id'] ) ) { $where[] = 'c.character_id = %d'; $params[] = (int) $args['character_id']; }
+		if ( ! empty( $args['external_uid'] ) ) { $where[] = 'ci.source_id = %s'; $params[] = (string) $args['external_uid']; }
 		return array( $where, $params );
 	}
 

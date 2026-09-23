@@ -641,10 +641,12 @@ class BizCity_CRM_DB_Installer_V2 {
 			uploaded_by BIGINT UNSIGNED NULL,
 			related_entity_type VARCHAR(32) NULL,
 			related_entity_id BIGINT UNSIGNED NULL,
+			message_id BIGINT UNSIGNED NULL,
 			uploaded_at DATETIME NOT NULL,
 			PRIMARY KEY  (id),
 			KEY idx_related (related_entity_type, related_entity_id),
-			KEY idx_uploader (uploaded_by)
+			KEY idx_uploader (uploaded_by),
+			KEY idx_message (message_id)
 		) {$charset};";
 
 		/* ===== M-CRM.M1 — Sales Pipeline ===== */
@@ -1255,8 +1257,39 @@ class BizCity_CRM_DB_Installer_V2 {
 		self::migrate_phase_063();
 		// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C2.4 — contacts.birthday (real DATE column) + birthday_md (MM-DD, plain index; MySQL 5.7-safe).
 		self::migrate_phase_060b();
+		// [2026-09-23] PHASE-0.71 F71-13 / 0.63C GC-9 — bizcity_crm_documents.message_id, the
+		// back-pointer a pipeline-linked document needs to its source Zalo/channel message.
+		self::migrate_phase_071();
 
 		update_option( self::DB_VERSION_OPTION, BIZCITY_CRM_DB_VERSION );
+	}
+
+	/**
+	 * PHASE-0.71 F71-13 — `bizcity_crm_documents.message_id` (v1.37.0).
+	 *
+	 * `crm_documents` had `related_entity_type`/`related_entity_id` but no way to point back
+	 * at the inbound message an attachment came from — 0.63C's GC-9 text assumed this column
+	 * already existed; it didn't (confirmed by reading the CREATE TABLE directly, PHASE-0.71
+	 * §2.3 F71-7). `BizCity_CRM_Pipeline_Document_Link` (new, `includes/inbox/class-pipeline-
+	 * document-link.php`) uses this column both to store the back-pointer and, more importantly,
+	 * as its idempotency key — a message whose attachments are already linked is never
+	 * re-processed. ADD-only, idempotent.
+	 */
+	public static function migrate_phase_071(): void {
+		global $wpdb;
+		$documents = self::tbl_crm_documents();
+		if ( ! self::column_exists( $documents, 'message_id' ) ) {
+			$wpdb->query( "ALTER TABLE `{$documents}` ADD COLUMN message_id BIGINT UNSIGNED NULL AFTER related_entity_id" );
+		}
+		if ( ! self::index_exists( $documents, 'idx_message' ) ) {
+			$wpdb->query( "ALTER TABLE `{$documents}` ADD KEY idx_message (message_id)" );
+		}
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $documents );
+		}
+		if ( function_exists( 'bizcity_column_invalidate' ) ) {
+			bizcity_column_invalidate( $documents, 'message_id' );
+		}
 	}
 
 	/**

@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://bizcity.vn/schema/twin/contracts/v1/leader-task-handoff.schema.json",
   "title": "BizCity Leader Task Handoff",
-  "description": "PHASE-0.50 W4/W5: work a leader assigns from B2 (/crm/, /twin/) and a member receives in C (/gpt/crm/). Stored on bizcity_crm_tasks; history in the CRM audit log. On C_PUBLIC_TWINGPT subject.user_id must equal principal.actor_user_id and B2-only task fields (assignee, timeline, result, batch_key, updated_at) are absent — enforced by the contract test semantics.",
+  "description": "PHASE-0.50 W4/W5: work a leader assigns from B2 (/crm/, /twin/) and a member receives in C (/gpt/crm/). Stored on bizcity_crm_tasks; history in the CRM audit log. On C_PUBLIC_TWINGPT subject.user_id must equal principal.actor_user_id and B2-only task fields (assignee, timeline, result, batch_key, updated_at) are absent — enforced by the contract test semantics. PHASE-0.71 GC-2: 1.2.0 adds two kinds of additive, optional `task` fields — (a) `pipeline_kind`/`stage_key`/`role_code`/`form_ref`, present when a task originated from a PHASE-0.63A pipeline sub_step (`related_entity_type='pipeline_run'`), null/absent for a plain leader-assigned task; (b) `playbook`/`review`, which `shape_c()` (`includes/class-task-handoff.php`) has emitted on every C-surface task since 1.1.0 but which were never declared here — a real producer/schema drift this bump also closes, not new behavior.",
   "type": "object",
   "additionalProperties": false,
   "required": ["contract", "version", "surface", "principal", "subject", "as_of", "coverage", "data"],
   "properties": {
     "contract": { "const": "leader-task-handoff" },
-    "version": { "const": "1.1.0" },
+    "version": { "const": "1.2.0" },
     "surface": { "enum": ["B2_ADMIN_CRM", "C_PUBLIC_TWINGPT"] },
     "principal": { "$ref": "#/$defs/principal" },
     "subject": { "$ref": "#/$defs/subject" },
@@ -169,6 +169,52 @@
           "type": "array",
           "uniqueItems": true,
           "items": { "enum": ["cancel", "reassign", "reopen", "accept", "start", "complete", "return"] }
+        },
+        "pipeline_kind": {
+          "description": "1.2.0 — set when this task was generated from a PHASE-0.63A pipeline sub_step (`related_entity_type='pipeline_run'`); null/absent for a plain leader-assigned task.",
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9_]{1,31}$"
+        },
+        "stage_key": {
+          "description": "1.2.0 — the pipeline step code (e.g. `P5.3`) this task was generated from.",
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "role_code": {
+          "description": "1.2.0 — the process role (`roles{}` key of the pipeline definition, e.g. `R09`) the step was declared for, not necessarily the individual `assignee`.",
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,31}$"
+        },
+        "form_ref": {
+          "description": "1.2.0 — optional reference to a structured form/template this task's `result` should follow. No producer sets this yet (PHASE-0.71 GC-2); reserved so a future one does not need another version bump.",
+          "type": ["string", "null"]
+        },
+        "playbook": {
+          "description": "C surface only — the retention playbook this task was generated from, if any. Emitted by `shape_c()` since 1.1.0; declared here for the first time in 1.2.0 (PHASE-0.71 finding: schema/producer drift).",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "segment": { "type": "string" },
+            "title": { "type": "string" },
+            "label": { "type": "string" },
+            "instructions": { "type": "string" },
+            "due_days": { "type": "integer", "minimum": 0 },
+            "priority": { "enum": ["low", "medium", "high", "urgent"] }
+          }
+        },
+        "review": {
+          "description": "C surface only — the leader's verdict on a `done`/`returned` task. Emitted by `shape_c()` since 1.1.0; declared here for the first time in 1.2.0 (PHASE-0.71 finding: schema/producer drift).",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["verdict", "comment", "reviewed_by", "at"],
+          "properties": {
+            "verdict": { "enum": ["accepted", "needs_rework", ""] },
+            "comment": { "type": "string", "maxLength": 2000 },
+            "reviewed_by": { "type": "object", "additionalProperties": false, "properties": { "display_name": { "type": "string", "maxLength": 120 } } },
+            "at": { "type": "string", "minLength": 10 }
+          }
         }
       }
     },

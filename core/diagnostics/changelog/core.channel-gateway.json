@@ -3,7 +3,7 @@
   "module_id": "core.channel-gateway",
   "owner": "core/channel-gateway",
   "installer_id": "blog_resolver_inbox",
-  "current_version": "1.6.1",
+  "current_version": "1.8.0",
   "version_option": "bizcity_blog_resolver_inbox_db_version",
   "tables": {
     "global_inbox_admin": {
@@ -94,6 +94,7 @@
         "fallback_assignee":   { "type": "BIGINT UNSIGNED NULL", "since": "1.1.0" },
         "meta_json":           { "type": "LONGTEXT NULL", "since": "1.1.0" },
         "office_hours_json":   { "type": "LONGTEXT NULL", "since": "1.6.1", "note": "PHASE-0.60A Bot Studio — per-binding office hours + pause/mention flags. Written only when caller passes it (isset-gated), unlike meta_json which is unconditionally overwritten." },
+        "policy_json":         { "type": "LONGTEXT NULL", "since": "1.7.0", "note": "PHASE-0.60E EA-1 Bot Studio — per-binding behavior policy (allowlist mode/uids). Written only via BizCity_Channel_Binding::save_policy()'s narrow single-column UPDATE, never through upsert()." },
         "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" },
         "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" }
       },
@@ -186,6 +187,28 @@
         "idx_identity":  { "type": "KEY",        "cols": ["identity_uuid"],                                      "since": "1.5.0" },
         "idx_stable":    { "type": "KEY",        "cols": ["blog_id", "is_stable"],                              "since": "1.5.0" }
       }
+    },
+    "bizcity_bot_secrets": {
+      "since": "1.8.0",
+      "purpose": "PHASE-0.60E D-E1 phương án A — one narrow encrypted table for per-character Bot Studio media keys (TTS/STT/tạo nhạc/Apify/Tavily) that 1API doesn't cover. Deliberately NOT characters.settings (copied whole by export/duplicate — 0.60A §0.3). BizCity_Codec::encrypt_json_payload() (AES-256-CBC + HMAC-SHA256), key = wp_salt('auth') via bizcity_bot_secrets_key filter, same shape as BizCity_Channel_Conversation_Archive::archive_key().",
+      "owner_class": "BizCity_Bot_Secrets_Repo",
+      "installer_option": "bizcity_bot_secrets_schema",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "1.8.0", "pk": true },
+        "blog_id":       { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.8.0" },
+        "character_id":  { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.8.0" },
+        "field":         { "type": "VARCHAR(40) NOT NULL DEFAULT ''", "since": "1.8.0", "enum": ["tts_api_keys", "stt_api_key", "music_api_key", "apify_token", "tavily_api_key"], "note": "tts_api_keys is the only multi-value field (EB-6 rotation); the rest are single-value \"để trống để giữ nguyên\"." },
+        "ciphertext":    { "type": "LONGTEXT NULL", "since": "1.8.0", "note": "Encrypted {\"keys\":[...]} — plaintext never stored, never returned by any REST route (only *_masked + has_*)." },
+        "updated_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.8.0" },
+        "updated_by":    { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.8.0" }
+      },
+      "indexes": {
+        "uniq_field":    { "type": "UNIQUE KEY", "cols": ["blog_id", "character_id", "field"], "since": "1.8.0" },
+        "idx_character": { "type": "KEY",        "cols": ["blog_id", "character_id"],          "since": "1.8.0" }
+      }
     }
   },
   "history": [
@@ -238,6 +261,16 @@
       "version": "1.6.1",
       "date": "2026-09-23",
       "change": "PHASE-0.60A W1 — add bizcity_channel_bindings.office_hours_json (class-channel-binding.php SCHEMA_VERSION 1.1.0 → 1.2.0) for Bot Studio per-binding office hours + pause/mention flags. Isset-gated write in upsert(), never unconditionally overwritten like meta_json."
+    },
+    {
+      "version": "1.7.0",
+      "date": "2026-09-23",
+      "change": "PHASE-0.60E EA-1 — add bizcity_channel_bindings.policy_json (class-channel-binding.php SCHEMA_VERSION 1.2.0 → 1.3.0) for Bot Studio allowlist policy (allowlist_mode/allowlist_uids). Written only through the new BizCity_Channel_Binding::save_policy() narrow single-column UPDATE, deliberately not through upsert() — same N-1 avoidance precedent as office_hours_json."
+    },
+    {
+      "version": "1.8.0",
+      "date": "2026-09-23",
+      "change": "PHASE-0.60E D-E1 (user-approved) — new table bizcity_bot_secrets, owner BizCity_Bot_Secrets_Repo (SCHEMA_VERSION 1.0.0, option bizcity_bot_secrets_schema). Per-character encrypted keys for TTS/STT/tạo nhạc/Apify/Tavily — the four+one services BizCity 1API doesn't cover. One row per (character_id, field); tts_api_keys is multi-value (EB-6 rotation), the rest single-value."
     }
   ]
 }

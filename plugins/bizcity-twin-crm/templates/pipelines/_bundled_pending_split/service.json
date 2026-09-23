@@ -1,0 +1,162 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.0.0",
+  "kind": "service",
+  "label": "Dịch vụ có lịch",
+  "subject": "contact",
+  "clock": "24x7",
+  "lock_version": true,
+  "pause_when": [],
+  "roles": {
+    "dispatcher": { "label": "Điều phối viên", "resolve": { "relation": "creator_of_run" } },
+    "staff": { "label": "Nhân viên phục vụ", "resolve": { "relation": "assignee_of_stage" } },
+    "lead": { "label": "Trưởng nhóm", "resolve": { "relation": "team_lead_of_assignee" } }
+  },
+  "tools": ["stage", "ops", "shift_schedule", "location", "documents", "notes", "activity"],
+  "catalogs": {
+    "skills": ["ho_ta", "lai_xe", "ky_thuat_vien", "cham_soc_nguoi_gia", "vat_ly_tri_lieu"],
+    "areas": ["cau_giay", "ba_dinh", "dong_da", "hai_ba_trung", "thanh_xuan"],
+    "services": [
+      { "key": "tam_be", "label": "Tắm cho bé", "duration_minutes": 60, "required_skill": "ho_ta" },
+      { "key": "giao_hang", "label": "Giao hàng", "duration_minutes": 45, "required_skill": "lai_xe" },
+      { "key": "sua_chua_tai_nha", "label": "Sửa chữa tại nhà", "duration_minutes": 90, "required_skill": "ky_thuat_vien" }
+    ]
+  },
+  "stages": [
+    {
+      "key": "booked",
+      "label": "Đã đặt lịch"
+    },
+    {
+      "key": "assigned",
+      "label": "Đã giao người",
+      "role": "dispatcher",
+      "sla": {
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+5m",
+          "on_miss": [
+            { "at": "0", "do": "flag(at_risk) + notify(role:staff)" },
+            { "at": "+2m", "do": "emit(service_reassign_needed) + notify(role:dispatcher)" }
+          ]
+        }
+      }
+    },
+    {
+      "key": "accepted",
+      "label": "Đã nhận ca",
+      "role": "staff"
+    },
+    {
+      "key": "departed",
+      "label": "Đã khởi hành",
+      "role": "staff"
+    },
+    {
+      "key": "checkin",
+      "label": "Check-in tại nơi",
+      "role": "staff"
+    },
+    {
+      "key": "serving",
+      "label": "Đang phục vụ",
+      "role": "staff"
+    },
+    {
+      "key": "completed",
+      "label": "Hoàn thành",
+      "role": "staff",
+      "terminal": true,
+      "requires": { "fields": ["condition_note"], "evidence": ["photo"], "min_count": 1 }
+    }
+  ],
+  "rules": [
+    {
+      "id": "auto_match",
+      "layer": "step",
+      "anchor": "run_created",
+      "offset": "+1m",
+      "target": "stage_done(booked)",
+      "on_miss": [
+        { "at": "0", "do": "emit(service_match_failed) + notify(role:dispatcher)" }
+      ]
+    },
+    {
+      "id": "confirm",
+      "layer": "wait",
+      "anchor": "stage_started(assigned)",
+      "offset": "+5m",
+      "target": "stage_started(accepted)",
+      "on_miss": [
+        { "at": "0", "do": "flag(at_risk) + notify(role:staff)" },
+        { "at": "+2m", "do": "emit(service_reassign_needed) + notify(role:dispatcher)" }
+      ]
+    },
+    {
+      "id": "depart_prep",
+      "layer": "step",
+      "anchor": "appointment_at",
+      "offset": "-40m",
+      "target": "stage_started(departed)",
+      "on_miss": [
+        { "at": "+15m", "do": "notify(role:lead)" }
+      ]
+    },
+    {
+      "id": "checkin_prep",
+      "layer": "step",
+      "anchor": "appointment_at",
+      "offset": "-8m",
+      "target": "stage_started(checkin)",
+      "on_miss": [
+        { "at": "0", "do": "flag(at_risk) + notify(role:lead)" }
+      ]
+    },
+    {
+      "id": "complete",
+      "layer": "step",
+      "anchor": "stage_started(checkin)",
+      "offset": "+90m",
+      "target": "stage_done(completed)",
+      "on_miss": [
+        { "at": "0", "do": "notify(role:lead)" }
+      ]
+    }
+  ],
+  "exceptions": [
+    {
+      "key": "customer_absent",
+      "label": "Khách không có mặt",
+      "raised_from": ["departed", "checkin"],
+      "handler_role": "dispatcher",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+10m",
+          "target": "exception_ack",
+          "on_miss": [{ "at": "0", "do": "notify(role:dispatcher)" }]
+        }
+      ]
+    },
+    {
+      "key": "staff_incident",
+      "label": "Sự cố phía nhân viên",
+      "raised_from": ["departed", "checkin", "serving"],
+      "handler_role": "lead",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+5m",
+          "target": "exception_ack",
+          "on_miss": [{ "at": "0", "do": "escalate(role:lead)" }]
+        }
+      ]
+    }
+  ]
+}

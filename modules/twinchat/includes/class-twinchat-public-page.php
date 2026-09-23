@@ -59,6 +59,7 @@ class BizCity_TwinChat_Public_Page {
 
 	public function add_query_var( $vars ) {
 		$vars[] = self::QUERY_VAR;
+		$vars[] = 'bizcity_twinchat_public_door';
 		return $vars;
 	}
 
@@ -66,6 +67,11 @@ class BizCity_TwinChat_Public_Page {
 	public function maybe_render() {
 		if ( ! get_query_var( self::QUERY_VAR ) ) {
 			return;
+		}
+		$path = trim( (string) parse_url( (string) ( $_SERVER['REQUEST_URI'] ?? '' ), PHP_URL_PATH ), '/' );
+		if ( preg_match( '#^twinchat/(kg|ask)/([A-Za-z0-9_.-]+)$#', $path, $match ) ) {
+			$this->render_public_link_page( $match[1], $match[2] );
+			exit;
 		}
 
 		// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-2 — Allow guests; remove login wall.
@@ -87,6 +93,17 @@ class BizCity_TwinChat_Public_Page {
 		// Output the full HTML page.
 		$this->render_full_page();
 		exit;
+	}
+
+	private function render_public_link_page( $door, $token ) {
+		$api = rest_url( BIZCITY_TWINCHAT_REST_NS . '/public/' . ( 'kg' === $door ? 'kg/' : 'ask/' ) . rawurlencode( $token ) );
+		$title = 'kg' === $door ? 'KG công khai' : 'Hỏi đáp công khai';
+		nocache_headers();
+		header( 'X-Robots-Tag: noindex, nofollow', true );
+		header( 'Content-Type: text/html; charset=utf-8' );
+		$api_json = wp_json_encode( $api );
+		$token_json = wp_json_encode( $token );
+		echo '<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>' . esc_html( $title ) . '</title><style>body{font:16px system-ui;margin:0;background:#f6f7f9;color:#172033}main{max-width:960px;margin:5vh auto;padding:24px;background:#fff;border:1px solid #e3e6ed;border-radius:16px}textarea{width:100%;min-height:90px}button{margin-top:12px;padding:10px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff}pre{white-space:pre-wrap;background:#f1f3f6;padding:16px;border-radius:8px}</style></head><body><main><h1>' . esc_html( $title ) . '</h1><p>Chỉ trả lời từ nội dung được cấp bởi link này.</p><div id="app"></div></main><script>const api=' . $api_json . ',token=' . $token_json . ';' . ( 'kg' === $door ? 'fetch(api).then(r=>r.json()).then(x=>document.getElementById("app").innerHTML="<pre>"+JSON.stringify(x,null,2)+"</pre>").catch(e=>document.getElementById("app").textContent="Link không khả dụng.");' : 'document.getElementById("app").innerHTML="<textarea id=\"q\" placeholder=\"Đặt câu hỏi…\"></textarea><br><button onclick=\"ask()\">Hỏi</button><pre id=\"out\"></pre>\";async function ask(){const q=document.getElementById("q").value;const r=await fetch(api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:q})});document.getElementById("out").textContent=JSON.stringify(await r.json(),null,2)}' ) . '</script></body></html>';
 	}
 
 	/** Enqueue Vite assets — only fires on our virtual page. */
@@ -348,6 +365,11 @@ class BizCity_TwinChat_Public_Page {
 	 * (avoids: strip_foreign_assets wiping CSS, footer-only scripts missed by wp_print_scripts).
 	 */
 	private function render_full_page() {
+		// [2026-09-21 09:45 PM OpenAI GPT-5.6 Luna] FRONTEND-ASSET-CACHE — the HTML embeds hashed Vite filenames; never let a CDN/browser cache an old manifest while dist assets have rotated.
+		nocache_headers();
+		header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0', true );
+		header( 'Pragma: no-cache', true );
+		header( 'Expires: Wed, 11 Jan 1984 05:00:00 GMT', true );
 		$dist_dir = BIZCITY_TWINCHAT_UI_DIR . 'dist/';
 		$dist_url = trailingslashit( BIZCITY_TWINCHAT_URL ) . 'ui/dist/';
 

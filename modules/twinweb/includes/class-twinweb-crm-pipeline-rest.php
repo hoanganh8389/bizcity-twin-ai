@@ -12,7 +12,7 @@
  *   GET  /crm/pipeline/today                        — "Hôm nay" queue (5 groups)
  *   GET  /crm/pipeline/contacts/{id}                — stage detail (steps, next step, history — no colleague names)
  *   GET  /crm/pipeline/conversation/{id}            — same, resolved from one of my conversations (Inbox toolbar)
- *   POST /crm/pipeline/contacts/{id}/stage          — change stage / tick steps / log outcome   pipeline-stage-change@1.0.0
+ *   POST /crm/pipeline/contacts/{id}/stage          — change stage / tick steps / log outcome   pipeline-stage-change@2.0.0
  *   GET  /crm/me/space                              — "Không gian của tôi"             member-space@1.0.0
  *
  * PHP 7.4 compatible.
@@ -146,7 +146,8 @@ class BizCity_TwinWeb_CRM_Pipeline_REST {
 			return $this->error( $result->get_error_code(), $result->get_error_message(), (string) ( $data['hint'] ?? '' ), (int) ( $data['status'] ?? 400 ) );
 		}
 		if ( class_exists( 'BizCity_CRM_Pipeline_REST' ) ) { BizCity_CRM_Pipeline_REST::bust_board_cache(); }
-		return rest_ensure_response( array_merge( array( 'success' => true, 'contract' => 'pipeline-stage-change', 'version' => '1.0.0', 'surface' => 'C_PUBLIC_TWINGPT' ), $result ) );
+		// [2026-09-23 PHASE-0.63C GC-1] pipeline-stage-change bumped to 2.0.0 — see class-pipeline-rest.php::post_stage().
+		return rest_ensure_response( array_merge( array( 'success' => true, 'contract' => 'pipeline-stage-change', 'version' => '2.0.0', 'surface' => 'C_PUBLIC_TWINGPT' ), $result ) );
 	}
 
 	public function get_space( WP_REST_Request $request ) {

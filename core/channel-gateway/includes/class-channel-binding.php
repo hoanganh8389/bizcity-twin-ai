@@ -34,8 +34,15 @@ class BizCity_Channel_Binding {
 	 *     lost the next time any other screen saves this binding. office_hours_json is written
 	 *     ONLY when the caller explicitly passes `office_hours`, so it never gets clobbered by an
 	 *     unrelated save.
+	 *
+	 * // [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-1 — 1.2.0 → 1.3.0:
+	 *   + policy_json LONGTEXT    Bot Studio per-binding behavior policy (allowlist mode/uids for
+	 *     now; more flags land here as later EA items ship). Same precedent as office_hours_json
+	 *     above (doc §3.2): the N-1 upsert()-clobbers-meta_json debt is still unfixed, so this is
+	 *     a dedicated column written ONLY via save_policy()'s narrow single-column UPDATE — never
+	 *     through upsert(), so an unrelated binding save can never wipe it.
 	 */
-	const SCHEMA_VERSION = '1.2.0';
+	const SCHEMA_VERSION = '1.3.0';
 	const OPTION_VERSION = 'bizcity_channel_bindings_schema';
 	// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — version the read cache independently
 	// from the schema so a resolution-contract change can invalidate old payloads.
@@ -81,6 +88,7 @@ class BizCity_Channel_Binding {
 			fallback_assignee BIGINT UNSIGNED NULL,
 			meta_json LONGTEXT NULL,
 			office_hours_json LONGTEXT NULL,
+			policy_json LONGTEXT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
@@ -225,6 +233,45 @@ class BizCity_Channel_Binding {
 			self::invalidate_resolve_cache( $blog_id, $platform, $account_id );
 		}
 		return $ok ? (int) $wpdb->insert_id : 0;
+	}
+
+	/** A single binding row by id, scoped to the current blog (R-MSDB). */
+	public static function find( int $id ): ?array {
+		global $wpdb;
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$row = $wpdb->get_row( $wpdb->prepare(
+			'SELECT * FROM ' . self::table() . ' WHERE id=%d AND blog_id=%d LIMIT 1',
+			$id, $blog_id
+		), ARRAY_A );
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-1 — narrow single-column write, deliberately
+	 * NOT routed through upsert(): upsert() unconditionally re-writes meta_json (the N-1 debt,
+	 * §3.2), so reusing it here to save just the policy would wipe an unrelated save's meta_json
+	 * every time the allowlist/policy screen saves. A plain UPDATE on policy_json alone can never
+	 * clobber a sibling column no matter which screen saves last.
+	 */
+	public static function save_policy( int $id, array $policy ): bool {
+		global $wpdb;
+		$row = self::find( $id );
+		if ( ! $row ) {
+			return false;
+		}
+		$updated = $wpdb->update(
+			self::table(),
+			array(
+				'policy_json' => wp_json_encode( $policy ),
+				'updated_at'  => current_time( 'mysql' ),
+			),
+			array( 'id' => $id )
+		);
+		if ( false !== $updated ) {
+			$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+			self::invalidate_resolve_cache( $blog_id, (string) $row['platform'], (string) $row['account_id'] );
+		}
+		return false !== $updated;
 	}
 
 	public static function disable( int $id ): bool {

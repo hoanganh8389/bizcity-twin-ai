@@ -49,7 +49,23 @@ final class BizCity_CRM_Training_CPT {
 			'supports'            => array( 'title', 'editor', 'revisions' ),
 			'menu_icon'           => 'dashicons-welcome-learn-more',
 			'hierarchical'        => false,
-			'map_meta_cap'        => true,
+			// [2026-09-23 Claude Sonnet 5] HOTFIX — `map_meta_cap: true` here was a
+			// site-wide correctness bug, not a scoping nuance: with it true, WordPress
+			// registers every value in `capabilities` below as a META capability name
+			// in the global `$post_type_meta_caps` registry (see wp-includes/capabilities.php
+			// map_meta_cap()'s `default:` branch). Since those values are literally the
+			// string 'manage_options', ANY `current_user_can('manage_options')` check
+			// ANYWHERE on the whole site — not just for this CPT — got silently rerouted
+			// through this CPT's meta-cap resolver, which requires a specific post ID
+			// argument; without one (the overwhelming majority of manage_options checks)
+			// it fell through to `do_not_allow`. This is the actual root cause of the
+			// recurring "Chưa được cấp quyền" 403s this session chased through dozens of
+			// call-site and network-admin-capability fixes — none of which could work
+			// while this stayed true. `map_meta_cap: false` makes WP treat `capabilities`
+			// below as literal primitive capabilities to check as-is (exactly what the
+			// original "admin/manage_options-only" intent below already wanted), with no
+			// meta-cap registration and no site-wide side effect.
+			'map_meta_cap'        => false,
 			// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57 T1-01 — keep editing admin-only for wave 1; supervisor authoring is a documented simplification, not a blocker for the core seed/ingest flow.
 			'capabilities'        => array(
 				'edit_post'          => 'manage_options',
