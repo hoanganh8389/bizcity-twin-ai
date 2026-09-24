@@ -91,6 +91,15 @@ class BizCity_KG_Skeleton_Service {
 	 * ──────────────────────────────────────────────────────────────── */
 
 	public static function schedule_rebuild( int $notebook_id, string $trigger_reason = 'ingest' ): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not create an
+		// Action Scheduler/WP-Cron skeleton rebuild in diagnostics CLI.
+		// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-01 K-01 — this guard existed only in the
+		// stale duplicate at kg-hub/includes/, which the bootstrap never loaded; the live copy
+		// here has been running without it since the guard was written. Ported before retiring
+		// that duplicate so the fix applies to the file that actually runs.
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		if ( $notebook_id <= 0 ) {
 			return;
 		}
@@ -156,6 +165,13 @@ class BizCity_KG_Skeleton_Service {
 	 * force fully-synchronous behavior for diagnostics / tests.
 	 */
 	public static function trigger_now( int $notebook_id, string $trigger_reason = 'ingest' ): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — do not mark a
+		// production notebook pending or enter the synchronous CLI fallback.
+		// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-01 K-01 — ported from the stale duplicate
+		// (see schedule_rebuild above).
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		if ( $notebook_id <= 0 ) {
 			return;
 		}
@@ -224,6 +240,13 @@ class BizCity_KG_Skeleton_Service {
 	 * ──────────────────────────────────────────────────────────────── */
 
 	public static function run_job( $notebook_id ): void {
+		// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — direct and fallback
+		// skeleton workers must be inert in diagnostics CLI.
+		// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-01 K-01 — ported from the stale duplicate
+		// (see schedule_rebuild above).
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$notebook_id = (int) $notebook_id;
 		if ( $notebook_id <= 0 ) {
 			return;

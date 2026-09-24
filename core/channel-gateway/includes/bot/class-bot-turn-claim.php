@@ -89,9 +89,11 @@ final class BizCity_Bot_Turn_Claim {
 		// reply_in_group and EA-3's passive_listen_in_group (same policy_json blob, doc §3.2).
 		$bot_policy = self::decode_json_map( $binding['policy_json'] ?? '' );
 		if ( ! self::allowlist_pass( $bot_policy, $envelope, $contact_id ) ) {
-			return; // EA-1.3: not allowlisted → the bot does not take the turn, and — because we
-			        // return here before the default-reply filter below ever runs — the built-in
-			        // Default_Reply safety net stays ON, so the customer is never left in silence.
+			return; // EA-1.3: not allowlisted → the bot does not take the turn.
+			        // [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — this used to leave the built-in Default_Reply
+			        // net ON as a fallback. Zalo Cá nhân now has ONE replier (Bot Studio): the matcher never runs
+			        // Default_Reply for ZALO_PERSONAL, so an unclaimed turn is silent by the operator's own config
+			        // and staff answer it from the Inbox.
 		}
 
 		$policy = self::decode_office_hours( $binding['office_hours_json'] ?? '' );
@@ -141,6 +143,10 @@ final class BizCity_Bot_Turn_Claim {
 			'source_id'        => $thread['source_id'],
 			'group_id'         => $thread['group_id'],
 			'owner_uid'        => trim( (string) ( $bot_policy['owner_uid'] ?? '' ) ),
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 — opt-in presence actions (default off).
+			'typing_indicator' => ! empty( $bot_policy['typing_indicator'] ),
+			'auto_react'       => ! empty( $bot_policy['auto_react'] ),
+			'react_icon'       => sanitize_key( (string) ( $bot_policy['react_icon'] ?? 'heart' ) ),
 			'mode'             => $mode, // auto = send · hybrid = draft only (doc B-04)
 			'text'             => (string) ( $envelope['message_text_clean'] ?? $envelope['message'] ?? '' ),
 			'external_message_id' => (string) ( $envelope['message_id'] ?? '' ),

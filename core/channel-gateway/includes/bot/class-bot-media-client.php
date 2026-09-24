@@ -101,7 +101,17 @@ final class BizCity_Bot_Media_Client {
 		}
 		$text = trim( (string) ( $body['text'] ?? '' ) );
 		$text = '' !== $text ? mb_substr( $text, 0, 400 ) : 'Xin chào, đây là một tin nhắn thử giọng nói.';
+		return self::run_tts( $character_id, $cfg, $keys, $text );
+	}
 
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — the provider call + key rotation, shared by the manual Test
+	 * button and the turn-time synthesize(). Extracted unchanged from test_tts().
+	 */
+	private static function run_tts( int $character_id, array $cfg, array $keys, string $text ) {
+		$provider = (string) ( $cfg['provider'] ?? 'google_ai_studio' );
+		$model    = trim( (string) ( $cfg['model'] ?? '' ) );
+		$voice    = trim( (string) ( $cfg['voice'] ?? '' ) );
 		$last_error = null;
 		foreach ( $keys as $index => $key ) {
 			if ( 'google_ai_studio' === $provider ) {
@@ -122,6 +132,97 @@ final class BizCity_Bot_Media_Client {
 			self::log_key_rotation( $character_id, 'tts_api_keys', $index, count( $keys ) );
 		}
 		return $last_error ?? new WP_Error( 'provider_error', 'Không gọi được TTS.', array( 'status' => 502, 'help_code' => 'bot_media_tts_failed' ) );
+	}
+
+	/* ── TTS for a live bot turn (PHASE-0.60H D-H3, option A) ─────────────────────────────────────────────────── */
+
+	/** Longest text a turn may speak. Zalo voice/audio should stay a short companion to the text reply. */
+	const TTS_TURN_MAX_CHARS = 400;
+
+	/**
+	 * Pure: why this TTS configuration cannot be SENT to a Zalo customer ('' = it can).
+	 *
+	 * The CRM outbound path can only carry a real, playable container. v1 therefore accepts only MP3:
+	 *  - google_ai_studio returns raw PCM (`audio/L16;rate=24000`), not a playable file — PHP has no encoder, so
+	 *    it is refused here instead of shipping a file nobody can play;
+	 *  - openai_compatible only with format `mp3`; elevenlabs only with an `mp3_*` output_format;
+	 *  - vbee is asynchronous (submit + poll) and not implemented.
+	 */
+	public static function tts_turn_support( array $cfg ): string {
+		$provider = (string) ( $cfg['provider'] ?? 'google_ai_studio' );
+		$format   = strtolower( trim( (string) ( $cfg['format'] ?? '' ) ) );
+		if ( 'google_ai_studio' === $provider ) {
+			return 'Google AI Studio trả về âm thanh PCM thô, không gửi được thành file nghe được. Chọn OpenAI-compatible hoặc ElevenLabs (định dạng mp3).';
+		}
+		if ( 'openai_compatible' === $provider ) {
+			if ( '' === trim( (string) ( $cfg['base_url'] ?? '' ) ) || '' === trim( (string) ( $cfg['model'] ?? '' ) ) ) {
+				return 'OpenAI-compatible cần Base URL và Model.';
+			}
+			return ( '' === $format || 'mp3' === $format ) ? '' : 'Định dạng phải là mp3 để gửi qua Zalo.';
+		}
+		if ( 'elevenlabs' === $provider ) {
+			if ( '' === trim( (string) ( $cfg['voice'] ?? '' ) ) ) {
+				return 'ElevenLabs cần Giọng (voice_id).';
+			}
+			return ( '' === $format || 0 === strpos( $format, 'mp3' ) ) ? '' : 'Định dạng phải là mp3_* để gửi qua Zalo.';
+		}
+		return 'Nhà cung cấp TTS này chưa hỗ trợ gửi trong lượt trả lời.';
+	}
+
+	/**
+	 * Speak `$text` with the character's TTS config for a live turn.
+	 *
+	 * @return array{ok:true,binary:string,mime_type:string,bytes:int}|WP_Error
+	 */
+	public static function synthesize( int $character_id, string $text ) {
+		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Bot Studio chưa sẵn sàng.', array( 'status' => 503 ) );
+		}
+		$text = trim( $text );
+		if ( '' === $text ) {
+			return new WP_Error( 'invalid_param', 'Không có nội dung để đọc.', array( 'status' => 422 ) );
+		}
+		$cfg    = BizCity_Bot_Config_Repo::get( $character_id )['media']['tts'];
+		$reason = self::tts_turn_support( $cfg );
+		if ( '' !== $reason ) {
+			return new WP_Error( 'tts_format_unsupported', $reason, array( 'status' => 422 ) );
+		}
+		$keys = BizCity_Bot_Secrets_Repo::get_keys( $character_id, 'tts_api_keys' );
+		if ( empty( $keys ) ) {
+			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key cho TTS.', array( 'status' => 422 ) );
+		}
+		if ( 'openai_compatible' === (string) $cfg['provider'] && '' === trim( (string) ( $cfg['format'] ?? '' ) ) ) {
+			$cfg['format'] = 'mp3';
+		}
+		if ( 'elevenlabs' === (string) $cfg['provider'] && '' === trim( (string) ( $cfg['format'] ?? '' ) ) ) {
+			$cfg['format'] = 'mp3_44100_128';
+		}
+		$result = self::run_tts( $character_id, $cfg, $keys, mb_substr( $text, 0, self::TTS_TURN_MAX_CHARS ) );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+		$binary = base64_decode( (string) ( $result['audio_base64'] ?? '' ), true );
+		if ( ! is_string( $binary ) || '' === $binary ) {
+			return new WP_Error( 'provider_error', 'Nhà cung cấp TTS trả về âm thanh rỗng.', array( 'status' => 502 ) );
+		}
+		return array( 'ok' => true, 'binary' => $binary, 'mime_type' => 'audio/mpeg', 'bytes' => strlen( $binary ) );
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — let the CRM outbound owner carry the MP3 a bot turn produced.
+	 * `bizcity_crm_outbound_allowed_mimes` is the dispatcher's own extension point (class-outbound-dispatcher.php
+	 * allowed_mimes()). Only `audio/mpeg` is added; the ownership rule still decides who may send it.
+	 */
+	public static function init(): void {
+		add_filter( 'bizcity_crm_outbound_allowed_mimes', array( __CLASS__, 'allow_audio_mime' ) );
+	}
+
+	public static function allow_audio_mime( $mimes ) {
+		$mimes = is_array( $mimes ) ? $mimes : array();
+		if ( ! in_array( 'audio/mpeg', $mimes, true ) ) {
+			$mimes[] = 'audio/mpeg';
+		}
+		return $mimes;
 	}
 
 	private static function call_gemini_tts( string $model, string $voice, string $text, string $key ) {

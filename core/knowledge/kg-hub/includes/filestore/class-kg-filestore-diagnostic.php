@@ -140,17 +140,22 @@ final class BizCity_KG_Filestore_Diagnostic {
 	// ─────────────────────────────────────────────────────────────────
 
 	public function register_menu() {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role couldn't see this menu item.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_management_page(
 			'BizCity KG · Filestore Browser',
 			'BizCity KG · Filestore',
-			'manage_options',
+			$capability,
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
 		);
 	}
 
 	public function handle_post() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was blocked here.
+		if ( ! ( class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' ) ) ) {
 			wp_die( 'Insufficient permissions.' );
 		}
 		check_admin_referer( self::NONCE_ACTION );
@@ -637,7 +642,8 @@ final class BizCity_KG_Filestore_Diagnostic {
 	const GRAPH_EMBED_CHUNK_DEFAULT = 100; // file-append only, no LLM call → same as cron BATCH_SIZE
 
 	public function ajax_step() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was blocked here.
+		if ( ! ( class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' ) ) ) {
 			wp_send_json_error( [ 'message' => 'forbidden' ], 403 );
 		}
 		check_ajax_referer( self::NONCE_ACTION, '_nonce' );
@@ -1294,7 +1300,8 @@ final class BizCity_KG_Filestore_Diagnostic {
 	// ─────────────────────────────────────────────────────────────────
 
 	public function render_page() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was blocked here.
+		if ( ! ( class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' ) ) ) {
 			wp_die( 'Insufficient permissions.' );
 		}
 		global $wpdb;

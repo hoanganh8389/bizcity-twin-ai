@@ -166,6 +166,11 @@ final class BizCity_Bot_Turn_Runner {
 	 * fresh window instead of replying per message.
 	 */
 	private static function schedule_debounced_turn( array $claim ): void {
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-CLI-ASYNC-ISOLATION — a diagnostics run must never enqueue or
+		// execute a production bot turn (it would call the LLM and send a real Zalo message to a real customer).
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$conversation_id = (int) ( $claim['conversation_id'] ?? 0 );
 		if ( $conversation_id <= 0 || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
 			return;
@@ -192,6 +197,11 @@ final class BizCity_Bot_Turn_Runner {
 	private static function schedule( int $contact_id, int $delay ): void {
 		if ( is_callable( self::$scheduler ) ) {
 			call_user_func( self::$scheduler, $contact_id, $delay );
+			return;
+		}
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-CLI-ASYNC-ISOLATION — a diagnostics run must never enqueue or
+		// execute a production bot turn (it would call the LLM and send a real Zalo message to a real customer).
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
 			return;
 		}
 		self::report_overdue_turns();
@@ -238,6 +248,11 @@ final class BizCity_Bot_Turn_Runner {
 	 * a human may have jumped in during the debounce window (invariant 2).
 	 */
 	public static function on_run_turn_cron( $contact_id ): void {
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-CLI-ASYNC-ISOLATION — a diagnostics run must never enqueue or
+		// execute a production bot turn (it would call the LLM and send a real Zalo message to a real customer).
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return;
+		}
 		$contact_id = (int) $contact_id;
 		$claim = get_transient( self::claim_key( $contact_id ) );
 		if ( ! is_array( $claim ) || empty( $claim['conversation_id'] ) ) {
@@ -302,6 +317,12 @@ final class BizCity_Bot_Turn_Runner {
 		$conversation_id = (int) ( $claim['conversation_id'] ?? 0 );
 		$contact_id      = (int) ( $claim['contact_id'] ?? 0 );
 		$result          = array( 'status' => 'skipped', 'reply' => '', 'reason' => '' );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-CLI-ASYNC-ISOLATION — a diagnostics run must never enqueue or
+		// execute a production bot turn (it would call the LLM and send a real Zalo message to a real customer).
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			$result['reason'] = 'diagnostics_async_isolated';
+			return $result;
+		}
 		if ( $conversation_id <= 0 || ! class_exists( 'BizCity_Knowledge_Database' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
 			$result['reason'] = 'module_not_loaded';
 			return $result;
@@ -334,6 +355,13 @@ final class BizCity_Bot_Turn_Runner {
 
 		if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
 			BizCity_Responder_Stamper::push( array( 'kind' => 'hybrid' === ( $claim['mode'] ?? '' ) ? 'hybrid' : 'auto', 'character_id' => (int) $claim['character_id'], 'source' => 'bot:' . (int) $claim['character_id'] ) );
+		}
+
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4 — "đang nhập…" for an automatic, sending turn. The bridge refreshes it
+		// and stops it on the next send; a failure here is swallowed (a typing bubble must never cost the reply).
+		$presence_ok = 'auto' === $trigger && 'auto' === (string) ( $claim['mode'] ?? 'auto' ) && class_exists( 'BizCity_Bot_Zalo_Actions' );
+		if ( $presence_ok && ! empty( $claim['typing_indicator'] ) ) {
+			BizCity_Bot_Zalo_Actions::presence( 'typing', $claim );
 		}
 
 		try {
@@ -393,6 +421,8 @@ final class BizCity_Bot_Turn_Runner {
 			// this turn, to be attached when the reply is sent below. Zero unless generate_image
 			// actually succeeds (class-bot-tools.php enforces the real attachment-owner rule).
 			$pending_image_attachment_id = 0;
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — an MP3 the `tts` tool produced, sent after the text reply.
+			$pending_audio_attachment_id = 0;
 			for ( $step = 0; $step < $max_steps && ! empty( $tools ) && class_exists( 'BizCity_Bot_Tools' ); $step++ ) {
 				$probe = BizCity_Bot_Context_Builder::build( $character, $conversation_id, $contact_id, $context_opts + array( 'extra_system' => $extra_system ) );
 				$plan  = BizCity_Bot_Tools::plan( $character, $probe['messages'], $tools );
@@ -414,6 +444,9 @@ final class BizCity_Bot_Turn_Runner {
 					}
 					if ( ! empty( $run['image_attachment_id'] ) ) {
 						$pending_image_attachment_id = (int) $run['image_attachment_id'];
+					}
+					if ( ! empty( $run['audio_attachment_id'] ) ) {
+						$pending_audio_attachment_id = (int) $run['audio_attachment_id'];
 					}
 					if ( ! empty( $run['ask'] ) ) {
 						break; // the tool wants the model to ask the customer; no further tools this turn.
@@ -468,10 +501,15 @@ final class BizCity_Bot_Turn_Runner {
 				return $result;
 			}
 
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-5.3 — react only to a message the bot is about to answer, so a
+			// reaction never signals "the bot heard you" on a turn that was refused or produced nothing.
+			if ( $presence_ok && ! empty( $claim['auto_react'] ) ) {
+				BizCity_Bot_Zalo_Actions::presence( 'react', $claim );
+			}
 			// B5.5 — a human-ish pause before sending (only when running under cron, never in a unit test seam).
 			self::human_delay( $tuning );
 			$send_t0 = microtime( true );
-			$sent = self::send( $claim, $reply, array( 'trace_id' => $trace_id, 'image_attachment_id' => $pending_image_attachment_id ) );
+			$sent = self::send( $claim, $reply, array( 'trace_id' => $trace_id, 'image_attachment_id' => $pending_image_attachment_id, 'audio_attachment_id' => $pending_audio_attachment_id ) );
 			$trace_steps[] = array( 'name' => 'dispatch', 'ms' => (int) round( ( microtime( true ) - $send_t0 ) * 1000 ), 'detail' => array( 'sent' => ! empty( $sent['ok'] ), 'platform' => 'zalo_personal', 'error' => (string) ( $sent['error'] ?? '' ) ) );
 			if ( empty( $sent['ok'] ) ) {
 				self::emit_event( 'guru_turn_failed', array( 'trace_id' => $trace_id, 'reason' => 'send_failed', 'error' => (string) ( $sent['error'] ?? '' ), 'trigger' => $trigger ) );
@@ -788,6 +826,7 @@ final class BizCity_Bot_Turn_Runner {
 				) );
 				$ok = is_array( $envelope ) && 'failed' !== (string) ( $envelope['outcome'] ?? $envelope['status'] ?? 'failed' );
 				if ( $ok ) {
+					self::send_voice_followup( $conversation_id, (int) ( $meta['audio_attachment_id'] ?? 0 ), $idem_base, (string) ( $meta['trace_id'] ?? '' ) );
 					return array( 'ok' => true, 'message_id' => (int) ( $envelope['message_id'] ?? 0 ), 'error' => '' );
 				}
 				self::emit_event( 'bot_image_send_fallback_to_text', array(
@@ -810,6 +849,9 @@ final class BizCity_Bot_Turn_Runner {
 				'trace_id'        => (string) ( $meta['trace_id'] ?? '' ),
 			) );
 			$ok = is_array( $envelope ) && 'failed' !== (string) ( $envelope['outcome'] ?? $envelope['status'] ?? 'failed' );
+			if ( $ok ) {
+				self::send_voice_followup( $conversation_id, (int) ( $meta['audio_attachment_id'] ?? 0 ), $idem_base, (string) ( $meta['trace_id'] ?? '' ) );
+			}
 			return array( 'ok' => $ok, 'message_id' => (int) ( $envelope['message_id'] ?? 0 ), 'error' => $ok ? '' : (string) ( $envelope['code'] ?? $envelope['error'] ?? 'dispatch_failed' ) );
 		}
 		// Last resort (dispatcher not loaded): still exactly one message, through the existing bridge boundary.
@@ -820,6 +862,37 @@ final class BizCity_Bot_Turn_Runner {
 			return array( 'ok' => ! empty( $res['success'] ), 'message_id' => 0, 'error' => ! empty( $res['success'] ) ? '' : 'bridge_' . (string) ( $res['code'] ?? 'failed' ) );
 		}
 		return array( 'ok' => false, 'message_id' => 0, 'error' => 'no_sender' );
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — the MP3 from the `tts` tool, as its OWN message right after the
+	 * text reply was accepted. Never blocks or fails the turn: the customer already has the answer in text; a voice
+	 * failure is only an event. Public for tests.
+	 *
+	 * @return array{sent:bool,code:string}
+	 */
+	public static function send_voice_followup( int $conversation_id, int $audio_attachment_id, string $idem_base, string $trace_id ): array {
+		if ( $audio_attachment_id <= 0 || $conversation_id <= 0 || ! class_exists( 'BizCity_CRM_Outbound_Dispatcher' ) ) {
+			return array( 'sent' => false, 'code' => 'skipped' );
+		}
+		$envelope = BizCity_CRM_Outbound_Dispatcher::dispatch( array(
+			'conversation_id' => $conversation_id,
+			'content'         => '',
+			'content_type'    => 'file',
+			'attachments'     => array( $audio_attachment_id ),
+			'idempotency_key' => 'bot-voice-' . md5( $idem_base ),
+			'request_hash'    => md5( 'voice|' . $audio_attachment_id ),
+			'actor'           => 'system',
+			'system_source'   => 'ai_autoreply',
+			'responder_kind'  => 'auto',
+			'trace_id'        => $trace_id,
+		) );
+		$ok   = is_array( $envelope ) && 'failed' !== (string) ( $envelope['outcome'] ?? $envelope['status'] ?? 'failed' );
+		$code = is_array( $envelope ) ? (string) ( $envelope['code'] ?? '' ) : 'dispatch_failed';
+		if ( ! $ok ) {
+			self::emit_event( 'bot_voice_send_failed', array( 'conversation_id' => $conversation_id, 'trace_id' => $trace_id, 'reason' => $code ) );
+		}
+		return array( 'sent' => $ok, 'code' => $code );
 	}
 
 	/** Hybrid mode: the suggestion lands as an internal note the agent can copy/send (B-04). */

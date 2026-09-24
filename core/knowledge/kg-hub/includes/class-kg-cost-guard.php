@@ -233,7 +233,7 @@ class BizCity_KG_Cost_Guard {
 				'cap_usd'     => $this->daily_cap_usd(),
 				'user_id'     => $user_id,
 				'admin_msg'   => sprintf( 'Site-wide daily cap đạt: $%.4f / $%.2f. Vào KG Settings để tăng ngưỡng hoặc nạp credit tại bizcity.vn.', $spent, $this->daily_cap_usd() ),
-				'admin_url'   => admin_url( 'admin.php?page=bizcity-kg-hub-settings' ),
+				'admin_url'   => admin_url( 'admin.php?page=bizcity-twinkg&view=settings' ),
 				'hub_url'     => 'https://bizcity.vn/account/credits',
 			] ) );
 		}

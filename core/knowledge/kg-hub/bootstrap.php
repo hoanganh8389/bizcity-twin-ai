@@ -42,9 +42,10 @@ if ( ! defined( 'BIZCITY_KG_HUB_SKELETON' ) ) {
 if ( ! defined( 'BIZCITY_KG_HUB_PROMPTS' ) ) {
 	define( 'BIZCITY_KG_HUB_PROMPTS', BIZCITY_KG_HUB_DIR . 'prompts/' );
 }
-if ( ! defined( 'BIZCITY_KG_HUB_UI_DIR' ) ) {
-	define( 'BIZCITY_KG_HUB_UI_DIR', BIZCITY_KG_HUB_DIR . 'ui/' );
-}
+// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T3 — `BIZCITY_KG_HUB_UI_DIR` is gone
+// with the React app it addressed. The KG UI now lives in `modules/twinkg/ui` and is
+// served by that module (constant `BIZCITY_TWINKG_UI_DIR`); core/knowledge keeps only
+// the REST controllers and the `BizCity_KG` facade (rule R-KG-UI).
 
 // ─── Includes ──────────────────────────────────────────────────────────────
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-cost-guard.php';
@@ -188,8 +189,10 @@ require_once BIZCITY_KG_HUB_SKELETON . 'class-kg-skeleton-backfill-cron.php';
 BizCity_KG_Skeleton_Backfill_Cron::boot();
 
 if ( is_admin() ) {
-	require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-admin-menu.php';
-	require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-settings-page.php';
+	// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T3/T4 — `class-kg-admin-menu.php` and
+	// `class-kg-settings-page.php` retired; the React mount moved to modules/twinkg (slug
+	// `bizcity-twinkg`, page `/twinkg/`) and settings & cost became REST `cost/settings` + a
+	// twinkg view.
 	// Phase 0.21 Wave 2 — browser-accessible .bin diagnostic (Tools → KG .bin Diagnostic).
 	require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-bin-diagnostic.php';
 }
@@ -255,31 +258,12 @@ add_action( 'rest_api_init', static function () {
 	}
 } );
 
-if ( is_admin() ) {
-	add_action( 'admin_menu', static function () {
-		BizCity_KG_Admin_Menu::instance()->register();
-		BizCity_KG_Settings_Page::instance()->register();
-	}, 20 );
-
-	// 2026-05-11 — Bug-fix: TwinChat parent menu (`bizcity-twinchat`) registers
-	// at admin_menu priority 25 (modules/twinchat/bootstrap.php). Previously this
-	// subpage was registered at priority 20 → child ran BEFORE parent → orphan,
-	// link broken (404 /wp-admin/bizcity-twinchat-gurus). Fix: register at 30.
-	//
-	// 2026-05-06 — Phase 0.21 Wave 3.3: "Phong cấp Guru" subpage under TwinChat parent.
-	// Same React bundle, defaultView='gurus' wired via bootstrap data.
-	// Capability 'read' so end users (notebook owners) can promote their notebooks.
-	add_action( 'admin_menu', static function () {
-		BizCity_KG_Admin_Menu::instance()->register_subpage(
-			'bizcity-twinchat',
-			BizCity_KG_Admin_Menu::PAGE_SLUG_GURUS,
-			__( 'Nâng cấp Connector', 'bizcity-knowledge' ),
-			__( 'Nâng cấp Connector', 'bizcity-knowledge' ),
-			'read',
-			'gurus'
-		);
-	}, 30 );
-}
+// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T3/T4 — core/knowledge registers no KG-Hub
+// admin page any more. All three old slugs are answered by
+// BizCity_TwinKG_Admin_Menu::redirect_legacy_slugs():
+//   `bizcity-kg-hub`          → modules/twinkg (`bizcity-twinkg` / `/twinkg/`)
+//   `bizcity-twinchat-gurus`  → same module, view `gurus`
+//   `bizcity-kg-hub-settings` → same module, view `settings` (REST `cost/settings`)
 
 // ─── Phase 0.6 — Feature flags (WP option controlled) ──────────────────────
 // [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — hard-cut defaults.

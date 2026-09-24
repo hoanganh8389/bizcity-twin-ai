@@ -9,6 +9,7 @@ require_once dirname( __DIR__, 2 ) . '/core/channel-gateway/includes/bot/class-b
 require_once dirname( __DIR__, 2 ) . '/core/channel-gateway/includes/bot/class-bot-tool-registry.php';
 require_once dirname( __DIR__, 2 ) . '/core/channel-gateway/includes/bot/class-bot-vertical-tools.php';
 require_once dirname( __DIR__, 2 ) . '/core/channel-gateway/includes/bot/class-bot-tools.php';
+require_once dirname( __DIR__, 2 ) . '/core/channel-gateway/includes/bot/class-bot-zalo-actions.php';
 
 use PHPUnit\Framework\TestCase;
 
@@ -21,7 +22,7 @@ final class BotToolRegistryTest extends TestCase {
 	public function test_needs_bridge_tools_are_catalogued_but_never_available(): void {
 		$rows = BizCity_Bot_Tool_Registry::rows();
 		$by   = array_column( $rows, null, 'id' );
-		foreach ( array( 'react_message', 'recall_message', 'group_admin', 'send_sticker', 'create_poll' ) as $id ) {
+		foreach ( array( 'react_message', 'recall_message', 'kick_group_member', 'send_sticker', 'create_poll' ) as $id ) {
 			$this->assertSame( 'needs_bridge', $by[ $id ]['status'], $id );
 		}
 		$this->assertSame( 'available', $by['current_datetime']['status'] );

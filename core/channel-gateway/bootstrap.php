@@ -439,6 +439,8 @@ $_bzc_bot_files = array(
 	// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — customer memory (save_memory tool + <dieu_da_nho> block).
 	$gateway_dir . 'bot/class-bot-memory.php'         => 'channel.bot.memory',
 	$gateway_dir . 'bot/class-bot-tools.php'          => 'channel.bot.tools',
+	// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — Zalo action tools (sticker, poll, group admin…) via zca-bridge ≥ 0.40.0.
+	$gateway_dir . 'bot/class-bot-zalo-actions.php'   => 'channel.bot.zalo_actions',
 	$gateway_dir . 'bot/class-bot-context-builder.php' => 'channel.bot.context_builder',
 	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',
 	$gateway_dir . 'bot/class-bot-turn-runner.php'    => 'channel.bot.turn_runner',
@@ -469,6 +471,18 @@ add_action( 'admin_init', array( 'BizCity_Channel_Binding',  'maybe_install' ) )
 add_action( 'admin_init', array( 'BizCity_Identity_Hub', 'maybe_install' ) );
 // [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1.
 if ( class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-DCL/R-CR — the table was created by a bare dbDelta on admin_init
+	// with no Schema Registry entry, so diagnostics/the site provisioner could not see, verify or repair it.
+	// Register first (same shape as the Identity Hub tables); admin_init stays only as the idempotent fallback.
+	if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+		BizCity_Schema_Registry::register(
+			'bizcity_bot_secrets',
+			'core.channel-gateway',
+			BizCity_Bot_Secrets_Repo::SCHEMA_VERSION,
+			BizCity_Bot_Secrets_Repo::OPTION_VERSION,
+			array( 'BizCity_Bot_Secrets_Repo', 'maybe_install' )
+		);
+	}
 	add_action( 'admin_init', array( 'BizCity_Bot_Secrets_Repo', 'maybe_install' ) );
 }
 // [2026-08-02 Johnny Chu] HOTFIX — tolerate a partial deploy without crashing the entire Channel Gateway.
@@ -498,6 +512,8 @@ if ( class_exists( 'BizCity_Bot_REST' ) ) { BizCity_Bot_REST::init(); }
 if ( class_exists( 'BizCity_Bot_Studio_REST' ) ) { BizCity_Bot_Studio_REST::init(); }
 if ( class_exists( 'BizCity_Bot_Turn_Claim' ) ) { BizCity_Bot_Turn_Claim::init(); }
 if ( class_exists( 'BizCity_Bot_Turn_Runner' ) ) { BizCity_Bot_Turn_Runner::init(); }
+// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — lets the CRM dispatcher carry the bot's MP3 voice reply.
+if ( class_exists( 'BizCity_Bot_Media_Client' ) && method_exists( 'BizCity_Bot_Media_Client', 'init' ) ) { BizCity_Bot_Media_Client::init(); }
 
 // Phase CG-Listener S1 — Listener Bus + REST (live tail SSE + polling fallback).
 if ( class_exists( 'BizCity_Listener_Bus' ) ) { BizCity_Listener_Bus::init(); }

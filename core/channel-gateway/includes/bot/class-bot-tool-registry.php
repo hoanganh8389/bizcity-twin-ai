@@ -75,16 +75,16 @@ final class BizCity_Bot_Tool_Registry {
 			// path exists yet — but the hint now tells the operator which of the two gaps applies
 			// instead of the old static "chưa có form cấu hình" that became stale the moment this shipped.
 			'create_video'     => array( 'label' => 'Tạo video', 'group' => 'action', 'description' => 'Clip ngắn theo mô tả.', 'infra' => 'Video_Client 1API (khóa site-level) + đính kèm outbound (chưa nối)', 'check' => 'check_video' ),
-			'tts'              => array( 'label' => 'Giọng nói (TTS)', 'group' => 'action', 'description' => 'Đọc câu trả lời thành tin thoại.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_tts' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — wired to a turn (option A): the model writes the short text to
+			// speak; it is sent as an MP3 right after the text reply. The description is the planner's whole schema.
+			'tts'              => array( 'label' => 'Giọng nói (TTS)', 'group' => 'action', 'description' => 'Gửi thêm một tin thoại đọc một đoạn NGẮN (tối đa vài câu) — chỉ khi khách xin nghe giọng hoặc nhờ đọc. args: {"text":"Dạ bên em còn size M ạ"}.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + đính kèm outbound (MP3)', 'check' => 'check_tts' ),
 			'stt'              => array( 'label' => 'Phiên âm tin thoại (STT)', 'group' => 'action', 'description' => 'Chuyển tin thoại khách gửi thành chữ.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_stt' ),
 			'send_file'        => array( 'label' => 'Gửi file', 'group' => 'action', 'description' => 'Gửi file kèm chú thích.', 'infra' => 'bridge enqueue_outbound', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Cần tool tạo file trước; đường gửi đã có.' ),
 			'mention_member'   => array( 'label' => 'Nhắc tên (@tag) trong nhóm', 'group' => 'action', 'description' => 'Gọi đúng người trong nhóm.', 'infra' => 'bridge mentions', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Bot chưa đọc roster nhóm trong lượt trả lời.' ),
-			// ── needs bridge (doc §1.3 — 15 tools, out of scope, NOT clickable) ──
-			'react_message'    => array( 'label' => 'Thả cảm xúc', 'group' => 'action', 'description' => 'Báo đã thấy tin.', 'infra' => 'bridge chưa hỗ trợ', 'status' => self::STATUS_NEEDS_BRIDGE, 'hint' => 'Sidecar chưa mở endpoint reaction.' ),
-			'send_sticker'     => array( 'label' => 'Gửi sticker', 'group' => 'action', 'description' => 'Sticker Zalo.', 'infra' => 'bridge chưa hỗ trợ', 'status' => self::STATUS_NEEDS_BRIDGE, 'hint' => 'Sidecar chưa mở endpoint sticker.' ),
-			'recall_message'   => array( 'label' => 'Thu hồi tin bot đã gửi', 'group' => 'action', 'description' => 'Gỡ tin gửi nhầm.', 'infra' => 'bridge chưa hỗ trợ', 'status' => self::STATUS_NEEDS_BRIDGE, 'hint' => 'Sidecar chưa mở endpoint undo.' ),
-			'group_admin'      => array( 'label' => 'Quản trị nhóm (11 lệnh)', 'group' => 'action', 'description' => 'Kick, đổi tên, duyệt thành viên…', 'infra' => 'bridge chưa hỗ trợ', 'status' => self::STATUS_NEEDS_BRIDGE, 'hint' => 'Sidecar chưa mở nhóm endpoint quản trị.' ),
-			'create_poll'      => array( 'label' => 'Tạo bình chọn', 'group' => 'action', 'description' => 'Poll trong nhóm.', 'infra' => 'bridge chưa hỗ trợ', 'status' => self::STATUS_NEEDS_BRIDGE, 'hint' => 'Sidecar chưa mở endpoint poll.' ),
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — react/sticker/recall/poll/group-admin moved to
+			// BizCity_Bot_Zalo_Actions (one tool id per command, status from the bridge's own capability list).
+			// The old umbrella `group_admin` row is gone on purpose: Libe-Zalo and the sidecar plan both require
+			// one id per command because the planner has no schema to constrain an `action` enum.
 		);
 	}
 
@@ -118,6 +118,11 @@ final class BizCity_Bot_Tool_Registry {
 				'hint'        => $hint,
 				'kind'        => 'builtin',
 			);
+		}
+		if ( class_exists( 'BizCity_Bot_Zalo_Actions' ) ) {
+			foreach ( BizCity_Bot_Zalo_Actions::catalog_rows() as $zrow ) {
+				$out[] = $zrow;
+			}
 		}
 		if ( $character && class_exists( 'BizCity_Bot_Vertical_Tools' ) ) {
 			foreach ( BizCity_Bot_Vertical_Tools::rows_for_character( $character ) as $vrow ) {
@@ -174,12 +179,11 @@ final class BizCity_Bot_Tool_Registry {
 		if ( ! $is_private || '' === $sender ) {
 			$drop[] = 'save_memory';
 		}
-		if ( empty( $drop ) ) {
-			return $tools;
-		}
-		return array_values( array_filter( $tools, static function ( $row ) use ( $drop ) {
+		$tools = empty( $drop ) ? $tools : array_values( array_filter( $tools, static function ( $row ) use ( $drop ) {
 			return ! in_array( $row['id'], $drop, true );
 		} ) );
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — group-only / owner-only Zalo actions (Libe-Zalo chanKhongPhaiChu).
+		return class_exists( 'BizCity_Bot_Zalo_Actions' ) ? BizCity_Bot_Zalo_Actions::filter_for_turn( $tools, $claim ) : $tools;
 	}
 
 	/** save_memory is callable once its three owners are loaded; the per-turn private-chat gate is effective_for_turn(). */
@@ -314,8 +318,30 @@ final class BizCity_Bot_Tool_Registry {
 		return array( self::STATUS_UNCONFIGURED, "Chưa có khóa {$label}. Mở khối {$label} trong Quick Edit của Guru để dán khóa, rồi Test thử." );
 	}
 
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — TTS now has a turn executor, so it CAN become `available`, but
+	 * only when the key exists AND the config produces a file Zalo can play (MP3). Anything else stays
+	 * `unconfigured` with the exact reason, never a green badge that fails at send time.
+	 */
 	public static function check_tts( $character = null ): array {
-		return self::check_media_key( $character, 'tts_api_keys', 'Giọng nói (TTS)' );
+		$base = self::check_media_key( $character, 'tts_api_keys', 'Giọng nói (TTS)' );
+		$character_id = is_object( $character ) ? (int) ( $character->id ?? 0 ) : 0;
+		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Media_Client' ) || ! method_exists( 'BizCity_Bot_Media_Client', 'tts_turn_support' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+			return $base;
+		}
+		try {
+			$has_key = class_exists( 'BizCity_Bot_Secrets_Repo' ) && BizCity_Bot_Secrets_Repo::has( $character_id, 'tts_api_keys' );
+		} catch ( \Throwable $e ) {
+			$has_key = false;
+		}
+		if ( ! $has_key ) {
+			return $base;
+		}
+		$reason = BizCity_Bot_Media_Client::tts_turn_support( (array) ( BizCity_Bot_Config_Repo::get( $character_id )['media']['tts'] ?? array() ) );
+		if ( '' !== $reason ) {
+			return array( self::STATUS_UNCONFIGURED, 'Đã có khóa TTS nhưng chưa gửi được qua Zalo: ' . $reason );
+		}
+		return array( self::STATUS_AVAILABLE, 'Bot gửi thêm tin thoại MP3 sau câu trả lời chữ, khi hội thoại có người phụ trách hoặc số Zalo đang bật bot tự động. Tin thoại lỗi thì khách vẫn nhận câu trả lời chữ.' );
 	}
 
 	public static function check_stt( $character = null ): array {

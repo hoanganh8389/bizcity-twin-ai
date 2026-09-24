@@ -64,7 +64,10 @@ final class BizCity_Bot_Tools {
 			array( 'role' => 'system', 'content' => 'Trả lời chỉ bằng JSON hợp lệ.' ),
 			array( 'role' => 'user', 'content' => $prompt ),
 		);
-		$opts = array( 'purpose' => 'bot_tool_plan', 'temperature' => 0, 'max_tokens' => 120, 'timeout' => 20 );
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — a poll / group-creation JSON (question + options, uid list) does not fit
+		// 120 tokens and a truncated JSON silently means "no tool" (SIDECAR-OUTBOUND-ACTIONS-PHASE-PLAN, first finding).
+		$long_args  = array_intersect( array_column( $tools, 'id' ), array( 'create_poll', 'create_group', 'add_group_members', 'pin_group_note' ) );
+		$opts = array( 'purpose' => 'bot_tool_plan', 'temperature' => 0, 'max_tokens' => empty( $long_args ) ? 120 : 260, 'timeout' => 20 );
 		if ( is_object( $character ) && ! empty( $character->model_id ) ) {
 			$opts['model'] = (string) $character->model_id;
 		}
@@ -109,6 +112,10 @@ final class BizCity_Bot_Tools {
 			if ( strpos( $tool_id, BizCity_Bot_Vertical_Tools::TOOL_PREFIX ) === 0 && class_exists( 'BizCity_Bot_Vertical_Tools' ) ) {
 				return BizCity_Bot_Vertical_Tools::run( substr( $tool_id, strlen( BizCity_Bot_Vertical_Tools::TOOL_PREFIX ) ), $args, $claim );
 			}
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — Zalo-native actions (sticker, poll, group admin…).
+			if ( class_exists( 'BizCity_Bot_Zalo_Actions' ) && BizCity_Bot_Zalo_Actions::handles( $tool_id ) ) {
+				return BizCity_Bot_Zalo_Actions::run( $tool_id, $args, $claim );
+			}
 			switch ( $tool_id ) {
 				case 'current_datetime':
 					return array( 'ok' => true, 'content' => 'Bây giờ là ' . ( function_exists( 'wp_date' ) ? wp_date( 'H:i, l d/m/Y' ) : date( 'H:i, l d/m/Y' ) ) . ' (múi giờ site).', 'error' => '' );
@@ -126,6 +133,9 @@ final class BizCity_Bot_Tools {
 					return self::scrape_social_data( $args, $claim );
 				case 'generate_image':
 					return self::generate_image( $args, $claim );
+				// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — a short voice companion to the text reply.
+				case 'tts':
+					return self::text_to_speech( $args, $claim );
 				// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — identity-scoped customer memory.
 				case 'save_memory':
 					return class_exists( 'BizCity_Bot_Memory' )
@@ -418,6 +428,74 @@ final class BizCity_Bot_Tools {
 		$metadata = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
 		wp_update_attachment_metadata( $attachment_id, $metadata );
 		return (int) $attachment_id;
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 (option A, user-approved) — the model writes the short text to
+	 * speak in `args.text`. It is NOT "read the final answer aloud": this tool runs in the planner loop, before the
+	 * answer exists (class-bot-turn-runner.php), so it can only speak what the model put in the call.
+	 *
+	 * Same contract as generate_image(): ids come from the claim, never from args; the attachment owner is checked
+	 * BEFORE paying the provider; the file's post_author equals that owner (the dispatcher compares with `===`).
+	 * The text reply is always sent first and alone — a voice failure can never cost the customer the answer.
+	 */
+	private static function text_to_speech( array $args, array $claim ): array {
+		$character_id    = (int) ( $claim['character_id'] ?? 0 );
+		$conversation_id = (int) ( $claim['conversation_id'] ?? 0 );
+		$text            = trim( (string) ( $args['text'] ?? $args['content'] ?? '' ) );
+		if ( $character_id <= 0 || $conversation_id <= 0 || '' === $text ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'invalid_param' );
+		}
+		if ( ! class_exists( 'BizCity_Bot_Media_Client' ) || ! method_exists( 'BizCity_Bot_Media_Client', 'synthesize' ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'module_not_loaded' );
+		}
+		$owner_user_id = self::resolve_attachment_owner( $conversation_id );
+		if ( $owner_user_id <= 0 ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'no_attachment_owner' );
+		}
+		try {
+			$audio = BizCity_Bot_Media_Client::synthesize( $character_id, $text );
+		} catch ( \Throwable $e ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'tts_exception' );
+		}
+		if ( is_wp_error( $audio ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'tts_failed: ' . $audio->get_error_code() );
+		}
+		$attachment_id = self::save_audio_as_attachment( (string) $audio['binary'], $text, $owner_user_id );
+		if ( $attachment_id <= 0 ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'tts_save_failed' );
+		}
+		$spoken = function_exists( 'mb_substr' ) ? mb_substr( $text, 0, 200 ) : substr( $text, 0, 200 );
+		return array(
+			'ok'                  => true,
+			'content'             => self::fence( 'Tin thoại vừa tạo', 'Đã tạo một tin thoại đọc đoạn: "' . $spoken . '". Tin thoại sẽ được gửi ngay sau câu trả lời chữ — vẫn viết câu trả lời chữ bình thường.' ),
+			'error'               => '',
+			'audio_attachment_id' => $attachment_id,
+		);
+	}
+
+	private static function save_audio_as_attachment( string $binary, string $text, int $owner_user_id ): int {
+		if ( '' === $binary || ! function_exists( 'wp_upload_bits' ) ) {
+			return 0;
+		}
+		if ( ! function_exists( 'wp_insert_attachment' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/image.php';
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+			require_once ABSPATH . 'wp-admin/includes/media.php';
+		}
+		$filename = 'bot-voice-' . time() . '-' . wp_generate_password( 6, false ) . '.mp3';
+		$upload   = wp_upload_bits( $filename, null, $binary );
+		if ( ! empty( $upload['error'] ) ) {
+			return 0;
+		}
+		$attachment_id = wp_insert_attachment( array(
+			'post_mime_type' => 'audio/mpeg',
+			'post_title'     => sanitize_text_field( function_exists( 'mb_substr' ) ? mb_substr( $text, 0, 120 ) : substr( $text, 0, 120 ) ),
+			'post_content'   => '',
+			'post_status'    => 'inherit',
+			'post_author'    => $owner_user_id,
+		), $upload['file'] );
+		return ( ! $attachment_id || is_wp_error( $attachment_id ) ) ? 0 : (int) $attachment_id;
 	}
 
 	/** Best-effort common fields across scraper Actors — an Actor with an unrecognised shape still gets a bounded JSON dump instead of an empty line. */

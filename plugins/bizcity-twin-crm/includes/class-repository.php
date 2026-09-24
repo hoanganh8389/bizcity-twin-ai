@@ -34,7 +34,14 @@ class BizCity_CRM_Repository {
 		$normalized = preg_replace( '/\s+/u', ' ', $plain );
 		$preview = trim( is_string( $normalized ) ? $normalized : $plain );
 		if ( '' !== $preview ) {
-			return function_exists( 'mb_substr' ) ? mb_substr( $preview, 0, 255 ) : substr( $preview, 0, 255 );
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 (mục 3) — explicit UTF-8. Without the encoding argument
+			// mb_substr() follows mb_internal_encoding(); on a byte-based setting a long Vietnamese message is cut
+			// mid-character, $wpdb->insert() rejects the invalid UTF-8, the whole CRM row is lost and the Zalo
+			// bridge retries the same message 25 times (blog 1258, 2026-09-24: 38 of 39 retried texts were long).
+			if ( function_exists( 'mb_substr' ) ) {
+				return mb_substr( $preview, 0, 255, 'UTF-8' );
+			}
+			return function_exists( 'wp_check_invalid_utf8' ) ? wp_check_invalid_utf8( substr( $preview, 0, 255 ), true ) : substr( $preview, 0, 255 );
 		}
 
 		$type = sanitize_key( $content_type );
@@ -52,6 +59,31 @@ class BizCity_CRM_Repository {
 			if ( '' !== $attachment_type ) { return '[Tệp]'; }
 		}
 		return '';
+	}
+
+	/**
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 (mục 3) — a refused message INSERT used to return 0 with no
+	 * trace anywhere, so the Zalo bridge's 25 retries were the only symptom. Record sizes and the DB error only —
+	 * never the message body (R-CH-FILE-LOG: no PII in logs).
+	 */
+	private static function log_insert_failure( array $row, string $db_error ): void {
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return;
+		}
+		$content = (string) ( $row['content'] ?? '' );
+		$preview = (string) ( $row['content_preview'] ?? '' );
+		BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_ERROR, 'crm_message_insert_failed', 'CRM message row was refused by the database.', array(
+			'inbox_id'           => (int) ( $row['inbox_id'] ?? 0 ),
+			'conversation_id'    => (int) ( $row['conversation_id'] ?? 0 ),
+			'message_type'       => (string) ( $row['message_type'] ?? '' ),
+			'content_type'       => (string) ( $row['content_type'] ?? '' ),
+			'content_bytes'      => strlen( $content ),
+			'preview_bytes'      => strlen( $preview ),
+			'preview_valid_utf8' => '' === $preview || 1 === preg_match( '//u', $preview ),
+			'ai_metadata_bytes'  => strlen( (string) ( $row['ai_metadata_json'] ?? '' ) ),
+			'db_error'           => mb_substr( preg_replace( "/'[^']*'/", "'…'", $db_error ), 0, 200, 'UTF-8' ),
+			'mb_internal_encoding' => function_exists( 'mb_internal_encoding' ) ? (string) mb_internal_encoding() : '',
+		) );
 	}
 
 	/* ============================================================
@@ -1033,7 +1065,7 @@ class BizCity_CRM_Repository {
 
 		$sql = "SELECT
 					c.id, c.inbox_id, c.contact_inbox_id, c.status, c.assignee_id,
-					i.channel_type,
+					i.channel_type, i.channel_ref_id AS inbox_ref_id,
 					c.platform, c.account_id, c.character_id, c.chat_id,
 					c.notebook_id, c.priority,
 					c.snoozed_until, c.waiting_since, c.first_reply_at, c.cached_label_list,
@@ -1139,7 +1171,10 @@ class BizCity_CRM_Repository {
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-2 §4.2 — Bot Studio Sessions projection filters.
 		// `conversations.account_id`/`character_id` already exist on the row (set at ingest time);
 		// this just exposes them as filter predicates alongside the ones already here.
-		if ( ! empty( $args['account_id'] ) ) { $where[] = 'c.account_id = %s'; $params[] = (string) $args['account_id']; }
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60I — the "set at ingest time" note above was WRONG: on the live
+		// site every conversations.account_id is empty (bot-studio-selfcheck: account filter → 0 rows, unfiltered
+		// → 50 rows with account_id ''). A thread's account is its INBOX's channel_ref_id, so fall back to it.
+		if ( ! empty( $args['account_id'] ) ) { $where[] = "COALESCE( NULLIF( c.account_id, '' ), i.channel_ref_id ) = %s"; $params[] = (string) $args['account_id']; }
 		if ( ! empty( $args['character_id'] ) ) { $where[] = 'c.character_id = %d'; $params[] = (int) $args['character_id']; }
 		if ( ! empty( $args['external_uid'] ) ) { $where[] = 'ci.source_id = %s'; $params[] = (string) $args['external_uid']; }
 		return array( $where, $params );
@@ -1649,6 +1684,7 @@ class BizCity_CRM_Repository {
 
 		$ok = $wpdb->insert( $tbl, $row );
 		if ( ! $ok ) {
+			self::log_insert_failure( $row, (string) $wpdb->last_error );
 			return 0;
 		}
 		$msg_id = (int) $wpdb->insert_id;

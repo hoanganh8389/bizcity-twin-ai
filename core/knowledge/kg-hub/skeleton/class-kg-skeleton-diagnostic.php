@@ -46,7 +46,8 @@ class BizCity_KG_Skeleton_Diagnostic {
 	}
 
 	public function render_page() {
-		if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Forbidden' ); }
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — Network Super Admin without a local admin role was blocked here.
+		if ( ! ( class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' ) ) ) { wp_die( 'Forbidden' ); }
 
 		$cmd     = isset( $_GET['cmd'] )      ? sanitize_key( wp_unslash( (string) $_GET['cmd'] ) ) : '';
 		$network = ! empty( $_GET['network'] );
@@ -230,7 +231,7 @@ class BizCity_KG_Skeleton_Diagnostic {
 
 			$tbl   = BizCity_KG_Database::instance()->tbl_notebooks();
 			$prev  = $wpdb->suppress_errors( true );
-			$exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl );
+			$exists = ( bizcity_tbl_exists( $tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$wpdb->suppress_errors( $prev );
 
 			if ( ! $exists ) {
@@ -916,7 +917,7 @@ class BizCity_KG_Skeleton_Diagnostic {
 			global $wpdb;
 			$logs_tbl = $wpdb->prefix . 'actionscheduler_logs';
 			$prev     = $wpdb->suppress_errors( true );
-			$tbl_ok   = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $logs_tbl ) ) === $logs_tbl );
+			$tbl_ok   = ( bizcity_tbl_exists( $logs_tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$wpdb->suppress_errors( $prev );
 			$failures = [];
 			if ( $tbl_ok ) {

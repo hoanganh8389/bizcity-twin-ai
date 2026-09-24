@@ -70,6 +70,20 @@ final class BizCity_Bot_Studio_REST {
 				'before_id'    => array( 'type' => 'integer', 'default' => 0 ),
 			),
 		) );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60J BG-6 — contacts that are actively conversing (read projection over the
+		// CRM conversation list, grouped by contact). Writing metadata goes to the CRM owner route
+		// `bizcity-crm/v1/contacts/{id}/metadata`, never here.
+		register_rest_route( self::NAMESPACE_V1, '/bot-studio/contacts', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'rest_contacts' ),
+			'permission_callback' => array( __CLASS__, 'can_or_error' ),
+			'args'                => array(
+				'account_id' => array( 'type' => 'string', 'default' => '' ),
+				'q'          => array( 'type' => 'string', 'default' => '' ),
+				'limit'      => array( 'type' => 'integer', 'default' => 50 ),
+				'before_id'  => array( 'type' => 'integer', 'default' => 0 ),
+			),
+		) );
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-3 §2.4/§5.4A — identity resolution ONLY.
 		// This is deliberately narrow: it resolves platform+account_id+external_uid → identity_uuid
 		// (+ the CRM contact/conversation ids the FE needs to then call EXISTING owner routes:
@@ -83,9 +97,12 @@ final class BizCity_Bot_Studio_REST {
 			'callback'            => array( __CLASS__, 'rest_identity' ),
 			'permission_callback' => array( __CLASS__, 'can_or_error' ),
 			'args'                => array(
-				'platform'     => array( 'type' => 'string', 'default' => 'ZALO_PERSONAL' ),
-				'account_id'   => array( 'type' => 'string', 'default' => '' ),
-				'external_uid' => array( 'type' => 'string', 'default' => '' ),
+				'platform'        => array( 'type' => 'string', 'default' => 'ZALO_PERSONAL' ),
+				'account_id'      => array( 'type' => 'string', 'default' => '' ),
+				'external_uid'    => array( 'type' => 'string', 'default' => '' ),
+				// [0.60I P0] preferred: address a customer by the CRM conversation so the raw Zalo UID never
+				// has to live in a URL/history entry; the server derives account + UID itself.
+				'conversation_id' => array( 'type' => 'integer', 'default' => 0 ),
 			),
 		) );
 	}
@@ -210,8 +227,15 @@ final class BizCity_Bot_Studio_REST {
 		$items = array();
 		foreach ( $rows as $row ) {
 			$conversation_id = (int) $row['id'];
+			// conversations.platform/account_id are empty on real rows (0.60I self-check); the inbox is the truth.
 			$platform        = (string) ( $row['platform'] ?? '' );
+			if ( '' === $platform ) {
+				$platform = strtoupper( (string) ( $row['channel_type'] ?? '' ) );
+			}
 			$row_account_id  = (string) ( $row['account_id'] ?? '' );
+			if ( '' === $row_account_id ) {
+				$row_account_id = (string) ( $row['inbox_ref_id'] ?? '' );
+			}
 			$source_id       = (string) ( $row['source_id'] ?? '' );
 			$items[]         = array(
 				'conversation_id'  => $conversation_id,
@@ -220,7 +244,9 @@ final class BizCity_Bot_Studio_REST {
 				// [OW-2] this is the raw platform-side external ID (Zalo UID, or "group:<id>" for a
 				// group thread) — NOT yet resolved through Identity Hub to a canonical identity_uuid.
 				// That resolution is OW-3's job (doc §4.4); Sessions only needs to identify the thread.
-				'external_uid'     => $source_id,
+				// [0.60I P0] masked — the raw provider UID never leaves the server in a list projection; use
+				// conversation_id to address the thread (identity/context routes resolve the UID themselves).
+				'external_uid'     => self::mask_ref( $source_id ),
 				'display_name'     => (string) ( $row['contact_name'] ?? '' ),
 				'thread_kind'      => 0 === strpos( $source_id, 'group:' ) ? 'group' : 'personal',
 				'message_count'    => $counts[ $conversation_id ] ?? null,
@@ -254,8 +280,25 @@ final class BizCity_Bot_Studio_REST {
 		$platform     = strtoupper( trim( (string) $req->get_param( 'platform' ) ) ) ?: 'ZALO_PERSONAL';
 		$account_id   = trim( (string) $req->get_param( 'account_id' ) );
 		$external_uid = trim( (string) $req->get_param( 'external_uid' ) );
+		$conv_param   = (int) $req->get_param( 'conversation_id' );
+		$conv_row     = null;
+		if ( $conv_param > 0 ) {
+			if ( ! class_exists( 'BizCity_CRM_Repository' ) ) {
+				return self::not_loaded();
+			}
+			$found = BizCity_CRM_Repository::list_conversations( array( 'id' => $conv_param, 'limit' => 1 ) );
+			if ( empty( $found[0] ) ) {
+				return self::err( 'conversation_not_found', 'Không tìm thấy hội thoại này.', 404, 'Mở lại từ danh sách Phiên hội thoại.', 'bot_studio_conversation_not_found' );
+			}
+			$conv_row     = $found[0];
+			$external_uid = (string) ( $conv_row['source_id'] ?? '' );
+			$account_id   = '' !== (string) ( $conv_row['account_id'] ?? '' ) ? (string) $conv_row['account_id'] : (string) ( $conv_row['inbox_ref_id'] ?? '' );
+			if ( '' === $req->get_param( 'platform' ) || 'ZALO_PERSONAL' === $platform ) {
+				$platform = strtoupper( (string) ( $conv_row['channel_type'] ?? '' ) ) ?: $platform;
+			}
+		}
 		if ( '' === $account_id || '' === $external_uid ) {
-			return self::err( 'invalid_param', 'Thiếu account_id hoặc external_uid.', 422, 'Chọn một số Zalo và nhập UID khách.', 'bot_studio_identity_missing_param' );
+			return self::err( 'invalid_param', 'Thiếu account_id hoặc external_uid.', 422, 'Chọn một số Zalo và nhập UID khách, hoặc mở từ một hội thoại.', 'bot_studio_identity_missing_param' );
 		}
 
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-3 — R-CH-IDMEM: "group chat is conversation
@@ -265,7 +308,7 @@ final class BizCity_Bot_Studio_REST {
 			return self::ok( array(
 				'platform'     => $platform,
 				'account_id'   => $account_id,
-				'external_uid' => $external_uid,
+				'external_uid' => self::mask_ref( $external_uid ),
 				'is_group'     => true,
 				'identity'     => null,
 				'contact_id'   => null,
@@ -287,7 +330,17 @@ final class BizCity_Bot_Studio_REST {
 
 		$contact_id      = null;
 		$conversation_id = null;
+		$accounts_trace  = array();
 		if ( class_exists( 'BizCity_CRM_Repository' ) ) {
+			// [PHASE-0.60J BG-7] every number this customer talks through (no account filter), for the per-account trace.
+			$accounts_trace = self::trace_accounts( BizCity_CRM_Repository::list_conversations( array( 'external_uid' => $external_uid, 'limit' => 50 ) ) );
+			if ( class_exists( 'BizCity_Identity_Hub' ) ) {
+				foreach ( $accounts_trace as &$trace_row ) {
+					$bound                       = BizCity_Identity_Hub::resolve_binding( $platform, $trace_row['account_id'], $external_uid );
+					$trace_row['identity_bound'] = is_array( $bound ) && ! empty( $bound['identity_uuid'] );
+				}
+				unset( $trace_row );
+			}
 			$rows = BizCity_CRM_Repository::list_conversations( array(
 				'external_uid' => $external_uid,
 				'account_id'   => $account_id,
@@ -302,12 +355,164 @@ final class BizCity_Bot_Studio_REST {
 		return self::ok( array(
 			'platform'        => $platform,
 			'account_id'      => $account_id,
-			'external_uid'    => $external_uid,
+			'external_uid'    => self::mask_ref( $external_uid ),
 			'is_group'        => false,
 			'identity'        => $identity,
 			'contact_id'      => $contact_id,
 			'conversation_id' => $conversation_id,
+			// [PHASE-0.60J BG-7 / R-BOTSTUDIO-6c] per-number trace + an honest statement of what the ledger cannot do.
+			'accounts'        => $accounts_trace,
+			'ledger_note'     => 'Bản ghi memory GHI TỪ 2026-09-24 mang account_id trong sổ Context Bank (cặp secondary_type/secondary_key, không thêm cột). Bản ghi cũ chưa gắn số nên đếm ở dòng "chưa gắn số"; không suy diễn chúng thuộc số nào.',
 		) );
+	}
+
+	/**
+	 * GET /bot-studio/contacts (PHASE-0.60J BG-6). One row per CONTACT that has at least one personal-chat conversation,
+	 * newest activity first, with the numbers (account_id) it talks through and its staff custom_meta. Same CRM list the
+	 * Sessions projection reads — no second contact owner; only custom_meta is exposed from additional_attributes
+	 * (never zalo_profile/birthday_meta), and the provider UID is masked.
+	 */
+	public static function rest_contacts( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Repository' ) ) {
+			return self::not_loaded();
+		}
+		$limit = max( 1, min( 100, (int) $req->get_param( 'limit' ) ) );
+		$args  = array( 'limit' => $limit, 'thread_kind' => 'personal' );
+		$acc   = trim( (string) $req->get_param( 'account_id' ) );
+		if ( '' !== $acc ) {
+			$args['account_id'] = $acc;
+		}
+		$q = trim( (string) $req->get_param( 'q' ) );
+		if ( '' !== $q ) {
+			$args['q'] = $q;
+		}
+		$before = (int) $req->get_param( 'before_id' );
+		if ( $before > 0 ) {
+			$args['before_id'] = $before;
+		}
+		$rows     = BizCity_CRM_Repository::list_conversations( $args );
+		$has_more = count( $rows ) >= $limit;
+		$last_row = $rows ? $rows[ count( $rows ) - 1 ] : null;
+		return self::ok( array(
+			'items'       => self::group_contacts( $rows ),
+			'has_more'    => $has_more,
+			'next_cursor' => ( $has_more && $last_row ) ? (int) $last_row['id'] : null,
+		) );
+	}
+
+	/**
+	 * Pure: CRM conversation rows → one entry per contact (PHASE-0.60J BG-6). Group threads and rows without a contact
+	 * are dropped; per-number breakdown lives in `accounts`; the provider UID is masked.
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function group_contacts( array $rows ): array {
+		$by_contact = array();
+		foreach ( $rows as $row ) {
+			$contact_id = (int) ( $row['contact_id'] ?? 0 );
+			$source_id  = (string) ( $row['source_id'] ?? '' );
+			if ( $contact_id <= 0 || 0 === strpos( $source_id, 'group:' ) ) {
+				continue;
+			}
+			$account_id = '' !== (string) ( $row['account_id'] ?? '' ) ? (string) $row['account_id'] : (string) ( $row['inbox_ref_id'] ?? '' );
+			$activity   = (string) ( $row['last_activity_at'] ?? '' );
+			if ( ! isset( $by_contact[ $contact_id ] ) ) {
+				$attrs = json_decode( (string) ( $row['contact_attributes'] ?? '' ), true );
+				$meta  = is_array( $attrs ) && isset( $attrs['custom_meta'] ) && is_array( $attrs['custom_meta'] ) ? $attrs['custom_meta'] : array();
+				$by_contact[ $contact_id ] = array(
+					'contact_id'         => $contact_id,
+					'name'               => (string) ( $row['contact_name'] ?? '' ),
+					'avatar_url'         => $row['contact_avatar'] ?? null,
+					'external_uid'       => self::mask_ref( $source_id ),
+					'conversation_id'    => (int) $row['id'],
+					'conversation_count' => 0,
+					'last_activity_at'   => $activity,
+					'last_message'       => (string) ( $row['last_message_content'] ?? '' ),
+					'accounts'           => array(),
+					'custom_meta'        => $meta,
+				);
+			}
+			$c = &$by_contact[ $contact_id ];
+			$c['conversation_count']++;
+			if ( $activity > $c['last_activity_at'] ) {
+				$c['last_activity_at'] = $activity;
+				$c['conversation_id']  = (int) $row['id'];
+				$c['last_message']     = (string) ( $row['last_message_content'] ?? '' );
+			}
+			$key = '' !== $account_id ? $account_id : '(không rõ)';
+			if ( ! isset( $c['accounts'][ $key ] ) ) {
+				$c['accounts'][ $key ] = array( 'account_id' => $account_id, 'conversations' => 0, 'last_activity_at' => '' );
+			}
+			$c['accounts'][ $key ]['conversations']++;
+			if ( $activity > $c['accounts'][ $key ]['last_activity_at'] ) {
+				$c['accounts'][ $key ]['last_activity_at'] = $activity;
+			}
+			unset( $c );
+		}
+		$out = array_values( $by_contact );
+		foreach ( $out as &$item ) {
+			$item['accounts']         = array_values( $item['accounts'] );
+			$item['custom_meta_keys'] = count( $item['custom_meta'] );
+		}
+		unset( $item );
+		usort( $out, static function ( $a, $b ) {
+			return strcmp( (string) $b['last_activity_at'], (string) $a['last_activity_at'] );
+		} );
+		return $out;
+	}
+
+	/**
+	 * Pure: per-number trace of ONE customer (PHASE-0.60J BG-7 / R-BOTSTUDIO-6c). Groups the customer's conversations
+	 * by the number (account_id) they happened on. The Context Bank ledger has no account dimension, so this trace is
+	 * built from CRM conversations (+ the Identity Hub binding the caller adds), never from memory rows.
+	 *
+	 * @param array<int,array<string,mixed>> $rows conversations of one external UID across every number
+	 * @return array<int,array{account_id:string,conversation_id:int,conversations:int,last_activity_at:string}>
+	 */
+	public static function trace_accounts( array $rows ): array {
+		$acc = array();
+		foreach ( $rows as $row ) {
+			$account_id = '' !== (string) ( $row['account_id'] ?? '' ) ? (string) $row['account_id'] : (string) ( $row['inbox_ref_id'] ?? '' );
+			if ( '' === $account_id ) {
+				continue;
+			}
+			$activity = (string) ( $row['last_activity_at'] ?? '' );
+			if ( ! isset( $acc[ $account_id ] ) ) {
+				$acc[ $account_id ] = array( 'account_id' => $account_id, 'conversation_id' => (int) $row['id'], 'conversations' => 0, 'last_activity_at' => $activity );
+			}
+			$acc[ $account_id ]['conversations']++;
+			if ( $activity > $acc[ $account_id ]['last_activity_at'] ) {
+				$acc[ $account_id ]['last_activity_at'] = $activity;
+				$acc[ $account_id ]['conversation_id']  = (int) $row['id'];
+			}
+		}
+		$out = array_values( $acc );
+		usort( $out, static function ( $a, $b ) {
+			return strcmp( (string) $b['last_activity_at'], (string) $a['last_activity_at'] );
+		} );
+		return $out;
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 — display-safe form of a provider identifier (Zalo UID or
+	 * "group:<id>"): enough to tell two threads apart, never enough to address one. Pure.
+	 */
+	public static function mask_ref( string $ref ): string {
+		$ref = trim( $ref );
+		if ( '' === $ref ) {
+			return '';
+		}
+		$prefix = '';
+		if ( 0 === strpos( $ref, 'group:' ) ) {
+			$prefix = 'group:';
+			$ref    = substr( $ref, 6 );
+		}
+		$len = strlen( $ref );
+		if ( $len <= 6 ) {
+			return $prefix . ( '' === $ref ? '' : $ref[0] . '…' );
+		}
+		return $prefix . substr( $ref, 0, 3 ) . '…' . substr( $ref, -2 );
 	}
 
 	private static function is_group_ref( string $external_uid ): bool {

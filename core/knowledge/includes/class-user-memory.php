@@ -921,6 +921,37 @@ class BizCity_User_Memory {
     }
 
     /* ================================================================
+     * FORGET ONE RECORD — identity-verified tombstone (PHASE-0.60H D-H1)
+     *
+     * For runtimes that act for exactly ONE channel identity (Bot Studio's `save_memory` edit/delete). Unlike
+     * ajax_delete() this is not an admin endpoint: the caller names the identity it acts for, and the record is
+     * tombstoned ONLY if it belongs to that identity — a record id alone can never delete someone else's memory.
+     *
+     * @param string $identity_uuid Identity the caller acts for.
+     * @param string $record_id     Filestore record id (from a read of that same identity).
+     * @return bool True when a record owned by that identity was tombstoned.
+     * ================================================================ */
+    public function forget_record_for_identity( $identity_uuid, $record_id ) {
+        // [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — identity-verified delete for single-identity runtimes.
+        $identity_uuid = strtolower( trim( (string) $identity_uuid ) );
+        $record_id     = trim( (string) $record_id );
+        if ( '' === $identity_uuid || '' === $record_id || ! $this->is_filestore_available() ) {
+            return false;
+        }
+        $blog_id  = get_current_blog_id();
+        $existing = BizCity_Business_JSONL_File_Store::find( self::BUSINESS_CONTRACT_ID, $record_id, array( 'blog_id' => $blog_id ) );
+        if ( ! is_array( $existing ) || strtolower( trim( (string) ( $existing['identity_uuid'] ?? '' ) ) ) !== $identity_uuid ) {
+            return false;
+        }
+        $receipt = BizCity_Business_JSONL_File_Store::delete_with_receipt( self::BUSINESS_CONTRACT_ID, $record_id, array( 'blog_id' => $blog_id ) );
+        if ( ! is_array( $receipt ) ) {
+            return false;
+        }
+        do_action( 'bizcity_memory_mirror_delete', 'user', (int) ( $existing['legacy_id'] ?? 0 ), array( 'blog_id' => $blog_id, 'record_id' => $record_id, 'filestore_receipt' => $receipt ) );
+        return true;
+    }
+
+    /* ================================================================
      * UPSERT — insert or update memory
      *
      * @param array $data

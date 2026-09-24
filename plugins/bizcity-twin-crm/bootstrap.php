@@ -675,6 +675,9 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		if ( is_admin() ) {
 			BizCity_CRM_Guru_Roles_Admin::register();
 		}
+		// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T5d — Guru save listener + /twinkg/ editor
+		// fields must also run on REST requests (is_admin() is false on /wp-json/).
+		BizCity_CRM_Guru_Roles_Admin::register_profile_hooks();
 
 		// Wire AI auto-reply (PHASE-0.35-GURU-SERVICES — grounded answers from
 		// attached notebook on every inbound). Suppresses legacy raw-LLM path.

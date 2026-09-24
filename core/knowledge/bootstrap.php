@@ -129,6 +129,9 @@ if ( is_admin() ) {
 if ( $_kg_admin_ctx ) {
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-api.php';
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-character-quick-edit-rest.php';
+    // [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T5a–T5c — Guru editor REST (R1–R9) for /twinkg/.
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-guru-service.php';
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-guru-admin-rest.php';
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-gateway.php';
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-rest-api.php';
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-agent-rest-api.php';

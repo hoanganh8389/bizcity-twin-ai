@@ -29,6 +29,16 @@ class BizCity_KG_Rest_Controller {
 		return is_user_logged_in();
 	}
 
+	/**
+	 * Site-admin gate for routes that expose or change site-wide settings — the same gate the
+	 * retired wp-admin pages used (see BizCity_Character_Quick_Edit_REST::can_edit).
+	 */
+	public function permission_manage() {
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+	}
+
 	public function register_routes() {
 		$ns = self::NAMESPACE_V2;
 		$perm = [ $this, 'permission' ];
@@ -51,6 +61,17 @@ class BizCity_KG_Rest_Controller {
 		] );
 		register_rest_route( $ns, '/workspaces/(?P<id>\d+)/visibility', [
 			'methods' => 'POST', 'callback' => [ $this, 'set_workspace_visibility' ], 'permission_callback' => $perm,
+		] );
+		// [2026-09-19] PHASE-0.57A UI-12 — "Chuyển chủ" (admin-only) + workspace soft delete
+		// (notebook already had DELETE /notebooks/{id}; workspace never had an equivalent).
+		// `object_type` reuses the singular workspace|notebook alternation already
+		// established by the /acl/{object_type}/{object_id}/grants routes above,
+		// rather than inventing a second plural-form shape for the same concept.
+		register_rest_route( $ns, '/workspaces/(?P<id>\d+)', [
+			'methods' => 'DELETE', 'callback' => [ $this, 'delete_workspace' ], 'permission_callback' => $perm,
+		] );
+		register_rest_route( $ns, '/acl/(?P<object_type>workspace|notebook)/(?P<object_id>\d+)/transfer-owner', [
+			'methods' => 'POST', 'callback' => [ $this, 'transfer_owner' ], 'permission_callback' => $perm,
 		] );
 		register_rest_route( $ns, '/acl/(?P<object_type>workspace|notebook)/(?P<object_id>\d+)/grants', [
 			[ 'methods' => 'GET', 'callback' => [ $this, 'list_acl_grants' ], 'permission_callback' => $perm ],
@@ -179,6 +200,13 @@ class BizCity_KG_Rest_Controller {
 			'callback' => [ $this, 'cost_today' ],
 			'permission_callback' => $perm,
 		] );
+		// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T4 / WP-08 H-09 — replaces the PHP form
+		// of the retired `bizcity-kg-hub-settings` page. Admin-only (U-2), NOT the logged-in gate
+		// above: this reads the site-wide ledger and writes site options.
+		register_rest_route( $ns, '/cost/settings', [
+			[ 'methods' => 'GET',  'callback' => [ $this, 'get_cost_settings' ],  'permission_callback' => [ $this, 'permission_manage' ] ],
+			[ 'methods' => 'POST', 'callback' => [ $this, 'save_cost_settings' ], 'permission_callback' => [ $this, 'permission_manage' ] ],
+		] );
 
 		// ── PHASE-0.13 Wave 10c — Per-source learning evidence trail ──────
 		register_rest_route( $ns, '/sources/(?P<id>\d+)/progress-log', [
@@ -236,10 +264,17 @@ class BizCity_KG_Rest_Controller {
 		] );
 
 		// List candidate gurus (characters with guru_uuid stamped) — for attach picker.
+		// [2026-09-24 Claude Opus 5.5] CORE-REDUCTION WP-10 A2 / R-GURU-PRIVATE R-GP-3 — least privilege:
+		// site admins, or the manager of the notebook named by `notebook_id` (same gate as attach_guru).
 		register_rest_route( $ns, '/gurus', [
 			'methods'             => 'GET',
 			'callback'            => [ $this, 'list_gurus' ],
-			'permission_callback' => $perm,
+			'permission_callback' => [ $this, 'permission_list_gurus' ],
+			'args'                => [
+				'search'      => [ 'required' => false, 'type' => 'string' ],
+				'limit'       => [ 'required' => false, 'type' => 'integer' ],
+				'notebook_id' => [ 'required' => false, 'type' => 'integer' ],
+			],
 		] );
 	}
 
@@ -286,6 +321,25 @@ class BizCity_KG_Rest_Controller {
 	public function revoke_acl_grant( WP_REST_Request $req ) {
 		$res = BizCity_KG_Access::revoke_grant( (int) $req['id'], get_current_user_id() );
 		return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'revoked' => true ) );
+	}
+
+	/** PHASE-0.57A UI-12 — admin-only ownership transfer for a workspace or notebook. */
+	public function transfer_owner( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_KG_Access' ) ) {
+			return new WP_Error( 'kg_acl_unavailable', 'ACL chưa được nạp.' );
+		}
+		$data = $req->get_json_params() ?: $req->get_params();
+		$res = BizCity_KG_Access::transfer_owner( $req['object_type'], (int) $req['object_id'], (int) ( $data['new_owner_id'] ?? 0 ), get_current_user_id() );
+		return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'transferred' => true ) );
+	}
+
+	/** PHASE-0.57A §3.6 — soft delete for a workspace (mirrors DELETE /notebooks/{id}). */
+	public function delete_workspace( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_KG_Access' ) ) {
+			return new WP_Error( 'kg_acl_unavailable', 'ACL chưa được nạp.' );
+		}
+		$res = BizCity_KG_Access::soft_delete_workspace( (int) $req['id'], get_current_user_id() );
+		return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'deleted' => true, 'soft' => true ) );
 	}
 
 	public function get_default_notebook( WP_REST_Request $req ) {
@@ -959,6 +1013,125 @@ class BizCity_KG_Rest_Controller {
 		return rest_ensure_response( BizCity_KG_Cost_Guard::instance()->summary_today() );
 	}
 
+	/**
+	 * Cost Guard state for the twinkg "Settings & Cost" view.
+	 *
+	 * The five guard values are returned read-only: Cost_Guard reads them through filters
+	 * (hooked by bizcity-llm-router from network options), never from the blog options the old
+	 * PHP form wrote, so editing them here would have no effect. Only the local-exemption lists
+	 * are read from blog options (Cost_Guard::is_locally_exempt) and are therefore editable.
+	 */
+	public function get_cost_settings( WP_REST_Request $req ) {
+		$guard = BizCity_KG_Cost_Guard::instance();
+		return rest_ensure_response( [
+			'ok'              => true,
+			'effective'       => [
+				'enabled'          => $guard->is_enabled(),
+				'quota_per_user'   => $guard->quota_per_user(),
+				'daily_cap_usd'    => $guard->daily_cap_usd(),
+				'dedupe_threshold' => $guard->dedupe_threshold(),
+				'batch_size'       => $guard->batch_size(),
+			],
+			'managed_by'      => class_exists( 'BizCity_Router_KG_Bridge' ) ? 'llm-router' : 'defaults',
+			'local_exemption' => $this->cost_exemption_values(),
+			'current_blog_id' => (int) get_current_blog_id(),
+			'today'           => $guard->summary_today(),
+			'recent'          => $this->cost_recent_rows( 30 ),
+		] );
+	}
+
+	public function save_cost_settings( WP_REST_Request $req ) {
+		$data   = (array) $req->get_json_params();
+		$before = $this->cost_exemption_values();
+		$after  = [
+			'user_ids' => array_key_exists( 'user_ids', $data ) ? $this->normalize_id_list( $data['user_ids'] ) : $before['user_ids'],
+			'blog_ids' => array_key_exists( 'blog_ids', $data ) ? $this->normalize_id_list( $data['blog_ids'] ) : $before['blog_ids'],
+			'domains'  => array_key_exists( 'domains', $data )  ? $this->normalize_domain_list( $data['domains'] ) : $before['domains'],
+		];
+
+		update_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_USER_IDS, $after['user_ids'], false );
+		update_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_BLOG_IDS, $after['blog_ids'], false );
+		update_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_DOMAINS,  $after['domains'],  false );
+
+		/**
+		 * Audit hook: fired after an admin changes the KG quota local-exemption lists.
+		 *
+		 * @param array $before  { user_ids, blog_ids, domains } comma-separated strings.
+		 * @param array $after   Same shape, as stored.
+		 * @param int   $user_id Acting user.
+		 */
+		do_action( 'bizcity_kg_cost_settings_saved', $before, $after, get_current_user_id() );
+
+		return $this->get_cost_settings( $req );
+	}
+
+	private function cost_exemption_values(): array {
+		return [
+			'user_ids' => (string) get_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_USER_IDS, '' ),
+			'blog_ids' => (string) get_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_BLOG_IDS, '' ),
+			'domains'  => (string) get_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_DOMAINS,  '' ),
+		];
+	}
+
+	/** "1, 5,x, 5" → "1, 5" — positive ints only, deduplicated, in the format is_locally_exempt() parses. */
+	private function normalize_id_list( $raw ): string {
+		$parts = is_array( $raw ) ? $raw : explode( ',', (string) $raw );
+		$ids   = [];
+		foreach ( $parts as $part ) {
+			$id = (int) trim( (string) $part );
+			if ( $id > 0 ) {
+				$ids[ $id ] = $id;
+			}
+		}
+		return implode( ', ', $ids );
+	}
+
+	/** Lower-case host names; a pasted URL keeps only its host. */
+	private function normalize_domain_list( $raw ): string {
+		$parts = is_array( $raw ) ? $raw : explode( ',', (string) $raw );
+		$out   = [];
+		foreach ( $parts as $part ) {
+			$host = strtolower( trim( sanitize_text_field( (string) $part ) ) );
+			if ( '' === $host ) {
+				continue;
+			}
+			if ( false !== strpos( $host, '/' ) ) {
+				$parsed = wp_parse_url( false === strpos( $host, '://' ) ? 'http://' . $host : $host, PHP_URL_HOST );
+				$host   = is_string( $parsed ) ? $parsed : '';
+			}
+			if ( '' !== $host && preg_match( '/^[a-z0-9.-]+$/', $host ) ) {
+				$out[ $host ] = $host;
+			}
+		}
+		return implode( ', ', $out );
+	}
+
+	private function cost_recent_rows( int $limit ): array {
+		global $wpdb;
+		$table = BizCity_KG_Cost_Guard::instance()->table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return [];
+		}
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, user_id, operation, notebook_id, passage_id, input_tokens, output_tokens, cost_usd, created_at
+			 FROM {$table} ORDER BY id DESC LIMIT %d",
+			$limit
+		), ARRAY_A ) ?: [];
+		return array_map( static function ( $r ) {
+			return [
+				'id'            => (int) $r['id'],
+				'created_at'    => (string) $r['created_at'],
+				'user_id'       => (int) $r['user_id'],
+				'operation'     => (string) $r['operation'],
+				'notebook_id'   => $r['notebook_id'] ? (int) $r['notebook_id'] : null,
+				'passage_id'    => $r['passage_id'] ? (int) $r['passage_id'] : null,
+				'input_tokens'  => (int) $r['input_tokens'],
+				'output_tokens' => (int) $r['output_tokens'],
+				'cost_usd'      => (float) $r['cost_usd'],
+			];
+		}, $rows );
+	}
+
 	// ─── PHASE-0.13 Wave 10c: per-source learning evidence trail ───────────
 
 	public function source_progress_log( WP_REST_Request $req ) {
@@ -1042,6 +1215,9 @@ class BizCity_KG_Rest_Controller {
 	public function attach_guru( WP_REST_Request $req ) {
 		global $wpdb;
 		$nb        = (int) $req['id'];
+		if ( class_exists( 'BizCity_KG_Access' ) && ! BizCity_KG_Access::can_manage_notebook( $nb, get_current_user_id() ) ) {
+			return new WP_Error( 'kg_attach_guru_forbidden', 'Bạn không có quyền gắn Guru vào notebook này.', array( 'status' => 403 ) );
+		}
 		$guru_uuid = strtolower( trim( (string) $req->get_param( 'guru_uuid' ) ) );
 		$char_id   = (int) $req->get_param( 'character_id' );
 		// Resolve guru_uuid from character_id if needed.
@@ -1065,27 +1241,62 @@ class BizCity_KG_Rest_Controller {
 			$res->add_data( [ 'status' => 400 ] );
 			return $res;
 		}
+		if ( class_exists( 'BizCity_KG_Access' ) ) BizCity_KG_Access::log_guru_change( $nb, get_current_user_id(), 'guru_attached', array( 'guru_uuid' => $guru_uuid ) );
 		return rest_ensure_response( [ 'ok' => true, 'attachment' => $res ] );
 	}
 
 	public function detach_guru( WP_REST_Request $req ) {
 		$nb        = (int) $req['id'];
+		if ( class_exists( 'BizCity_KG_Access' ) && ! BizCity_KG_Access::can_manage_notebook( $nb, get_current_user_id() ) ) {
+			return new WP_Error( 'kg_detach_guru_forbidden', 'Bạn không có quyền gỡ Guru khỏi notebook này.', array( 'status' => 403 ) );
+		}
 		$guru_uuid = strtolower( (string) $req['uuid'] );
 		$res = BizCity_KG_Database::instance()->detach_guru( $nb, $guru_uuid );
 		if ( is_wp_error( $res ) ) {
 			$res->add_data( [ 'status' => 400 ] );
 			return $res;
 		}
+		if ( class_exists( 'BizCity_KG_Access' ) ) BizCity_KG_Access::log_guru_change( $nb, get_current_user_id(), 'guru_detached', array( 'guru_uuid' => $guru_uuid ) );
 		return rest_ensure_response( [ 'ok' => true ] + $res );
 	}
 
 	/**
+	 * Gate for the guru picker (R-GURU-PRIVATE R-GP-3): `is_user_logged_in()` alone is never enough.
+	 * A site admin may list; anyone else must name a notebook they may manage — the same check
+	 * attach_guru() applies before it writes.
+	 *
+	 * @return bool|WP_Error
+	 */
+	public function permission_list_gurus( WP_REST_Request $req ) {
+		if ( ! is_user_logged_in() ) {
+			return false;
+		}
+		if ( $this->permission_manage() ) {
+			return true;
+		}
+		$nb = (int) $req->get_param( 'notebook_id' );
+		if ( $nb > 0 && class_exists( 'BizCity_KG_Access' ) && BizCity_KG_Access::can_manage_notebook( $nb, get_current_user_id() ) ) {
+			return true;
+		}
+		return new WP_Error( 'kg_guru_list_forbidden', 'You cannot list Gurus for this notebook.', array(
+			'status'    => 403,
+			'hint'      => 'Open the picker from a notebook you own, or ask a site admin.',
+			'help_code' => 'kg_guru_list_forbidden',
+		) );
+	}
+
+	/**
 	 * List candidate gurus (characters with guru_uuid stamped). Used by the
-	 * attach-guru picker in the React UI.
+	 * attach-guru pickers (twinchat library sidebar, twinkg Gurus panel).
+	 *
+	 * Gurus are private (R-GURU-PRIVATE): site admins get the columns the twinkg
+	 * panel renders, never `bin_path`; notebook managers get only id/name/slug/guru_uuid
+	 * of active or published Gurus. Archived Gurus are never offered.
 	 *
 	 * Query params:
-	 *   search  string  Optional substring match on name/slug
-	 *   limit   int     Max rows (default 100, capped 200)
+	 *   search       string  Optional substring match on name/slug
+	 *   limit        int     Max rows (default 100, capped 200)
+	 *   notebook_id  int     Required for non-admins (see permission_list_gurus)
 	 */
 	public function list_gurus( WP_REST_Request $req ) {
 		global $wpdb;
@@ -1095,29 +1306,22 @@ class BizCity_KG_Rest_Controller {
 		if ( $limit < 1 )   $limit = 100;
 		if ( $limit > 200 ) $limit = 200;
 
+		$is_admin = $this->permission_manage();
+		$columns  = $is_admin
+			? 'id, name, slug, guru_uuid, status, version, bin_dim, bin_count, embed_model, updated_at'
+			: 'id, name, slug, guru_uuid';
+		$where    = "guru_uuid IS NOT NULL AND guru_uuid <> ''";
+		$where   .= $is_admin ? " AND status <> 'archived'" : " AND status IN ( 'active', 'published' )";
+		$params   = [];
 		if ( $search !== '' ) {
-			$like = '%' . $wpdb->esc_like( $search ) . '%';
-			$sql  = $wpdb->prepare(
-				"SELECT id, name, slug, guru_uuid, version, visibility,
-				        bin_path, bin_dim, bin_count, embed_model, updated_at
-				   FROM {$char_tbl}
-				  WHERE guru_uuid IS NOT NULL AND guru_uuid <> ''
-				    AND ( name LIKE %s OR slug LIKE %s )
-				  ORDER BY id DESC
-				  LIMIT %d",
-				$like, $like, $limit
-			);
-		} else {
-			$sql = $wpdb->prepare(
-				"SELECT id, name, slug, guru_uuid, version, visibility,
-				        bin_path, bin_dim, bin_count, embed_model, updated_at
-				   FROM {$char_tbl}
-				  WHERE guru_uuid IS NOT NULL AND guru_uuid <> ''
-				  ORDER BY id DESC
-				  LIMIT %d",
-				$limit
-			);
+			$like     = '%' . $wpdb->esc_like( $search ) . '%';
+			$where   .= ' AND ( name LIKE %s OR slug LIKE %s )';
+			$params[] = $like;
+			$params[] = $like;
 		}
+		$params[] = $limit;
+
+		$sql  = $wpdb->prepare( "SELECT {$columns} FROM {$char_tbl} WHERE {$where} ORDER BY id DESC LIMIT %d", $params );
 		$rows = $wpdb->get_results( $sql, ARRAY_A ) ?: [];
 		return rest_ensure_response( [ 'ok' => true, 'count' => count( $rows ), 'gurus' => $rows ] );
 	}

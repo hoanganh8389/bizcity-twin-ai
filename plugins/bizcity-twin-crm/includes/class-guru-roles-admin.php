@@ -26,7 +26,119 @@ class BizCity_CRM_Guru_Roles_Admin {
 		// Embed Role + Service Template selectors directly into the core
 		// character-edit Overview tab so admins manage everything in one place.
 		add_action( 'bizcity_knowledge_character_meta_rows', array( __CLASS__, 'render_inline_rows' ), 20 );
-		add_action( 'bizcity_knowledge_character_saved',     array( __CLASS__, 'persist_inline_save' ), 20, 2 );
+	}
+
+	/**
+	 * Hooks that must also run on REST requests (is_admin() is false on /wp-json/).
+	 *
+	 * [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T5d — the /twinkg/ Guru editor saves through
+	 * `bizcity-knowledge/v2/gurus/{id}/profile`. With these hooks inside the admin-only
+	 * register(), the CRM section would never be offered and its edits would be dropped
+	 * silently. Both callbacks are cheap no-ops unless a Guru profile is read or a crm_* key is saved.
+	 */
+	public static function register_profile_hooks(): void {
+		add_action( 'bizcity_knowledge_character_saved', array( __CLASS__, 'persist_inline_save' ), 20, 2 );
+		// The same four fields as render_inline_rows(), declared for the React editor.
+		add_filter( 'bizcity_knowledge_guru_profile_extensions', array( __CLASS__, 'profile_extensions' ), 20, 2 );
+	}
+
+	/**
+	 * Declare the CRM section for the /twinkg/ Guru editor (WP-09 §17.4 schema).
+	 *
+	 * Values are read from the RAW settings, not from resolve_for_character(): the resolver
+	 * downgrades a premium template the site is no longer entitled to to `none`, and saving
+	 * that back would silently lose the Guru's configured template.
+	 *
+	 * @param array $sections
+	 * @param int   $character_id
+	 * @return array
+	 */
+	public static function profile_extensions( $sections, $character_id ) {
+		$sections = is_array( $sections ) ? $sections : array();
+		if ( ! class_exists( 'BizCity_CRM_Service_Templates' ) || ! class_exists( 'BizCity_Knowledge_Database' ) ) {
+			return $sections;
+		}
+		$current = self::stored_values( (int) $character_id );
+
+		$template_options = array();
+		foreach ( BizCity_CRM_Service_Templates::entitled() as $slug => $tpl ) {
+			$locked = ! empty( $tpl['_premium'] ) && empty( $tpl['_entitled'] );
+			// A locked template is only listed when it is the one already stored, so the editor
+			// can show it without offering it to other Gurus.
+			if ( $locked && $slug !== $current['template'] ) {
+				continue;
+			}
+			$badge              = ! empty( $tpl['_premium'] ) ? ( $locked ? ' 🔒' : ' ✨' ) : '';
+			$template_options[] = array( 'value' => (string) $slug, 'label' => (string) ( $tpl['label'] ?? $slug ) . $badge );
+		}
+
+		$sections[] = array(
+			'key'    => 'crm',
+			'title'  => 'Twin CRM — Vai trò & Template phục vụ',
+			'fields' => array(
+				array(
+					'name'    => 'crm_role',
+					'type'    => 'select',
+					'label'   => 'Vai trò Guru',
+					'hint'    => 'AI Replier dùng cờ này để lọc binding theo kênh khi nhiều Guru cùng được gắn.',
+					'options' => array(
+						array( 'value' => 'external', 'label' => 'External — phục vụ khách qua FB / Zalo / Telegram' ),
+						array( 'value' => 'internal', 'label' => 'Internal — trợ lý nội bộ (CRM web, twinchat)' ),
+						array( 'value' => 'both',     'label' => 'Both — cả hai' ),
+					),
+					'value'   => $current['role'],
+				),
+				array(
+					'name'    => 'crm_template',
+					'type'    => 'chips',
+					'label'   => 'Service Template',
+					'options' => $template_options,
+					'value'   => $current['template'],
+				),
+				array(
+					'name'  => 'crm_custom_persona',
+					'type'  => 'textarea',
+					'label' => 'Persona prefix (vai trò & mục tiêu)',
+					'hint'  => 'Để trống = dùng nguyên persona của template đang chọn.',
+					'value' => $current['persona'],
+				),
+				array(
+					'name'  => 'crm_custom_style',
+					'type'  => 'textarea',
+					'label' => 'Style guide (phong cách trả lời, độ dài, emoji…)',
+					'hint'  => 'Để trống = dùng nguyên style guide của template.',
+					'value' => $current['style'],
+				),
+			),
+		);
+		return $sections;
+	}
+
+	/**
+	 * The four CRM values as stored in `bizcity_characters.settings`.
+	 *
+	 * @return array{role:string,template:string,persona:string,style:string}
+	 */
+	private static function stored_values( int $character_id ): array {
+		$out = array( 'role' => 'both', 'template' => 'none', 'persona' => '', 'style' => '' );
+		if ( $character_id <= 0 || ! class_exists( 'BizCity_Knowledge_Database' ) ) {
+			return $out;
+		}
+		$char = BizCity_Knowledge_Database::instance()->get_character( $character_id );
+		if ( ! $char ) {
+			return $out;
+		}
+		$settings = isset( $char->settings ) && $char->settings
+			? ( is_array( $char->settings ) ? $char->settings : ( json_decode( (string) $char->settings, true ) ?: array() ) )
+			: array();
+		$role = (string) ( $settings[ BizCity_CRM_Service_Templates::META_KEY_ROLE ] ?? 'both' );
+		$tpl  = (string) ( $settings[ BizCity_CRM_Service_Templates::META_KEY_TEMPLATE ] ?? 'none' );
+		return array(
+			'role'     => in_array( $role, array( 'external', 'internal', 'both' ), true ) ? $role : 'both',
+			'template' => '' !== $tpl ? $tpl : 'none',
+			'persona'  => (string) ( $settings[ BizCity_CRM_Service_Templates::META_KEY_CUSTOM_PERSONA ] ?? '' ),
+			'style'    => (string) ( $settings[ BizCity_CRM_Service_Templates::META_KEY_CUSTOM_STYLE ] ?? '' ),
+		);
 	}
 
 	public static function register_menu(): void {
@@ -338,8 +450,12 @@ class BizCity_CRM_Guru_Roles_Admin {
 		if ( $character_id <= 0 ) { return; }
 		if ( ! isset( $data['crm_role'] ) && ! isset( $data['crm_template'] )
 		  && ! isset( $data['crm_custom_persona'] ) && ! isset( $data['crm_custom_style'] ) ) { return; }
-		$role     = isset( $data['crm_role'] )     ? (string) $data['crm_role']     : 'both';
-		$template = isset( $data['crm_template'] ) ? (string) $data['crm_template'] : 'none';
+		// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T5d — the /twinkg/ editor sends only
+		// the fields that changed (PATCH). A missing role/template therefore means "unchanged",
+		// not "reset to both/none" — save_for_character() always writes both keys.
+		$stored   = self::stored_values( $character_id );
+		$role     = isset( $data['crm_role'] )     ? (string) $data['crm_role']     : $stored['role'];
+		$template = isset( $data['crm_template'] ) ? (string) $data['crm_template'] : $stored['template'];
 		$extras   = array();
 		if ( isset( $data['crm_custom_persona'] ) ) { $extras['custom_persona'] = wp_kses_post( (string) $data['crm_custom_persona'] ); }
 		if ( isset( $data['crm_custom_style'] ) )   { $extras['custom_style']   = wp_kses_post( (string) $data['crm_custom_style'] ); }

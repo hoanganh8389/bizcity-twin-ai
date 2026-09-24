@@ -114,6 +114,10 @@ final class BizCity_Bot_REST {
 			return self::not_loaded();
 		}
 		$character_id = (int) $req['character_id'];
+		$unknown = self::unknown_character( $character_id );
+		if ( $unknown ) {
+			return $unknown;
+		}
 		$data = BizCity_Bot_Config_Repo::get( $character_id );
 		$data['provider'] = class_exists( 'BizCity_Bot_Provider' ) ? BizCity_Bot_Provider::site_status() : null;
 		return self::ok( $data );
@@ -124,6 +128,10 @@ final class BizCity_Bot_REST {
 			return self::not_loaded();
 		}
 		$character_id = (int) $req['character_id'];
+		$unknown = self::unknown_character( $character_id );
+		if ( $unknown ) {
+			return $unknown;
+		}
 		$body         = $req->get_json_params();
 		$body         = is_array( $body ) ? $body : array();
 		$result       = BizCity_Bot_Config_Repo::save( $character_id, $body );
@@ -286,6 +294,8 @@ final class BizCity_Bot_REST {
 	/* ── /bot/policy/{binding_id} (PHASE-0.60E EA-1) ─────────────────── */
 
 	const ALLOWLIST_MODES  = array( 'all', 'contacts_only', 'list' );
+	/** Same short keys as the zca-bridge action surface (Libe-Zalo reaction-icons.ts). */
+	const REACT_ICONS      = array( 'heart', 'like', 'haha', 'wow', 'ok', 'rose', 'kiss', 'cry', 'angry' );
 	const ALLOWLIST_MAX_UIDS = 500;
 
 	public static function rest_get_policy( WP_REST_Request $req ) {
@@ -338,6 +348,21 @@ final class BizCity_Bot_REST {
 		if ( array_key_exists( 'owner_uid', $body ) ) {
 			$policy['owner_uid'] = sanitize_text_field( trim( (string) $body['owner_uid'] ) );
 		}
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 (unblocked by zca-bridge 0.40.0 actions) — both default OFF:
+		// they are actions that touch Zalo, so they are opt-in per number (0.60A "bật có ý thức").
+		if ( array_key_exists( 'typing_indicator', $body ) ) {
+			$policy['typing_indicator'] = (bool) $body['typing_indicator'];
+		}
+		if ( array_key_exists( 'auto_react', $body ) ) {
+			$policy['auto_react'] = (bool) $body['auto_react'];
+		}
+		if ( array_key_exists( 'react_icon', $body ) ) {
+			$icon = sanitize_key( (string) $body['react_icon'] );
+			if ( ! in_array( $icon, self::REACT_ICONS, true ) ) {
+				return self::err( 'invalid_param', 'Biểu tượng cảm xúc không hợp lệ.', 422, 'Chọn một trong: ' . implode( ', ', self::REACT_ICONS ) . '.', 'bot_policy_react_icon' );
+			}
+			$policy['react_icon'] = $icon;
+		}
 
 		if ( ! BizCity_Channel_Binding::save_policy( $binding_id, $policy ) ) {
 			return self::err( 'save_failed', 'Không lưu được cấu hình.', 500, 'Thử lại; nếu vẫn lỗi hãy kiểm tra log.', 'bot_policy_save_failed' );
@@ -371,6 +396,10 @@ final class BizCity_Bot_REST {
 			'passive_listen_in_group'  => ! isset( $decoded['passive_listen_in_group'] ) || (bool) $decoded['passive_listen_in_group'],
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-7.2 — empty string = feature fully off (default).
 			'owner_uid' => isset( $decoded['owner_uid'] ) ? (string) $decoded['owner_uid'] : '',
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 — default OFF (key absent = no behavior change).
+			'typing_indicator' => ! empty( $decoded['typing_indicator'] ),
+			'auto_react'       => ! empty( $decoded['auto_react'] ),
+			'react_icon'       => isset( $decoded['react_icon'] ) && in_array( $decoded['react_icon'], self::REACT_ICONS, true ) ? (string) $decoded['react_icon'] : 'heart',
 		);
 	}
 
@@ -395,6 +424,10 @@ final class BizCity_Bot_REST {
 			return self::not_loaded();
 		}
 		$character_id = (int) $req['character_id'];
+		$unknown = self::unknown_character( $character_id );
+		if ( $unknown ) {
+			return $unknown;
+		}
 		$media        = BizCity_Bot_Config_Repo::get( $character_id )['media'];
 		return self::ok( array(
 			'config'  => $media,
@@ -407,6 +440,10 @@ final class BizCity_Bot_REST {
 			return self::not_loaded();
 		}
 		$character_id = (int) $req['character_id'];
+		$unknown = self::unknown_character( $character_id );
+		if ( $unknown ) {
+			return $unknown;
+		}
 		$body         = $req->get_json_params();
 		$body         = is_array( $body ) ? $body : array();
 		$result       = BizCity_Bot_Config_Repo::save( $character_id, array( 'media' => $body ) );
@@ -530,6 +567,22 @@ final class BizCity_Bot_REST {
 
 	private static function ok( array $data ): WP_REST_Response {
 		return new WP_REST_Response( array( 'ok' => true, 'data' => $data ), 200 );
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60I — the {character_id} routes accepted any digits (incl. 0 and
+	 * deleted Gurus) and answered 200 with defaults, so a typo/stale id looked like a saved config and a
+	 * WRITE could create orphan settings. Fail closed with the 4-field envelope. Skipped (null) when the
+	 * Knowledge DB is not loaded so this can never turn a healthy route into a fatal.
+	 */
+	private static function unknown_character( int $character_id ): ?WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Knowledge_Database' ) ) {
+			return null;
+		}
+		if ( $character_id > 0 && BizCity_Knowledge_Database::instance()->get_character( $character_id ) ) {
+			return null;
+		}
+		return self::err( 'character_not_found', 'Không tìm thấy trợ lý (Guru) này.', 404, 'Chọn một Guru còn tồn tại trong danh sách Guru của kênh.', 'bot_studio_character_not_found' );
 	}
 
 	private static function not_loaded(): WP_REST_Response {
