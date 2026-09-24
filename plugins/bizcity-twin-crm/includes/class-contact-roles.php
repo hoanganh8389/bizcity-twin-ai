@@ -22,6 +22,40 @@ final class BizCity_CRM_Contact_Roles {
 
 	const PREFIX = 'role:';
 
+	/**
+	 * The closed set a UI may offer (0.62 §4.2: customer/supplier/colleague/workshop) — a picker, never a free
+	 * text box, so nobody has to guess the spelling of a tag prefix. `kinds` is only a SUGGESTION for which
+	 * pipeline kinds usually fit that role; nothing here restricts what a lead may open.
+	 */
+	const CATALOG = array(
+		'customer'  => array( 'label' => 'Khách hàng',   'kinds' => array( 'service' ) ),
+		'supplier'  => array( 'label' => 'Nhà cung cấp', 'kinds' => array( 'purchase' ) ),
+		'colleague' => array( 'label' => 'Đồng nghiệp',  'kinds' => array( 'request' ) ),
+		'workshop'  => array( 'label' => 'Xưởng / sản xuất', 'kinds' => array( 'production' ) ),
+	);
+
+	/** @return array<int,array{key:string,label:string,kinds:string[]}> */
+	public static function catalog(): array {
+		$out = array();
+		foreach ( self::CATALOG as $key => $entry ) {
+			$out[] = array( 'key' => $key, 'label' => $entry['label'], 'kinds' => $entry['kinds'] );
+		}
+		return $out;
+	}
+
+	/**
+	 * Keep only catalog roles, de-duplicated, in catalog order.
+	 *
+	 * @param mixed $roles
+	 * @return string[]
+	 */
+	public static function only_catalog( $roles ): array {
+		$wanted = array_map( 'strval', is_array( $roles ) ? $roles : array() );
+		return array_values( array_filter( array_keys( self::CATALOG ), static function ( $key ) use ( $wanted ) {
+			return in_array( $key, $wanted, true );
+		} ) );
+	}
+
 	/** Default role a contact should get on first contact through an inbox of a given `purpose` (GC-6). */
 	const PURPOSE_DEFAULT_ROLE = array(
 		'sales'      => 'customer',

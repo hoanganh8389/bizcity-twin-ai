@@ -409,6 +409,16 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 			BizCity_Safe_Loader::require_file( $outbound_dispatcher, 'crm.inbox.outbound_dispatcher' );
 		}
 		unset( $outbound_dispatcher );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H2 — the powerless "system owner" user that owns media a Bot Studio
+		// auto-reply sends. Guarded like the dispatcher (a partial deploy must not white-screen the CRM bundle).
+		$system_owner_file = $inc . 'class-system-owner.php';
+		if ( is_file( $system_owner_file ) && is_readable( $system_owner_file ) && class_exists( 'BizCity_Safe_Loader' ) ) {
+			BizCity_Safe_Loader::require_file( $system_owner_file, 'crm.system_owner' );
+			if ( class_exists( 'BizCity_CRM_System_Owner', false ) ) {
+				BizCity_CRM_System_Owner::init();
+			}
+		}
+		unset( $system_owner_file );
 
 		// Bot-plugin bridges (M7.W5.task-1) — adapters call these instead of
 		// touching sibling-plugin classes directly. Loaded BEFORE adapters.

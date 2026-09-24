@@ -33,6 +33,8 @@ final class BizCity_Automation_Repo_Workflows {
 		'twinbrain_intent',// BE-6.E hook — chat intent from TwinBrain runtime.
 		'twinbrain_turn_completed', // BE-7.A — synthesis_done / final_done / agent_loop_done.
 		'twinbrain_tool_decided',   // BE-7.A — Stage 3 tool suggestion fired.
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — Bot Studio Guru bot just replied (bizcity_bot_turn_completed).
+		'bot_turn_completed',
 		// [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W2 — listen on skill A/B/C invocations.
 		'skill_intent',
 		// [2026-06-03 Johnny Chu] WF-AUTO GURU W2 — workflow-tier slash dispatch (Tier 2).

@@ -7,6 +7,8 @@ if ( ! defined( 'ARRAY_A' ) ) { define( 'ARRAY_A', 'ARRAY_A' ); }
 class Fake_CRM_DB_Installer_For_H06 {
 	public static function tbl_attachments() { return 'attachments'; }
 	public static function tbl_archive_receipts() { return 'receipts'; }
+	// hydrate_messages() now skips the attachments query when the table is absent (2026-09-22 hotfix).
+	public static function table_exists( string $table ): bool { return true; }
 }
 class Fake_WPDB_For_H06 {
 	public function prepare( $query, ...$args ) { return $query; }

@@ -58,7 +58,13 @@ class LegacyInstallAbsenceRulesTest extends TestCase {
             'core/twin-core/includes/class-twin-state-schema.php',
             'core/knowledge/includes/class-database.php',
             'core/knowledge/includes/class-user-memory.php',
-            'core/knowledge/includes/class-skill-database.php',
+            // [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-01 K-07 —
+            // `core/knowledge/includes/class-skill-database.php` was retired under
+            // R-ORPHAN-FILE. It was a duplicate declaration of BizCity_Skill_Database that no
+            // bootstrap required, and the only deployed installer for the retired table
+            // `bizcity_skill_logs`. The canonical owner, core/skills/includes/class-skill-database.php,
+            // is deliberately NOT added here: it creates `bizcity_skills` only, which is an
+            // active table, so the fail-closed rule does not apply to it.
             'core/knowledge/kg-hub/includes/class-kg-cleanup-service.php',
             'core/intent/includes/conversation/class-rolling-memory.php',
             'core/intent/includes/conversation/class-episodic-memory.php',

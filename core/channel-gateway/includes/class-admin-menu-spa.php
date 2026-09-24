@@ -97,7 +97,7 @@ final class BizCity_Gateway_Admin_SPA {
 		// [2026-09-19 Johnny Chu] HOTFIX — Network Super Admins can lack a local blog role; gate the deployed Gateway SPA with the network capability on multisite.
 		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
 			? BizCity_Network_Admin_Capability::menu_cap()
-			: ( function_exists( 'is_super_admin' ) && is_super_admin() ? 'manage_network' : 'manage_options' );
+			: ( is_multisite() && is_super_admin() ? 'manage_network' : 'manage_options' ); // [2026-09-24] HOTFIX-SINGLE-SITE-MENU-CAP
 		// [2026-08-11 Johnny Chu] PHASE-1.26 — central registration owns the visible parent and slug.
 		if ( isset( $submenu[ $parent ] ) && is_array( $submenu[ $parent ] ) ) {
 			foreach ( $submenu[ $parent ] as $index => $item ) {

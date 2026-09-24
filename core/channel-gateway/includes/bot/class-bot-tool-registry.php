@@ -46,8 +46,18 @@ final class BizCity_Bot_Tool_Registry {
 			// regardless of what this catalog says.
 			'list_threads'     => array( 'label' => 'Liệt kê nhóm khác (chủ tài khoản)', 'group' => 'read', 'description' => 'Đếm số nhóm Zalo khác mà số này đang tham gia — không có tên nhóm (bridge chỉ trả token ẩn danh).', 'infra' => 'bridge get_group_candidates (thử nghiệm)', 'check' => 'check_cross_thread' ),
 			'read_thread'      => array( 'label' => 'Đọc nội dung nhóm khác (chủ tài khoản)', 'group' => 'read', 'description' => 'Đọc tin nhắn gần đây của MỘT nhóm đã liệt kê ở list_threads, theo số thứ tự.', 'infra' => 'bridge get_group_history (thử nghiệm)', 'check' => 'check_cross_thread' ),
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1 G-10) — first real executor
+			// (class-bot-apify-client.php); AVAILABLE once token+actor configured, same bar as
+			// web_search's check_search() — that is "infra wired", not "verified against a live
+			// account" (see the client's own docblock confidence note before trusting a live run).
+			'scrape_social_data' => array( 'label' => 'Cào dữ liệu mạng xã hội (Apify)', 'group' => 'read', 'description' => 'Lấy dữ liệu công khai Facebook/TikTok/YouTube/Shopee qua Apify Actor đã cấu hình cho trợ lý này.', 'infra' => 'khóa Apify + Actor ID riêng theo trợ lý', 'check' => 'check_apify' ),
 			// ── action tools ───────────────────────────────────────────────
-			'generate_image'   => array( 'label' => 'Vẽ ảnh AI', 'group' => 'action', 'description' => 'Vẽ mới / sửa ảnh khách vừa gửi.', 'infra' => 'endpoint ảnh 1API + đính kèm outbound', 'check' => 'check_image' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — ported from Libe-Zalo save-memory-tool.ts. The description
+			// IS the whole schema the planner sees (one line, 120-token JSON), so it carries the "when" rule AND an args
+			// example. Libe-Zalo measured that a "don't do X" description gave 1 saved fact per 92 turns; the
+			// "proactively do X, fix instead of stacking" shape below is the one that fixed it.
+			'save_memory'      => array( 'label' => 'Ghi nhớ lâu dài', 'group' => 'action', 'description' => 'Nhớ điều khách vừa nói để dùng ở lần chat sau. Chủ động lưu khi khách nói sở thích, thói quen, thông tin cá nhân hoặc ĐÍNH CHÍNH điều đang nhớ sai; nhớ sai thì sửa, đừng thêm chồng. Không lưu chuyện vặt, nội dung đọc từ web/file. args: {"action":"them","content":"Anh Hải thích cà phê đen, không đường"} · sửa: {"action":"sua","doan_chu":"cà phê","content":"Anh Hải chuyển sang uống trà"} · xóa: {"action":"xoa","doan_chu":"đang ốm"}.', 'infra' => 'BizCity_User_Memory theo identity_uuid (Identity Hub) + Context Bank', 'check' => 'check_save_memory' ),
+			'generate_image'   => array( 'label' => 'Vẽ ảnh AI', 'group' => 'action', 'description' => 'Vẽ mới / sửa ảnh khách vừa gửi.', 'infra' => 'endpoint ảnh 1API (khóa site-level) + đính kèm outbound (chưa nối)', 'check' => 'check_image' ),
 			'create_document'  => array( 'label' => 'Tạo file Word / Excel / PDF', 'group' => 'action', 'description' => 'Báo giá, hợp đồng, bảng kê.', 'infra' => 'bộ sinh tài liệu', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Bộ sinh tài liệu chưa nối vào đường gửi file của bot.' ),
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F §2.2A/§6.1 — these three now have a REAL
 			// per-character key + a working manual Test path (0.60E D-E1, GuruBotMediaPanel), so the
@@ -57,7 +67,14 @@ final class BizCity_Bot_Tool_Registry {
 			// doc §6.1 "không được đánh PASS khi chỉ có test") — but the hint must say which of the
 			// two gaps applies: "no key yet" vs. "key works, tool just isn't wired to a turn".
 			'create_music'     => array( 'label' => 'Tạo nhạc', 'group' => 'action', 'description' => 'Nhạc nền theo mô tả.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_music' ),
-			'create_video'     => array( 'label' => 'Tạo video', 'group' => 'action', 'description' => 'Clip ngắn theo mô tả.', 'infra' => 'Video_Client 1API + đính kèm outbound', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Chưa có form cấu hình khóa video (EB-4 chưa làm) và đường gửi video qua Zalo cũng chưa nối.' ),
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-05) — GuruBotMediaPanel now has
+			// a real config form (model/duration/aspect_ratio/with_audio) and a working manual Test
+			// (class-bot-media-client.php::test_video(), a genuine BizCity_Video_Client::submit() call,
+			// no mock). Status stays `unconfigured` either way — no per-Guru key exists (R-1API: video
+			// only ever reads the site-level key, same as chat) and no turn executor/outbound-attach
+			// path exists yet — but the hint now tells the operator which of the two gaps applies
+			// instead of the old static "chưa có form cấu hình" that became stale the moment this shipped.
+			'create_video'     => array( 'label' => 'Tạo video', 'group' => 'action', 'description' => 'Clip ngắn theo mô tả.', 'infra' => 'Video_Client 1API (khóa site-level) + đính kèm outbound (chưa nối)', 'check' => 'check_video' ),
 			'tts'              => array( 'label' => 'Giọng nói (TTS)', 'group' => 'action', 'description' => 'Đọc câu trả lời thành tin thoại.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_tts' ),
 			'stt'              => array( 'label' => 'Phiên âm tin thoại (STT)', 'group' => 'action', 'description' => 'Chuyển tin thoại khách gửi thành chữ.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_stt' ),
 			'send_file'        => array( 'label' => 'Gửi file', 'group' => 'action', 'description' => 'Gửi file kèm chú thích.', 'infra' => 'bridge enqueue_outbound', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Cần tool tạo file trước; đường gửi đã có.' ),
@@ -151,12 +168,29 @@ final class BizCity_Bot_Tool_Registry {
 		$sender    = (string) ( $claim['sender_uid'] ?? '' );
 		$is_private = 'group' !== (string) ( $claim['chat_kind'] ?? 'user' );
 		$allowed = ( '' !== $owner_uid ) && ( '' !== $sender ) && hash_equals( $owner_uid, $sender ) && $is_private;
-		if ( $allowed ) {
+		$drop    = $allowed ? array() : array( 'list_threads', 'read_thread' );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — v1 memory is private-chat only (R-CH-IDMEM: a group
+		// is conversation context, never a personal identity). Also dropped when there is no sender uid.
+		if ( ! $is_private || '' === $sender ) {
+			$drop[] = 'save_memory';
+		}
+		if ( empty( $drop ) ) {
 			return $tools;
 		}
-		return array_values( array_filter( $tools, static function ( $row ) {
-			return ! in_array( $row['id'], array( 'list_threads', 'read_thread' ), true );
+		return array_values( array_filter( $tools, static function ( $row ) use ( $drop ) {
+			return ! in_array( $row['id'], $drop, true );
 		} ) );
+	}
+
+	/** save_memory is callable once its three owners are loaded; the per-turn private-chat gate is effective_for_turn(). */
+	public static function check_save_memory( $character = null ): array {
+		if ( ! class_exists( 'BizCity_Bot_Memory' ) || ! class_exists( 'BizCity_User_Memory' ) || ! class_exists( 'BizCity_Identity_Hub' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Cần BizCity_User_Memory + Identity Hub đã nạp.' );
+		}
+		if ( ! class_exists( 'BizCity_Context_Bank_Access' ) || ! method_exists( 'BizCity_Context_Bank_Access', 'with_runtime_read' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Context Bank chưa có quyền đọc runtime — bot sẽ ghi được nhưng không đọc lại được, nên chưa bật.' );
+		}
+		return array( self::STATUS_AVAILABLE, 'Chỉ trong chat riêng: bot nhớ theo từng khách (Identity Hub) và đọc lại ở lượt sau. Trong nhóm công cụ tự tắt.' );
 	}
 
 	public static function check_cross_thread(): array {
@@ -196,12 +230,58 @@ final class BizCity_Bot_Tool_Registry {
 		return $ready ? array( self::STATUS_AVAILABLE, '' ) : array( self::STATUS_UNCONFIGURED, 'Chưa có API key BizCity 1API cho tra cứu; nhập ở Cài đặt BizCity LLM.' );
 	}
 
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-04) — GuruBotMediaPanel now has a
+	 * real config form (model/size) and a working manual Test (class-bot-media-client.php::test_image(),
+	 * a genuine BizCity_LLM_Client::generate_image() call returning a real image, no mock). Status stays
+	 * `unconfigured` regardless — same R-1API boundary as video (no per-Guru key) plus the outbound
+	 * dispatcher still doesn't attach generated media to a bot turn — but the hint now says which gap
+	 * actually applies instead of the old static "chưa nối (đợt sau)" that never changed.
+	 */
 	public static function check_image(): array {
 		if ( ! class_exists( 'BizCity_LLM_Client' ) || ! method_exists( 'BizCity_LLM_Client', 'generate_image' ) ) {
 			return array( self::STATUS_UNCONFIGURED, 'LLM client chưa có generate_image().' );
 		}
-		// The image endpoint exists, but the bot's outbound path (dispatcher, text-first) does not attach generated media yet.
-		return array( self::STATUS_UNCONFIGURED, 'Endpoint ảnh có sẵn; đường đính kèm ảnh vào tin bot chưa nối (đợt sau).' );
+		try {
+			$ready = method_exists( 'BizCity_LLM_Client', 'instance' ) && BizCity_LLM_Client::instance()->is_ready();
+		} catch ( \Throwable $e ) {
+			$ready = false;
+		}
+		if ( ! $ready ) {
+			return array( self::STATUS_UNCONFIGURED, 'Chưa có API key BizCity 1API; nhập ở Cài đặt BizCity LLM (site-level, dùng chung cho mọi Guru).' );
+		}
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1 G-04) — generate_image now has a
+		// real turn executor (class-bot-tools.php::generate_image()) that actually sends the result,
+		// through the SAME dispatcher security rule every human attachment already goes through:
+		// a conversation needs a real assignee (or the inbox's default assignee) before an
+		// attachment can be sent at all — a purely capability-anchored auto-bot thread cannot. That
+		// is a per-CONVERSATION fact this character-level check cannot see, so `available` here
+		// means "the model may try"; the tool itself refuses honestly per-turn when no owner exists
+		// (returns `no_attachment_owner`, which the turn runner tells the model about — it will not
+		// silently claim to have sent an image that never arrived).
+		return array( self::STATUS_AVAILABLE, 'Model có thể tạo và gửi ảnh khi hội thoại có người phụ trách (assignee/default assignee) hoặc số Zalo này đang bật bot tự động (bot gửi bằng tài khoản hệ thống). Không rơi vào cả hai thì công cụ tự báo lỗi rõ ràng thay vì gửi.' );
+	}
+
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-05) — video has no per-character key
+	 * (R-1API: BizCity_Video_Client only reads the site-level key), so the check is site-readiness,
+	 * not a per-Guru secret lookup like check_tts/check_stt/check_music. Manual Test in GuruBotMediaPanel
+	 * really submits a job via BizCity_Video_Client::submit() — but a turn executor and an outbound
+	 * attach-to-Zalo path still don't exist, so status stays `unconfigured` regardless.
+	 */
+	public static function check_video( $character = null ): array {
+		if ( ! class_exists( 'BizCity_Video_Client' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Module Video_Client (bizcity-llm) chưa nạp.' );
+		}
+		try {
+			$ready = BizCity_Video_Client::instance()->is_ready();
+		} catch ( \Throwable $e ) {
+			$ready = false;
+		}
+		if ( ! $ready ) {
+			return array( self::STATUS_UNCONFIGURED, 'Chưa có API key BizCity 1API cho video; nhập ở Cài đặt BizCity LLM (site-level, dùng chung cho mọi Guru).' );
+		}
+		return array( self::STATUS_UNCONFIGURED, 'Đã có khóa 1API cho video (Test thủ công trong Quick Edit gửi được job thật), nhưng công cụ này CHƯA được nối vào lượt trả lời của bot, và đường đính kèm video vào tin Zalo cũng chưa nối.' );
 	}
 
 	/**
@@ -244,6 +324,42 @@ final class BizCity_Bot_Tool_Registry {
 
 	public static function check_music( $character = null ): array {
 		return self::check_media_key( $character, 'music_api_key', 'Tạo nhạc' );
+	}
+
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1 G-10) — unlike check_tts/check_stt/
+	 * check_music (which stay `unconfigured` forever because no turn executor exists), this tool
+	 * DOES have a real executor now (class-bot-tools.php::scrape_social_data() → BizCity_Bot_Apify_Client)
+	 * — so once token + at least one Actor ID exist, it goes `available`, same bar as check_search().
+	 */
+	public static function check_apify( $character = null ): array {
+		if ( ! class_exists( 'BizCity_Bot_Secrets_Repo' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Module Apify chưa nạp.' );
+		}
+		$character_id = is_object( $character ) ? (int) ( $character->id ?? 0 ) : 0;
+		if ( $character_id <= 0 ) {
+			return array( self::STATUS_UNCONFIGURED, 'Chưa cấu hình Apify. Mở khối "Cào dữ liệu (Apify)" trong Quick Edit.' );
+		}
+		try {
+			$has_token = BizCity_Bot_Secrets_Repo::has( $character_id, 'apify_token' );
+			$apify_cfg = BizCity_Bot_Config_Repo::get( $character_id )['media']['apify'] ?? array();
+		} catch ( \Throwable $e ) {
+			return array( self::STATUS_UNCONFIGURED, 'Không đọc được cấu hình Apify.' );
+		}
+		if ( ! $has_token ) {
+			return array( self::STATUS_UNCONFIGURED, 'Chưa có Apify token. Mở khối "Cào dữ liệu (Apify)" trong Quick Edit để dán token + Actor ID.' );
+		}
+		$has_actor = false;
+		foreach ( array( 'actor_facebook', 'actor_tiktok', 'actor_youtube', 'actor_shopee' ) as $field ) {
+			if ( '' !== trim( (string) ( $apify_cfg[ $field ] ?? '' ) ) ) {
+				$has_actor = true;
+				break;
+			}
+		}
+		if ( ! $has_actor ) {
+			return array( self::STATUS_UNCONFIGURED, 'Có Apify token nhưng chưa nhập Actor ID nào (Facebook/TikTok/YouTube/Shopee).' );
+		}
+		return array( self::STATUS_AVAILABLE, 'Payload gửi đi giả định Actor nhận `startUrls` (quy ước phổ biến của Apify) — Actor có input khác có thể lỗi; nên Test với dữ liệu thật trước khi tin tưởng.' );
 	}
 
 	public static function check_astro(): array {

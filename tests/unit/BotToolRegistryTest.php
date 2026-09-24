@@ -28,6 +28,90 @@ final class BotToolRegistryTest extends TestCase {
 		$this->assertSame( 'unconfigured', $by['web_search']['status'], 'no Search_Client in the unit runtime → unconfigured with a hint' );
 		$this->assertNotSame( '', $by['web_search']['hint'] );
 		$this->assertSame( 'unconfigured', $by['tts']['status'] );
+		// [PHASE-0.60F OW-4 §6.1 G-04] no BizCity_LLM_Client in this unit runtime → the check's
+		// FIRST guard fires, so this only pins "still unconfigured when the class isn't loaded",
+		// not the newer `available` branch (that needs a live/faked LLM client, out of scope for
+		// this DB/HTTP-free suite).
+		$this->assertSame( 'unconfigured', $by['generate_image']['status'] );
+	}
+
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F §2.2A — pins the fixed-hint regression: once 0.60E
+	 * D-E1 shipped a real per-character key path for tts/stt/create_music, the old catalog hint
+	 * ("BizCity 1API chưa có — xin Hub bổ sung") became false — a key CAN be configured today.
+	 * Status must still be `unconfigured` (no turn-time executor exists yet), but the hint must
+	 * describe THAT gap, not the no-longer-true "ask the Hub" one.
+	 */
+	public function test_media_tool_hints_no_longer_claim_hub_service_is_missing(): void {
+		$rows = BizCity_Bot_Tool_Registry::rows(); // no character → BizCity_Bot_Secrets_Repo not consulted (id<=0 branch).
+		$by   = array_column( $rows, null, 'id' );
+		foreach ( array( 'tts', 'stt', 'create_music' ) as $id ) {
+			$this->assertSame( 'unconfigured', $by[ $id ]['status'], $id );
+			$this->assertStringNotContainsString( 'xin Hub bổ sung', $by[ $id ]['hint'], "$id hint must not claim a Hub gap that D-E1 already closed" );
+			$this->assertStringContainsString( 'khóa', $by[ $id ]['hint'], "$id hint should point the operator at the key config, not a vague blocker" );
+		}
+	}
+
+	/** [PHASE-0.60F OW-4 §6.1 G-10] catalog wiring + the one DB-free branch of check_apify(). */
+	public function test_scrape_social_data_is_catalogued_and_unconfigured_without_a_character(): void {
+		$rows = BizCity_Bot_Tool_Registry::rows();
+		$by   = array_column( $rows, null, 'id' );
+		$this->assertArrayHasKey( 'scrape_social_data', $by );
+		$this->assertSame( 'unconfigured', $by['scrape_social_data']['status'] );
+		$this->assertStringContainsString( 'Apify', $by['scrape_social_data']['hint'] );
+	}
+
+	/** [PHASE-0.60F OW-4] scrape_social_data's guard clauses run before any Apify HTTP call or DB read. */
+	public function test_scrape_social_data_rejects_missing_claim_or_args_before_any_apify_call(): void {
+		$no_character = BizCity_Bot_Tools::run( 'scrape_social_data', array( 'platform' => 'facebook', 'url' => 'https://facebook.com/x' ), array() );
+		$this->assertFalse( $no_character['ok'] );
+		$this->assertSame( 'invalid_param', $no_character['error'] );
+
+		$no_platform = BizCity_Bot_Tools::run( 'scrape_social_data', array( 'url' => 'https://facebook.com/x' ), array( 'character_id' => 5 ) );
+		$this->assertFalse( $no_platform['ok'] );
+		$this->assertSame( 'invalid_param', $no_platform['error'] );
+
+		$no_url = BizCity_Bot_Tools::run( 'scrape_social_data', array( 'platform' => 'facebook' ), array( 'character_id' => 5 ) );
+		$this->assertFalse( $no_url['ok'] );
+		$this->assertSame( 'invalid_param', $no_url['error'] );
+	}
+
+	/**
+	 * [PHASE-0.60F OW-4 §6.1 G-04] generate_image's own guard clauses (character_id/conversation_id/
+	 * prompt) run before resolve_attachment_owner() ever touches BizCity_CRM_Repository — this suite
+	 * does not mock $wpdb, so only these DB-free branches are exercised here.
+	 */
+	public function test_generate_image_rejects_missing_claim_or_args_before_any_db_read(): void {
+		$no_character = BizCity_Bot_Tools::run( 'generate_image', array( 'prompt' => 'a cat' ), array( 'conversation_id' => 9 ) );
+		$this->assertFalse( $no_character['ok'] );
+		$this->assertSame( 'invalid_param', $no_character['error'] );
+
+		$no_conversation = BizCity_Bot_Tools::run( 'generate_image', array( 'prompt' => 'a cat' ), array( 'character_id' => 5 ) );
+		$this->assertFalse( $no_conversation['ok'] );
+		$this->assertSame( 'invalid_param', $no_conversation['error'] );
+
+		$no_prompt = BizCity_Bot_Tools::run( 'generate_image', array(), array( 'character_id' => 5, 'conversation_id' => 9 ) );
+		$this->assertFalse( $no_prompt['ok'] );
+		$this->assertSame( 'invalid_param', $no_prompt['error'] );
+	}
+
+	/**
+	 * The fake BizCity_CRM_Repository from support/bot-studio-stubs.php has no seeded conversation
+	 * #9, so get_conversation() returns null — resolve_attachment_owner() must degrade to "no
+	 * owner" from that, never fatal or guess a fake owner id.
+	 */
+	public function test_generate_image_refuses_when_conversation_has_no_resolvable_owner(): void {
+		$result = BizCity_Bot_Tools::run( 'generate_image', array( 'prompt' => 'a cat' ), array( 'character_id' => 5, 'conversation_id' => 9 ) );
+		$this->assertFalse( $result['ok'] );
+		$this->assertSame( 'no_attachment_owner', $result['error'] );
+	}
+
+	/** A character row is now passed into check callbacks (§2.2A) — must never fatal a listing that ignores it. */
+	public function test_rows_with_a_character_never_fatals_even_without_secrets_repo_loaded(): void {
+		$rows = BizCity_Bot_Tool_Registry::rows( $this->character( array() ) );
+		$by   = array_column( $rows, null, 'id' );
+		$this->assertSame( 'unconfigured', $by['tts']['status'] );
+		$this->assertSame( 'available', $by['current_datetime']['status'], 'unrelated checks must be unaffected by the new argument' );
 	}
 
 	public function test_effective_is_available_minus_both_off_lists(): void {

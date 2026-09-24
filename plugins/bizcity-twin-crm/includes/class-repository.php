@@ -305,6 +305,30 @@ class BizCity_CRM_Repository {
 		return $row;
 	}
 
+	/**
+	 * Read-only: the CRM contact already attached to `(inbox_id, source_id)`, or 0 when there is none yet.
+	 *
+	 * Unlike upsert_contact()/upsert_contact_by_identity() this NEVER writes — callers that only need to know
+	 * "who is this, if we know them" (e.g. Bot Studio deciding whether to take a turn, before the CRM ingestor
+	 * has persisted the message) must not create a contact as a side effect.
+	 *
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H — added for BizCity_Bot_Turn_Claim, which used to read
+	 * `contact_id` off the normalized channel envelope; that field is an Identity Hub row id, not a CRM id.
+	 */
+	public static function find_contact_id_by_source( int $inbox_id, string $source_id ): int {
+		$source_id = trim( $source_id );
+		if ( $inbox_id <= 0 || '' === $source_id ) {
+			return 0;
+		}
+		global $wpdb;
+		$table = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		return (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT contact_id FROM {$table} WHERE inbox_id = %d AND source_id = %s ORDER BY id ASC LIMIT 1",
+			$inbox_id,
+			$source_id
+		) );
+	}
+
 	public static function list_inboxes(): array {
 		global $wpdb;
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
@@ -960,6 +984,33 @@ class BizCity_CRM_Repository {
 			$conversation_id
 		) );
 		return (int) $contact_id;
+	}
+
+	/**
+	 * Read-only: the CRM thread a conversation belongs to — its contact and the channel thread key
+	 * (`<uid>` for a private Zalo chat, `group:<group_id>` for a group).
+	 *
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Bot Studio needs this to take a turn that did not
+	 * start from a webhook (the composer "AI reply" button). Conversations store `contact_inbox_id`, not
+	 * the contact or the source key, so both come from `contact_inboxes`. Empty values = fail closed.
+	 *
+	 * @return array{contact_id:int,source_id:string}
+	 */
+	public static function get_conversation_thread_ref( int $conversation_id ): array {
+		$out = array( 'contact_id' => 0, 'source_id' => '' );
+		if ( $conversation_id <= 0 ) { return $out; }
+		global $wpdb;
+		$tbl_conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT ci.contact_id, ci.source_id FROM {$tbl_conv} c JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id WHERE c.id = %d LIMIT 1",
+			$conversation_id
+		), ARRAY_A );
+		if ( is_array( $row ) ) {
+			$out['contact_id'] = (int) ( $row['contact_id'] ?? 0 );
+			$out['source_id']  = (string) ( $row['source_id'] ?? '' );
+		}
+		return $out;
 	}
 
 	/**
@@ -1874,6 +1925,30 @@ class BizCity_CRM_Repository {
 	 * @param string $external_source_id Provider message identifier.
 	 * @return bool True when the identifier was stored by this call.
 	 */
+	/**
+	 * Attach the AI trace (`ai_metadata_json`) to an outgoing message another owner already inserted.
+	 *
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Bot Studio sends through the Outbound Dispatcher, which
+	 * does not carry `ai_metadata`, so its replies showed no "Thinking" timeline in the Inbox. Only outgoing
+	 * rows may be annotated; an incoming customer message is never rewritten.
+	 */
+	public static function set_message_ai_metadata( int $message_id, array $ai_metadata ): bool {
+		if ( $message_id <= 0 || empty( $ai_metadata ) ) {
+			return false;
+		}
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$updated = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$tbl} SET ai_metadata_json = %s WHERE id = %d AND message_type = 'outgoing'",
+			wp_json_encode( $ai_metadata ),
+			$message_id
+		) );
+		if ( $updated ) {
+			self::invalidate_read_models();
+		}
+		return (bool) $updated;
+	}
+
 	public static function set_message_external_source_id( int $message_id, string $external_source_id ): bool {
 		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5 — write-once provider id so callback replay cannot rewrite provenance.
 		$external_source_id = trim( $external_source_id );

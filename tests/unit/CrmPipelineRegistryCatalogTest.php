@@ -85,7 +85,7 @@ final class CrmPipelineRegistryCatalogTest extends TestCase {
 	}
 
 	public function test_the_real_service_json_template_still_validates(): void {
-		$path = dirname( __DIR__, 2 ) . '/plugins/bizcity-twin-crm/templates/pipelines/service.json';
+		$path = dirname( __DIR__, 2 ) . '/plugins/bizcity-twin-crm/templates/pipelines/_bundled_pending_split/service.json';
 		$definition = json_decode( (string) file_get_contents( $path ), true );
 		$this->assertIsArray( $definition, 'service.json must be valid JSON' );
 		$this->assertTrue( BizCity_CRM_Pipeline_Registry::validate( $definition ) );

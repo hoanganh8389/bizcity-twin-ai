@@ -51,10 +51,24 @@ final class BizCity_Bot_Config_Repo {
 
 	public static function media_defaults(): array {
 		return array(
-			'tts'   => array( 'provider' => 'google_ai_studio', 'model' => '', 'voice' => '', 'format' => 'mp3' ),
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §5.2A) — `base_url` (openai_compatible
+			// only) and `vbee_app_id` (vbee only) ported from Libe-Zalo agent-tts-section.tsx; both are
+			// non-secret (an endpoint/app id, not a credential) so they live here, not in Secrets_Repo.
+			'tts'   => array( 'provider' => 'google_ai_studio', 'model' => '', 'voice' => '', 'format' => 'mp3', 'base_url' => '', 'vbee_app_id' => '' ),
 			'stt'   => array( 'enabled' => false, 'base_url' => '', 'model' => '' ),
 			'music' => array( 'provider' => 'openrouter', 'model' => '', 'format' => 'mp3' ),
 			'apify' => array( 'actor_facebook' => '', 'actor_tiktok' => '', 'actor_youtube' => '', 'actor_shopee' => '' ),
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-05/§5.2A) — unlike tts/stt/
+			// music/apify, video has NO per-character key path: BizCity_Video_Client (core/bizcity-llm)
+			// only ever reads the SITE-level 1API key (BizCity_LLM_Client::get_api_key()), same R-1API
+			// boundary that blocks a per-Guru chat override — see doc §2.2 G-01. So this block is
+			// non-secret preference only (model/duration/aspect_ratio/with_audio); no `video_api_key`
+			// exists because nothing would ever read it.
+			'video' => array( 'model' => '', 'duration' => 5, 'aspect_ratio' => '16:9', 'with_audio' => false ),
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-04/§5.2A) — same R-1API boundary
+			// as video: BizCity_LLM_Client::generate_image() only ever reads the SITE-level key. Preference
+			// only, no `image_api_key` (nothing would read it).
+			'image' => array( 'model' => '', 'size' => '1024x1024' ),
 		);
 	}
 
@@ -165,10 +179,27 @@ final class BizCity_Bot_Config_Repo {
 	}
 
 	const TTS_PROVIDERS   = array( 'google_ai_studio', 'openai_compatible', 'elevenlabs', 'vbee' );
-	const TTS_FORMATS     = array( 'mp3', 'wav' );
+	// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §5.2A.2/§2.2A) — a provider's own output
+	// format IDs, ported 1:1 from Libe-Zalo agent-tts-section.tsx (OPENAI_FORMATS/ELEVENLABS_FORMATS/
+	// VBEE_FORMATS). Google's Gemini TTS chooses its own container — one placeholder value so the
+	// field stays valid, never shown to the operator (FE hides the Định dạng row for google_ai_studio).
+	const TTS_FORMATS_BY_PROVIDER = array(
+		'openai_compatible' => array( 'mp3', 'aac', 'opus', 'wav', 'flac' ),
+		'elevenlabs'         => array( 'mp3_44100_128', 'opus_48000_64', 'wav_48000', 'pcm_16000' ),
+		'vbee'               => array( 'mp3', 'wav' ),
+		'google_ai_studio'   => array( 'mp3' ),
+	);
 	const MUSIC_PROVIDERS = array( 'openrouter', 'google_ai_studio' );
 	const MUSIC_FORMATS   = array( 'mp3', 'wav', 'flac' );
+	const VIDEO_ASPECT_RATIOS = array( '16:9', '9:16', '1:1' );
+	const VIDEO_DURATION_MIN  = 2;
+	const VIDEO_DURATION_MAX  = 10;
+	const IMAGE_SIZES     = array( '1024x1024', '1024x1536', '1536x1024', 'auto' );
 	const MEDIA_STRING_MAX = 300;
+
+	public static function tts_formats_for( string $provider ): array {
+		return self::TTS_FORMATS_BY_PROVIDER[ $provider ] ?? self::TTS_FORMATS_BY_PROVIDER['openai_compatible'];
+	}
 
 	/**
 	 * Validate + merge a `media` patch onto the current (already-defaulted) media block.
@@ -187,12 +218,15 @@ final class BizCity_Bot_Config_Repo {
 				}
 				$media['tts']['provider'] = $provider;
 			}
+			if ( array_key_exists( 'base_url', $p ) ) { $media['tts']['base_url'] = self::clean_string( $p['base_url'] ); }
 			if ( array_key_exists( 'model', $p ) ) { $media['tts']['model'] = self::clean_string( $p['model'] ); }
 			if ( array_key_exists( 'voice', $p ) ) { $media['tts']['voice'] = self::clean_string( $p['voice'] ); }
+			if ( array_key_exists( 'vbee_app_id', $p ) ) { $media['tts']['vbee_app_id'] = self::clean_string( $p['vbee_app_id'] ); }
 			if ( array_key_exists( 'format', $p ) ) {
-				$format = sanitize_key( (string) $p['format'] );
-				if ( ! in_array( $format, self::TTS_FORMATS, true ) ) {
-					return new WP_Error( 'invalid_param', 'Định dạng TTS chỉ nhận mp3 hoặc wav.', array( 'status' => 422, 'help_code' => 'bot_media_tts_format' ) );
+				$format         = sanitize_key( (string) $p['format'] );
+				$valid_formats  = self::tts_formats_for( $media['tts']['provider'] );
+				if ( ! in_array( $format, $valid_formats, true ) ) {
+					return new WP_Error( 'invalid_param', 'Định dạng TTS không hợp lệ cho nhà cung cấp đã chọn (' . implode( ', ', $valid_formats ) . ').', array( 'status' => 422, 'help_code' => 'bot_media_tts_format' ) );
 				}
 				$media['tts']['format'] = $format;
 			}
@@ -227,6 +261,36 @@ final class BizCity_Bot_Config_Repo {
 				if ( array_key_exists( $k, $p ) ) {
 					$media['apify'][ $k ] = self::clean_string( $p[ $k ] );
 				}
+			}
+		}
+		if ( isset( $patch['video'] ) && is_array( $patch['video'] ) ) {
+			$p = $patch['video'];
+			if ( array_key_exists( 'model', $p ) ) { $media['video']['model'] = self::clean_string( $p['model'] ); }
+			if ( array_key_exists( 'duration', $p ) ) {
+				$duration = (int) $p['duration'];
+				if ( $duration < self::VIDEO_DURATION_MIN || $duration > self::VIDEO_DURATION_MAX ) {
+					return new WP_Error( 'invalid_param', sprintf( 'Thời lượng video phải trong khoảng %d–%d giây.', self::VIDEO_DURATION_MIN, self::VIDEO_DURATION_MAX ), array( 'status' => 422, 'help_code' => 'bot_media_video_duration' ) );
+				}
+				$media['video']['duration'] = $duration;
+			}
+			if ( array_key_exists( 'aspect_ratio', $p ) ) {
+				$ratio = (string) $p['aspect_ratio'];
+				if ( ! in_array( $ratio, self::VIDEO_ASPECT_RATIOS, true ) ) {
+					return new WP_Error( 'invalid_param', 'Tỉ lệ khung hình video không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_video_aspect' ) );
+				}
+				$media['video']['aspect_ratio'] = $ratio;
+			}
+			if ( array_key_exists( 'with_audio', $p ) ) { $media['video']['with_audio'] = ! empty( $p['with_audio'] ); }
+		}
+		if ( isset( $patch['image'] ) && is_array( $patch['image'] ) ) {
+			$p = $patch['image'];
+			if ( array_key_exists( 'model', $p ) ) { $media['image']['model'] = self::clean_string( $p['model'] ); }
+			if ( array_key_exists( 'size', $p ) ) {
+				$size = (string) $p['size'];
+				if ( ! in_array( $size, self::IMAGE_SIZES, true ) ) {
+					return new WP_Error( 'invalid_param', 'Kích thước ảnh không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_image_size' ) );
+				}
+				$media['image']['size'] = $size;
 			}
 		}
 		return $media;

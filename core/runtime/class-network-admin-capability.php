@@ -57,7 +57,23 @@ final class BizCity_Network_Admin_Capability {
 	 * here or the menu item — and the page behind it — silently disappears.
 	 */
 	public static function menu_cap(): string {
-		return ( function_exists( 'is_super_admin' ) && is_super_admin() ) ? 'manage_network' : 'manage_options';
+		// [2026-09-24] HOTFIX-SINGLE-SITE-MENU-CAP — on single-site is_super_admin() is true for every
+		// administrator (delete_users) but nobody holds manage_network, so the menu locked out the admin.
+		// See docs/audits/SINGLE-SITE-ADMIN-MENU-CAP-REGRESSION-2026-09-24.md.
+		return self::is_network_super_admin() ? 'manage_network' : 'manage_options';
+	}
+
+	/**
+	 * True only for a real Network Super Admin — requires multisite, where
+	 * `manage_network` actually exists.
+	 *
+	 * @param int $user_id Optional. 0 = current user.
+	 */
+	public static function is_network_super_admin( int $user_id = 0 ): bool {
+		if ( ! function_exists( 'is_multisite' ) || ! is_multisite() || ! function_exists( 'is_super_admin' ) ) {
+			return false;
+		}
+		return $user_id > 0 ? is_super_admin( $user_id ) : is_super_admin();
 	}
 
 	/**
@@ -118,7 +134,9 @@ final class BizCity_Network_Admin_Capability {
 		if ( ! empty( $allcaps['manage_options'] ) ) {
 			return $allcaps;
 		}
-		if ( ! function_exists( 'is_super_admin' ) || empty( $user->ID ) || ! is_super_admin( $user->ID ) ) {
+		// [2026-09-24] HOTFIX-SINGLE-SITE-MENU-CAP — single-site is_super_admin() means "has delete_users";
+		// without the multisite guard any custom role with delete_users would be granted manage_options.
+		if ( empty( $user->ID ) || ! self::is_network_super_admin( (int) $user->ID ) ) {
 			return $allcaps;
 		}
 		$allcaps['manage_options'] = true;

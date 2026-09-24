@@ -1,19 +1,19 @@
 <?php
 /**
- * BizCity Twin Brain — Nền tảng AI Companion cá nhân hóa
- * BizCity Twin Brain — Personalized AI Companion Platform
+ * BTCare Twin Brain — Nền tảng AI Companion cá nhân hóa
+ * BTCare Twin Brain — Personalized AI Companion Platform
  *
- * @package    Bizcity_Twin_Claw
+ * @package    BTCare_Twin_Claw
  * @subpackage Core
- * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @copyright  2024-2026 BTCare — Made in Vietnam 🇻🇳
  * @license    GPL-2.0-or-later
  * @link       https://bizcity.vn
  *
- * This file is part of BizCity Twin Brain.
+ * This file is part of BTCare Twin Brain.
  * Unauthorized copying, modification, or distribution is prohibited.
  * Sao chép, chỉnh sửa hoặc phân phối trái phép bị nghiêm cấm.
  *
- * Plugin Name:       BizCity Twin Brain
+ * Plugin Name:       BTCare Twin Brain
  * Plugin URI:        https://bizcity.vn
  * Description:       AI Companion Platform — Personalized AI with Identity, Memory, and Intent. Nền tảng AI đồng hành cá nhân hóa.
  * Version:           1.3.7
@@ -787,6 +787,18 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_twinchat_public_request )
 if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/modules/twinweb/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinweb/bootstrap.php';
 }
+// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T2 — TwinKG owns the Knowledge Graph
+// React surface that used to live inside core/knowledge/kg-hub/ui (rule R-KG-UI: core
+// declares no React app). The module is four small PHP files; it must load for
+//   • /twinkg/  — to register its query var and render the page, and
+//   • /twin/    — so its ActivityBar entry exists when TwinShell builds the rail.
+// The pattern `/twin(kg)?(/|?|$)` matches exactly those two and not /twinchat/.
+$_bizcity_twinkg_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/twin(?:kg)?(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+if ( ( $_bizcity_admin_ctx || $_bizcity_twinkg_public_request )
+    && file_exists( __DIR__ . '/modules/twinkg/bootstrap.php' ) ) {
+    require_once __DIR__ . '/modules/twinkg/bootstrap.php';
+}
 // Phase 0.11 — Twin Shell (universal /twin/ ActivityBar wrapper, iframe-based).
 // [2026-08-09 Johnny Chu] R-PERF — TwinShell is required for /twin/ and backend requests, not ordinary public pages.
 $_bizcity_twinshell_public_request = ! empty( $_SERVER['REQUEST_URI'] )
@@ -1051,7 +1063,7 @@ function bizcity_twin_ai_notice_compat_loader(): void {
 
         echo '<div class="notice notice-error">';
         // [2026-09-02 06:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-BRAND — standardize the product name in loader diagnostics.
-        echo '<p><strong>⚠ BizCity Twin Brain:</strong> Missing mu-plugin loader '
+        echo '<p><strong>⚠ BTCare Twin Brain:</strong> Missing mu-plugin loader '
            . '<code>mu-plugins/bizcity-twin-compat.php</code>. '
            . 'Without this file, Intent Providers, Market Catalog and TouchBar will not work.'
            . '<br><small>Thiếu file mu-plugin loader. Không có file này, các tính năng chính sẽ không hoạt động.</small></p>';
@@ -1077,7 +1089,7 @@ function bizcity_twin_ai_notice_compat_loader(): void {
 
         $dest_dir = rtrim( WPMU_PLUGIN_DIR, '/\\' );
         echo '<div class="notice notice-warning">';
-        echo '<p><strong>🔄 BizCity Twin Brain:</strong> The mu-plugin loader is outdated. '
+        echo '<p><strong>🔄 BTCare Twin Brain:</strong> The mu-plugin loader is outdated. '
            . 'Please update to match the current plugin version.'
            . '<br><small>File mu-plugin loader đã cũ. Cần cập nhật cho đồng bộ với phiên bản plugin hiện tại.</small></p>';
 

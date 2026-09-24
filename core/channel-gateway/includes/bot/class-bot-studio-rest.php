@@ -70,6 +70,24 @@ final class BizCity_Bot_Studio_REST {
 				'before_id'    => array( 'type' => 'integer', 'default' => 0 ),
 			),
 		) );
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-3 §2.4/§5.4A — identity resolution ONLY.
+		// This is deliberately narrow: it resolves platform+account_id+external_uid → identity_uuid
+		// (+ the CRM contact/conversation ids the FE needs to then call EXISTING owner routes:
+		// `/wp-json/bizcity-crm/v1/contacts/{id}/bot-context` and `bizcity-context/v1/records`).
+		// It does NOT return memory content and does NOT support manual context CRUD — no owner for
+		// identity-scoped memory CONTENT exists today (bizcity/memory/v1 is WP-user-scoped only;
+		// bizcity-context/v1/records is a metadata-only ledger). Do not extend this route to fake
+		// either of those until that owner decision is made (see doc §2.4 M-04/M-05 status).
+		register_rest_route( self::NAMESPACE_V1, '/bot-studio/identity', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'rest_identity' ),
+			'permission_callback' => array( __CLASS__, 'can_or_error' ),
+			'args'                => array(
+				'platform'     => array( 'type' => 'string', 'default' => 'ZALO_PERSONAL' ),
+				'account_id'   => array( 'type' => 'string', 'default' => '' ),
+				'external_uid' => array( 'type' => 'string', 'default' => '' ),
+			),
+		) );
 	}
 
 	/**
@@ -96,12 +114,16 @@ final class BizCity_Bot_Studio_REST {
 		$accounts = BizCity_Zalo_Mapping_Repo::list_personal_accounts( array( 'limit' => 200 ) );
 
 		$bindings_by_account = array();
+		$guru_usage          = array();
 		if ( class_exists( 'BizCity_Channel_Binding' ) ) {
-			foreach ( BizCity_Channel_Binding::all() as $b ) {
+			$all_bindings = BizCity_Channel_Binding::all();
+			foreach ( $all_bindings as $b ) {
 				if ( 'ZALO_PERSONAL' === strtoupper( (string) ( $b['platform'] ?? '' ) ) ) {
 					$bindings_by_account[ (string) $b['account_id'] ] = $b;
 				}
 			}
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F A-07 — server-side "how many channels use this Guru".
+			$guru_usage = self::guru_usage_counts( (array) $all_bindings );
 		}
 
 		$items = array();
@@ -125,7 +147,7 @@ final class BizCity_Bot_Studio_REST {
 				'account_id' => '' !== $bridge_id ? $bridge_id : (string) $acc['id'],
 				'label'      => $label,
 				'status'     => $bucket,
-				'guru'       => self::guru_summary( $character_id ),
+				'guru'       => self::guru_summary( $character_id, (int) ( $guru_usage[ $character_id ] ?? 0 ) ),
 				'binding'    => $binding ? array(
 					'id'         => (int) $binding['id'],
 					'mode'       => (string) $binding['mode'],
@@ -222,6 +244,76 @@ final class BizCity_Bot_Studio_REST {
 		return self::ok( array( 'items' => $items, 'has_more' => $has_more, 'next_cursor' => $next_cursor ) );
 	}
 
+	/**
+	 * GET /bot-studio/identity (doc §2.4/§5.4A OW-3 — resolution only, see route registration
+	 * comment for the full scope boundary). Resolves platform+account_id+external_uid → identity_uuid
+	 * via BizCity_Identity_Hub, and a best-effort CRM contact_id/conversation_id via the SAME
+	 * list_conversations() filters OW-2 already added — no new CRM lookup method needed.
+	 */
+	public static function rest_identity( WP_REST_Request $req ) {
+		$platform     = strtoupper( trim( (string) $req->get_param( 'platform' ) ) ) ?: 'ZALO_PERSONAL';
+		$account_id   = trim( (string) $req->get_param( 'account_id' ) );
+		$external_uid = trim( (string) $req->get_param( 'external_uid' ) );
+		if ( '' === $account_id || '' === $external_uid ) {
+			return self::err( 'invalid_param', 'Thiếu account_id hoặc external_uid.', 422, 'Chọn một số Zalo và nhập UID khách.', 'bot_studio_identity_missing_param' );
+		}
+
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-3 — R-CH-IDMEM: "group chat is conversation
+		// context, never personal identity." A group's source_id ("group:<id>") must never be run
+		// through identity resolution as if it were a person — return the fact plainly instead.
+		if ( self::is_group_ref( $external_uid ) ) {
+			return self::ok( array(
+				'platform'     => $platform,
+				'account_id'   => $account_id,
+				'external_uid' => $external_uid,
+				'is_group'     => true,
+				'identity'     => null,
+				'contact_id'   => null,
+				'note'         => 'Đây là một nhóm, không phải một khách cá nhân — nhóm không có identity_uuid riêng (R-CH-IDMEM).',
+			) );
+		}
+
+		$identity = null;
+		if ( class_exists( 'BizCity_Identity_Hub' ) ) {
+			$resolved = BizCity_Identity_Hub::resolve_binding( $platform, $account_id, $external_uid );
+			if ( is_array( $resolved ) ) {
+				$identity = array(
+					'identity_uuid' => (string) ( $resolved['identity_uuid'] ?? '' ),
+					'display_label' => (string) ( $resolved['display_label'] ?? '' ),
+					'status'        => (string) ( $resolved['status'] ?? '' ),
+				);
+			}
+		}
+
+		$contact_id      = null;
+		$conversation_id = null;
+		if ( class_exists( 'BizCity_CRM_Repository' ) ) {
+			$rows = BizCity_CRM_Repository::list_conversations( array(
+				'external_uid' => $external_uid,
+				'account_id'   => $account_id,
+				'limit'        => 1,
+			) );
+			if ( ! empty( $rows[0] ) ) {
+				$contact_id      = isset( $rows[0]['contact_id'] ) ? (int) $rows[0]['contact_id'] : null;
+				$conversation_id = (int) $rows[0]['id'];
+			}
+		}
+
+		return self::ok( array(
+			'platform'        => $platform,
+			'account_id'      => $account_id,
+			'external_uid'    => $external_uid,
+			'is_group'        => false,
+			'identity'        => $identity,
+			'contact_id'      => $contact_id,
+			'conversation_id' => $conversation_id,
+		) );
+	}
+
+	private static function is_group_ref( string $external_uid ): bool {
+		return 0 === strpos( $external_uid, 'group:' );
+	}
+
 	/** Single batched COUNT, bounded to one page of conversation ids — never a per-row query. */
 	private static function message_counts_for( array $conversation_ids ): array {
 		$ids = array_values( array_unique( array_filter( array_map( 'intval', $conversation_ids ) ) ) );
@@ -266,7 +358,25 @@ final class BizCity_Bot_Studio_REST {
 		return '' !== $raw ? $raw : 'offline';
 	}
 
-	private static function guru_summary( int $character_id ): ?array {
+	/**
+	 * Pure: character_id => number of channel bindings (any platform) pointing at that Guru.
+	 * Rows without a positive character_id, or that are not arrays, are ignored.
+	 *
+	 * @param array $bindings BizCity_Channel_Binding::all() rows.
+	 * @return array<int,int>
+	 */
+	private static function guru_usage_counts( array $bindings ): array {
+		$counts = array();
+		foreach ( $bindings as $b ) {
+			$cid = is_array( $b ) ? (int) ( $b['character_id'] ?? 0 ) : 0;
+			if ( $cid > 0 ) {
+				$counts[ $cid ] = ( $counts[ $cid ] ?? 0 ) + 1;
+			}
+		}
+		return $counts;
+	}
+
+	private static function guru_summary( int $character_id, int $binding_count = 0 ): ?array {
 		if ( $character_id <= 0 || ! class_exists( 'BizCity_Knowledge_Database' ) ) {
 			return null;
 		}
@@ -275,9 +385,10 @@ final class BizCity_Bot_Studio_REST {
 			return null;
 		}
 		return array(
-			'id'     => (int) $char->id,
-			'name'   => (string) $char->name,
-			'avatar' => isset( $char->avatar ) ? (string) $char->avatar : '',
+			'id'            => (int) $char->id,
+			'name'          => (string) $char->name,
+			'avatar'        => isset( $char->avatar ) ? (string) $char->avatar : '',
+			'binding_count' => max( 0, $binding_count ),
 		);
 	}
 

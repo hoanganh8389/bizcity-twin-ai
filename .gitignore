@@ -61,7 +61,6 @@ vendor/
 
 # bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).
 
-/core/intent/includes/backup-legacy/
 /core/intent/logs/
 
 /modules/twinsource/

@@ -122,6 +122,15 @@ final class BizCity_Bot_Tools {
 					return self::list_threads( $claim );
 				case 'read_thread':
 					return self::read_thread( (int) ( $args['index'] ?? 0 ), $claim );
+				case 'scrape_social_data':
+					return self::scrape_social_data( $args, $claim );
+				case 'generate_image':
+					return self::generate_image( $args, $claim );
+				// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — identity-scoped customer memory.
+				case 'save_memory':
+					return class_exists( 'BizCity_Bot_Memory' )
+						? BizCity_Bot_Memory::run_tool( $args, $claim )
+						: array( 'ok' => false, 'content' => '', 'error' => 'module_not_loaded' );
 				default:
 					return array( 'ok' => false, 'content' => '', 'error' => 'tool_unknown' );
 			}
@@ -263,6 +272,164 @@ final class BizCity_Bot_Tools {
 			$lines[] = ( ! empty( $m['is_self'] ) ? '[bạn] ' : '[thành viên] ' ) . $text;
 		}
 		return array( 'ok' => true, 'content' => self::fence( 'Nội dung nhóm ' . $index, implode( "\n", $lines ) ), 'error' => '' );
+	}
+
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1 G-10) — the first genuine executor for
+	 * `scrape_social_data`; previously this tool had config (0.60E D-E1/D-E3) but no way to actually
+	 * run. `character_id` comes from the turn's own claim, never from args (a customer message can
+	 * never choose which character's Apify token gets spent).
+	 */
+	private static function scrape_social_data( array $args, array $claim ): array {
+		$character_id = (int) ( $claim['character_id'] ?? 0 );
+		$platform     = sanitize_key( (string) ( $args['platform'] ?? '' ) );
+		$url          = trim( (string) ( $args['url'] ?? '' ) );
+		if ( $character_id <= 0 || '' === $platform || '' === $url ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'invalid_param' );
+		}
+		if ( ! class_exists( 'BizCity_Bot_Apify_Client' ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'apify_unavailable' );
+		}
+		$result = BizCity_Bot_Apify_Client::scrape( $character_id, $platform, $url );
+		if ( is_wp_error( $result ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => (string) $result->get_error_code() );
+		}
+		$items = (array) ( $result['items'] ?? array() );
+		if ( empty( $items ) ) {
+			return array( 'ok' => true, 'content' => self::fence( 'Kết quả cào dữ liệu ' . $platform, 'Không có dữ liệu trả về.' ), 'error' => '' );
+		}
+		$lines = array();
+		foreach ( $items as $item ) {
+			$lines[] = '- ' . self::summarize_apify_item( $item );
+		}
+		return array( 'ok' => true, 'content' => self::fence( 'Kết quả cào dữ liệu ' . $platform . ' (' . count( $items ) . ')', implode( "\n", $lines ) ), 'error' => '' );
+	}
+
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1 G-04) — first genuine executor for
+	 * `generate_image`. The image endpoint itself (`BizCity_LLM_Client::generate_image()`) has
+	 * always been real; what was missing is turning its output into something the bot can actually
+	 * SEND. That send path (`BizCity_CRM_Outbound_Dispatcher::dispatch()` with `content_type=image`)
+	 * has a real ownership rule this file must respect, not route around:
+	 * `dispatch()` REFUSES any attachment whose owner is only the inbox capability
+	 * ("Gửi theo capability của inbox không kèm được tệp đính kèm; cần owner cụ thể"). A human
+	 * assignee/default assignee is an owner; since PHASE-0.60H a fully-automated Bot Studio
+	 * conversation with an active binding gets the powerless `system_owner` instead. This asks the
+	 * dispatcher for that owner BEFORE spending on generation — none, no image, an honest
+	 * `no_attachment_owner` error the model is told about (see the turn runner's tool-failure
+	 * branch), not a silently-wasted generation or a spoofed owner id.
+	 */
+	private static function generate_image( array $args, array $claim ): array {
+		$character_id    = (int) ( $claim['character_id'] ?? 0 );
+		$conversation_id = (int) ( $claim['conversation_id'] ?? 0 );
+		$prompt          = trim( (string) ( $args['prompt'] ?? $args['query'] ?? '' ) );
+		if ( $character_id <= 0 || $conversation_id <= 0 || '' === $prompt ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'invalid_param' );
+		}
+		$owner_user_id = self::resolve_attachment_owner( $conversation_id );
+		if ( $owner_user_id <= 0 ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'no_attachment_owner' );
+		}
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'llm_missing' );
+		}
+		try {
+			$result = BizCity_LLM_Client::instance()->generate_image( mb_substr( $prompt, 0, 800 ) );
+		} catch ( \Throwable $e ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'image_generation_exception' );
+		}
+		if ( empty( $result['success'] ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'image_generation_failed: ' . (string) ( $result['error'] ?? '' ) );
+		}
+		$attachment_id = self::save_generated_image_as_attachment( $result, $prompt, $owner_user_id );
+		if ( $attachment_id <= 0 ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'image_save_failed' );
+		}
+		return array(
+			'ok'                   => true,
+			'content'              => self::fence( 'Ảnh vừa tạo', 'Đã tạo một ảnh theo mô tả: "' . mb_substr( $prompt, 0, 200 ) . '". Ảnh sẽ được đính kèm trong tin trả lời — không cần mô tả lại bằng chữ.' ),
+			'error'                => '',
+			// [OW-4] the ONLY extra key the turn runner reads to decide whether to send an image —
+			// see class-bot-turn-runner.php's tool loop and send().
+			'image_attachment_id'  => $attachment_id,
+		);
+	}
+
+	/**
+	 * The user id that must be the `post_author` of any file this turn generates for the conversation, or 0
+	 * when the dispatcher would refuse media here ("cannot send media", never a fake owner).
+	 *
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H2 — this used to MIRROR the dispatcher's owner lookup by hand
+	 * ("different module, not reuse"), and had already drifted: it took `assignee_id` / `default_assignee_id`
+	 * at face value while the dispatcher additionally requires that owner to pass `can_view_conversation()`, so
+	 * the tool could pay for an image the dispatcher then rejected. It now asks the dispatcher itself
+	 * (`resolve_bot_media_owner()`), which is also where the `system_owner` fallback for fully-automated
+	 * conversations (D-H2b: `ai_autoreply` + attachments + an active bot binding) lives. One decision, two callers.
+	 * Dispatcher not loaded ⇒ 0: without it nothing could be sent anyway.
+	 */
+	private static function resolve_attachment_owner( int $conversation_id ): int {
+		if ( ! class_exists( 'BizCity_CRM_Outbound_Dispatcher' ) || ! method_exists( 'BizCity_CRM_Outbound_Dispatcher', 'resolve_bot_media_owner' ) ) {
+			return 0;
+		}
+		$anchor = BizCity_CRM_Outbound_Dispatcher::resolve_bot_media_owner( $conversation_id, true );
+		return (int) ( $anchor['user_id'] ?? 0 );
+	}
+
+	/**
+	 * `$result` is BizCity_LLM_Client::generate_image()'s return: either `image_url` (fetch it) or
+	 * `b64_json` (decode it). `post_author` MUST equal the resolved owner exactly —
+	 * `validate_attachments()` in the dispatcher does a strict `===` ownership check.
+	 */
+	private static function save_generated_image_as_attachment( array $result, string $prompt, int $owner_user_id ): int {
+		$binary = '';
+		if ( ! empty( $result['b64_json'] ) ) {
+			$binary = base64_decode( (string) $result['b64_json'], true ) ?: '';
+		} elseif ( ! empty( $result['image_url'] ) && function_exists( 'wp_remote_get' ) ) {
+			$response = wp_remote_get( (string) $result['image_url'], array( 'timeout' => 30 ) );
+			if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
+				$binary = (string) wp_remote_retrieve_body( $response );
+			}
+		}
+		if ( '' === $binary || ! function_exists( 'wp_upload_bits' ) ) {
+			return 0;
+		}
+		if ( ! function_exists( 'wp_insert_attachment' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/image.php';
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+			require_once ABSPATH . 'wp-admin/includes/media.php';
+		}
+		$filename = 'bot-image-' . time() . '-' . wp_generate_password( 6, false ) . '.png';
+		$upload   = wp_upload_bits( $filename, null, $binary );
+		if ( ! empty( $upload['error'] ) ) {
+			return 0;
+		}
+		$filetype   = wp_check_filetype( $upload['file'], null );
+		$attachment = array(
+			'post_mime_type' => $filetype['type'] ?: 'image/png',
+			'post_title'     => sanitize_text_field( mb_substr( $prompt, 0, 120 ) ),
+			'post_content'   => '',
+			'post_status'    => 'inherit',
+			'post_author'    => $owner_user_id,
+		);
+		$attachment_id = wp_insert_attachment( $attachment, $upload['file'] );
+		if ( ! $attachment_id || is_wp_error( $attachment_id ) ) {
+			return 0;
+		}
+		$metadata = wp_generate_attachment_metadata( $attachment_id, $upload['file'] );
+		wp_update_attachment_metadata( $attachment_id, $metadata );
+		return (int) $attachment_id;
+	}
+
+	/** Best-effort common fields across scraper Actors — an Actor with an unrecognised shape still gets a bounded JSON dump instead of an empty line. */
+	private static function summarize_apify_item( $item ): string {
+		if ( ! is_array( $item ) ) {
+			return mb_substr( (string) $item, 0, 300 );
+		}
+		$text = trim( (string) ( $item['text'] ?? $item['caption'] ?? $item['title'] ?? $item['description'] ?? '' ) );
+		if ( '' === $text ) {
+			$text = (string) wp_json_encode( array_slice( $item, 0, 4, true ) );
+		}
+		return mb_substr( $text, 0, 300 );
 	}
 
 	const THREAD_INDEX_TTL = 900; // 15 minutes — long enough for one back-and-forth, short enough not to linger.

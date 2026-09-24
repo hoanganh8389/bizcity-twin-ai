@@ -24,7 +24,12 @@ final class BizCity_Diagnostics_REST {
 	public function register(): void {
 		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/tables', [
 			'methods'             => 'GET',
-			'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+			// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+			'permission_callback' => function () {
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
+			},
 			'callback'            => function () {
 				return rest_ensure_response( [
 					'blog_id' => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
@@ -38,7 +43,12 @@ final class BizCity_Diagnostics_REST {
 		// hook evidence for the diagnostics panel; never expose callback payloads.
 		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/loader/hooks', [
 			'methods'             => 'GET',
-			'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+			// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+			'permission_callback' => function () {
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
+			},
 			'callback'            => function () {
 				return rest_ensure_response( array(
 					'limits'    => array(
@@ -68,7 +78,12 @@ final class BizCity_Diagnostics_REST {
 		] );
 
 		// ── Phase 0.41 L9.a — Smoke Wizard endpoints ─────────────────────
-		$admin_only = function () { return current_user_can( 'manage_options' ); };
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$admin_only = function () {
+			return class_exists( 'BizCity_Network_Admin_Capability' )
+				? BizCity_Network_Admin_Capability::can_manage()
+				: current_user_can( 'manage_options' );
+		};
 
 		// GET /smoke/probes — catalog (sorted, JSON-safe).
 		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/smoke/probes', [

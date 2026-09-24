@@ -31,6 +31,12 @@ final class BizCity_Context_Bank_Access {
 		if ( self::is_admin() ) {
 			return array( 'ok' => true, 'filters' => $filters, 'scope' => 'tenant_admin' );
 		}
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 (option A) — server-issued runtime identity read. See
+		// with_runtime_read(). Only reachable while server PHP holds an open grant; never from request input.
+		$runtime = self::runtime_scope_filters( $filters );
+		if ( null !== $runtime ) {
+			return $runtime;
+		}
 		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
 		if ( $user_id <= 0 || ! self::can_read() ) {
 			return array( 'ok' => false, 'reason' => 'context_bank_read_denied' );
@@ -69,6 +75,17 @@ final class BizCity_Context_Bank_Access {
 		if ( self::is_admin() ) {
 			return array( 'ok' => true, 'scope' => 'tenant_admin' );
 		}
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — the per-pointer half of the runtime grant: the pointer must
+		// be exactly the granted identity AND the granted contract AND a memory record.
+		$grant = self::active_runtime_grant();
+		if ( null !== $grant ) {
+			$ok = strtolower( trim( (string) ( $pointer['identity_uuid'] ?? '' ) ) ) === $grant['identity_uuid']
+				&& (string) ( $pointer['source_contract_id'] ?? '' ) === $grant['contract_id']
+				&& 'memory' === (string) ( $pointer['record_kind'] ?? '' );
+			return $ok
+				? array( 'ok' => true, 'scope' => 'runtime_identity' )
+				: array( 'ok' => false, 'reason' => 'context_bank_runtime_scope_denied' );
+		}
 		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
 		if ( $user_id <= 0 || ! self::can_read() ) {
 			return array( 'ok' => false, 'reason' => 'context_bank_read_denied' );
@@ -81,6 +98,92 @@ final class BizCity_Context_Bank_Access {
 			return array( 'ok' => true, 'scope' => 'channel_grant', 'channel' => $channel_scope['channel'], 'account_key' => $channel_scope['account_key'] );
 		}
 		return array( 'ok' => true, 'scope' => 'user' );
+	}
+
+	/* ── Runtime identity read (PHASE-0.60H D-H1, option A — user-approved 2026-09-24) ──────────────────────────
+	 *
+	 * Why: an unattended server runtime (the Bot Studio turn, which runs in WP-cron as user 0) must be able to
+	 * read the memory of the ONE channel customer it is answering. Every other path here requires a logged-in
+	 * WordPress owner, and a Zalo customer has none (wp_user_id 0), so without this the customer's memory is
+	 * write-only.
+	 *
+	 * Boundaries — each is enforced, not just documented:
+	 *  1. Opened only by server PHP via with_runtime_read(); nothing reads request input to open it.
+	 *  2. Refused inside a REST request and whenever a user is logged in: a browser/REST caller can never hold
+	 *     it, and a logged-in user keeps exactly their normal scope.
+	 *  3. Exactly one identity_uuid (well-formed UUID) and one contract; filters asking for any other identity,
+	 *     or for a WordPress user's rows (wp_user_id/user_id > 0), are refused.
+	 *  4. Per pointer (authorize_pointer): same identity, same contract, record_kind 'memory'.
+	 *  5. Scoped to the callable: popped in `finally`, so it cannot leak past the read even on an exception.
+	 *  6. The CALLER decides whether the read is legitimate (Bot Studio checks an active bot binding for the
+	 *     conversation first); `reason` is required for audit.
+	 */
+
+	/** @var array<int,array{identity_uuid:string,contract_id:string,reason:string}> */
+	private static $runtime_grants = array();
+
+	/**
+	 * Run `$fn` with a read grant for one identity's records of one contract.
+	 *
+	 * @param array    $grant { identity_uuid, contract_id, reason }
+	 * @param callable $fn
+	 * @return mixed `$fn()`'s return, or null when the grant is refused.
+	 */
+	public static function with_runtime_read( array $grant, callable $fn ) {
+		$normalized = self::normalize_runtime_grant( $grant );
+		if ( null === $normalized ) {
+			return null;
+		}
+		self::$runtime_grants[] = $normalized;
+		try {
+			return $fn();
+		} finally {
+			array_pop( self::$runtime_grants );
+		}
+	}
+
+	/** @return array{identity_uuid:string,contract_id:string,reason:string}|null */
+	private static function normalize_runtime_grant( array $grant ) {
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			return null;
+		}
+		if ( function_exists( 'get_current_user_id' ) && (int) get_current_user_id() > 0 ) {
+			return null;
+		}
+		$uuid     = strtolower( trim( (string) ( $grant['identity_uuid'] ?? '' ) ) );
+		$contract = trim( (string) ( $grant['contract_id'] ?? '' ) );
+		$reason   = sanitize_key( (string) ( $grant['reason'] ?? '' ) );
+		if ( ! preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $uuid ) || '' === $contract || '' === $reason ) {
+			return null;
+		}
+		return array( 'identity_uuid' => $uuid, 'contract_id' => $contract, 'reason' => $reason );
+	}
+
+	/** The innermost open grant, re-validated against the current request context, or null. */
+	private static function active_runtime_grant() {
+		if ( empty( self::$runtime_grants ) ) {
+			return null;
+		}
+		$grant = end( self::$runtime_grants );
+		return null === self::normalize_runtime_grant( $grant ) ? null : $grant;
+	}
+
+	/** scope_filters() branch for an open grant; null ⇒ no grant, fall through to the normal rules. */
+	private static function runtime_scope_filters( array $filters ) {
+		$grant = self::active_runtime_grant();
+		if ( null === $grant ) {
+			return null;
+		}
+		$asked = strtolower( trim( (string) ( $filters['identity_uuid'] ?? '' ) ) );
+		if ( $asked !== $grant['identity_uuid'] ) {
+			return array( 'ok' => false, 'reason' => 'context_bank_runtime_scope_denied' );
+		}
+		if ( (int) ( $filters['wp_user_id'] ?? 0 ) > 0 || (int) ( $filters['user_id'] ?? 0 ) > 0 ) {
+			return array( 'ok' => false, 'reason' => 'context_bank_runtime_scope_denied' );
+		}
+		$filters['identity_uuid'] = $grant['identity_uuid'];
+		unset( $filters['wp_user_id'], $filters['user_id'] );
+		return array( 'ok' => true, 'filters' => $filters, 'scope' => 'runtime_identity' );
 	}
 
 	public static function can_read() {

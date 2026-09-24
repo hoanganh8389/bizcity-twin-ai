@@ -615,6 +615,14 @@ class BizCity_Webhook_Inspector {
 			'fallback_assignee' => isset( $body['fallback_assignee'] ) ? (int) $body['fallback_assignee'] : null,
 			'responder_pool'    => isset( $body['responder_pool'] ) && is_array( $body['responder_pool'] ) ? $body['responder_pool'] : array(),
 		);
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H — this route silently DROPPED `office_hours`, so the
+		// per-number giờ trực / pause_on_manual_reply / require_mention_in_group / disabled_tools that the
+		// Zalo Cá nhân panel (and now the CRM per-phone sheet) send were never persisted. Forward it ONLY when
+		// the caller sent one: BizCity_Channel_Binding::upsert() is isset-gated on this key, so omitting it
+		// (e.g. a plain Guru swap) must keep leaving the stored value untouched.
+		if ( isset( $body['office_hours'] ) && is_array( $body['office_hours'] ) ) {
+			$args['office_hours'] = $body['office_hours'];
+		}
 		// [2026-06-09 Johnny Chu] PHASE-D D-WEBCHAT-WILDCARD — WEBCHAT không cần account_id cụ thể;
 		// guest user không có OA/Page ID. Tự động dùng '*' (wildcard) khi bỏ trống.
 		if ( $args['platform'] === 'WEBCHAT' && $args['account_id'] === '' ) {

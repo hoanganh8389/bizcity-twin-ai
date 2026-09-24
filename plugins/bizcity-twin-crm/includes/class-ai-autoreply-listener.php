@@ -120,6 +120,15 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				self::log( sprintf( 'skip conv#%d msg#%d: zone2_channel=%s — automation workflow owns reply', $conv_id, $msg_id, $p11b_channel_type ) );
 				return;
 			}
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Zalo Cá nhân has exactly ONE auto-replier: Bot Studio
+			// (BizCity_Bot_Turn_Claim → filters → BizCity_Bot_Turn_Runner → Twin event stream). A binding in
+			// mode=auto also sets auto_reply=1, so this listener used to answer the same message in parallel.
+			// The composer "AI reply" button still exists; for this channel it routes into Bot Studio
+			// (BizCity_CRM_REST_Controller::post_ai_reply). Rollback switch only — not a second owner.
+			if ( self::yields_to_bot_studio( $p11b_channel_type ) ) {
+				self::log( sprintf( 'skip conv#%d msg#%d: owned_by_bot_studio channel=%s (D-H7)', $conv_id, $msg_id, $p11b_channel_type ) );
+				return;
+			}
 			// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — channel now known; route into the matching per-channel JSONL file.
 			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
 				BizCity_Channel_File_Logger::write(
@@ -528,6 +537,17 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			self::log( 'maybe_suppress_legacy threw: ' . $e->getMessage() );
 			return $handled;
 		}
+	}
+
+	/**
+	 * D-H7 — channels whose automatic reply is owned by Bot Studio, not by this listener. Public for tests
+	 * and for post_ai_reply(), which routes the composer button by the same rule.
+	 */
+	public static function yields_to_bot_studio( string $channel_type ): bool {
+		if ( 'zalo_personal' !== strtolower( $channel_type ) ) {
+			return false;
+		}
+		return (bool) apply_filters( 'bizcity_crm_ai_autoreply_yield_to_bot_studio', true, $channel_type );
 	}
 
 	private static function is_globally_enabled(): bool {

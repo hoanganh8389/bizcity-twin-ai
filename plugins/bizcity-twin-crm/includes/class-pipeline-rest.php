@@ -84,6 +84,12 @@ final class BizCity_CRM_Pipeline_REST {
 		register_rest_route( $ns, '/crm-contacts/(?P<id>\d+)/stage', array(
 			'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'post_stage' ), 'permission_callback' => $use,
 		) );
+		// [2026-09-23] PHASE-0.71 F71-10/F71-16 — a contact's `role:*` tags (closed catalog) so the Inbox rail can
+		// pick a role per contact and suggest which pipeline kind to open for it.
+		register_rest_route( $ns, '/crm-contacts/(?P<id>\d+)/roles', array(
+			array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_contact_roles' ), 'permission_callback' => $read ),
+			array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'put_contact_roles' ), 'permission_callback' => $write ),
+		) );
 		register_rest_route( $ns, '/crm-pipeline/segments', array(
 			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_segment' ), 'permission_callback' => $use,
 			'args' => array( 'segment' => array( 'type' => 'string', 'enum' => self::SEGMENTS ), 'owner_id' => array( 'type' => 'integer' ), 'team_id' => array( 'type' => 'integer' ) ),
@@ -216,8 +222,37 @@ final class BizCity_CRM_Pipeline_REST {
 		$body = self::body( $request );
 		$contact_id = (int) ( $body['contact_id'] ?? 0 );
 		if ( $contact_id <= 0 || ! BizCity_CRM_Customer_Pipeline::contact_in_scope( $contact_id, BizCity_CRM_Customer_Pipeline::b2_inbox_ids( (int) get_current_user_id() ) ) ) { return self::error( 'contact_not_in_scope', 'Không tìm thấy khách trong phạm vi của bạn.', 404, 'Chọn một contact trong Inbox của bạn.' ); }
+		$body['actor_id'] = (int) get_current_user_id();
 		$result = BizCity_CRM_Pipeline_Run_Service::open_run( $contact_id, sanitize_key( (string) ( $body['kind'] ?? '' ) ), $body );
 		return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( array( 'run_id' => (int) $result ) );
+	}
+
+	/** @return WP_REST_Response|null Error response when the contact is outside the caller's inbox scope. */
+	private static function contact_scope_error( int $contact_id ) {
+		if ( $contact_id <= 0 || ! BizCity_CRM_Customer_Pipeline::contact_in_scope( $contact_id, BizCity_CRM_Customer_Pipeline::b2_inbox_ids( (int) get_current_user_id() ) ) ) {
+			return self::error( 'contact_not_in_scope', 'Không tìm thấy khách trong phạm vi của bạn.', 404, 'Chọn một contact trong Inbox của bạn.' );
+		}
+		return null;
+	}
+
+	public static function get_contact_roles( WP_REST_Request $request ) {
+		$contact_id = (int) $request['id'];
+		$denied = self::contact_scope_error( $contact_id );
+		if ( $denied ) { return $denied; }
+		if ( ! class_exists( 'BizCity_CRM_Contact_Roles' ) ) { return self::error( 'module_not_loaded', 'Chưa tải được mô-đun vai khách.', 503, 'Tải lại CRM rồi thử lại.' ); }
+		return self::ok( array( 'roles' => BizCity_CRM_Contact_Roles::get( $contact_id ), 'catalog' => BizCity_CRM_Contact_Roles::catalog() ) );
+	}
+
+	public static function put_contact_roles( WP_REST_Request $request ) {
+		$contact_id = (int) $request['id'];
+		$denied = self::contact_scope_error( $contact_id );
+		if ( $denied ) { return $denied; }
+		if ( ! class_exists( 'BizCity_CRM_Contact_Roles' ) ) { return self::error( 'module_not_loaded', 'Chưa tải được mô-đun vai khách.', 503, 'Tải lại CRM rồi thử lại.' ); }
+		$body = self::body( $request );
+		// Only catalog roles are accepted — anything else in the body is dropped, never written as a tag.
+		$roles = BizCity_CRM_Contact_Roles::only_catalog( $body['roles'] ?? array() );
+		if ( ! BizCity_CRM_Contact_Roles::set( $contact_id, $roles ) ) { return self::error( 'roles_save_failed', 'Không lưu được vai của khách.', 500, 'Thử lại sau.' ); }
+		return self::ok( array( 'roles' => BizCity_CRM_Contact_Roles::get( $contact_id ), 'catalog' => BizCity_CRM_Contact_Roles::catalog() ) );
 	}
 
 	public static function transition_run( WP_REST_Request $request ) {
@@ -238,7 +273,7 @@ final class BizCity_CRM_Pipeline_REST {
 		if ( ! isset( $methods[ $action ] ) || '' === $stage_key ) {
 			return self::error( 'invalid_param', 'Thao tác chuyển bước không hợp lệ.', 422, 'Chọn hành động và bước hợp lệ.' );
 		}
-		$body['actor_id'] = isset( $body['actor_id'] ) ? (int) $body['actor_id'] : (int) get_current_user_id();
+		$body['actor_id'] = (int) get_current_user_id(); // never trust a client-supplied actor: it lands in audit rows and task created_by.
 		$method = $methods[ $action ];
 		$result = BizCity_CRM_Pipeline_Run_Service::$method( (int) $run['id'], $stage_key, $body );
 		return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( array( 'run' => $result ) );
@@ -255,6 +290,7 @@ final class BizCity_CRM_Pipeline_REST {
 		if ( '' === $appointment_at ) {
 			return self::error( 'invalid_param', 'Thiếu thời điểm hẹn.', 422, 'Chọn ngày giờ hẹn.' );
 		}
+		$body['actor_id'] = (int) get_current_user_id();
 		$result = BizCity_CRM_Pipeline_Run_Service::set_appointment( (int) $run['id'], $appointment_at, $body );
 		return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( array( 'run' => $result ) );
 	}
@@ -276,7 +312,7 @@ final class BizCity_CRM_Pipeline_REST {
 		if ( ! isset( $methods[ $action ] ) || '' === $exception_key ) {
 			return self::error( 'invalid_param', 'Thao tác ngoại lệ không hợp lệ.', 422, 'Chọn hành động và loại ngoại lệ hợp lệ.' );
 		}
-		$body['actor_id'] = isset( $body['actor_id'] ) ? (int) $body['actor_id'] : (int) get_current_user_id();
+		$body['actor_id'] = (int) get_current_user_id();
 		$method = $methods[ $action ];
 		$result = BizCity_CRM_Pipeline_Run_Service::$method( (int) $run['id'], $exception_key, $body );
 		return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( array( 'run' => $result ) );

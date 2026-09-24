@@ -6,7 +6,8 @@ $GLOBALS['crm_test_users'] = array(
 );
 function get_current_user_id() { return $GLOBALS['crm_current_user'] ?? 0; }
 function get_current_blog_id() { return 1; }
-function is_super_admin( $id = 0 ) { return (int) $id === 1; }
+function is_super_admin( $id = 0 ) { return (int) ( $id ?: get_current_user_id() ) === 1; }
+function is_multisite() { return ! empty( $GLOBALS['crm_multisite'] ); }
 function is_user_member_of_blog( $id, $blog ) { return (int) $id !== 30; }
 function user_can( $id, $cap ) {
 	$id = (int) $id;
@@ -34,5 +35,12 @@ crm_check( 'lead can use AI', BizCity_CRM_Authority::can( 'crm.ai.use' )['ok'] )
 crm_check( 'lead cannot manage settings', ! BizCity_CRM_Authority::can( 'crm.settings.manage' )['ok'] );
 $GLOBALS['crm_current_user'] = 30;
 crm_check( 'subscriber cannot use CRM', ! BizCity_CRM_Authority::can( 'crm.inbox.open' )['ok'] );
+// [2026-09-24] HOTFIX-SINGLE-SITE-MENU-CAP — single-site admin must not be handed manage_network (menu disappears).
+$GLOBALS['crm_current_user'] = 1;
+$GLOBALS['crm_multisite']    = false;
+crm_check( 'single-site admin menu cap is manage_options', 'manage_options' === BizCity_CRM_Authority::menu_cap( 'crm.settings.manage' ) );
+$GLOBALS['crm_multisite']    = true;
+crm_check( 'multisite super admin menu cap is manage_network', 'manage_network' === BizCity_CRM_Authority::menu_cap( 'crm.settings.manage' ) );
+$GLOBALS['crm_multisite']    = false;
 printf("\n%d passed, %d failed\n", $pass, $fail);
 exit( $fail ? 1 : 0 );

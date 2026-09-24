@@ -339,7 +339,7 @@ class BizCity_Admin_Menu {
 			// [2026-09-21 09:35 AM Johnny Chu] HOTFIX-CHANNEL-SUPER-ADMIN — the SPA owner reconciles this existing submenu at priority 30, but WordPress checks the capability stored here before the callback runs. Keep Network Super Admin access aligned with the Gateway SPA owner instead of leaving the central registration at manage_options.
 			$channel_gateway_cap = class_exists( 'BizCity_Network_Admin_Capability' )
 				? BizCity_Network_Admin_Capability::menu_cap()
-				: ( function_exists( 'is_super_admin' ) && is_super_admin() ? 'manage_network' : 'manage_options' );
+				: ( is_multisite() && is_super_admin() ? 'manage_network' : 'manage_options' ); // [2026-09-24] HOTFIX-SINGLE-SITE-MENU-CAP
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Channel Gateway', $td ), __( 'Channel Gateway', $td ),
 				$channel_gateway_cap, 'bizchat-gateway-spa',
@@ -573,12 +573,11 @@ class BizCity_Admin_Menu {
 
 			// [2026-06-22 Johnny Chu] PHASE-TWINWEB — KG Hub moved from TwinChat to Đào tạo kiến thức.
 			// [2026-08-13 Johnny Chu] PHASE-1.26-MENU — TwinChat shell intentionally does not load KG-Hub runtime.
-			if ( class_exists( 'BizCity_KG_Admin_Menu', false ) ) {
-				add_submenu_page( self::SLUG_WORKSPACE,
-					__( 'Knowledge Graph', $td ), __( 'Knowledge Graph', $td ),
-					self::menu_cap(), 'bizcity-kg-hub',
-					[ BizCity_KG_Admin_Menu::instance(), 'render_page' ] );
-			}
+			// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T3 — the Knowledge Graph page is no
+			// longer registered here. It is owned by modules/twinkg, which registers
+			// `bizcity-twinkg` under this same parent at admin_menu@25 and redirects the old
+			// `bizcity-kg-hub` slug to it. Registering it in both places would give one page two
+			// owners, which is exactly what the loader-ownership probes flag.
 
 			// Hidden legacy direct-URL pages
 			add_submenu_page( null, __( 'Training FAQ', $td ), __( 'Training FAQ', $td ),
@@ -841,8 +840,10 @@ class BizCity_Admin_Menu {
 		// [2026-06-11 Johnny Chu] HOTFIX — Bind Connectors moved to SLUG_KNOWLEDGE; remove from TwinChat menu.
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-knowledge-characters' );
 		// [2026-06-22 Johnny Chu] PHASE-TWINWEB — remove menus relocated to SLUG_GATEWAY/SLUG_KNOWLEDGE
-		remove_submenu_page( 'bizcity-twinchat', 'bizcity-twinchat-gurus' );   // removed entirely
-		remove_submenu_page( 'bizcity-twinchat', 'bizcity-kg-hub' );            // moved → SLUG_KNOWLEDGE
+		// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T3 — the `bizcity-twinchat-gurus` and
+		// `bizcity-kg-hub` cleanups are gone with the class that registered those two pages
+		// (core/knowledge/kg-hub/includes/class-kg-admin-menu.php). Nothing adds them any more,
+		// so removing them again would only hide a future page that reused the slug.
 		remove_submenu_page( 'bizcity-twinchat', 'bizchat-gateway-spa' );       // moved → SLUG_GATEWAY
 		remove_submenu_page( 'bizcity-twinchat', 'bizcity-automation' );        // moved → SLUG_GATEWAY
 		remove_submenu_page( 'bizcity-twinchat', 'bizcity-cg-flows' );          // moved → SLUG_GATEWAY

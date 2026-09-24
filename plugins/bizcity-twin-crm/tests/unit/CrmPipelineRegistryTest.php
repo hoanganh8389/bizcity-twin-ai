@@ -37,6 +37,7 @@ function apply_filters( $hook, $value ) {
 	return $value;
 }
 
+require dirname( __DIR__, 2 ) . '/includes/pipeline/class-pipeline-kind-registry.php';
 require dirname( __DIR__, 2 ) . '/includes/pipeline/class-pipeline-registry.php';
 require dirname( __DIR__, 2 ) . '/includes/pipeline/class-pipeline-sla-service.php';
 require dirname( __DIR__, 2 ) . '/includes/pipeline/class-pipeline-run-service.php';
@@ -65,7 +66,7 @@ function load_json( $path ) {
 
 $root      = dirname( __DIR__, 4 );
 $fixtures  = $root . '/core/twin-core/contracts/schema/public/v1/fixtures/';
-$templates = dirname( __DIR__, 2 ) . '/templates/pipelines/';
+$templates = dirname( __DIR__, 2 ) . '/templates/pipelines/_bundled_pending_split/';
 
 /* ---- 1. The shipped templates are valid definitions ---------------------------- */
 
@@ -81,8 +82,8 @@ check(
 	is_array( BizCity_CRM_Pipeline_Registry::template( 'purchase' ) )
 );
 check(
-	'templates() lists the three built-ins',
-	BizCity_CRM_Pipeline_Registry::templates() === array( 'production', 'purchase', 'request' ),
+	'templates() lists the four built-ins',
+	BizCity_CRM_Pipeline_Registry::templates() === array( 'production', 'purchase', 'request', 'service' ),
 	implode( ',', BizCity_CRM_Pipeline_Registry::templates() )
 );
 

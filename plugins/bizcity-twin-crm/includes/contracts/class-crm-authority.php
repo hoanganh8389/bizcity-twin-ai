@@ -65,7 +65,8 @@ if ( ! class_exists( 'BizCity_CRM_Authority', false ) ) {
 		}
 
 		public static function menu_cap( string $action ): string {
-			if ( function_exists( 'is_super_admin' ) && is_super_admin() ) { return 'manage_network'; }
+			// [2026-09-24] HOTFIX-SINGLE-SITE-MENU-CAP — manage_network only exists on multisite; on single-site every admin is_super_admin() but lacks it.
+			if ( function_exists( 'is_multisite' ) && is_multisite() && function_exists( 'is_super_admin' ) && is_super_admin() ) { return 'manage_network'; }
 			if ( in_array( $action, array( 'crm.inbox.open', 'crm.inbox.read', 'crm.inbox.handle' ), true ) && self::has_crm_staff( get_current_user_id() ) ) { return 'bizcity_crm_handle_inbox'; }
 		if ( 'crm.rules.manage' === $action ) { return 'bizcity_crm_manage_rules'; }
 		return 'manage_options';

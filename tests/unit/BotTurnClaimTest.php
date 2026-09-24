@@ -128,6 +128,9 @@ final class BizCity_Channel_Binding {
 }
 }
 
+// [2026-09-24 Claude Sonnet 5] PHASE-0.60H — the claim now resolves the CRM contact through
+// BizCity_CRM_Repository (read-only). Load the shared fake so this file also works when run alone.
+require_once __DIR__ . '/support/bot-studio-stubs.php';
 require_once dirname( __DIR__, 2 ) . '/core/channel-gateway/includes/bot/class-bot-config-repo.php';
 require_once dirname( __DIR__, 2 ) . '/core/channel-gateway/includes/bot/class-bot-office-hours.php';
 require_once dirname( __DIR__, 2 ) . '/core/channel-gateway/includes/bot/class-bot-turn-claim.php';
@@ -151,6 +154,9 @@ final class BotTurnClaimTest extends TestCase {
 		$GLOBALS['bizcity_transient_ttl_stub']      = array();
 		$GLOBALS['__bzc_hooks']                     = array(); // reset the real add_filter/apply_filters registry
 		BizCity_Channel_Binding::$next_binding      = null;
+		BizCity_CRM_Repository::reset();
+		// A returning customer: sender 'u-1' already has CRM contact #77 on this phone's inbox (#2).
+		BizCity_CRM_Repository::$contacts_by_source = array( '2|u-1' => 77 );
 		$ref = new ReflectionProperty( BizCity_Knowledge_Database::class, 'rows' );
 		$ref->setAccessible( true );
 		$ref->setValue( BizCity_Knowledge_Database::instance(), array() );
@@ -162,6 +168,9 @@ final class BotTurnClaimTest extends TestCase {
 			'platform'         => 'ZALO_PERSONAL',
 			'account_id'       => 'acc-1',
 			'chat_id'          => 'chat-1',
+			'user_id'          => 'u-1',
+			// What the REAL listener puts here: an Identity Hub row id, NOT a CRM contact id
+			// (class-universal-channel-listener.php ~L432). The claim must ignore it.
 			'contact_id'       => 42,
 			'chat_kind'        => 'user',
 			'mention_detected' => false,
@@ -191,8 +200,52 @@ final class BotTurnClaimTest extends TestCase {
 		$claim = BizCity_Bot_Turn_Claim::consume_claim();
 		$this->assertIsArray( $claim );
 		$this->assertSame( 5, $claim['character_id'] );
-		$this->assertSame( 42, $claim['contact_id'] );
+		$this->assertSame( 77, $claim['contact_id'], 'the CRM contact resolved from (inbox, source_id) — never the envelope\'s Identity Hub id 42' );
+		$this->assertSame( 'u-1', $claim['source_id'] );
 		$this->assertSame( 20, $claim['history_limit'], 'falls back to the bot-settings default' );
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H regression — the live-traffic shape: on ZALO_PERSONAL the
+	 * listener's envelope carries contact_id 0 (Zalo Cá nhân is not an Identity Hub guest channel). The old
+	 * claim returned on `contact_id <= 0`, so the bot never took a single real turn.
+	 */
+	public function test_live_envelope_with_zero_contact_id_still_claims_a_brand_new_customer(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding();
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'contact_id' => 0, 'user_id' => 'brand-new' ) ), 'trigger' );
+		$claim = BizCity_Bot_Turn_Claim::consume_claim();
+		$this->assertIsArray( $claim, 'no CRM contact yet is normal for a first message — the runner adopts it from the persisted event' );
+		$this->assertSame( 0, $claim['contact_id'] );
+		$this->assertSame( 'brand-new', $claim['sender_uid'] );
+		$this->assertFalse( $this->default_reply_enabled() );
+	}
+
+	/** Zalo Cá nhân says "group" with raw.thread_kind / raw.is_group — never with chat_kind. */
+	public function test_thread_ref_reads_zalo_personal_group_markers_from_the_raw_payload(): void {
+		$group = BizCity_Bot_Turn_Claim::thread_ref( array( 'user_id' => 'u-1', 'chat_kind' => '', 'raw' => array( 'thread_kind' => 'group', 'group_id' => 'g-9', 'from_user_id' => 'u-1' ) ) );
+		$this->assertSame( array( 'chat_kind' => 'group', 'source_id' => 'group:g-9', 'sender_uid' => 'u-1', 'group_id' => 'g-9' ), $group );
+
+		$legacy = BizCity_Bot_Turn_Claim::thread_ref( array( 'user_id' => 'u-1', 'raw' => array( 'is_group' => true, 'thread_id' => 'g-3' ) ) );
+		$this->assertSame( 'group', $legacy['chat_kind'] );
+		$this->assertSame( 'group:g-3', $legacy['source_id'], 'falls back to thread_id like the CRM adapter does' );
+
+		$private = BizCity_Bot_Turn_Claim::thread_ref( array( 'user_id' => 'u-1', 'chat_kind' => '', 'raw' => array( 'thread_kind' => 'personal' ) ) );
+		$this->assertSame( array( 'chat_kind' => 'user', 'source_id' => 'u-1', 'sender_uid' => 'u-1', 'group_id' => '' ), $private );
+
+		$explicit = BizCity_Bot_Turn_Claim::thread_ref( array( 'user_id' => 'u-1', 'chat_kind' => 'group', 'raw' => array( 'group_id' => 'g-1' ) ) );
+		$this->assertSame( 'group', $explicit['chat_kind'], 'an explicit chat_kind=group from another producer is still honoured' );
+	}
+
+	/** Before this fix a Zalo Cá nhân group message looked private, so reply_in_group=false never applied. */
+	public function test_reply_in_group_false_now_applies_to_a_real_zalo_personal_group_payload(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'reply_in_group' => false ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'chat_kind' => '', 'raw' => array( 'thread_kind' => 'group', 'group_id' => 'g-9' ) ) ), 'trigger' );
+		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim() );
+		$this->assertTrue( $this->default_reply_enabled() );
 	}
 
 	public function test_consume_claim_clears_after_first_read(): void {
@@ -240,7 +293,7 @@ final class BotTurnClaimTest extends TestCase {
 		BizCity_Channel_Binding::$next_binding = $this->binding( array(
 			'office_hours_json' => wp_json_encode( array( 'pause_on_manual_reply' => true ) ),
 		) );
-		BizCity_Bot_Turn_Claim::set_paused( 42, 30 );
+		BizCity_Bot_Turn_Claim::set_paused( 77, 30 ); // keyed by the CRM contact, like on_message_inserted() sets it.
 
 		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope(), 'trigger' );
 		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim() );
@@ -284,8 +337,8 @@ final class BotTurnClaimTest extends TestCase {
 		BizCity_Knowledge_Database::instance()->seed( 5, '' );
 		BizCity_Channel_Binding::$next_binding = $this->binding();
 		BizCity_Bot_Config_Repo::save_tuning( array( 'daily_message_cap' => 2 ) );
-		BizCity_Bot_Turn_Claim::increment_today_count( 42 );
-		BizCity_Bot_Turn_Claim::increment_today_count( 42 );
+		BizCity_Bot_Turn_Claim::increment_today_count( 77 );
+		BizCity_Bot_Turn_Claim::increment_today_count( 77 );
 
 		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope(), 'trigger' );
 		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim() );
@@ -311,23 +364,36 @@ final class BotTurnClaimTest extends TestCase {
 		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim() );
 	}
 
-	public function test_allowlist_contacts_only_mode_rejects_temporary_identity(): void {
+	public function test_allowlist_contacts_only_mode_rejects_temporary_identity_that_is_not_a_crm_contact(): void {
+		// [2026-09-24] PHASE-0.60H — the decision is "does the CRM know this sender", not identity durability.
 		BizCity_Knowledge_Database::instance()->seed( 5, '' );
 		BizCity_Channel_Binding::$next_binding = $this->binding( array(
 			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'contacts_only' ) ),
 		) );
-		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'identity_temporary' => true ) ), 'trigger' );
-		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim(), 'a throwaway/guest identity must not claim under contacts_only' );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'identity_temporary' => true, 'user_id' => 'throwaway' ) ), 'trigger' );
+		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim(), 'a sender the CRM does not know must not claim under contacts_only' );
 		$this->assertTrue( $this->default_reply_enabled(), 'EA-1.3 — rejection must leave the default-reply net on' );
 	}
 
-	public function test_allowlist_contacts_only_mode_accepts_durable_identity(): void {
+	/** [2026-09-24] PHASE-0.60H — "Chỉ người đã là contact CRM" now means exactly that. */
+	public function test_allowlist_contacts_only_mode_accepts_an_existing_crm_contact(): void {
 		BizCity_Knowledge_Database::instance()->seed( 5, '' );
 		BizCity_Channel_Binding::$next_binding = $this->binding( array(
 			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'contacts_only' ) ),
 		) );
 		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'identity_temporary' => false ) ), 'trigger' );
-		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim() );
+		$this->assertIsArray( BizCity_Bot_Turn_Claim::consume_claim(), 'u-1 is CRM contact #77' );
+	}
+
+	/** The old check (`empty( identity_temporary )`) is always true on ZALO_PERSONAL — contacts_only behaved like "all". */
+	public function test_allowlist_contacts_only_mode_rejects_a_sender_the_crm_does_not_know(): void {
+		BizCity_Knowledge_Database::instance()->seed( 5, '' );
+		BizCity_Channel_Binding::$next_binding = $this->binding( array(
+			'policy_json' => wp_json_encode( array( 'allowlist_mode' => 'contacts_only' ) ),
+		) );
+		BizCity_Bot_Turn_Claim::on_normalized( $this->envelope( array( 'identity_temporary' => false, 'user_id' => 'stranger' ) ), 'trigger' );
+		$this->assertNull( BizCity_Bot_Turn_Claim::consume_claim() );
+		$this->assertTrue( $this->default_reply_enabled(), 'EA-1.3 — rejection must leave the default-reply net on' );
 	}
 
 	public function test_allowlist_list_mode_rejects_uid_not_on_list(): void {

@@ -66,13 +66,25 @@ final class BizCity_Bot_Turn_Runner {
 		if ( ! $claim ) {
 			return;
 		}
-		// Sanity cross-check: the claim (from the normalized envelope) and this persisted
-		// event must agree on which contact this is, or we skip rather than misfire.
-		if ( (int) ( $payload['contact_id'] ?? 0 ) !== (int) $claim['contact_id'] ) {
+		// Sanity cross-check: the claim (from the normalized envelope) and this persisted event must be
+		// the same message, or we skip rather than misfire.
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H — this used to compare CRM `contact_id` with the envelope's
+		// `contact_id`, which is an Identity Hub row id (never equal, and 0 on ZALO_PERSONAL) — see
+		// Bot_Turn_Claim::on_normalized(). It now checks what actually identifies the message: same adapter,
+		// same phone (inbox ↔ account), and — when the claim already knew the CRM contact — the same contact.
+		if ( ! self::persisted_matches_claim( $payload, $claim ) ) {
+			self::emit_event( 'bot_turn_claim_mismatch', array( 'conversation_id' => (int) ( $payload['conversation_id'] ?? 0 ), 'channel' => 'zalo_personal' ) );
 			return;
 		}
+		$claim['contact_id']      = (int) ( $payload['contact_id'] ?? 0 ); // the REAL CRM contact from here on.
 		$claim['conversation_id'] = (int) ( $payload['conversation_id'] ?? 0 );
 		$claim['message_id']      = (int) ( $payload['message_id'] ?? 0 );
+		// A brand-new customer skipped the claim-time pause/cap checks (no CRM id yet) — run them now, before
+		// anything is scheduled. may_still_send() runs them again at fire time.
+		if ( ! self::may_still_send( $claim ) ) {
+			self::emit_event( 'bot_turn_dropped', array( 'conversation_id' => $claim['conversation_id'], 'reason' => 'conditions_at_persist' ) );
+			return;
+		}
 
 		// [2026-09-23 03:50 PM Claude Fable 5.1] PHASE-0.60D S3.3 — the operator's workflow wins; the bot yields.
 		if ( ! empty( $claim['workflow_matched'] ) ) {
@@ -80,6 +92,33 @@ final class BizCity_Bot_Turn_Runner {
 			return;
 		}
 		self::schedule_debounced_turn( $claim );
+	}
+
+	/**
+	 * Is this persisted CRM message the one the claim was taken for?
+	 *
+	 * Public for tests. Pure apart from one read of the inbox row.
+	 */
+	public static function persisted_matches_claim( array $payload, array $claim ): bool {
+		if ( (int) ( $payload['contact_id'] ?? 0 ) <= 0 ) {
+			return false;
+		}
+		$adapter = (string) ( $payload['adapter_code'] ?? '' );
+		if ( '' !== $adapter && BizCity_Bot_Turn_Claim::CODE !== $adapter ) {
+			return false;
+		}
+		// Claim already knew the CRM contact (returning customer): it must be the same one.
+		if ( (int) ( $claim['contact_id'] ?? 0 ) > 0 && (int) $payload['contact_id'] !== (int) $claim['contact_id'] ) {
+			return false;
+		}
+		// Same phone: the persisted inbox must be this claim's Zalo account.
+		if ( class_exists( 'BizCity_CRM_Repository' ) ) {
+			$inbox = BizCity_CRM_Repository::get_inbox( (int) ( $payload['inbox_id'] ?? 0 ) );
+			if ( ! is_array( $inbox ) || (string) ( $inbox['channel_ref_id'] ?? '' ) !== (string) ( $claim['account_id'] ?? '' ) ) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/** Manual outgoing row → arm the pause window for that contact (doc §3.2 step 3). */
@@ -93,8 +132,7 @@ final class BizCity_Bot_Turn_Runner {
 		if ( ! class_exists( 'BizCity_Bot_Turn_Claim' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_CRM_Repository' ) ) {
 			return;
 		}
-		$conversation = BizCity_CRM_Repository::get_conversation( (int) ( $row['conversation_id'] ?? 0 ) );
-		$contact_id   = is_array( $conversation ) ? (int) ( $conversation['contact_id'] ?? 0 ) : 0;
+		$contact_id = self::conversation_contact_id( (int) ( $row['conversation_id'] ?? 0 ) );
 		if ( $contact_id <= 0 ) {
 			return;
 		}
@@ -103,6 +141,23 @@ final class BizCity_Bot_Turn_Runner {
 		// A human took over: drop any turn still waiting for this contact.
 		delete_transient( self::claim_key( $contact_id ) );
 		BizCity_Bot_Turn_Claim::clear_active( $contact_id );
+	}
+
+	/**
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — the CRM conversations table has no `contact_id` column
+	 * (it stores `contact_inbox_id`), so reading `$conversation['contact_id']` was always 0 on a real site and
+	 * "pause when staff replies by hand" never armed. Resolve through the CRM's own join; the plain-row read
+	 * stays only as the fallback for an older CRM build without the helper.
+	 */
+	private static function conversation_contact_id( int $conversation_id ): int {
+		if ( $conversation_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) ) {
+			return 0;
+		}
+		if ( method_exists( 'BizCity_CRM_Repository', 'get_conversation_contact_id' ) ) {
+			return (int) BizCity_CRM_Repository::get_conversation_contact_id( $conversation_id );
+		}
+		$conversation = BizCity_CRM_Repository::get_conversation( $conversation_id );
+		return is_array( $conversation ) ? (int) ( $conversation['contact_id'] ?? 0 ) : 0;
 	}
 
 	/**
@@ -139,8 +194,43 @@ final class BizCity_Bot_Turn_Runner {
 			call_user_func( self::$scheduler, $contact_id, $delay );
 			return;
 		}
+		self::report_overdue_turns();
 		wp_clear_scheduled_hook( self::CRON_HOOK, array( $contact_id ) );
 		wp_schedule_single_event( time() + $delay, self::CRON_HOOK, array( $contact_id ) );
+	}
+
+	/** A scheduled turn this late means WP-Cron is not running on this site. */
+	const CRON_OVERDUE_SECONDS = 120;
+
+	/**
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Bot Studio is now the ONLY auto-replier for Zalo Cá nhân,
+	 * and every turn rides WP-Cron. If cron is dead the customer gets silence with no trace anywhere, which is
+	 * exactly how the 2026-09-24 incident looked. This makes it loud: an event + log line naming how late.
+	 * Pure read of the cron array; it never runs or reschedules anything itself.
+	 *
+	 * @return array{count:int,max_late:int,wp_cron_disabled:bool}
+	 */
+	public static function overdue_turns(): array {
+		$out = array( 'count' => 0, 'max_late' => 0, 'wp_cron_disabled' => defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON );
+		if ( ! function_exists( '_get_cron_array' ) ) {
+			return $out;
+		}
+		$now = time();
+		foreach ( (array) _get_cron_array() as $ts => $hooks ) {
+			if ( ! isset( $hooks[ self::CRON_HOOK ] ) || ( $now - (int) $ts ) <= self::CRON_OVERDUE_SECONDS ) {
+				continue;
+			}
+			$out['count']   += count( (array) $hooks[ self::CRON_HOOK ] );
+			$out['max_late'] = max( $out['max_late'], $now - (int) $ts );
+		}
+		return $out;
+	}
+
+	private static function report_overdue_turns(): void {
+		$overdue = self::overdue_turns();
+		if ( $overdue['count'] > 0 ) {
+			self::emit_event( 'bot_cron_overdue', $overdue );
+		}
 	}
 
 	/**
@@ -233,7 +323,14 @@ final class BizCity_Bot_Turn_Runner {
 
 		$trace_id = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'bot_', true );
 		$started  = microtime( true );
-		self::emit_event( 'guru_turn_started', array( 'trace_id' => $trace_id, 'character_id' => (int) $claim['character_id'], 'channel' => 'zalo_personal', 'engine' => 'bot', 'conversation_id' => $conversation_id ) );
+		$result['trace_id'] = $trace_id;
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — `trigger` tells an automatic turn (`auto`) from one a staff
+		// member pushed from the composer (`composer`); both are the same Bot Studio turn in the event stream.
+		$trigger  = (string) ( $claim['trigger'] ?? 'auto' );
+		$actor    = (int) ( $claim['actor_user_id'] ?? 0 );
+		self::emit_event( 'guru_turn_started', array( 'trace_id' => $trace_id, 'character_id' => (int) $claim['character_id'], 'channel' => 'zalo_personal', 'engine' => 'bot', 'conversation_id' => $conversation_id, 'trigger' => $trigger, 'actor_user_id' => $actor ) );
+		// Trace for the Inbox "Thinking" timeline (ThinkingTimeline.jsx reads ai_metadata.steps).
+		$trace_steps = array();
 
 		if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
 			BizCity_Responder_Stamper::push( array( 'kind' => 'hybrid' === ( $claim['mode'] ?? '' ) ? 'hybrid' : 'auto', 'character_id' => (int) $claim['character_id'], 'source' => 'bot:' . (int) $claim['character_id'] ) );
@@ -242,6 +339,20 @@ final class BizCity_Bot_Turn_Runner {
 		try {
 			$extra_system = array();
 			$disclaimer   = '';
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — what the bot remembers about THIS customer (private chats
+			// only; '' otherwise). Goes first so tool results can refer back to it; prompt_for_turn() never throws.
+			if ( class_exists( 'BizCity_Bot_Memory' ) ) {
+				$memory_block = BizCity_Bot_Memory::prompt_for_turn( $claim );
+				if ( '' !== $memory_block ) {
+					$extra_system[] = $memory_block;
+				}
+			}
+			// D-H7 — text a staff member typed before pressing "AI reply" is an instruction to the bot, never a
+			// customer message: it steers this one turn and is not stored as the customer's words.
+			$staff_instruction = trim( (string) ( $claim['staff_instruction'] ?? '' ) );
+			if ( '' !== $staff_instruction ) {
+				$extra_system[] = "=== YÊU CẦU CỦA NHÂN VIÊN (không phải lời khách) ===\n" . mb_substr( $staff_instruction, 0, 2000 );
+			}
 
 			// ── 0.60D S1 — capture a birth date the customer just gave (only when the bot asked). ──
 			if ( class_exists( 'BizCity_Bot_Astro_Tool' ) && ! empty( $claim['text'] ) ) {
@@ -277,6 +388,11 @@ final class BizCity_Bot_Turn_Runner {
 				// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-3.3
 				'passive_listen_in_group' => ! isset( $claim['passive_listen_in_group'] ) || (bool) $claim['passive_listen_in_group'],
 			);
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1 G-04) — the only cross-step
+			// state the tool loop now carries beyond $extra_system: an image the model generated
+			// this turn, to be attached when the reply is sent below. Zero unless generate_image
+			// actually succeeds (class-bot-tools.php enforces the real attachment-owner rule).
+			$pending_image_attachment_id = 0;
 			for ( $step = 0; $step < $max_steps && ! empty( $tools ) && class_exists( 'BizCity_Bot_Tools' ); $step++ ) {
 				$probe = BizCity_Bot_Context_Builder::build( $character, $conversation_id, $contact_id, $context_opts + array( 'extra_system' => $extra_system ) );
 				$plan  = BizCity_Bot_Tools::plan( $character, $probe['messages'], $tools );
@@ -290,10 +406,14 @@ final class BizCity_Bot_Turn_Runner {
 				}
 				$seen[ $key ] = true;
 				self::emit_event( 'bot_tool_called', array( 'trace_id' => $trace_id, 'tool' => $plan['tool'], 'ok' => ! empty( $run['ok'] ), 'error' => (string) ( $run['error'] ?? '' ) ) );
+				$trace_steps[] = array( 'name' => 'tool:' . $plan['tool'], 'ms' => 0, 'detail' => array( 'ok' => ! empty( $run['ok'] ), 'error' => (string) ( $run['error'] ?? '' ) ) );
 				if ( ! empty( $run['ok'] ) && $run['content'] !== '' ) {
 					$extra_system[] = (string) $run['content'];
 					if ( ! empty( $run['disclaimer'] ) ) {
 						$disclaimer = (string) $run['disclaimer'];
+					}
+					if ( ! empty( $run['image_attachment_id'] ) ) {
+						$pending_image_attachment_id = (int) $run['image_attachment_id'];
 					}
 					if ( ! empty( $run['ask'] ) ) {
 						break; // the tool wants the model to ask the customer; no further tools this turn.
@@ -308,16 +428,23 @@ final class BizCity_Bot_Turn_Runner {
 			$messages = $built['messages'];
 			$last     = end( $messages );
 			if ( ! $last || 'user' !== ( $last['role'] ?? '' ) ) {
-				$messages[] = array( 'role' => 'user', 'content' => (string) ( $claim['text'] !== '' ? $claim['text'] : '(tin nhắn không có chữ)' ) );
+				$fallback_text = '' !== $claim['text'] ? $claim['text'] : self::describe_no_text_message( (int) ( $claim['message_id'] ?? 0 ) );
+				$messages[] = array( 'role' => 'user', 'content' => $fallback_text );
 			}
-			$llm   = self::call_llm( $character, $messages, $claim );
-			$reply = ! empty( $llm['success'] ) ? trim( (string) ( $llm['message'] ?? '' ) ) : '';
+			$trace_steps = array_merge( array( array( 'name' => 'resolve_context', 'ms' => (int) round( ( microtime( true ) - $started ) * 1000 ), 'detail' => array( 'character_id' => (int) $claim['character_id'], 'engine' => 'bot_studio', 'trigger' => $trigger, 'prompt_chars' => mb_strlen( (string) ( $claim['text'] ?? '' ) ), 'history' => $built['meta'] ?? array() ) ) ), $trace_steps );
+			$llm_t0 = microtime( true );
+			$llm    = self::call_llm( $character, $messages, $claim );
+			$reply  = ! empty( $llm['success'] ) ? trim( (string) ( $llm['message'] ?? '' ) ) : '';
+			$trace_steps[] = array( 'name' => 'llm_generate', 'ms' => (int) round( ( microtime( true ) - $llm_t0 ) * 1000 ), 'detail' => array( 'reply_chars' => mb_strlen( $reply ), 'note' => '' === $reply ? (string) ( $llm['error'] ?? 'empty_reply' ) : '' ) );
 
 			if ( '' === $reply ) {
 				// B4.7 — inherited obligation: provider dead ≠ customer left in silence. Never leak the raw error.
-				$sent = 'hybrid' === ( $claim['mode'] ?? '' ) ? array( 'ok' => true, 'message_id' => 0 ) : self::send( $claim, self::FALLBACK_TEXT, array( 'trace_id' => $trace_id, 'fallback' => true ) );
-				self::emit_event( 'guru_turn_failed', array( 'trace_id' => $trace_id, 'reason' => 'provider_error', 'error' => (string) ( $llm['error'] ?? 'empty_reply' ), 'fallback_sent' => ! empty( $sent['ok'] ) ) );
-				$result = array( 'status' => 'fallback', 'reply' => self::FALLBACK_TEXT, 'reason' => 'provider_error' );
+				// D-H7 — a composer turn is different: a staff member is watching and gets the error; sending the
+				// customer an apology they never asked for would be wrong.
+				$no_fallback = 'hybrid' === ( $claim['mode'] ?? '' ) || ! empty( $claim['return_draft'] ) || ! empty( $claim['no_fallback'] );
+				$sent = $no_fallback ? array( 'ok' => false, 'message_id' => 0 ) : self::send( $claim, self::FALLBACK_TEXT, array( 'trace_id' => $trace_id, 'fallback' => true ) );
+				self::emit_event( 'guru_turn_failed', array( 'trace_id' => $trace_id, 'reason' => 'provider_error', 'error' => (string) ( $llm['error'] ?? 'empty_reply' ), 'fallback_sent' => ! empty( $sent['ok'] ), 'trigger' => $trigger ) );
+				$result = array( 'status' => $no_fallback ? 'failed' : 'fallback', 'reply' => $no_fallback ? '' : self::FALLBACK_TEXT, 'reason' => 'provider_error', 'trace_id' => $trace_id, 'message_id' => (int) ( $sent['message_id'] ?? 0 ), 'steps' => $trace_steps );
 				return $result;
 			}
 
@@ -325,40 +452,59 @@ final class BizCity_Bot_Turn_Runner {
 				? BizCity_Bot_Vertical_Tools::trim_for_zalo( $reply, self::ZALO_REPLY_MAX_CHARS, $disclaimer )
 				: mb_substr( $reply, 0, self::ZALO_REPLY_MAX_CHARS );
 
+			if ( ! empty( $claim['return_draft'] ) ) {
+				// D-H7 — composer "💡 Gợi ý": the text goes back to the staff member's composer. No CRM row, no send,
+				// no daily-cap count — nothing reached the customer.
+				self::emit_event( 'guru_turn_completed', array( 'trace_id' => $trace_id, 'character_id' => (int) $claim['character_id'], 'channel' => 'zalo_personal', 'engine' => 'bot', 'mode' => 'draft', 'trigger' => $trigger, 'actor_user_id' => $actor, 'latency_ms' => (int) round( ( microtime( true ) - $started ) * 1000 ), 'reply_len' => mb_strlen( $reply ) ) );
+				$result = array( 'status' => 'draft', 'reply' => $reply, 'reason' => '', 'trace_id' => $trace_id, 'message_id' => 0, 'steps' => $trace_steps );
+				return $result;
+			}
+
 			if ( 'hybrid' === ( $claim['mode'] ?? '' ) ) {
 				// B-04 "Chỉ gợi ý cho nhân viên": draft as an internal note, never auto-sent.
 				$note_id = self::store_draft( $claim, $reply, $trace_id );
 				self::emit_event( 'guru_turn_completed', array( 'trace_id' => $trace_id, 'character_id' => (int) $claim['character_id'], 'channel' => 'zalo_personal', 'engine' => 'bot', 'mode' => 'hybrid', 'latency_ms' => (int) round( ( microtime( true ) - $started ) * 1000 ), 'reply_len' => mb_strlen( $reply ), 'draft_message_id' => $note_id ) );
-				$result = array( 'status' => 'draft', 'reply' => $reply, 'reason' => '' );
+				$result = array( 'status' => 'draft', 'reply' => $reply, 'reason' => '', 'trace_id' => $trace_id, 'message_id' => (int) $note_id, 'steps' => $trace_steps );
 				return $result;
 			}
 
 			// B5.5 — a human-ish pause before sending (only when running under cron, never in a unit test seam).
 			self::human_delay( $tuning );
-			$sent = self::send( $claim, $reply, array( 'trace_id' => $trace_id ) );
+			$send_t0 = microtime( true );
+			$sent = self::send( $claim, $reply, array( 'trace_id' => $trace_id, 'image_attachment_id' => $pending_image_attachment_id ) );
+			$trace_steps[] = array( 'name' => 'dispatch', 'ms' => (int) round( ( microtime( true ) - $send_t0 ) * 1000 ), 'detail' => array( 'sent' => ! empty( $sent['ok'] ), 'platform' => 'zalo_personal', 'error' => (string) ( $sent['error'] ?? '' ) ) );
 			if ( empty( $sent['ok'] ) ) {
-				self::emit_event( 'guru_turn_failed', array( 'trace_id' => $trace_id, 'reason' => 'send_failed', 'error' => (string) ( $sent['error'] ?? '' ) ) );
-				$result = array( 'status' => 'send_failed', 'reply' => $reply, 'reason' => (string) ( $sent['error'] ?? 'send_failed' ) );
+				self::emit_event( 'guru_turn_failed', array( 'trace_id' => $trace_id, 'reason' => 'send_failed', 'error' => (string) ( $sent['error'] ?? '' ), 'trigger' => $trigger ) );
+				$result = array( 'status' => 'send_failed', 'reply' => $reply, 'reason' => (string) ( $sent['error'] ?? 'send_failed' ), 'trace_id' => $trace_id, 'message_id' => (int) ( $sent['message_id'] ?? 0 ), 'steps' => $trace_steps );
 				return $result;
 			}
 			BizCity_Bot_Turn_Claim::increment_today_count( $contact_id );
-			self::emit_event( 'guru_turn_completed', array( 'trace_id' => $trace_id, 'character_id' => (int) $claim['character_id'], 'channel' => 'zalo_personal', 'engine' => 'bot', 'mode' => 'auto', 'latency_ms' => (int) round( ( microtime( true ) - $started ) * 1000 ), 'reply_len' => mb_strlen( $reply ), 'message_id' => (int) ( $sent['message_id'] ?? 0 ), 'history' => $built['meta'] ) );
+			$latency_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
+			self::attach_trace( (int) ( $sent['message_id'] ?? 0 ), $trace_id, $claim, $trace_steps, $latency_ms );
+			self::emit_event( 'guru_turn_completed', array( 'trace_id' => $trace_id, 'character_id' => (int) $claim['character_id'], 'channel' => 'zalo_personal', 'engine' => 'bot', 'mode' => 'auto', 'trigger' => $trigger, 'actor_user_id' => $actor, 'latency_ms' => $latency_ms, 'reply_len' => mb_strlen( $reply ), 'message_id' => (int) ( $sent['message_id'] ?? 0 ), 'history' => $built['meta'] ) );
 			// [2026-09-23 03:50 PM Claude Fable 5.1] PHASE-0.60D Q-D2 — explicit "after bot replied" mark for automation (the dispatcher's outgoing row also fires bizcity_crm_message_inserted).
-			do_action( 'bizcity_bot_turn_completed', array(
-				'conversation_id' => $conversation_id,
-				'contact_id'      => $contact_id,
-				'character_id'    => (int) $claim['character_id'],
-				'message_id'      => (int) ( $sent['message_id'] ?? 0 ),
-				'account_id'      => (string) $claim['account_id'],
-				'chat_id'         => (string) $claim['chat_id'],
-				'trace_id'        => $trace_id,
-			) );
-			$result = array( 'status' => 'sent', 'reply' => $reply, 'reason' => '' );
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — the reply is already delivered here. A throwing
+			// listener must not reach the outer catch, which would send FALLBACK_TEXT as a second message.
+			try {
+				do_action( 'bizcity_bot_turn_completed', array(
+					'conversation_id' => $conversation_id,
+					'contact_id'      => $contact_id,
+					'character_id'    => (int) $claim['character_id'],
+					'message_id'      => (int) ( $sent['message_id'] ?? 0 ),
+					'account_id'      => (string) $claim['account_id'],
+					'chat_id'         => (string) $claim['chat_id'],
+					'trace_id'        => $trace_id,
+				) );
+			} catch ( \Throwable $listener_error ) {
+				error_log( '[bot-turn] bizcity_bot_turn_completed listener threw after delivery: ' . get_class( $listener_error ) . ': ' . $listener_error->getMessage() );
+			}
+			$result = array( 'status' => 'sent', 'reply' => $reply, 'reason' => '', 'trace_id' => $trace_id, 'message_id' => (int) ( $sent['message_id'] ?? 0 ), 'steps' => $trace_steps, 'latency_ms' => $latency_ms );
 			return $result;
 		} catch ( \Throwable $e ) {
-			$sent = 'hybrid' === ( $claim['mode'] ?? '' ) ? array( 'ok' => true ) : self::send( $claim, self::FALLBACK_TEXT, array( 'trace_id' => $trace_id, 'fallback' => true ) );
-			self::emit_event( 'guru_turn_failed', array( 'trace_id' => $trace_id, 'reason' => 'exception', 'error' => $e->getMessage(), 'fallback_sent' => ! empty( $sent['ok'] ) ) );
-			$result = array( 'status' => 'fallback', 'reply' => self::FALLBACK_TEXT, 'reason' => 'exception' );
+			$no_fallback = 'hybrid' === ( $claim['mode'] ?? '' ) || ! empty( $claim['return_draft'] ) || ! empty( $claim['no_fallback'] );
+			$sent = $no_fallback ? array( 'ok' => false ) : self::send( $claim, self::FALLBACK_TEXT, array( 'trace_id' => $trace_id, 'fallback' => true ) );
+			self::emit_event( 'guru_turn_failed', array( 'trace_id' => $trace_id, 'reason' => 'exception', 'error' => $e->getMessage(), 'fallback_sent' => ! empty( $sent['ok'] ), 'trigger' => $trigger ) );
+			$result = array( 'status' => $no_fallback ? 'failed' : 'fallback', 'reply' => $no_fallback ? '' : self::FALLBACK_TEXT, 'reason' => 'exception', 'trace_id' => $trace_id, 'message_id' => 0, 'steps' => $trace_steps );
 			return $result;
 		} finally {
 			if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
@@ -366,6 +512,146 @@ final class BizCity_Bot_Turn_Runner {
 			}
 			self::unlock( $contact_id );
 			BizCity_Bot_Turn_Claim::clear_active( $contact_id );
+		}
+	}
+
+	/* ── D-H7: composer "AI reply" / "Gợi ý" → the same Bot Studio turn ─ */
+
+	/**
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — the ONE entry a staff member's composer button uses for a
+	 * Zalo Cá nhân conversation. It builds the same claim a webhook turn builds and runs the same run_turn(), so
+	 * persona, tools, context, lock, daily cap and the Twin event stream are shared; only the trigger differs.
+	 *
+	 * Deliberate differences from an automatic turn (a person asked for it, and is watching):
+	 *  - pause / office hours / allowlist / binding mode are NOT applied — they exist to keep the bot quiet
+	 *    when nobody asked; here somebody did.
+	 *  - still applied: a bound Guru, the thread lock, and the daily cap when something is actually sent.
+	 *  - a provider failure is returned to the staff member; the customer never gets the fallback apology.
+	 *
+	 * @param array $opts { draft?:bool (true = text back to the composer, nothing sent), instruction?:string, actor_user_id?:int }
+	 * @return array{status:string,reply:string,reason:string,trace_id:string,message_id:int,steps:array}
+	 */
+	public static function run_on_request( int $conversation_id, array $opts = array() ): array {
+		$claim = self::claim_for_conversation( $conversation_id, $opts );
+		if ( is_string( $claim ) ) {
+			return array( 'status' => 'refused', 'reply' => '', 'reason' => $claim, 'trace_id' => '', 'message_id' => 0, 'steps' => array() );
+		}
+		return self::run_turn( $claim );
+	}
+
+	/**
+	 * Public for tests. Returns the claim, or a refusal reason string.
+	 *
+	 * @return array|string
+	 */
+	public static function claim_for_conversation( int $conversation_id, array $opts = array() ) {
+		if ( ! class_exists( 'BizCity_CRM_Repository' ) || ! class_exists( 'BizCity_Channel_Binding' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Turn_Claim' ) ) {
+			return 'module_not_loaded';
+		}
+		$conversation = BizCity_CRM_Repository::get_conversation( $conversation_id );
+		if ( ! is_array( $conversation ) ) {
+			return 'conversation_not_found';
+		}
+		$inbox = BizCity_CRM_Repository::get_inbox( (int) ( $conversation['inbox_id'] ?? 0 ) );
+		if ( ! is_array( $inbox ) || BizCity_Bot_Turn_Claim::CODE !== strtolower( (string) ( $inbox['channel_type'] ?? '' ) ) ) {
+			return 'not_bot_channel';
+		}
+		$account_id = (string) ( $inbox['channel_ref_id'] ?? '' );
+		if ( '' === $account_id ) {
+			return 'inbox_not_bound';
+		}
+		$ref = method_exists( 'BizCity_CRM_Repository', 'get_conversation_thread_ref' )
+			? BizCity_CRM_Repository::get_conversation_thread_ref( $conversation_id )
+			: array( 'contact_id' => (int) ( $conversation['contact_id'] ?? 0 ), 'source_id' => (string) ( $conversation['source_id'] ?? '' ) );
+		$contact_id = (int) ( $ref['contact_id'] ?? 0 );
+		$source_id  = (string) ( $ref['source_id'] ?? '' );
+		if ( $contact_id <= 0 || '' === $source_id ) {
+			return 'contact_missing';
+		}
+		$binding = BizCity_Channel_Binding::resolve( BizCity_Bot_Turn_Claim::PLATFORM, $account_id );
+		$character_id = is_array( $binding ) ? (int) ( $binding['character_id'] ?? 0 ) : 0;
+		if ( $character_id <= 0 ) {
+			return 'bot_not_bound';
+		}
+		$draft  = ! empty( $opts['draft'] );
+		$tuning = BizCity_Bot_Config_Repo::get_tuning();
+		if ( ! $draft && BizCity_Bot_Turn_Claim::today_count( $contact_id ) >= (int) $tuning['daily_message_cap'] ) {
+			return 'daily_cap';
+		}
+		if ( self::is_locked( $contact_id ) ) {
+			return 'busy';
+		}
+
+		// The customer's latest words — for astro capture and the no-history fallback, exactly as a webhook turn.
+		$text = '';
+		$message_id = 0;
+		foreach ( array_reverse( (array) BizCity_CRM_Repository::list_messages( $conversation_id, 50 ) ) as $m ) {
+			if ( 'incoming' === (string) ( $m['message_type'] ?? '' ) ) {
+				$text       = (string) ( $m['content'] ?? '' );
+				$message_id = (int) ( $m['id'] ?? 0 );
+				break;
+			}
+		}
+
+		$is_group   = 0 === strpos( $source_id, 'group:' );
+		$group_id   = $is_group ? substr( $source_id, 6 ) : '';
+		$peer       = $is_group ? $group_id : $source_id;
+		$policy     = BizCity_Bot_Turn_Claim::decode_office_hours( $binding['office_hours_json'] ?? '' );
+		$bot_policy = BizCity_Bot_Turn_Claim::decode_office_hours( $binding['policy_json'] ?? '' );
+		$settings   = BizCity_Bot_Config_Repo::get( $character_id );
+		$request_id = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'composer_', true );
+
+		return array(
+			'character_id'        => $character_id,
+			'binding_id'          => (int) ( $binding['id'] ?? 0 ),
+			'account_id'          => $account_id,
+			'chat_id'             => 'zalop_' . $account_id . '_' . $peer,
+			'chat_kind'           => $is_group ? 'group' : 'user',
+			'contact_id'          => $contact_id,
+			'sender_uid'          => $is_group ? '' : $source_id,
+			'source_id'           => $source_id,
+			'group_id'            => $group_id,
+			'owner_uid'           => trim( (string) ( $bot_policy['owner_uid'] ?? '' ) ),
+			'mode'                => 'auto',
+			'text'                => $text,
+			// A fresh id per click: the dispatcher's idempotency key must not collapse two deliberate requests.
+			'external_message_id' => 'composer:' . $request_id,
+			'history_limit'       => (int) $settings['history_limit'],
+			'bypass_notebook'     => ! empty( $settings['bypass_notebook'] ),
+			'context_source'      => (string) $settings['context_source'],
+			'character_off'       => (array) $settings['disabled_tools'],
+			'binding_off'         => BizCity_Bot_Config_Repo::sanitize_tool_list( $policy['disabled_tools'] ?? array() ),
+			'passive_listen_in_group' => ! isset( $bot_policy['passive_listen_in_group'] ) || (bool) $bot_policy['passive_listen_in_group'],
+			'workflow_matched'    => false,
+			'claimed_at'          => time(),
+			'conversation_id'     => $conversation_id,
+			'message_id'          => $message_id,
+			'trigger'             => 'composer',
+			'actor_user_id'       => (int) ( $opts['actor_user_id'] ?? ( function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0 ) ),
+			'staff_instruction'   => (string) ( $opts['instruction'] ?? '' ),
+			'return_draft'        => $draft,
+			'no_fallback'         => true,
+		);
+	}
+
+	/** Write the turn's trace onto the CRM row the dispatcher created, so the Inbox shows "Thinking". */
+	private static function attach_trace( int $message_id, string $trace_id, array $claim, array $steps, int $latency_ms ): void {
+		if ( $message_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) || ! method_exists( 'BizCity_CRM_Repository', 'set_message_ai_metadata' ) ) {
+			return;
+		}
+		try {
+			BizCity_CRM_Repository::set_message_ai_metadata( $message_id, array(
+				'trace_uuid'   => $trace_id,
+				'engine'       => 'bot_studio',
+				'trigger'      => (string) ( $claim['trigger'] ?? 'auto' ),
+				'character_id' => (int) ( $claim['character_id'] ?? 0 ),
+				'notebook_id'  => 0,
+				'latency_ms'   => $latency_ms,
+				'steps'        => $steps,
+				'sources'      => array(),
+			) );
+		} catch ( \Throwable $e ) {
+			// the reply is already delivered; a missing trace must never turn into a fallback message.
 		}
 	}
 
@@ -411,6 +697,41 @@ final class BizCity_Bot_Turn_Runner {
 	}
 
 	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1, "STT inbound thật ... chưa làm") — a
+	 * message with no text is very often a voice message, image, or file the bot has no STT/vision
+	 * path for yet, NOT an empty message. The old placeholder "(tin nhắn không có chữ)" gave the
+	 * model nothing to react to honestly, so it would confidently answer a question that was never
+	 * asked. This looks up the real message row and gives the model something true to say instead —
+	 * a stopgap, not real STT/vision (that needs `class-bot-turn-claim.php` to carry attachment data
+	 * at all, which it does not today — a bigger, separate change).
+	 */
+	private static function describe_no_text_message( int $message_id ): string {
+		$generic = '(Khách vừa gửi một tin nhắn không có chữ. Không đoán nội dung — trả lời ngắn gọn rằng bạn chưa đọc được loại tin này, xin khách mô tả lại bằng chữ hoặc chờ nhân viên hỗ trợ.)';
+		if ( $message_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) || ! method_exists( 'BizCity_CRM_Repository', 'get_message' ) ) {
+			return $generic;
+		}
+		try {
+			$message = BizCity_CRM_Repository::get_message( $message_id );
+		} catch ( \Throwable $e ) {
+			return $generic;
+		}
+		if ( ! is_array( $message ) ) {
+			return $generic;
+		}
+		$attachments = (array) ( $message['attachments'] ?? array() );
+		if ( empty( $attachments ) ) {
+			return $generic; // genuinely empty text, not an unreadable attachment.
+		}
+		$first     = reset( $attachments );
+		$file_type = is_array( $first ) ? (string) ( $first['file_type'] ?? '' ) : '';
+		if ( 'image' === $file_type ) {
+			return '(Khách vừa gửi một ẢNH, không kèm chữ. Bot hiện chưa xem được nội dung ảnh — trả lời ngắn gọn rằng bạn chưa xem được ảnh, xin khách mô tả bằng chữ hoặc chờ nhân viên hỗ trợ.)';
+		}
+		// Voice messages land here too (content_type='file', no dedicated audio marker today).
+		return '(Khách vừa gửi một TỆP hoặc TIN NHẮN THOẠI, không kèm chữ. Bot hiện chưa nghe/đọc được nội dung này — trả lời ngắn gọn rằng bạn chưa xử lý được loại tin này, xin khách gõ lại bằng chữ hoặc chờ nhân viên hỗ trợ.)';
+	}
+
+	/**
 	 * First notebook bound to the character (KG attachment table, legacy character_id fallback) — the
 	 * same lookup class-character-quick-edit-rest.php uses for "Notebooks đã gắn". Filterable.
 	 */
@@ -433,15 +754,50 @@ final class BizCity_Bot_Turn_Runner {
 
 	/**
 	 * Send through the canonical CRM outbound owner. Returns {ok, message_id, error}.
+	 *
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1 G-04) — `meta.image_attachment_id`
+	 * (from a successful generate_image tool call, class-bot-tools.php) sends as content_type=image.
+	 * class-bot-tools.php::resolve_attachment_owner() already checked an owner exists before the
+	 * image was even generated, but that owner can theoretically change between tool-call time and
+	 * send time (assignee reassigned mid-turn) — so if the dispatcher STILL rejects the attachment,
+	 * this falls back to a plain text send rather than losing the customer's reply entirely (B4.7:
+	 * a media failure must never mean silence).
 	 */
 	private static function send( array $claim, string $text, array $meta = array() ): array {
 		if ( is_callable( self::$sender ) ) {
 			return (array) call_user_func( self::$sender, $claim, $text, $meta );
 		}
-		$conversation_id = (int) ( $claim['conversation_id'] ?? 0 );
-		$attempt         = ! empty( $meta['fallback'] ) ? 'fb' : 'r';
-		$idem            = 'bot-' . md5( $conversation_id . '|' . (string) ( $claim['external_message_id'] ?? '' ) . '|' . (string) ( $claim['message_id'] ?? '' ) . '|' . $attempt );
+		$conversation_id      = (int) ( $claim['conversation_id'] ?? 0 );
+		$attempt              = ! empty( $meta['fallback'] ) ? 'fb' : 'r';
+		$image_attachment_id  = (int) ( $meta['image_attachment_id'] ?? 0 );
+		$idem_base            = $conversation_id . '|' . (string) ( $claim['external_message_id'] ?? '' ) . '|' . (string) ( $claim['message_id'] ?? '' ) . '|' . $attempt;
 		if ( class_exists( 'BizCity_CRM_Outbound_Dispatcher' ) ) {
+			if ( $image_attachment_id > 0 ) {
+				$image_idem = 'bot-img-' . md5( $idem_base );
+				$envelope   = BizCity_CRM_Outbound_Dispatcher::dispatch( array(
+					'conversation_id' => $conversation_id,
+					'content'         => $text,
+					'content_type'    => 'image',
+					'attachments'     => array( $image_attachment_id ),
+					'idempotency_key' => $image_idem,
+					'request_hash'    => md5( $text . '|' . $image_attachment_id ),
+					'actor'           => 'system',
+					'system_source'   => 'ai_autoreply',
+					'responder_kind'  => 'auto',
+					'trace_id'        => (string) ( $meta['trace_id'] ?? '' ),
+				) );
+				$ok = is_array( $envelope ) && 'failed' !== (string) ( $envelope['outcome'] ?? $envelope['status'] ?? 'failed' );
+				if ( $ok ) {
+					return array( 'ok' => true, 'message_id' => (int) ( $envelope['message_id'] ?? 0 ), 'error' => '' );
+				}
+				self::emit_event( 'bot_image_send_fallback_to_text', array(
+					'conversation_id' => $conversation_id,
+					'trace_id'        => (string) ( $meta['trace_id'] ?? '' ),
+					'reason'          => (string) ( $envelope['code'] ?? $envelope['error'] ?? 'dispatch_failed' ),
+				) );
+				// fall through to a plain text send below — never drop the reply because the image failed.
+			}
+			$idem     = 'bot-' . md5( $idem_base );
 			$envelope = BizCity_CRM_Outbound_Dispatcher::dispatch( array(
 				'conversation_id' => $conversation_id,
 				'content'         => $text,
@@ -457,8 +813,10 @@ final class BizCity_Bot_Turn_Runner {
 			return array( 'ok' => $ok, 'message_id' => (int) ( $envelope['message_id'] ?? 0 ), 'error' => $ok ? '' : (string) ( $envelope['code'] ?? $envelope['error'] ?? 'dispatch_failed' ) );
 		}
 		// Last resort (dispatcher not loaded): still exactly one message, through the existing bridge boundary.
+		// [OW-4] no attachment support on this fallback path — it predates image-out and only ever
+		// sent 'text'; an image_attachment_id here is silently dropped, same as before this change.
 		if ( class_exists( 'BizCity_Zalo_Bridge_Client' ) ) {
-			$res = BizCity_Zalo_Bridge_Client::instance()->enqueue_outbound( (string) $claim['account_id'], self::peer_from_chat_id( (string) $claim['chat_id'], (string) $claim['account_id'] ), $text, 'text', array(), 'group' === ( $claim['chat_kind'] ?? '' ) ? 'group' : 'user', array(), $idem );
+			$res = BizCity_Zalo_Bridge_Client::instance()->enqueue_outbound( (string) $claim['account_id'], self::peer_from_chat_id( (string) $claim['chat_id'], (string) $claim['account_id'] ), $text, 'text', array(), 'group' === ( $claim['chat_kind'] ?? '' ) ? 'group' : 'user', array(), 'bot-' . md5( $idem_base ) );
 			return array( 'ok' => ! empty( $res['success'] ), 'message_id' => 0, 'error' => ! empty( $res['success'] ) ? '' : 'bridge_' . (string) ( $res['code'] ?? 'failed' ) );
 		}
 		return array( 'ok' => false, 'message_id' => 0, 'error' => 'no_sender' );

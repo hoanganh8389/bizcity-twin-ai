@@ -121,6 +121,40 @@ editor diagnostic alone is not runtime evidence. For CRM `/crm/` work, prefer
 the reusable `plugins/bizcity-twin-crm/docs/tools/*selfcheck.js` pattern; for
 other surfaces, add the equivalent self-check beside that surface's docs.
 
+### Mandatory evidence handoff for every agent environment
+
+This contract applies equally to GitHub Copilot, Claude Code, Codex, Cursor,
+VS Code custom agents and any `.vscode`/workspace agent configuration. An agent
+may not report a browser-visible task as complete without a repo-owned evidence
+artifact and a recorded result.
+
+For every live REST/React/cache/runtime change, the handoff MUST include:
+
+1. the exact committed `docs/tools/*selfcheck.js` path;
+2. the exact surface URL and required route/query/hash state;
+3. the persona/permission used, never an assumed persona;
+4. the full `console.table()` summary with `PASS`, `FAIL`, and `SKIP` rows;
+5. the stable `[claude-handoff]`/agent handoff line containing phase, task id,
+   surface, layout/role where relevant, failed count and skipped count;
+6. changed files, validation commands, remaining gaps and the next discriminating check.
+
+The same contract MUST be followed when work is delegated to Claude Code,
+Codex or a VS Code agent. Generated `AGENTS.md` or agent profile files must not
+weaken it. A handoff that says only “built”, “deployed”, “looks good” or
+“tested” is incomplete. `SKIP` is never converted to `PASS` by an agent.
+
+For UI work, the self-check must test the actual user-visible behavior, not only
+class names: mount state, runtime payload/envelope, exact endpoint, URL state,
+responsive layout tier, action controls, and relevant empty/error/permission
+states. If the check requires a mutation, use a separate write-mode artifact
+with explicit opt-in, warning, idempotency, restore/cleanup and an error
+envelope containing `code/message/hint/help_code`.
+
+The owning phase document MUST contain an acceptance matrix mapping each task to
+its self-check, latest result, evidence date and next action. This is mandatory
+for work handed to an agent in `.vscode`, Claude Code or Codex, not an optional
+team convention.
+
 Some internal rule documents, roadmaps and audits are not published in this
 repository. If this file summarises a rule and you cannot find its full spec,
 the summary here is authoritative for your change.
@@ -666,15 +700,39 @@ services, migration, cache, tests/probes) — plus an Evidence section.
 
 ### Change stamps (R-STAMP)
 
-Every functional edit to a `.php` file carries a stamp at the point of change:
+Every functional edit to a `.php` file carries a stamp at the point of change.
+This is mandatory for **every changed PHP file and every functional PHP slice**,
+including edits delegated to Claude Code, Codex, Cursor or a VS Code agent. A
+file-level stamp alone is insufficient when one file contains multiple separate
+functional edits.
 
 ```php
-// [YYYY-MM-DD HH:MM AM/PM <Author>] <Phase-ID> — <short description>
+// [YYYY-MM-DD HH:MM Johnny Chu - Chu Hoàng Anh]] <Phase-ID> — <short description>
 ```
 
-Put it on the first line of a new method body, directly above changed logic, or on
-the `if` line of a new guard. Use the identifier of the rule or phase you are
-implementing (for example `R-CH-NS`, `R-CRON-META`, `PHP74-COMPAT`, `HOTFIX`).
+Required concrete format:
+
+```php
+// [2026-09-08 01:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — produce the public user-centric Inbox scope.
+```
+
+Stamp requirements:
+
+- Use local project time in `YYYY-MM-DD HH:MM AM/PM` format.
+- Include the real author do not use `<Author>` literally.
+- Include the exact phase/rule identifier (`PHASE-0.41-CX0`, `R-DDV`, `HOTFIX`, etc.).
+- Describe the changed behavior briefly and concretely.
+- Put the stamp immediately above the changed logic, on the first line of a new
+  method body, or on the `if` line of a new guard.
+- If one PHP file has multiple unrelated functional slices, add one stamp per
+  slice at each changed logic point.
+- Do not replace an existing stamp; add a new stamp for a new change.
+- PHP-only comment syntax is required; never put a JavaScript/Markdown stamp in
+  a PHP file.
+
+Before handoff, the agent must list every changed `.php` path and confirm that
+each functional hunk has its stamp. A missing or vague stamp is a validation
+`FAIL`, not a documentation nicety.
 
 ### Pull requests
 
@@ -796,7 +854,7 @@ _Rule documents are not published in this repository — see the local environme
 
 | File | Summary | Status |
 |---|---|---|
-| `README.md` | Bizcity Twin AI: All Channel, One Brain |  |
+| `README.md` | BTCare Twin AI: All Channel, One Brain |  |
 | `CONTRIBUTING.md` | Contributing to BizCity Twin Brain |  |
 | `SECURITY.md` | Security Policy |  |
 | `CHANGELOG.md` | ALL CHANNEL - ONE BRAIN |  |
@@ -850,7 +908,7 @@ _Rule documents are not published in this repository — see the local environme
 | `packages/twin-ui-sdk/README.md` | @bizcity/twin-ui-sdk |  |
 | `examples/bizcity-reference-plugin/README.md` | BizCity Reference Extension |  |
 
-## 5. bin tools (61) — use the existing tool, do not write an ad-hoc script
+## 5. bin tools (62) — use the existing tool, do not write an ad-hoc script
 
 | Command | Purpose |
 |---|---|
@@ -864,6 +922,7 @@ _Rule documents are not published in this repository — see the local environme
 | `php bin/context-bank-rollup-fixture.php` | Run one disposable Context Bank rollup worker fixture outside Diagnostics CLI. |
 | `php bin/context-bank-route-probe.php` | Context Bank single-host/single-blog route evidence probe. |
 | `php bin/context-bank-two-shard-fixture.php` | Validate Context Bank isolation across two explicitly selected blogs/shards. |
+| `node bin/core-reduction-census.mjs` | CORE-REDUCTION census — read-only inventory for core/knowledge, core/intent, core/tools. |
 | `bash bin/diagnostics-batch-until-complete.sh` | Run one diagnostics batch to completion: a fresh run, then checkpoint resumes |
 | `php bin/diagnostics-run.php` | BizCity Diagnostics — Headless CLI runner (Phase 0.99.8). |
 | `php bin/diagnostics-verdict-report.php` | Read a diagnostics-verdict JSON capture and print a compact report. |
@@ -984,18 +1043,19 @@ _Rule documents are not published in this repository — see the local environme
   - `php bin/diagnostics-run.php --host=cli.local --skip-network --filter='core.module-registry' > build/canonical-diagnostics.txt`
   - `php bin/diagnostics-run.php \`
 
-## 7. Area docs folders (55) — open the module's folder before changing the module
+## 7. Area docs folders (56) — open the module's folder before changing the module
 
 | Folder | published .md | internal .md |
 |---|---|---|
 | `core/automation/docs` | 16 | 12 |
 | `core/bizcity-llm/docs` | 2 | 1 |
-| `core/channel-gateway/docs` | 4 | 56 |
+| `core/channel-gateway/docs` | 4 | 58 |
 | `core/cron/docs` | 0 | 5 |
 | `core/diagnostics/docs` | 3 | 7 |
 | `core/docs` | 4 | 0 |
 | `core/helper/docs` | 2 | 0 |
 | `core/intent/docs` | 8 | 2 |
+| `core/knowledge/docs` | 7 | 0 |
 | `core/knowledge/kg-hub/docs` | 1 | 4 |
 | `core/mcp/docs` | 0 | 2 |
 | `core/membership/docs` | 4 | 3 |

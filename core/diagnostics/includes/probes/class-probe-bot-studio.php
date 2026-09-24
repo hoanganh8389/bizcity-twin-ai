@@ -65,6 +65,10 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 			'class-bot-context-builder.php' => 'BizCity_Bot_Context_Builder',
 			'class-bot-turn-claim.php'      => 'BizCity_Bot_Turn_Claim',
 			'class-bot-turn-runner.php'     => 'BizCity_Bot_Turn_Runner',
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-1/OW-4 — unified read projection + the
+			// first genuine tool executor added after this probe's original 12.
+			'class-bot-studio-rest.php'     => 'BizCity_Bot_Studio_REST',
+			'class-bot-apify-client.php'    => 'BizCity_Bot_Apify_Client',
 		);
 		$disk_missing = array();
 		foreach ( $classes as $file => $class ) {
@@ -78,11 +82,17 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		if ( ! preg_match( '/bizcity_channel_normalized[\'"]\s*,\s*array\(\s*__CLASS__.*?,\s*0\s*,/s', $turn_claim_src ) ) { $disk_missing[] = 'turn_claim:priority_zero'; }
 		if ( strpos( $turn_runner_src, 'bizcity_crm_message_persisted' ) === false ) { $disk_missing[] = 'turn_runner:persisted_hook'; }
 		if ( strpos( $turn_runner_src, 'BizCity_CRM_Outbound_Dispatcher::dispatch' ) === false ) { $disk_missing[] = 'turn_runner:dispatcher_send'; }
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 — generate_image's dispatch() call must stay
+		// content_type=image, not silently regress to text-only; the two new tool executors must exist.
+		if ( strpos( $turn_runner_src, "'content_type'    => 'image'" ) === false ) { $disk_missing[] = 'turn_runner:image_attachment_send'; }
+		$bot_tools_src = is_readable( $bot_dir . 'class-bot-tools.php' ) ? (string) file_get_contents( $bot_dir . 'class-bot-tools.php' ) : '';
+		if ( strpos( $bot_tools_src, "case 'generate_image'" ) === false ) { $disk_missing[] = 'bot_tools:generate_image_case'; }
+		if ( strpos( $bot_tools_src, "case 'scrape_social_data'" ) === false ) { $disk_missing[] = 'bot_tools:scrape_social_data_case'; }
 		$crm_enrich = $root . 'plugins/bizcity-twin-crm/includes/class-contact-enrichment.php';
 		if ( ! is_readable( $crm_enrich ) ) { $disk_missing[] = 'crm:class-contact-enrichment.php'; }
 		$disk_ok = empty( $disk_missing );
-		$emit( 'Disk - 12 file bot + enrichment CRM + đúng hook/priority/dispatcher trong source', $disk_ok,
-			$disk_ok ? 'Đủ file; turn-claim khai filter + priority 0; turn-runner khai hook persisted + gửi qua BizCity_CRM_Outbound_Dispatcher.' : 'Thiếu: ' . implode( ', ', $disk_missing ) . '.' );
+		$emit( 'Disk - ' . count( $classes ) . ' file bot + enrichment CRM + đúng hook/priority/dispatcher/tool-executor trong source', $disk_ok,
+			$disk_ok ? 'Đủ file; turn-claim khai filter + priority 0; turn-runner khai hook persisted + gửi qua BizCity_CRM_Outbound_Dispatcher (kể cả nhánh ảnh); generate_image/scrape_social_data có executor thật.' : 'Thiếu: ' . implode( ', ', $disk_missing ) . '.' );
 
 		$loader_missing = array();
 		foreach ( $classes as $file => $class ) {
@@ -91,7 +101,7 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 			}
 		}
 		$loader_ok = empty( $loader_missing );
-		$emit( 'Loader - 12 class Bot Studio đã nạp', $loader_ok, $loader_ok ? 'Tất cả class đã có trong runtime.' : 'Chưa nạp: ' . implode( ', ', $loader_missing ) . '.' );
+		$emit( 'Loader - ' . count( $classes ) . ' class Bot Studio đã nạp', $loader_ok, $loader_ok ? 'Tất cả class đã có trong runtime.' : 'Chưa nạp: ' . implode( ', ', $loader_missing ) . '.' );
 
 		$claim_priority   = $loader_ok ? has_action( 'bizcity_channel_normalized', array( 'BizCity_Bot_Turn_Claim', 'on_normalized' ) ) : false;
 		$runner_hooked    = $loader_ok ? has_action( 'bizcity_crm_message_persisted', array( 'BizCity_Bot_Turn_Runner', 'on_persisted' ) ) : false;
@@ -132,14 +142,22 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 			$rows = BizCity_Bot_Tool_Registry::rows( $fake_character );
 			$by   = array_column( $rows, null, 'id' );
 			$eff  = array_column( BizCity_Bot_Tool_Registry::effective( $fake_character, array( 'current_datetime' ), array() ), 'id' );
+			$valid_statuses = array( 'available', 'unconfigured', 'needs_bridge' );
+			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 — the two tools that gained a real turn
+			// executor this phase must stay catalogued with a real status/hint, not silently drop
+			// out of rows() if a future edit breaks their `check` callback wiring.
+			$new_tools_ok = isset( $by['generate_image'] ) && in_array( $by['generate_image']['status'], $valid_statuses, true )
+				&& isset( $by['scrape_social_data'] ) && in_array( $by['scrape_social_data']['status'], $valid_statuses, true )
+				&& '' !== $by['scrape_social_data']['hint'];
 			$tools_ok = isset( $by['react_message'] ) && 'needs_bridge' === $by['react_message']['status']
 				&& ( ! isset( $by['vertical_woo_bizops'] ) || 'available' !== $by['vertical_woo_bizops']['status'] )
 				&& ! in_array( 'react_message', $eff, true )
 				&& ! in_array( 'current_datetime', $eff, true )
-				&& ! in_array( 'vertical_woo_bizops', $eff, true );
-			$tools_detail = 'catalog=' . count( $rows ) . ' available_after_policy=' . count( $eff );
+				&& ! in_array( 'vertical_woo_bizops', $eff, true )
+				&& $new_tools_ok;
+			$tools_detail = 'catalog=' . count( $rows ) . ' available_after_policy=' . count( $eff ) . ' generate_image=' . ( $by['generate_image']['status'] ?? 'missing' ) . ' scrape_social_data=' . ( $by['scrape_social_data']['status'] ?? 'missing' );
 		}
-		$emit( 'Runtime - Registry công cụ: needs_bridge/woo_bizops không bao giờ được đưa cho model; tắt ở character có hiệu lực', $tools_ok, $tools_ok ? $tools_detail : 'Registry lệch: một công cụ chưa sẵn sàng hoặc bị tắt vẫn lọt vào danh sách hiệu lực.' );
+		$emit( 'Runtime - Registry công cụ: needs_bridge/woo_bizops không bao giờ được đưa cho model; tắt ở character có hiệu lực; generate_image/scrape_social_data còn catalogued', $tools_ok, $tools_ok ? $tools_detail : 'Registry lệch: một công cụ chưa sẵn sàng hoặc bị tắt vẫn lọt vào danh sách hiệu lực, hoặc generate_image/scrape_social_data biến mất khỏi catalog.' );
 
 		// Runtime — provider decision contract (0.60C §4) + end-anchored host match (D1.6).
 		$provider_ok = false;
@@ -182,7 +200,52 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		$emit( 'Runtime - Cột office_hours_json (bindings) + birthday/birthday_md (contacts) tồn tại thật', $schema_ok && false !== $contacts_ok,
 			( $schema_ok ? 'bindings.office_hours_json OK. ' : 'bindings.office_hours_json THIẾU — chạy maybe_install(). ' ) . ( null === $contacts_ok ? 'contacts: CRM chưa nạp (bỏ qua).' : ( $contacts_ok ? 'contacts.birthday + birthday_md OK.' : 'contacts.birthday/birthday_md THIẾU — chạy migrate_phase_060b().' ) ) );
 
-		$pass = $disk_ok && $loader_ok && $hook_priority_ok && $office_hours_ok && $negative_ok && $tools_ok && $provider_ok && $pure_ok && $schema_ok && false !== $contacts_ok;
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60G §8.3 — the unified read projection routes must really be
+		// registered on this site (read-only: inspects the route table, never calls a route).
+		$routes_ok     = null;
+		$routes_detail = 'rest_get_server() không khả dụng ở ngữ cảnh này (bỏ qua).';
+		if ( function_exists( 'rest_get_server' ) ) {
+			$route_table = rest_get_server()->get_routes();
+			$missing_rt  = array();
+			foreach ( array( 'accounts', 'sessions', 'identity' ) as $rt ) {
+				if ( ! isset( $route_table[ '/bizcity-channel/v1/bot-studio/' . $rt ] ) ) { $missing_rt[] = $rt; }
+			}
+			$routes_ok     = empty( $missing_rt );
+			$routes_detail = $routes_ok ? 'bizcity-channel/v1/bot-studio/{accounts,sessions,identity} đã đăng ký.' : 'Chưa đăng ký: ' . implode( ', ', $missing_rt ) . '.';
+		}
+		$emit( 'Loader - Route đọc hợp nhất bot-studio/accounts + sessions + identity đã đăng ký', false !== $routes_ok, $routes_detail );
+
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — the bot-replied automation trigger must be reported
+		// explicitly (never silent): source fires it, allowlist accepts it, block is catalogued, matcher listens.
+		$g2_ok     = true;
+		$g2_detail = '';
+		if ( ! class_exists( 'BizCity_Automation_Trigger_Matcher', false ) ) {
+			$g2_detail = 'SKIP — core/automation chưa nạp trên site này; không đánh giá được trigger.bot_turn_completed (không phải lỗi Bot Studio).';
+		} else {
+			$g2_missing = array();
+			if ( strpos( $turn_runner_src, "do_action( 'bizcity_bot_turn_completed'" ) === false ) { $g2_missing[] = 'turn_runner:không còn bắn bizcity_bot_turn_completed'; }
+			if ( ! class_exists( 'BizCity_Automation_Repo_Workflows', false ) || ! in_array( 'bot_turn_completed', BizCity_Automation_Repo_Workflows::TRIGGER_TYPES, true ) ) { $g2_missing[] = 'repo:TRIGGER_TYPES thiếu bot_turn_completed (lưu workflow sẽ bị từ chối)'; }
+			if ( ! class_exists( 'BizCity_Automation_Block_Registry', false ) || ! BizCity_Automation_Block_Registry::instance()->has( 'trigger.bot_turn_completed' ) ) { $g2_missing[] = 'registry:chưa có block trigger.bot_turn_completed'; }
+			if ( false === has_action( 'bizcity_bot_turn_completed', array( BizCity_Automation_Trigger_Matcher::instance(), 'on_bot_turn_completed' ) ) ) { $g2_missing[] = 'matcher:chưa nghe bizcity_bot_turn_completed'; }
+			$g2_ok     = empty( $g2_missing );
+			$g2_detail = $g2_ok ? 'PASS — turn-runner bắn hook, TRIGGER_TYPES chấp nhận, block đã catalogued, matcher đang nghe (chưa tính là có workflow nào đã chạy thật).' : 'Thiếu: ' . implode( '; ', $g2_missing ) . '.';
+		}
+		$emit( 'Loader - G2 Automation trigger cho bizcity_bot_turn_completed (PASS/SKIP nêu rõ, không im lặng)', $g2_ok, $g2_detail );
+
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Bot Studio is the only auto-replier for Zalo Cá nhân and every
+		// turn rides WP-Cron: a turn stuck past due means customers get silence. Read-only look at the cron array.
+		$cron_ok     = true;
+		$cron_detail = 'SKIP — BizCity_Bot_Turn_Runner::overdue_turns() chưa có trên bản này.';
+		if ( class_exists( 'BizCity_Bot_Turn_Runner', false ) && method_exists( 'BizCity_Bot_Turn_Runner', 'overdue_turns' ) ) {
+			$overdue     = BizCity_Bot_Turn_Runner::overdue_turns();
+			$cron_ok     = 0 === (int) $overdue['count'];
+			$cron_detail = $cron_ok
+				? 'PASS — không có lượt bizcity_bot_run_turn nào quá hạn.' . ( $overdue['wp_cron_disabled'] ? ' (DISABLE_WP_CRON bật — cần cron hệ thống gọi wp-cron.php mỗi phút.)' : '' )
+				: sprintf( 'FAIL — %d lượt bot quá hạn, trễ nhất %ds: WP-Cron không chạy nên khách không được trả lời.%s', (int) $overdue['count'], (int) $overdue['max_late'], $overdue['wp_cron_disabled'] ? ' DISABLE_WP_CRON đang bật mà không có cron hệ thống.' : ' Kiểm tra loopback/wp-cron.php hoặc thêm cron hệ thống.' );
+		}
+		$emit( 'Runtime - Lượt Bot Studio không kẹt trong WP-Cron (D-H7: bot là bộ trả lời duy nhất của Zalo Cá nhân)', $cron_ok, $cron_detail );
+
+		$pass = $disk_ok && $loader_ok && $hook_priority_ok && $office_hours_ok && $negative_ok && $tools_ok && $provider_ok && $pure_ok && $schema_ok && false !== $contacts_ok && false !== $routes_ok && $g2_ok && $cron_ok;
 		return array(
 			'status'   => $pass ? 'pass' : 'fail',
 			'summary'  => $pass ? 'Bot Studio W1–W8: file, loader, hook priority, giờ trực, lưới đỡ, registry công cụ, nguồn AI, parser/ngữ cảnh và schema đều PASS.' : 'Bot Studio chưa sẵn sàng — xem các bước fail ở trên.',

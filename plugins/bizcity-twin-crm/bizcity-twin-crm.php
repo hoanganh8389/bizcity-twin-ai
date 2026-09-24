@@ -43,7 +43,7 @@ if ( ! defined( 'BIZCITY_CRM_FILE' ) )       { define( 'BIZCITY_CRM_FILE', __FIL
 if ( ! defined( 'BIZCITY_CRM_DIR' ) )        { define( 'BIZCITY_CRM_DIR', __DIR__ ); }
 if ( ! defined( 'BIZCITY_CRM_URL' ) )        { define( 'BIZCITY_CRM_URL', plugins_url( '', __FILE__ ) ); }
 if ( ! defined( 'BIZCITY_CRM_REST_NS' ) )    { define( 'BIZCITY_CRM_REST_NS', 'bizcity-crm/v1' ); }
-if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.36.0' ); } // [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B — contacts.birthday + birthday_md (was 1.35.0: PHASE-0.63A WP-0.5 pipeline run columns, tasks.data_json, bizcity_crm_pipeline_deadlines)
+if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.37.0' ); } // [2026-09-23] PHASE-0.71 F71-13 — bizcity_crm_documents.message_id (was 1.36.0: PHASE-0.60B contacts.birthday + birthday_md)
 
 require_once __DIR__ . '/bootstrap.php';
 

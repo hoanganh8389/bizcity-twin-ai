@@ -7681,6 +7681,12 @@ class BizCity_CRM_REST_Controller {
 	 * Body: { prompt?, dispatch?=true, notebook_id?, character_id? }
 	 */
 	public static function post_ai_reply( WP_REST_Request $req ) {
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Zalo Cá nhân has ONE replier, Bot Studio. The composer
+		// buttons stay, but for that channel they push the request into the same Bot Studio turn.
+		$bot_studio = self::bot_studio_ai_reply( $req );
+		if ( null !== $bot_studio ) {
+			return $bot_studio;
+		}
 		return self::wrap( static function () use ( $req ) {
 			if ( ! class_exists( 'BizCity_CRM_AI_Replier' ) ) {
 				throw new \RuntimeException( 'ai_replier_unavailable' );
@@ -7715,6 +7721,74 @@ class BizCity_CRM_REST_Controller {
 					'sources'      => $result['sources'],
 				),
 				'dispatch' => $result['dispatch'],
+			);
+		} );
+	}
+
+	/**
+	 * D-H7 — composer "🤖 AI reply" / "💡 Gợi ý" on a Bot Studio channel. Returns null when the conversation
+	 * is not one (the caller then keeps the AI_Replier path for facebook, zalo_oa, …).
+	 *
+	 * Composer contract kept as-is: `dispatch:false` or `draft_only` = suggestion text back into the composer;
+	 * `prompt` = the staff member's own instruction to the bot.
+	 */
+	private static function bot_studio_ai_reply( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_AI_Autoreply_Listener' ) || ! method_exists( 'BizCity_CRM_AI_Autoreply_Listener', 'yields_to_bot_studio' )
+			|| ! class_exists( 'BizCity_Bot_Turn_Runner' ) || ! method_exists( 'BizCity_Bot_Turn_Runner', 'run_on_request' ) ) {
+			return null;
+		}
+		$conv_id = (int) $req['id'];
+		$conv    = BizCity_CRM_Repository::get_conversation( $conv_id );
+		$inbox   = is_array( $conv ) ? BizCity_CRM_Repository::get_inbox( (int) ( $conv['inbox_id'] ?? 0 ) ) : null;
+		if ( ! is_array( $inbox ) || ! BizCity_CRM_AI_Autoreply_Listener::yields_to_bot_studio( (string) ( $inbox['channel_type'] ?? '' ) ) ) {
+			return null;
+		}
+		return self::wrap( static function () use ( $req, $conv_id ) {
+			$body  = $req->get_json_params() ?: array();
+			$draft = ! empty( $body['draft_only'] ) || ( isset( $body['dispatch'] ) && ! $body['dispatch'] );
+			$result = BizCity_Bot_Turn_Runner::run_on_request( $conv_id, array(
+				'draft'         => $draft,
+				'instruction'   => isset( $body['prompt'] ) ? (string) $body['prompt'] : '',
+				'actor_user_id' => get_current_user_id(),
+			) );
+			$status = (string) ( $result['status'] ?? '' );
+			if ( ! in_array( $status, array( 'sent', 'draft' ), true ) ) {
+				$reason   = (string) ( $result['reason'] ?? $status );
+				$messages = array(
+					'bot_not_bound'   => array( 'Số Zalo này chưa gắn Guru nào trả lời.', 'Mở menu "⋯" của số này → "Bot trả lời…" để chọn Guru.' ),
+					'busy'            => array( 'Bot đang trả lời hội thoại này.', 'Đợi vài giây rồi thử lại.' ),
+					'daily_cap'       => array( 'Đã chạm trần tin bot gửi hôm nay cho khách này.', 'Trả lời tay, hoặc tăng "Trần tin bot / ngày" trong Bot Studio → Tuning.' ),
+					'contact_missing' => array( 'Hội thoại chưa gắn liên hệ CRM.', 'Tải lại hội thoại rồi thử lại.' ),
+					'provider_error'  => array( 'AI chưa trả lời được lúc này.', 'Thử lại sau ít phút; không có tin nào gửi cho khách.' ),
+				);
+				$m    = $messages[ $reason ] ?? array( 'Bot Studio chưa trả lời được.', 'Thử lại; nếu lặp lại, xem log channel_gateway.' );
+				$code = 'bot_' . sanitize_key( $reason );
+				// Composer.jsx aiErrorMessage() renders `error.message` only → carry hint + code in it (R-ERROR-UX).
+				return new WP_REST_Response( array(
+					'ok'    => false,
+					'error' => array( 'code' => $code, 'message' => $m[0] . ' · ' . $m[1] . ' · Mã: ' . $code, 'hint' => $m[1] ),
+					'ts'    => (int) round( microtime( true ) * 1000 ),
+				), 'busy' === $reason ? 409 : 422 );
+			}
+			$row = ( 'sent' === $status && (int) ( $result['message_id'] ?? 0 ) > 0 )
+				? BizCity_CRM_Repository::get_message( (int) $result['message_id'] )
+				: null;
+			if ( $row ) { $row['attachments'] = array(); }
+			return array(
+				'message'    => $row ? self::shape_message( $row ) : null,
+				'reply'      => (string) ( $result['reply'] ?? '' ),
+				'draft_only' => 'draft' === $status,
+				'skipped'    => false,
+				'engine'     => 'bot_studio',
+				'trace'      => array(
+					'trace_uuid'   => (string) ( $result['trace_id'] ?? '' ),
+					'notebook_id'  => 0,
+					'character_id' => null,
+					'latency_ms'   => (int) ( $result['latency_ms'] ?? 0 ),
+					'steps'        => (array) ( $result['steps'] ?? array() ),
+					'sources'      => array(),
+				),
+				'dispatch'   => array( 'sent' => 'sent' === $status, 'platform' => 'zalo_personal', 'error' => '' ),
 			);
 		} );
 	}
@@ -14410,6 +14484,9 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 			$wp_users = get_users( array(
 				// [2026-09-07 09:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D-CRM-ADMIN-INBOX-MENU-V2 — expose every non-subscriber WP operator through the server-owned staff scope catalog
 				'role__not_in' => array( 'subscriber' ),
+				// [2026-09-24 Claude Sonnet 5] PHASE-0.60H — a role-less user slips through `role__not_in`; the powerless
+				// Bot Studio system owner must never be offered as someone a conversation can be assigned to.
+				'exclude'  => class_exists( 'BizCity_CRM_System_Owner' ) ? BizCity_CRM_System_Owner::exclude_ids() : array(),
 				'number'   => 200,
 				'orderby'  => 'display_name',
 				'order'    => 'ASC',
@@ -14581,6 +14658,10 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 
 			$groups     = array();
 			$unassigned = array();
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60H — the per-phone "Bot trả lời" sheet needs the bridge account
+			// id (= inbox.channel_ref_id = Channel_Binding.account_id). Exposed ONLY to site admins, the same set
+			// that may open that sheet (its REST routes are manage_options); staff/leads seeing the rail never get it.
+			$expose_channel_ref = ( function_exists( 'is_super_admin' ) && is_super_admin() ) || current_user_can( 'manage_options' );
 			foreach ( $rows as $row ) {
 				$inbox_id = (int) ( $row['id'] ?? 0 );
 				if ( $inbox_id <= 0 ) { continue; }
@@ -14591,6 +14672,9 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 					'open_count'   => (int) ( $count_map[ $inbox_id ]['open_count'] ?? 0 ),
 					'breach_count' => (int) ( $count_map[ $inbox_id ]['breach_count'] ?? 0 ),
 				);
+				if ( $expose_channel_ref && 'zalo_personal' === $item['channel_type'] ) {
+					$item['channel_ref_id'] = sanitize_text_field( (string) ( $row['channel_ref_id'] ?? '' ) );
+				}
 				if ( isset( $session_state_map[ $inbox_id ] ) ) {
 					$item = array_merge( $item, $session_state_map[ $inbox_id ] );
 				}

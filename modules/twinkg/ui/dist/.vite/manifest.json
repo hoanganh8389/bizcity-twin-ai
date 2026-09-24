@@ -1,0 +1,12 @@
+{
+  "index.html": {
+    "file": "assets/kg-hub-app.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true
+  },
+  "style.css": {
+    "file": "assets/kg-hub-app.css",
+    "src": "style.css"
+  }
+}

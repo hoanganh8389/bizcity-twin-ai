@@ -167,7 +167,8 @@ final class BizCity_Probe_Admin_Navigation implements BizCity_Diagnostics_Probe 
 				foreach ( $items as $item ) {
 					if ( isset( $item[2] ) && 'bizchat-gateway-spa' === (string) $item[2] ) {
 						$stored_capability = (string) ( $item[1] ?? '' );
-						$is_network_admin = function_exists( 'is_super_admin' ) && is_super_admin();
+						// [2026-09-24] HOTFIX-SINGLE-SITE-MENU-CAP — single-site admins must get manage_options, not manage_network.
+						$is_network_admin = is_multisite() && is_super_admin();
 						$gateway_capability_ok = ! $is_network_admin || 'manage_network' === $stored_capability;
 						$gateway_capability_detail = 'parent=' . (string) $parent . ', capability=' . $stored_capability . ', network_admin=' . ( $is_network_admin ? 'yes' : 'no' );
 						break 2;
@@ -184,7 +185,12 @@ final class BizCity_Probe_Admin_Navigation implements BizCity_Diagnostics_Probe 
 		$alias_specs = array(
 			array( 'bizcity-twinchat', '' ),
 			array( 'bizcity-channels', '' ),
-			array( 'bizcity-kg-hub', 'BizCity_KG_Admin_Menu' ),
+			// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T3 — the Knowledge Graph page moved
+			// from core/knowledge (`bizcity-kg-hub` / BizCity_KG_Admin_Menu) to modules/twinkg.
+			// The old row is not merely renamed: its guard class no longer exists, so leaving it
+			// would make this probe skip the check silently and report PASS for a page nobody
+			// registers any more.
+			array( 'bizcity-twinkg', 'BizCity_TwinKG_Admin_Menu' ),
 			array( 'bizcity-crm', 'BizCity_CRM_Admin_Menu' ),
 			array( 'bizcity-automation', 'BizCity_Automation_Admin_SPA' ),
 		);

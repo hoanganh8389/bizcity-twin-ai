@@ -1,6 +1,6 @@
-# Bizcity Twin AI: All Channel, One Brain
+# BTCare Twin AI: All Channel, One Brain
 
-> **Current product focus — Zalo Personal first:** BizCity Twin AI is being
+> **Current product focus — Zalo Personal first:** BTCare Twin AI is being
 > hardened around the real daily workflow of **Zalo Cá nhân** (QR/session
 > ownership, cross-site status, customer-care Inbox, message/media fidelity
 > and reliable sending). Zalo OA and Facebook/Fanpage assets follow as
@@ -11,7 +11,7 @@
 
 > **All Channel, One Brain.** Xây dựng ứng dụng AI, plugin nghiệp vụ và hệ thống omni-channel trên một bộ não doanh nghiệp thống nhất.
 
-**Bizcity Twin AI** là nền tảng mã nguồn mở giúp biến WordPress thành **Bộ não thứ 2 cho doanh nghiệp**: tiếp nhận dữ liệu đa kênh, hợp nhất danh tính và dữ liệu doanh nghiệp, xây đồ thị tri thức, suy luận có bằng chứng, tự động hóa công việc và cung cấp dữ liệu có kiểm soát cho Claude, ChatGPT hoặc trợ lý AI qua MCP.
+**BTCare Twin AI** là nền tảng mã nguồn mở giúp biến WordPress thành **Bộ não thứ 2 cho doanh nghiệp**: tiếp nhận dữ liệu đa kênh, hợp nhất danh tính và dữ liệu doanh nghiệp, xây đồ thị tri thức, suy luận có bằng chứng, tự động hóa công việc và cung cấp dữ liệu có kiểm soát cho Claude, ChatGPT hoặc trợ lý AI qua MCP.
 
 Đây không phải một chatbot đóng gói. Đây là nền tảng để cộng đồng phát triển CRM, trợ lý bán hàng, chăm sóc khách hàng, bán hàng qua mạng xã hội, quản trị nội bộ, báo cáo và AI chuyên ngành trên cùng một kiến trúc.
 
@@ -79,7 +79,7 @@ Mục tiêu cuối cùng là một **Twin Data Center**, không phải một b�
 - Tự động hóa biến hiểu biết thành hành động có phê duyệt, chống chạy lặp, theo dõi và kết quả rõ ràng.
 - MCP cho phép Claude, ChatGPT và trợ lý AI làm việc trên dữ liệu đã được phân quyền, không bỏ qua Core.
 
-## Vì sao chọn Bizcity Twin
+## Vì sao chọn BTCare Twin
 
 | Nhu cầu | Nền tảng cung cấp |
 |---|---|
@@ -295,7 +295,7 @@ Yêu cầu tối thiểu:
 - MySQL 5.7+ hoặc MariaDB tương thích
 - WP-CLI cho scaffold và runtime diagnostics
 - Composer cho dependency và test development
-- BizCity API key nếu plugin gọi LLM/Search/Video Gateway
+- BTCare API key nếu plugin gọi LLM/Search/Video Gateway
 
 ```bash
 cd wp-content/plugins
@@ -370,7 +370,7 @@ final class Customer_Insight_Source implements BizCity_KG_Source_Adapter_Interfa
 }
 ```
 
-Không tạo `my_plugin_vectors`, không gọi vector provider trực tiếp và không bỏ provenance. Dùng [BizCity reference source adapter](examples/bizcity-reference-plugin/bizcity-reference-plugin.php) làm mẫu runtime.
+Không tạo `my_plugin_vectors`, không gọi vector provider trực tiếp và không bỏ provenance. Dùng [BTCare reference source adapter](examples/bizcity-reference-plugin/bizcity-reference-plugin.php) làm mẫu runtime.
 
 ### 5. Ghi evidence đúng chuẩn
 
@@ -565,7 +565,7 @@ Nguồn trạng thái duy nhất là kết quả probe diagnostics của chính 
 
 <p align="center">
   <a href="https://libedemo.bizcity.vn/gpt/">
-    <img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003857-scaled.png" alt="Bizcity Twin AI, bộ não thứ 2 cho doanh nghiệp và không gian AI đa kênh" width="900" />
+    <img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003857-scaled.png" alt="BTCare Twin AI, bộ não thứ 2 cho doanh nghiệp và không gian AI đa kênh" width="900" />
   </a>
 </p>
 
@@ -585,7 +585,7 @@ Nguồn trạng thái duy nhất là kết quả probe diagnostics của chính 
 
 ## Cộng Đồng Và Đóng Góp
 
-Bizcity Twin AI dành cho:
+BTCare Twin AI dành cho:
 
 - Nhà phát triển WordPress/PHP muốn xây ứng dụng AI nhưng không muốn tự dựng toàn bộ hạ tầng.
 - Agency triển khai CRM, chatbot, tự động hóa và bán hàng qua mạng xã hội theo từng ngành.
@@ -608,7 +608,7 @@ Quy trình đóng góp:
 
 ## License
 
-Bizcity Twin AI được phát hành theo [GPL-2.0-or-later](LICENSE). Bizcity và Bizcoach là các thương hiệu đã được bảo hộ theo tuyên bố của chủ sở hữu dự án.
+BTCare Twin AI được phát hành theo [GPL-2.0-or-later](LICENSE). BTCare và Bizcoach là các thương hiệu đã được bảo hộ theo tuyên bố của chủ sở hữu dự án.
 
 ---
 

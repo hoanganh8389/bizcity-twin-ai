@@ -54,6 +54,8 @@ final class BizCity_Automation_Block_Registry {
 		$this->register( new BizCity_Automation_Trigger_TwinBrain_Intent() );  // BE-6.E
 		$this->register( new BizCity_Automation_Trigger_TwinBrain_Turn_Completed() ); // BE-7.A
 		$this->register( new BizCity_Automation_Trigger_TwinBrain_Tool_Decided() );   // BE-7.A
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — Bot Studio bot-replied trigger.
+		$this->register( new BizCity_Automation_Trigger_Bot_Turn_Completed() );
 		// [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W2 — trigger.skill_intent.
 		$this->register( new BizCity_Automation_Trigger_Skill_Intent() );
 		$this->register( new BizCity_Automation_Trigger_Cron() );

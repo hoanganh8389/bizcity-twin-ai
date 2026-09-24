@@ -436,6 +436,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-tool-registry.php'  => 'channel.bot.tool_registry',
 	$gateway_dir . 'bot/class-bot-vertical-tools.php' => 'channel.bot.vertical_tools',
 	$gateway_dir . 'bot/class-bot-astro-tool.php'     => 'channel.bot.astro_tool',
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — customer memory (save_memory tool + <dieu_da_nho> block).
+	$gateway_dir . 'bot/class-bot-memory.php'         => 'channel.bot.memory',
 	$gateway_dir . 'bot/class-bot-tools.php'          => 'channel.bot.tools',
 	$gateway_dir . 'bot/class-bot-context-builder.php' => 'channel.bot.context_builder',
 	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',

@@ -28,10 +28,14 @@ final class BizCity_Diagnostics_Admin_Page {
 	}
 
 	public function register(): void {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_management_page(
 			__( 'BizCity Diagnostics', 'bizcity-twin-ai' ),
 			__( 'BizCity Diagnostics', 'bizcity-twin-ai' ),
-			'manage_options',
+			$capability,
 			'bizcity-diagnostics',
 			[ $this, 'render' ]
 		);

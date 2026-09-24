@@ -75,6 +75,8 @@ final class BizCity_Automation_Trigger_Matcher {
 		add_action( 'bizcity_zalo_webhook_intake', array( $self, 'on_zalo_intake' ), 5, 3 );
 		// Scheduler reminder fire (priority 45 — after FB/Zalo/Woo handlers).
 		add_action( 'bizcity_scheduler_reminder_fire', array( $self, 'on_scheduler_fire' ), 45, 1 );
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — Bot Studio "bot just replied" → trigger.bot_turn_completed.
+		add_action( 'bizcity_bot_turn_completed', array( $self, 'on_bot_turn_completed' ), 30, 1 );
 		// Cron scan (piggy-back on runner dispatcher tick).
 		add_action( BizCity_Automation_Runner::CRON_HOOK, array( $self, 'on_cron_scan' ), 5 );
 	}
@@ -1074,6 +1076,63 @@ final class BizCity_Automation_Trigger_Matcher {
 			BizCity_Automation_Schedule_Manager::instance()->mark_event_done( $wf_id, (int) $event['id'] );
 		}
 	}
+
+	// ─── (2b) Bot Studio turn completed ──────────────────────────────────
+	/**
+	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — fan the Bot Studio "bot just replied" event out to
+	 * workflows with trigger_type=bot_turn_completed. Enqueue only (never sync-run): the customer reply
+	 * is already sent and the hook fires inside the turn runner, so this must stay cheap and must never
+	 * throw back into it (a throw would make the runner send its fallback text a second time).
+	 *
+	 * @param mixed $event Raw `bizcity_bot_turn_completed` payload.
+	 */
+	public function on_bot_turn_completed( $event ): void {
+		try {
+			$payload = BizCity_Automation_Trigger_Bot_Turn_Completed::build_payload( $event );
+			if ( empty( $payload ) ) {
+				BizCity_Automation_Matcher_Trace::note( 'bot_turn_invalid_event', array(
+					'trigger_type' => BizCity_Automation_Trigger_Bot_Turn_Completed::TRIGGER_TYPE,
+					'detail'       => 'event without conversation_id',
+				) );
+				return;
+			}
+			$trace_id = (string) $payload['trace_id'];
+			$dedup    = $trace_id !== '' ? $trace_id : $payload['conversation_id'] . '|' . $payload['message_id'];
+			if ( isset( self::$seen_bot_turns[ $dedup ] ) ) { return; }
+			self::$seen_bot_turns[ $dedup ] = true;
+
+			$note = array(
+				'platform'     => 'ZALO_PERSONAL',
+				'chat_id'      => (string) $payload['chat_id'],
+				'trigger_type' => BizCity_Automation_Trigger_Bot_Turn_Completed::TRIGGER_TYPE,
+			);
+			// Let the FE "Chạy thử" listener see the event even when no workflow is enabled yet.
+			if ( class_exists( 'BizCity_Automation_Listener' ) ) {
+				BizCity_Automation_Listener::inject( BizCity_Automation_Trigger_Bot_Turn_Completed::TRIGGER_TYPE, $payload );
+			}
+
+			$fired = array();
+			foreach ( $this->find_active_workflows( BizCity_Automation_Trigger_Bot_Turn_Completed::TRIGGER_TYPE ) as $wf ) {
+				$reason = BizCity_Automation_Trigger_Bot_Turn_Completed::reject_reason( $this->trigger_config( $wf ), $payload );
+				if ( $reason !== '' ) {
+					BizCity_Automation_Matcher_Trace::note( 'bot_turn_' . $reason, $note + array( 'wf_id' => (int) $wf['id'] ) );
+					continue;
+				}
+				$run_id = $this->enqueue_and_optionally_run( $wf, $payload, false );
+				if ( ! is_wp_error( $run_id ) && $run_id !== '' ) {
+					$fired[] = (int) $wf['id'];
+				}
+			}
+			BizCity_Automation_Matcher_Trace::note( empty( $fired ) ? 'bot_turn_no_workflow' : 'bot_turn_fired', $note + array(
+				'detail' => empty( $fired ) ? 'no enabled workflow accepted this turn' : 'fired wf_ids=' . implode( ',', $fired ),
+			) );
+		} catch ( \Throwable $e ) {
+			error_log( '[automation][matcher] on_bot_turn_completed swallowed ' . get_class( $e ) . ': ' . $e->getMessage() );
+		}
+	}
+
+	/** Request-scoped dedup: one enqueue per bot turn even if the hook fires twice. */
+	private static $seen_bot_turns = array();
 
 	// ─── (3) Cron scan trigger.cron ──────────────────────────────────────
 	public function on_cron_scan(): void {

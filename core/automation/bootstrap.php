@@ -94,6 +94,8 @@ require_once __DIR__ . '/includes/blocks/triggers/class-trigger-telegram.php';  
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-intent.php';// BE-6.E
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-turn-completed.php';// BE-7.A
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-tool-decided.php';  // BE-7.A
+// [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — trigger.bot_turn_completed (Bot Studio bot replied).
+require_once __DIR__ . '/includes/blocks/triggers/class-trigger-bot-turn-completed.php';
 // [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W2 — trigger.skill_intent (skill A/B/C invocation listener).
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-skill-intent.php';
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-cron.php';

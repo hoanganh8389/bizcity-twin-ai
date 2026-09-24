@@ -3,7 +3,7 @@
   "module_id": "modules.twin-crm",
   "owner": "plugins/bizcity-twin-crm",
   "installer_id": "twin_crm",
-  "current_version": "1.36.0",
+  "current_version": "1.37.0",
   "version_option": "bizcity_crm_db_ver",
   "tables": {
     "bizcity_crm_broadcasts": {

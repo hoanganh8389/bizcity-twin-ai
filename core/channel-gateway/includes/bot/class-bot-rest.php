@@ -91,7 +91,18 @@ final class BizCity_Bot_REST {
 		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/keys/(?P<index>\d+)', array(
 			'methods' => 'DELETE', 'callback' => array( __CLASS__, 'rest_remove_media_key' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 		) );
-		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/test/(?P<kind>tts|stt|music)', array(
+		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-12) — added 'apify' so the Test
+		// button in GuruBotMediaPanel has somewhere real to call; the executor (BizCity_Bot_Apify_Client)
+		// already existed but this route only accepted tts|stt|music, so any FE apify test 404'd.
+		// 'video'/'image' added the same pass (doc §2.2 G-05/G-04) — video submits a REAL job via
+		// BizCity_Video_Client (async, never waits for completion); image calls the SAME
+		// BizCity_LLM_Client::generate_image() the bot would use and returns a real image.
+		// 'tavily' (doc §2.2A "tavily_api_key chỉ khi tool owner dùng thật") — calls Tavily's own
+		// search API directly with the operator's key so the key is genuinely exercised, not just
+		// stored; still NOT wired into the live web_search turn tool (class-bot-tools.php keeps using
+		// the site-wide gateway Search_Client) — that is a turn-behavior change needing its own owner
+		// sign-off, same idiom as tts/stt/music/video/image staying `unconfigured` for the turn.
+		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/test/(?P<kind>tts|stt|music|apify|video|image|tavily)', array(
 			'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_test_media' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 		) );
 	}

@@ -134,7 +134,7 @@ final class BizCity_CRM_Outbound_Dispatcher {
 
 		if ( 'system' === $actor && $on_behalf_of <= 0 ) {
 			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5.7 — resolve a real anchor instead of sending anonymously.
-			$anchor = self::resolve_system_anchor( $conversation, $inbox );
+			$anchor = self::resolve_system_anchor( $conversation, $inbox, $system_source, ! empty( $attachments_in ) );
 			$effective_user_id = (int) $anchor['user_id'];
 			$owner_source      = (string) $anchor['owner_source'];
 			$on_behalf_of      = $effective_user_id;
@@ -146,7 +146,12 @@ final class BizCity_CRM_Outbound_Dispatcher {
 		// A system actor with a human anchor is authorized exactly like that user and
 		// gains nothing extra; an inbound source with no human anchor is authorized by
 		// the inbox capability itself (the conversation's own CRM-enabled channel).
-		if ( 'inbox_capability' !== $owner_source
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H2 — `system_owner` is authorised like `inbox_capability`: by the
+		// conversation's own bot binding (checked in resolve_system_anchor), NOT by generic user scope. The generic
+		// scope cannot be granted to a powerless user for a zalo_personal inbox — `resolve_scope()` only admits inboxes
+		// the user OWNS (filter_c_personal_inbox_membership drops mere membership) or tenant admins, and making the
+		// system owner an admin is exactly what this design forbids. The ownership rule for the FILE is unchanged.
+		if ( ! in_array( $owner_source, array( 'inbox_capability', 'system_owner' ), true )
 			&& ! BizCity_CRM_Inbox_Access::can_view_conversation( $conversation_id, $effective_user_id ) ) {
 			return self::envelope( $base, 'failed', 'permission_denied', 'permission_denied', false, array( 'error' => 'Hội thoại không thuộc phạm vi của owner được uỷ quyền.' ) );
 		}
@@ -479,11 +484,20 @@ final class BizCity_CRM_Outbound_Dispatcher {
 	 * tenant inbox, not by a person, and it is recorded as such so an audit can
 	 * tell the two apart instead of seeing a fabricated user.
 	 *
-	 * @param array $conversation Conversation row.
-	 * @param array $inbox        Inbox row.
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H2/D-H2b — a fourth outcome, `system_owner`, sits between
+	 * the human anchors and the capability fallback. It exists ONLY for Bot Studio media:
+	 *  - `system_source` must be exactly `ai_autoreply` (kg_reply / automation / campaign / … keep the old
+	 *    behaviour: capability-anchored, text-only);
+	 *  - the send must carry attachments (a plain text reply keeps `inbox_capability`, byte for byte);
+	 *  - the inbox must have an ACTIVE, auto-replying bot binding (see bot_media_system_owner()).
+	 *
+	 * @param array  $conversation    Conversation row.
+	 * @param array  $inbox           Inbox row.
+	 * @param string $system_source   Registered SYSTEM_SOURCES value of the caller ('' when unknown).
+	 * @param bool   $has_attachments Whether the send carries attachments.
 	 * @return array{user_id:int,owner_source:string}
 	 */
-	private static function resolve_system_anchor( array $conversation, array $inbox ): array {
+	private static function resolve_system_anchor( array $conversation, array $inbox, string $system_source = '', bool $has_attachments = false ): array {
 		$assignee = (int) ( $conversation['assignee_id'] ?? 0 );
 		if ( $assignee > 0 && BizCity_CRM_Inbox_Access::can_view_conversation( (int) $conversation['id'], $assignee ) ) {
 			return array( 'user_id' => $assignee, 'owner_source' => 'conversation_assignee' );
@@ -492,7 +506,76 @@ final class BizCity_CRM_Outbound_Dispatcher {
 		if ( $default_assignee > 0 && BizCity_CRM_Inbox_Access::can_view_conversation( (int) $conversation['id'], $default_assignee ) ) {
 			return array( 'user_id' => $default_assignee, 'owner_source' => 'inbox_default_assignee' );
 		}
+		if ( 'ai_autoreply' === $system_source && $has_attachments ) {
+			$system_owner = self::bot_media_system_owner( $inbox );
+			if ( $system_owner > 0 ) {
+				return array( 'user_id' => $system_owner, 'owner_source' => 'system_owner' );
+			}
+		}
 		return array( 'user_id' => 0, 'owner_source' => 'inbox_capability' );
+	}
+
+	/**
+	 * The system owner id to use for a bot media send on this inbox, or 0 (⇒ stay capability-anchored / text-only).
+	 *
+	 * Fail-closed on every input: no system owner user, an owner that is (or became) privileged, an inbox that is
+	 * not a Bot Studio channel, or no ACTIVE binding with a Guru and auto-reply on. The binding is what makes
+	 * this a legitimate bot conversation — the same fact the turn runner itself acted on to reach this send.
+	 */
+	private static function bot_media_system_owner( array $inbox ): int {
+		if ( ! class_exists( 'BizCity_CRM_System_Owner' ) || ! self::has_active_bot_binding( $inbox ) ) {
+			return 0;
+		}
+		return BizCity_CRM_System_Owner::resolve( false );
+	}
+
+	/** True when the inbox is a Bot Studio channel with an ACTIVE binding that has a Guru and auto-reply on. */
+	private static function has_active_bot_binding( array $inbox ): bool {
+		if ( ! class_exists( 'BizCity_Channel_Binding' ) ) {
+			return false;
+		}
+		// Bot Studio runs on Zalo Cá nhân only today; the inbox's channel_ref_id IS the binding's account_id.
+		if ( 'zalo_personal' !== sanitize_key( (string) ( $inbox['channel_type'] ?? '' ) ) ) {
+			return false;
+		}
+		$account_id = trim( (string) ( $inbox['channel_ref_id'] ?? '' ) );
+		if ( '' === $account_id ) {
+			return false;
+		}
+		$binding = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $account_id );
+		return is_array( $binding ) && (int) ( $binding['character_id'] ?? 0 ) > 0 && 1 === (int) ( $binding['auto_reply'] ?? 0 );
+	}
+
+	/**
+	 * The owner a Bot Studio media send on this conversation WOULD be authorised as — the single source of
+	 * truth the bot's tools call BEFORE spending money on generating a file, so "the tool thinks it has an
+	 * owner" and "the dispatcher accepts it" can never drift apart again (they had: the tool used to mirror
+	 * the assignee lookup without the scope check the dispatcher applies).
+	 *
+	 * @param int  $conversation_id
+	 * @param bool $create_system_owner When true, the powerless system owner user is created on first use — but
+	 *                                  only for a conversation that really belongs to an active bot binding.
+	 *                                  The bot's tool passes true; nothing on the send path ever creates users.
+	 * @return array{user_id:int,owner_source:string} `user_id` 0 ⇒ this conversation cannot carry bot media.
+	 */
+	public static function resolve_bot_media_owner( int $conversation_id, bool $create_system_owner = false ): array {
+		$none = array( 'user_id' => 0, 'owner_source' => 'inbox_capability' );
+		if ( $conversation_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+			return $none;
+		}
+		$conversation = BizCity_CRM_Repository::get_conversation( $conversation_id );
+		if ( ! is_array( $conversation ) ) {
+			return $none;
+		}
+		$inbox = BizCity_CRM_Repository::get_inbox( (int) ( $conversation['inbox_id'] ?? 0 ) );
+		if ( ! is_array( $inbox ) ) {
+			return $none;
+		}
+		if ( $create_system_owner && class_exists( 'BizCity_CRM_System_Owner' ) && self::has_active_bot_binding( $inbox ) ) {
+			BizCity_CRM_System_Owner::resolve( true );
+		}
+		$anchor = self::resolve_system_anchor( $conversation, $inbox, 'ai_autoreply', true );
+		return (int) $anchor['user_id'] > 0 ? $anchor : $none;
 	}
 
 	/** Allowed outbound MIME types; filterable but never empty. */
