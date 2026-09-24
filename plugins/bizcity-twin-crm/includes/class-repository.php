@@ -902,6 +902,42 @@ class BizCity_CRM_Repository {
 		return true;
 	}
 
+	/**
+	 * Staff-entered JSON metadata (PHASE-0.60J BG-6). Touches ONLY `additional_attributes.custom_meta` — every other
+	 * key (zalo_profile, birthday_meta, …) is preserved byte-for-byte. Validation lives in the pure
+	 * BizCity_CRM_Contact_Custom_Meta so the rules are unit-tested.
+	 *
+	 * @param array $patch key => value|null (null deletes)
+	 * @return array{ok:bool,meta:array,code:string,message:string,hint:string}
+	 */
+	public static function set_custom_meta( int $contact_id, array $patch ): array {
+		global $wpdb;
+		$existing = self::get_contact( $contact_id );
+		if ( ! is_array( $existing ) || ! empty( $existing['deleted_at'] ) ) {
+			return array( 'ok' => false, 'meta' => array(), 'code' => 'contact_not_found', 'message' => 'Không tìm thấy liên hệ.', 'hint' => 'Liên hệ có thể đã bị xoá hoặc gộp.' );
+		}
+		if ( ! class_exists( 'BizCity_CRM_Contact_Custom_Meta' ) ) {
+			return array( 'ok' => false, 'meta' => array(), 'code' => 'module_not_loaded', 'message' => 'Metadata liên hệ chưa sẵn sàng.', 'hint' => 'Bật lại module CRM rồi thử lại.' );
+		}
+		$attrs   = is_array( json_decode( (string) ( $existing['additional_attributes'] ?? '' ), true ) ) ? json_decode( (string) $existing['additional_attributes'], true ) : array();
+		$applied = BizCity_CRM_Contact_Custom_Meta::apply( BizCity_CRM_Contact_Custom_Meta::extract( $attrs ), $patch );
+		if ( empty( $applied['ok'] ) ) {
+			return $applied;
+		}
+		if ( array() === $applied['meta'] ) {
+			unset( $attrs[ BizCity_CRM_Contact_Custom_Meta::ATTR_KEY ] );
+		} else {
+			$attrs[ BizCity_CRM_Contact_Custom_Meta::ATTR_KEY ] = $applied['meta'];
+		}
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$ok  = $wpdb->update( $tbl, array( 'additional_attributes' => wp_json_encode( $attrs, JSON_UNESCAPED_UNICODE ), 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $contact_id ) );
+		if ( false === $ok ) {
+			return array( 'ok' => false, 'meta' => array(), 'code' => 'write_failed', 'message' => 'Không lưu được metadata.', 'hint' => 'Thử lại sau ít phút.' );
+		}
+		self::invalidate_read_models();
+		return $applied;
+	}
+
 	/** Customer withdrawal (PHASE-0.60B rule 6): drop enriched attributes + birthday, remember the opt-out window. */
 	public static function clear_contact_enrichment( int $contact_id, string $opt_out_until ): bool {
 		// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C3.8.

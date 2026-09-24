@@ -112,13 +112,13 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			? BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $bridge_account_id )
 			: null;
 		if ( ! is_array( $account ) || (int) ( $account['crm_inbox_id'] ?? 0 ) !== (int) $inbox['id'] ) {
-			self::log_send_result( 'personal_account_mapping_missing', false, $conversation );
+			self::log_send_result( 'personal_account_mapping_missing', false, $conversation, $bridge_account_id );
 			return array( 'success' => false, 'external_source_id' => null, 'error' => 'personal_account_mapping_missing' );
 		}
 
 		$recipient = $this->resolve_uid_from_conversation( $conversation );
 		if ( $recipient === '' ) {
-			self::log_send_result( 'personal_recipient_missing', false, $conversation );
+			self::log_send_result( 'personal_recipient_missing', false, $conversation, $bridge_account_id );
 			return array( 'success' => false, 'external_source_id' => null, 'error' => 'personal_recipient_missing' );
 		}
 		$thread_kind = 'user';
@@ -155,9 +155,14 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		$type         = $attachment_url === '' ? 'text' : ( $content_type === 'image' ? 'image' : 'file' );
 		$attachment_meta = is_array( $first['meta'] ?? null ) ? $first['meta'] : ( is_string( $first['meta_json'] ?? null ) ? (array) json_decode( (string) $first['meta_json'], true ) : array() );
 		$attachment_name = sanitize_file_name( (string) ( $attachment_meta['name'] ?? $attachment_meta['file_name'] ?? ( is_array( $first ) ? ( $first['name'] ?? '' ) : '' ) ) );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K0-2 — a caller that did not name the file still has a URL with one; an empty name made
+		// the bridge fall back to `attachment` and then `.jpg`. (The bridge also infers the extension from the MIME as a last resort.)
+		if ( '' === $attachment_name && '' !== $attachment_url ) {
+			$attachment_name = sanitize_file_name( basename( (string) wp_parse_url( $attachment_url, PHP_URL_PATH ) ) );
+		}
 		$bridge       = class_exists( 'BizCity_Zalo_Bridge_Client' ) ? BizCity_Zalo_Bridge_Client::instance() : null;
 		if ( ! $bridge ) {
-			self::log_send_result( 'zalo_personal_bridge_missing', false, $conversation );
+			self::log_send_result( 'zalo_personal_bridge_missing', false, $conversation, $bridge_account_id );
 			return array( 'success' => false, 'external_source_id' => null, 'error' => 'zalo_personal_bridge_missing' );
 		}
 
@@ -177,7 +182,7 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		$bridge_outcome = sanitize_key( (string) ( $result['outcome'] ?? $result['delivery_status'] ?? '' ) );
 		$delivered = $accepted && in_array( $bridge_outcome, array( 'sent', 'delivered' ), true );
 		$outcome = $delivered ? $bridge_outcome : ( $accepted ? 'queued' : 'failed' );
-		self::log_send_result( $accepted ? ( 'queued' === $outcome ? 'outbound_queued' : 'outbound_sent' ) : 'outbound_failed', $accepted, $conversation );
+		self::log_send_result( $accepted ? ( 'queued' === $outcome ? 'outbound_queued' : 'outbound_sent' ) : 'outbound_failed', $accepted, $conversation, $bridge_account_id );
 
 		return array(
 			'success'            => $accepted,
@@ -189,7 +194,7 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		);
 	}
 
-	private static function log_send_result( string $reason, bool $success, array $conversation ): void {
+	private static function log_send_result( string $reason, bool $success, array $conversation, string $account_id = '' ): void {
 		// [2026-08-22 Johnny Chu] R-CH-FILE-LOG — record the final Personal outbound result without message content.
 		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
 			return;
@@ -201,6 +206,9 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			$success ? 'Zalo Personal outbound accepted by bridge.' : 'Zalo Personal outbound failed.',
 			array(
 				'reason'         => $reason,
+				// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — R-CH-10 drops a channel record without an exact account
+				// scope; before this every outbound result for Zalo Cá nhân was silently lost.
+				'account_id'     => $account_id,
 				'conversation_id'=> (int) ( $conversation['id'] ?? 0 ),
 				'inbox_id'       => (int) ( $conversation['inbox_id'] ?? 0 ),
 			)

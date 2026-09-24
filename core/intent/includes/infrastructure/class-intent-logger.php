@@ -90,13 +90,8 @@ class BizCity_Intent_Logger {
      * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — delete old rows only from the scheduled cron context.
      */
     public static function gc_logs(): void {
-        global $wpdb;
-        $deleted = 0; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — delete-only drain; no SQL writer/reader.
-        $table = $wpdb->prefix . 'bizcity_intent_logs';
-        if ( $wpdb && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) ) {
-            $result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d", self::RETENTION_DAYS, self::RETENTION_BATCH ) );
-            $deleted = false === $result ? 0 : (int) $result;
-        }
+        // [2026-08-27 Johnny Chu] PHASE-1.30-JSONL-ONLY — retired Intent SQL retention is disabled; JSONL owns retention and approved cleanup owns DROP.
+        $deleted = 0;
         if ( class_exists( 'BizCity_Cron_Manager' ) ) {
             $cron = BizCity_Cron_Manager::instance();
             $cron->note( array( 'counters' => array( 'intent_logs_retention_deleted' => $deleted ) ) );
@@ -117,6 +112,11 @@ class BizCity_Intent_Logger {
      * Called from Database::maybe_create_tables().
      */
     public function maybe_create_table() {
+        // [2026-08-26 Johnny Chu] PHASE-LEGACY-TABLES — never recreate the retired Intent SQL log; JSONL owns new evidence.
+        // [2026-08-26 Johnny Chu] PHASE-1.30-FAIL-CLOSED — missing lifecycle policy blocks retired log installation.
+        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || BizCity_Legacy_Table_Policy::install_blocked( $this->table ) ) {
+            return false;
+        }
         $charset = $this->wpdb->get_charset_collate();
 
         $sql = "CREATE TABLE IF NOT EXISTS {$this->table} (
@@ -233,10 +233,10 @@ class BizCity_Intent_Logger {
         // path removed; JSONL is the only pipeline evidence store.
 
         // [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — Phase A dual-write mirror; best-effort, never blocks the pipeline.
-        if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
-            BizCity_JSONL_File_Logger::write(
-                'bizcity-intent-logs',
-                'pipeline-trace',
+        if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+            // [2026-08-27 Johnny Chu] R-LOG-HYBRID — intent pipeline evidence uses the canonical contract ID.
+            BizCity_JSONL_File_Logger::write_contract(
+                'core.intent.pipeline_trace',
                 $level,
                 $step,
                 'Intent pipeline step: ' . $step,
@@ -562,10 +562,10 @@ class BizCity_Intent_Logger {
     }
 
     private function get_jsonl_rows( array $filters = array(), $limit = 1000 ): array {
-        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' ) ) {
             return array();
         }
-        $rows = BizCity_JSONL_File_Logger::query( 'bizcity-intent-logs', 'pipeline-trace', array(
+        $rows = BizCity_JSONL_File_Logger::query_contract( 'core.intent.pipeline_trace', array(
             'days' => 7,
             'limit' => min( 10000, max( 1, (int) $limit ) ),
             'filter' => function ( $raw ) use ( $filters ) {

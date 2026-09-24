@@ -378,6 +378,12 @@ class BizCity_CRM_REST_Controller {
 			'callback'            => array( __CLASS__, 'put_contact_birthday' ),
 			'permission_callback' => array( __CLASS__, 'can_write_contact_scope' ),
 		) );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60J BG-6 — staff JSON metadata under additional_attributes.custom_meta.
+		register_rest_route( $ns, '/contacts/(?P<id>\d+)/metadata', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_contact_metadata' ),
+			'permission_callback' => array( __CLASS__, 'can_write_contact_scope' ),
+		) );
 		register_rest_route( $ns, '/contacts/(?P<id>\d+)/enrichment', array(
 			'methods'             => WP_REST_Server::DELETABLE,
 			'callback'            => array( __CLASS__, 'delete_contact_enrichment' ),
@@ -7948,6 +7954,28 @@ class BizCity_CRM_REST_Controller {
 		return new WP_REST_Response( array( 'ok' => true, 'data' => array( 'contact_id' => $id, 'date' => $date, 'time' => $time ) ), 200 );
 	}
 
+	/** POST /contacts/{id}/metadata — body {metadata: <json object|string>}. `null` values delete keys. */
+	public static function post_contact_metadata( WP_REST_Request $req ) {
+		$id   = (int) $req['id'];
+		$body = self::extract_json_body( $req );
+		if ( ! class_exists( 'BizCity_CRM_Contact_Custom_Meta' ) ) {
+			return self::enrichment_error( 'module_not_loaded', 'Metadata liên hệ chưa sẵn sàng.', 'Bật lại module CRM rồi thử lại.', 'contact_meta_module_not_loaded', 503 );
+		}
+		$parsed = BizCity_CRM_Contact_Custom_Meta::parse_input( $body['metadata'] ?? '' );
+		if ( empty( $parsed['ok'] ) ) {
+			return self::enrichment_error( $parsed['code'], $parsed['message'], $parsed['hint'], 'contact_meta_' . $parsed['code'], 422 );
+		}
+		$result = BizCity_CRM_Repository::set_custom_meta( $id, $parsed['patch'] );
+		if ( empty( $result['ok'] ) ) {
+			$status = 'contact_not_found' === $result['code'] ? 404 : ( 'write_failed' === $result['code'] ? 500 : 422 );
+			return self::enrichment_error( $result['code'], $result['message'], $result['hint'], 'contact_meta_' . $result['code'], $status );
+		}
+		if ( class_exists( 'BizCity_CRM_Audit_Log' ) ) {
+			BizCity_CRM_Audit_Log::log( 'crm_contact', $id, 'updated', array(), array( 'custom_meta_keys' => array_keys( $result['meta'] ) ) );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'data' => array( 'contact_id' => $id, 'custom_meta' => $result['meta'] ) ), 200 );
+	}
+
 	public static function delete_contact_enrichment( WP_REST_Request $req ) {
 		// [2026-09-23 04:30 PM Claude Fable 5.1] PHASE-0.60B rule 6 — withdrawal; no re-ask for N days.
 		$id   = (int) $req['id'];
@@ -14576,6 +14604,12 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 			$owner_map = array();
 			$session_state_map = array();
 			$dead_states = array( 'expired', 'logged_out' );
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60J BG-3 — every Zalo Cá nhân phone with its owner, straight from the account table.
+			// The rail below DROPS a phone whose owner is not a CRM-assignable user (it lands in no group and not in `unassigned`) and
+			// any inbox with is_active = 0, so the add-number picker cannot be built from `groups`/`unassigned` alone.
+			$all_phones = array();
+			$inbox_name_by_id = array();
+			foreach ( $rows as $inbox_row ) { $inbox_name_by_id[ (int) ( $inbox_row['id'] ?? 0 ) ] = (string) ( $inbox_row['name'] ?? '' ); }
 			if ( ! empty( $inbox_ids ) && class_exists( 'BizCity_Zalo_Mapping_Repo' ) && method_exists( 'BizCity_Zalo_Mapping_Repo', 'list_personal_accounts' ) ) {
 				foreach ( (array) BizCity_Zalo_Mapping_Repo::list_personal_accounts( array( 'limit' => 200 ) ) as $account ) {
 					$owner_user_id = (int) ( $account['owner_user_id'] ?? 0 );
@@ -14591,6 +14625,18 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 							'session_state' => $status,
 							'can_relogin'   => in_array( $status, $dead_states, true ),
 						);
+						if ( 'revoked' !== $status ) {
+							$owner_user = $owner_user_id > 0 ? get_userdata( $owner_user_id ) : false;
+							$phone_name = trim( (string) ( $inbox_name_by_id[ $inbox_id ] ?? '' ) );
+							if ( '' === $phone_name ) { $phone_name = trim( (string) ( $account['label'] ?? '' ) ); }
+							$all_phones[ $inbox_id ] = array(
+								'inbox_id'      => $inbox_id,
+								'name'          => sanitize_text_field( '' !== $phone_name ? $phone_name : ( 'SĐT #' . $inbox_id ) ),
+								'owner_user_id' => $owner_user_id,
+								'owner_name'    => $owner_user_id > 0 ? ( $owner_user ? sanitize_text_field( (string) $owner_user->display_name ) : ( '#' . $owner_user_id ) ) : '',
+								'session_state' => $status,
+							);
+						}
 					}
 				}
 			}
@@ -14671,6 +14717,9 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 					'channel_type' => sanitize_key( (string) ( $row['channel_type'] ?? '' ) ),
 					'open_count'   => (int) ( $count_map[ $inbox_id ]['open_count'] ?? 0 ),
 					'breach_count' => (int) ( $count_map[ $inbox_id ]['breach_count'] ?? 0 ),
+					// [2026-09-24 Claude Sonnet 5] PHASE-0.60J BG-3 — who OWNS this phone (0 = nobody). A phone also appears under each
+					// member's group, so the group alone cannot say who the owner is; the add-number picker needs it to ask before a change.
+					'owner_user_id' => (int) ( $owner_map[ $inbox_id ] ?? 0 ),
 				);
 				if ( $expose_channel_ref && 'zalo_personal' === $item['channel_type'] ) {
 					$item['channel_ref_id'] = sanitize_text_field( (string) ( $row['channel_ref_id'] ?? '' ) );
@@ -14829,12 +14878,14 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 				// 1.4.0 (PHASE-0.53 N1) adds `?include=staff` (0-phone D1 members) and, on every group,
 				// `role_label` + `can{assign_phone,qr,transfer,remove}` + `quota{used,limit}`.
 				// 1.5.0 (PHASE-0.53 N6) adds `business[]` (OA/Facebook/WebChat channels, one row per inbox).
-				'version'    => '1.5.0',
+				'version'    => '1.6.0',
 				'scoped'     => null !== $visible_user_ids,
 				'wait_minutes' => class_exists( 'BizCity_CRM_Staff_REST' ) ? (int) BizCity_CRM_Staff_REST::WAIT_MINUTES_BREACH : 15,
 				'groups'     => $out,
 				'unassigned' => $unassigned,
 				'business'   => $business,
+				// 1.6.0 (PHASE-0.60J) — `phones[]`: every Zalo Cá nhân phone + current owner, unscoped viewers (administrators) only.
+				'phones'     => null === $visible_user_ids ? array_values( $all_phones ) : array(),
 			);
 		} );
 	}

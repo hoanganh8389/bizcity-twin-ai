@@ -35,6 +35,15 @@ class BizCity_CRM_AI_Autoreply_Listener {
 	/** @var string Channel currently being handled in this request. */
 	private static $current_channel = '';
 
+	/**
+	 * @var string Inbox channel_ref_id (the channel account) handled in this request.
+	 *
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — R-CH-10 refuses any per-channel record without an exact account
+	 * scope, so every decision this listener made after resolving the inbox (skip reasons, fire, done) was silently
+	 * dropped from the zalo_personal / messenger / zalo_oa files. Carried into every log context below.
+	 */
+	private static $current_account_id = '';
+
 	public static function register(): void {
 		// CRM event emitted by Repository::insert_message after every insert.
 		add_action( 'bizcity_crm_event_crm_message_received', array( __CLASS__, 'on_message_received' ), 10, 1 );
@@ -52,6 +61,7 @@ class BizCity_CRM_AI_Autoreply_Listener {
 		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
 			return;
 		}
+		self::$current_account_id = ''; // D-H7 — never carry the previous message's account into this one's logs.
 		try {
 			// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P11: trace autoreply entry.
 			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-LOG-NOISE — dropped the duplicate error_log() line;
@@ -105,6 +115,7 @@ class BizCity_CRM_AI_Autoreply_Listener {
 
 			$inbox = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
 			self::$current_channel = (string) ( $inbox['channel_type'] ?? '' );
+			self::$current_account_id = (string) ( $inbox['channel_ref_id'] ?? '' );
 
 			// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P11b: trace inbox channel_type + ref_id for Resolver debug.
 			// [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-LOG-NOISE — dropped the duplicate error_log() line;
@@ -441,6 +452,9 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			return;
 		}
 		$channel = self::map_channel_type( (string) ( $context['channel'] ?? self::$current_channel ) );
+		if ( ! isset( $context['account_id'] ) && '' !== self::$current_account_id ) {
+			$context['account_id'] = self::$current_account_id;
+		}
 		BizCity_Channel_File_Logger::write(
 			$channel,
 			BizCity_Channel_File_Logger::LEVEL_INFO,
@@ -572,6 +586,9 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			return;
 		}
 		$channel = self::map_channel_type( (string) ( $ctx['channel'] ?? self::$current_channel ) );
+		if ( ! isset( $ctx['account_id'] ) && '' !== self::$current_account_id ) {
+			$ctx['account_id'] = self::$current_account_id;
+		}
 		BizCity_Channel_File_Logger::write( $channel, BizCity_Channel_File_Logger::LEVEL_INFO, 'autoreply_decision', $msg, $ctx );
 	}
 

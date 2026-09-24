@@ -77,6 +77,10 @@ final class BizCity_CRM_Outbound_Dispatcher {
 		$content_type    = sanitize_key( (string) ( $request['content_type'] ?? 'text' ) );
 		$trace_id        = substr( sanitize_text_field( (string) ( $request['trace_id'] ?? '' ) ), 0, 128 );
 		$attachments_in  = isset( $request['attachments'] ) && is_array( $request['attachments'] ) ? $request['attachments'] : array();
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K0-3 — native @mentions and the quoted CRM message travel to the adapter.
+		// Bad entries are DROPPED (never fail the send): a wrong tag must cost the tag, not the customer's message.
+		$mentions        = self::sanitize_mentions( $request['mentions'] ?? array(), $content );
+		$reply_to        = isset( $request['reply_to'] ) ? absint( $request['reply_to'] ) : 0;
 
 		if ( ! in_array( $content_type, array( 'text', 'image', 'file' ), true ) ) {
 			$content_type = 'text';
@@ -114,6 +118,10 @@ final class BizCity_CRM_Outbound_Dispatcher {
 		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D5 — the idempotency contract matches the shipped C mutation routes; no second contract.
 		if ( strlen( $idempotency_key ) < self::MIN_KEY_LEN || strlen( $request_hash ) < self::MIN_KEY_LEN ) {
 			return self::envelope( $base, 'failed', 'invalid_param', 'invalid_param', false, array( 'error' => 'Thiếu idempotency key hoặc request hash hợp lệ.' ) );
+		}
+		// K0-3 — the same key with different tags is a different payload (conflict), not a silent replay.
+		if ( ! empty( $mentions ) ) {
+			$request_hash = md5( $request_hash . '|mentions|' . wp_json_encode( $mentions ) );
 		}
 
 		if ( 'system' === $actor && $on_behalf_of <= 0 && ! in_array( $system_source, self::SYSTEM_SOURCES, true ) ) {
@@ -190,6 +198,12 @@ final class BizCity_CRM_Outbound_Dispatcher {
 			);
 		}
 		$base['attachment'] = $attachments['attachment'];
+		// K0-3 — the bridge refuses `mentions` together with an attachment; keep the file, drop the tags, say so.
+		$mentions_dropped = false;
+		if ( ! empty( $mentions ) && ! empty( $attachments['rows'] ) ) {
+			$mentions         = array();
+			$mentions_dropped = true;
+		}
 
 		$adapter = BizCity_CRM_Channel_Registry::get( $channel );
 		if ( ! $adapter instanceof BizCity_CRM_Channel_Adapter ) {
@@ -259,11 +273,24 @@ final class BizCity_CRM_Outbound_Dispatcher {
 		}
 		$base['message_id'] = $message_id;
 
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K0-1 — hand the adapter the CRM row id AND the caller's idempotency key.
+		// Without them the Zalo Personal adapter derived a key from (conversation | recipient | TEXT), and the sidecar
+		// keeps that key forever: the second identical text — or the second file with an empty caption, e.g. two bot
+		// voice notes — was answered with a replay and never sent, while CRM recorded it as sent. The caller key is
+		// stable per intended send (same across a retry, different across turns), which is exactly the dedupe wanted.
 		$message_payload = array(
-			'content'      => $content,
-			'content_type' => $content_type,
-			'attachments'  => $attachments['rows'],
+			'id'              => $message_id,
+			'idempotency_key' => $idempotency_key,
+			'content'         => $content,
+			'content_type'    => $content_type,
+			'attachments'     => $attachments['rows'],
 		);
+		if ( ! empty( $mentions ) ) {
+			$message_payload['mentions'] = $mentions;
+		}
+		if ( $reply_to > 0 ) {
+			$message_payload['reply_to'] = $reply_to;
+		}
 		try {
 			$raw = $adapter->send( $conversation, $message_payload );
 		} catch ( Throwable $e ) {
@@ -300,6 +327,7 @@ final class BizCity_CRM_Outbound_Dispatcher {
 				'job_id'             => $job_id,
 				'attempts'           => 1,
 				'delivery_mode'      => $synchronous_send ? 'provider_synchronous' : 'provider_queued',
+				'mentions_dropped'   => $mentions_dropped,
 			) );
 			BizCity_Twin_Mutation_Store::complete( $claim_key, $request_hash, $envelope );
 			self::record_evidence( $envelope, $effective_user_id, $trace_id );
@@ -635,14 +663,62 @@ final class BizCity_CRM_Outbound_Dispatcher {
 			$summary['count']++;
 			$summary['mime']  = $mime;
 			$summary['bytes'] = $bytes;
+			$url  = (string) wp_get_attachment_url( $attachment_id );
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K0-2 — carry the real file name. Without `meta.name` the adapter sent
+			// an unnamed attachment and the bridge/Zalo received `attachment.jpg` — an MP3, PDF or MP4 with an image name.
 			$rows[] = array(
 				'file_type' => 0 === strpos( $mime, 'image/' ) ? 'image' : 'file',
-				'data_url'  => (string) wp_get_attachment_url( $attachment_id ),
+				'data_url'  => $url,
 				'thumb_url' => null,
-				'meta'      => array( 'attachment_id' => $attachment_id, 'mime' => $mime, 'bytes' => $bytes ),
+				'meta'      => array( 'attachment_id' => $attachment_id, 'mime' => $mime, 'bytes' => $bytes, 'name' => self::attachment_file_name( $path, $url ) ),
 			);
 		}
 		return array( 'ok' => true, 'rows' => $rows, 'attachment' => $summary, 'code' => '', 'reason_bucket' => '', 'error' => '' );
+	}
+
+	/**
+	 * Base name of the stored file (falls back to the URL's last path segment). Empty when neither is usable —
+	 * the adapter and the bridge then infer an extension from the MIME type instead of guessing an image.
+	 */
+	private static function attachment_file_name( $path, string $url ): string {
+		$name = is_string( $path ) && '' !== $path ? basename( str_replace( '\\', '/', $path ) ) : '';
+		if ( '' === $name && '' !== $url ) {
+			$url_path = (string) wp_parse_url( $url, PHP_URL_PATH );
+			$name     = '' !== $url_path ? basename( $url_path ) : '';
+		}
+		return function_exists( 'sanitize_file_name' ) ? sanitize_file_name( $name ) : $name;
+	}
+
+	/**
+	 * Keep only well-formed native mentions whose range fits inside the text. `pos`/`len` are UTF-16 code units (what
+	 * Zalo and the bridge count). At most 50; anything malformed is dropped, never an error.
+	 *
+	 * @param mixed  $raw     Caller-supplied list of {pos,len,uid}.
+	 * @param string $content Message text the ranges refer to.
+	 * @return array<int,array{pos:int,len:int,uid:string}>
+	 */
+	private static function sanitize_mentions( $raw, string $content ): array {
+		if ( ! is_array( $raw ) || '' === $content ) {
+			return array();
+		}
+		$units = function_exists( 'mb_convert_encoding' ) ? (int) ( strlen( mb_convert_encoding( $content, 'UTF-16LE', 'UTF-8' ) ) / 2 ) : strlen( $content );
+		$out   = array();
+		foreach ( $raw as $m ) {
+			if ( ! is_array( $m ) ) {
+				continue;
+			}
+			$uid = isset( $m['uid'] ) ? (string) $m['uid'] : '';
+			$pos = isset( $m['pos'] ) && is_numeric( $m['pos'] ) ? (int) $m['pos'] : -1;
+			$len = isset( $m['len'] ) && is_numeric( $m['len'] ) ? (int) $m['len'] : 0;
+			if ( 1 !== preg_match( '/^\d{3,32}$/', $uid ) || $pos < 0 || $len < 1 || $pos + $len > $units ) {
+				continue;
+			}
+			$out[] = array( 'pos' => $pos, 'len' => $len, 'uid' => $uid );
+			if ( count( $out ) >= 50 ) {
+				break;
+			}
+		}
+		return $out;
 	}
 
 	/**

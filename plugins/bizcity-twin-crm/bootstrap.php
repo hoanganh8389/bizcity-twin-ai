@@ -347,6 +347,8 @@ final class BizCity_CRM_Plugin {
 		// [2026-09-23 R-SAFE-LOADER] guard the call — same partial-deploy fatal risk already
 		// flagged elsewhere in this bootstrap (bare require_once + unconditional static call).
 		require_once $inc . 'class-contact-enrichment.php';
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60J BG-6 — pure validator for staff JSON metadata on a contact.
+		require_once $inc . 'class-contact-custom-meta.php';
 		if ( class_exists( 'BizCity_Scheduler_Adapter_Base' ) ) {
 			require_once $inc . 'class-scheduler-adapter-contact-birthday.php';
 		}

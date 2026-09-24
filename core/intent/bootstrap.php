@@ -86,7 +86,10 @@ require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-provider-reg
 /* -- routing/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-mode-pipeline.php';  // parent class for knowledge-router
 require_once BIZCITY_INTENT_DIR . '/includes/routing/class-intent-router.php';
-require_once BIZCITY_INTENT_DIR . '/includes/routing/class-knowledge-router.php';
+// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-02 I-04 — class-knowledge-router.php retired
+// under R-ORPHAN-FILE. It declared BizCity_Knowledge_Provider_Registry and
+// BizCity_Knowledge_Router_Pipeline, neither referenced anywhere, and was parsed on every
+// intent request. Knowledge routing is owned by the KG-Hub retriever and TwinBrain.
 
 /* -- classification/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/classification/class-mode-classifier.php';
