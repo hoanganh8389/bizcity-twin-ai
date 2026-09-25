@@ -99,7 +99,8 @@ final class BizCity_Bot_Context_Builder {
 	 *             writes them to CRM unconditionally — this never blocks ingest, only this projection.
 	 */
 	public static function history( int $conversation_id, int $limit, string $context_source = 'hybrid', bool $passive_listen_in_group = true ): array {
-		$rows = array();
+		$rows       = array();
+		$photo_rows = array(); // K2 — indexes of rows that are only a photo description.
 		if ( is_callable( self::$history_reader ) ) {
 			$rows = (array) call_user_func( self::$history_reader, $conversation_id, $limit );
 		} elseif ( class_exists( 'BizCity_CRM_Repository' ) ) {
@@ -113,6 +114,14 @@ final class BizCity_Bot_Context_Builder {
 					continue; // EA-3.3 — passive listening turned off: this row never reaches the model.
 				}
 				$text = trim( (string) ( $r['content'] ?? $r['body'] ?? '' ) );
+				if ( $text === '' && 'incoming' === $type && class_exists( 'BizCity_Bot_Vision' ) ) {
+					// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K2 — a photo-only customer row survives in history ONLY as its cached
+					// description; an undescribed photo stays out (unknown never becomes an invented description).
+					$text = BizCity_Bot_Vision::history_note( $r );
+					if ( '' !== $text ) {
+						$photo_rows[] = count( $rows );
+					}
+				}
 				if ( $text === '' ) {
 					continue;
 				}
@@ -123,6 +132,14 @@ final class BizCity_Bot_Context_Builder {
 					'source'  => 'crm',
 					'created_at' => (string) ( $r['created_at'] ?? '' ),
 				);
+			}
+		}
+		// K2 — keep only the newest N described photos in history (tuning vision_history_images; 0 = none).
+		if ( ! empty( $photo_rows ) ) {
+			$keep = class_exists( 'BizCity_Bot_Config_Repo' ) ? (int) ( BizCity_Bot_Config_Repo::get_tuning()['vision_history_images'] ?? 4 ) : 4;
+			$drop = array_flip( array_slice( $photo_rows, 0, max( 0, count( $photo_rows ) - max( 0, $keep ) ) ) );
+			if ( ! empty( $drop ) ) {
+				$rows = array_values( array_diff_key( $rows, $drop ) );
 			}
 		}
 		// Ensure chronological order regardless of the reader's ordering.

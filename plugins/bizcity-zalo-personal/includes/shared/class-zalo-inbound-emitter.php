@@ -32,6 +32,14 @@ class BizCity_Zalo_Inbound_Emitter {
 	private function __construct() {}
 
 	/**
+	 * PHASE-0.60K K0-7 — true only for a GROUP message that tags this account (`mentions_me` from the sidecar, sent as 1/true).
+	 * A DM is never a "mention", and a self-echo is never the bot being addressed. Pure, so it is unit-testable.
+	 */
+	public static function mention_detected( array $body, bool $is_group ): bool {
+		return $is_group && empty( $body['is_self'] ) && ! empty( $body['mentions_me'] );
+	}
+
+	/**
 	 * Emit inbound event from bridge body.
 	 * Returns CRM message_id, 0 for retryable ingest failure, or -1 for intentional drop.
 	 *
@@ -191,6 +199,10 @@ class BizCity_Zalo_Inbound_Emitter {
 			'file_url'         => (string) ( $body['file_url'] ?? '' ),
 			'file_name'        => (string) ( $body['file_name'] ?? '' ),
 			'quote_src'        => is_array( $body['quote_src'] ?? null ) ? $body['quote_src'] : array(),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K0-7 — did this GROUP message @-tag this account? The sidecar computes it from the
+			// native mentions; Universal Listener carries it into the envelope, CRM stamps it into ai_metadata. Never set before, so
+			// `require_mention_in_group` blocked every group message and EA-3.3 treated every group row as un-mentioned.
+			'mention_detected' => self::mention_detected( $body, $is_group ),
 			'_zalo_local_account_id' => $local_account_id,
 		);
 

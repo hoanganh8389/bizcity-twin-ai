@@ -1023,7 +1023,7 @@ if ( ! class_exists( 'BizCity_Framework_CLI_Contracts' ) ) {
 				'core/channel-gateway/includes/interface-channel-magic-link-capable.php',
 				'core/automation/includes/blocks/interface-block.php',
 				'core/diagnostics/includes/interface-diagnostics-probe.php',
-				'core/knowledge/kg-hub/includes/adapters/interface-source-adapter.php',
+				'core/kg-hub/includes/adapters/interface-source-adapter.php',
 				'core/runtime/interface-twin-session.php',
 				'core/scheduler/includes/interface-scheduler-event-adapter.php',
 			];

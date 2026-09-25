@@ -438,9 +438,29 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-astro-tool.php'     => 'channel.bot.astro_tool',
 	// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — customer memory (save_memory tool + <dieu_da_nho> block).
 	$gateway_dir . 'bot/class-bot-memory.php'         => 'channel.bot.memory',
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K5 — loaded before class-bot-tools.php, which calls it.
+	$gateway_dir . 'bot/class-bot-research-client.php' => 'channel.bot.research_client',
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K2 — photo → text for the turn; loaded before the tools/runner that call it.
+	$gateway_dir . 'bot/class-bot-vision.php'         => 'channel.bot.vision',
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — async music/video jobs (WP-Cron), loaded before the tools/runner that call it.
+	$gateway_dir . 'bot/class-bot-media-jobs.php'     => 'channel.bot.media_jobs',
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — schedule_task (stores in core/scheduler, fires on bizcity_scheduler_reminder_fire).
+	$gateway_dir . 'bot/class-bot-schedule.php'       => 'channel.bot.schedule',
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K7 — group anti-spam guard (counts at bizcity_channel_normalized -5, before the claim).
+	$gateway_dir . 'bot/class-bot-group-guard.php'    => 'channel.bot.group_guard',
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K4 — create_document: schema + renderers + orchestrator (the PDF library loads on demand).
+	$gateway_dir . 'bot/documents/class-bot-document-schema.php' => 'channel.bot.document_schema',
+	$gateway_dir . 'bot/documents/class-bot-doc-office.php'      => 'channel.bot.doc_office',
+	$gateway_dir . 'bot/documents/class-bot-doc-xlsx.php'        => 'channel.bot.doc_xlsx',
+	$gateway_dir . 'bot/documents/class-bot-doc-docx.php'        => 'channel.bot.doc_docx',
+	$gateway_dir . 'bot/documents/class-bot-doc-pdf.php'         => 'channel.bot.doc_pdf',
+	$gateway_dir . 'bot/documents/class-bot-doc-text.php'        => 'channel.bot.doc_text',
+	$gateway_dir . 'bot/documents/class-bot-documents.php'       => 'channel.bot.documents',
 	$gateway_dir . 'bot/class-bot-tools.php'          => 'channel.bot.tools',
 	// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — Zalo action tools (sticker, poll, group admin…) via zca-bridge ≥ 0.40.0.
 	$gateway_dir . 'bot/class-bot-zalo-actions.php'   => 'channel.bot.zalo_actions',
+	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — pure @mention helper, loaded before the turn runner that calls it.
+	$gateway_dir . 'bot/class-bot-mentions.php'       => 'channel.bot.mentions',
 	$gateway_dir . 'bot/class-bot-context-builder.php' => 'channel.bot.context_builder',
 	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',
 	$gateway_dir . 'bot/class-bot-turn-runner.php'    => 'channel.bot.turn_runner',
@@ -512,6 +532,9 @@ if ( class_exists( 'BizCity_Bot_REST' ) ) { BizCity_Bot_REST::init(); }
 if ( class_exists( 'BizCity_Bot_Studio_REST' ) ) { BizCity_Bot_Studio_REST::init(); }
 if ( class_exists( 'BizCity_Bot_Turn_Claim' ) ) { BizCity_Bot_Turn_Claim::init(); }
 if ( class_exists( 'BizCity_Bot_Turn_Runner' ) ) { BizCity_Bot_Turn_Runner::init(); }
+if ( class_exists( 'BizCity_Bot_Media_Jobs' ) ) { BizCity_Bot_Media_Jobs::init(); }
+if ( class_exists( 'BizCity_Bot_Schedule' ) ) { BizCity_Bot_Schedule::init(); }
+if ( class_exists( 'BizCity_Bot_Group_Guard' ) ) { BizCity_Bot_Group_Guard::init(); }
 // [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — lets the CRM dispatcher carry the bot's MP3 voice reply.
 if ( class_exists( 'BizCity_Bot_Media_Client' ) && method_exists( 'BizCity_Bot_Media_Client', 'init' ) ) { BizCity_Bot_Media_Client::init(); }
 
@@ -746,7 +769,7 @@ function bizcity_gateway_bridge(): BizCity_Gateway_Bridge {
 /* ─── PHASE 0.31 T-S3.1 — Brain → Workflow bridge (defensive fallback) ───
  *
  * The canonical registration lives in
- *   core/knowledge/kg-hub/includes/integration-notebook.php
+ *   core/kg-hub/includes/integration-notebook.php
  * but `core/knowledge/bootstrap.php` short-circuits with `return;` when a
  * legacy mu-plugin already loaded `BizCity_Knowledge_Database`, which means
  * kg-hub/bootstrap.php (and hence the bridge) never gets required.

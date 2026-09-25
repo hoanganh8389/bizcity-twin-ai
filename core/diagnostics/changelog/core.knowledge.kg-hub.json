@@ -1,7 +1,7 @@
 {
   "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
   "module_id": "core.knowledge.kg-hub",
-  "owner": "core/knowledge/kg-hub",
+  "owner": "core/kg-hub",
   "installer_id": "kg_hub",
   "current_version": "0.31.0",
   "version_option": "bizcity_kg_db_version",

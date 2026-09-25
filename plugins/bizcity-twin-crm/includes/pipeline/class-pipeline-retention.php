@@ -53,6 +53,11 @@ final class BizCity_CRM_Pipeline_Retention {
 		if ( ! $wpdb || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
 			return;
 		}
+		// [2026-09-25] Registered network-wide, but the CRM schema exists only on blogs where the installer ran: on any other
+		// blog the DELETE below is a guaranteed "Table ... doesn't exist" DB error (seen live on blog 595). No table, nothing to drop.
+		if ( ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_pipeline_deadlines() ) ) {
+			return;
+		}
 
 		$cron = class_exists( 'BizCity_Cron_Manager' ) ? BizCity_Cron_Manager::instance() : null;
 		if ( $cron && method_exists( $cron, 'try_lock' ) && ! $cron->try_lock( self::JOB_ID, 900 ) ) {

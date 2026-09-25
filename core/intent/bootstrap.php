@@ -63,14 +63,8 @@ require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-databas
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-logger.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-execution-logger.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-trace-store.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-stream.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-monitor.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-prompt-context-logger.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-job-trace.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-data-browser.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-settings-api.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-rest-api.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-unified-rest-api.php';
 
 /* -- conversation/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-intent-conversation.php';
@@ -84,7 +78,6 @@ require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-simple-provi
 require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-provider-registry.php';
 
 /* -- routing/ -- */
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-mode-pipeline.php';  // parent class for knowledge-router
 require_once BIZCITY_INTENT_DIR . '/includes/routing/class-intent-router.php';
 // [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-02 I-04 — class-knowledge-router.php retired
 // under R-ORPHAN-FILE. It declared BizCity_Knowledge_Provider_Registry and
@@ -93,53 +86,22 @@ require_once BIZCITY_INTENT_DIR . '/includes/routing/class-intent-router.php';
 
 /* -- classification/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/classification/class-mode-classifier.php';
-require_once BIZCITY_INTENT_DIR . '/includes/classification/class-intent-clarify-gate.php';
 require_once BIZCITY_INTENT_DIR . '/includes/classification/class-intent-classify-cache.php';
-require_once BIZCITY_INTENT_DIR . '/includes/classification/class-slot-analysis.php';
-require_once BIZCITY_INTENT_DIR . '/includes/classification/class-confirm-analyzer.php';
 
 /* -- tools/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tools.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tool-index.php';
-require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-control-panel.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-run.php';
-require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-wrapper.php';
-require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-registry-map.php';
-require_once BIZCITY_INTENT_DIR . '/includes/tools/class-context-collector.php';
-require_once BIZCITY_INTENT_DIR . '/includes/tools/class-composite-executor.php';
 
 /* -- orchestration/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-planner.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-priority-functions.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-pre-rules.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-local-fallback.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-engine-shell.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-engine.php';
 
 /* -- Phase 1 — Unified Pipeline (Evidence, IO Mapper, Core Planner, Scenario) -- */
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-evidence.php';
-require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-io-mapper.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-core-planner.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-scenario-generator.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-objective-parser.php';
 
 /* -- Phase 1 Addendum — Objective Understanding, Execution Planner, Variant, One-Shot, Step Executor -- */
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-objective-understanding.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-execution-planner.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-planner-variant-resolver.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-one-shot-trigger.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-step-executor.php';
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-pipeline-sse.php';
 
 /* -- Phase 1.1 — Pipeline Middleware (HIL, Evidence, ToDos, Schema Adapter, Messenger) -- */
-require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-block-schema-adapter.php';
-require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-messenger.php';
-require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-middleware.php';
-require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-intent-todos.php';
-require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-resume.php';
-require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-memory-spec.php';
-require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-validator.php';
-require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-intent-pipeline-evidence.php';
 
 /* -- observability/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/observability/class-context-layers-capture.php';
@@ -147,17 +109,9 @@ require_once BIZCITY_INTENT_DIR . '/includes/observability/class-context-layers-
 /* ── Init CPT registrations ── */
 BizCity_Tool_Evidence::init();
 
-/* ── Init Step Executor AJAX endpoints ── */
-BizCity_Step_Executor::instance();
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Step Executor, Pipeline SSE and the waic middleware retired (renamed *_deleted.php).
 
-/* ── Init Pipeline SSE (Phase 1.2 — real-time sidebar monitor) ── */
-BizCity_Pipeline_SSE::init();
-
-/* ── Init Pipeline Middleware (Phase 1.1 — executor hooks) ── */
-BizCity_Pipeline_Middleware::instance()->boot();
-
-/* ── Init Memory Spec (Phase 1.2 §17 — pipeline working brief) ── */
-add_action( 'bizcity_pipeline_node_event', [ 'BizCity_Memory_Spec', 'refresh_on_checkpoint' ], 20 );
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Memory Spec (pipeline working brief) retired with the skill pipeline (D-25).
 
 /* ── Phase 1.6: Context Layers Capture — 100% prompt observability ── */
 // Listener for bizcity_system_prompt_built (fired by twin_resolver)
@@ -167,65 +121,12 @@ add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Context_Layers_Capture', 'e
 add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Context_Layers_Capture', 'capture_final_prompt' ], 99, 2 );
 add_action( 'bizcity_chat_message_processed', [ 'BizCity_Context_Layers_Capture', 'persist_on_message' ], 15, 1 );
 
-require_once BIZCITY_INTENT_DIR . '/services/class-task-service.php';
-require_once BIZCITY_INTENT_DIR . '/services/class-session-list-service.php';
 
 /* ══════════════════════════════════════════════════════════════
  *  TEMPLATE PAGE — Tools Map (universal AI tools panel)
  *  Touch Bar clicks → /tools-map/?bizcity_iframe=1 → tools overview
  * ══════════════════════════════════════════════════════════════ */
-add_action( 'init', function () {
-    add_rewrite_rule( '^tools-map/?$', 'index.php?bizcity_agent_page=tools-map', 'top' );
-    add_rewrite_rule( '^tool-control-panel/?$', 'index.php?bizcity_agent_page=tool-control-panel', 'top' );
-    add_rewrite_rule( '^tool-stats/?$', 'index.php?bizcity_agent_page=tool-stats', 'top' );
-    add_rewrite_rule( '^tasks/?$', 'index.php?bizcity_agent_page=tasks', 'top' );
-    add_rewrite_rule( '^tasks/([a-zA-Z0-9_-]+)/?$', 'index.php?bizcity_agent_page=task-detail&bizcity_task_id=$matches[1]', 'top' );
-    add_rewrite_rule( '^chat-sessions/?$', 'index.php?bizcity_agent_page=chat-sessions', 'top' );
-    add_rewrite_rule( '^chat-sessions/(\d+)/?$', 'index.php?bizcity_agent_page=session-detail&bizcity_session_pk=$matches[1]', 'top' );
-} );
-add_filter( 'query_vars', function ( $vars ) {
-    if ( ! in_array( 'bizcity_agent_page', $vars, true ) ) {
-        $vars[] = 'bizcity_agent_page';
-    }
-    if ( ! in_array( 'bizcity_task_id', $vars, true ) ) {
-        $vars[] = 'bizcity_task_id';
-    }
-    if ( ! in_array( 'bizcity_session_pk', $vars, true ) ) {
-        $vars[] = 'bizcity_session_pk';
-    }
-    return $vars;
-} );
-add_action( 'template_redirect', function () {
-    $page = get_query_var( 'bizcity_agent_page' );
-    if ( $page === 'tools-map' ) {
-        include BIZCITY_INTENT_DIR . '/views/page-tools-map.php';
-        exit;
-    }
-    if ( $page === 'tool-control-panel' ) {
-        include BIZCITY_INTENT_DIR . '/views/page-tool-control-panel.php';
-        exit;
-    }
-    if ( $page === 'tool-stats' ) {
-        include BIZCITY_INTENT_DIR . '/views/page-tool-stats.php';
-        exit;
-    }
-    if ( $page === 'tasks' ) {
-        include BIZCITY_INTENT_DIR . '/views/page-tasks.php';
-        exit;
-    }
-    if ( $page === 'task-detail' ) {
-        include BIZCITY_INTENT_DIR . '/views/page-task-detail.php';
-        exit;
-    }
-    if ( $page === 'chat-sessions' ) {
-        include BIZCITY_INTENT_DIR . '/views/page-sessions.php';
-        exit;
-    }
-    if ( $page === 'session-detail' ) {
-        include BIZCITY_INTENT_DIR . '/views/page-session-detail.php';
-        exit;
-    }
-} );
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — public intent pages (/tools-map, /tool-*, /tasks, /chat-sessions) and their views retired.
 
 /* ── Boot ── */
 add_action( 'plugins_loaded', function () {
@@ -249,103 +150,9 @@ add_action( 'plugins_loaded', function () {
         error_log( '[BizCity_Intent] BizCity_Episodic_Memory unavailable after require_once — skipping episodic memory boot; verify deployment artifact.' );
     }
 
-    // Main intent engine orchestrator
-    BizCity_Intent_Engine::instance();
+    // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Intent Engine retired (path C); get_ai_response never used it.
 
-    // ── S3: Register seed composite tools ──
-    if ( class_exists( 'BizCity_Tool_Registry_Map' ) ) {
-        $registry_map = BizCity_Tool_Registry_Map::instance();
-
-        $registry_map->register_composite( 'write_and_post_article', [
-            'tool_id'     => 'write_and_post_article',
-            'capability'  => [
-                'summary'  => 'Viết bài và đăng lên website',
-                'actions'  => [ 'write', 'post', 'publish' ],
-                'domains'  => [ 'content', 'website' ],
-                'triggers' => [ 'viết bài đăng web', 'viết và đăng bài', 'write and post' ],
-            ],
-            'composition' => [
-                'steps'          => [
-                    [
-                        'tool'          => 'write_article',
-                        'label'         => 'Viết bài viết',
-                        'input_mapping' => [ 'topic' => '$user.topic', 'style' => '$user.style' ],
-                    ],
-                    [
-                        'tool'          => 'post_website',
-                        'label'         => 'Đăng lên website',
-                        'input_mapping' => [ 'content' => '$step_0.output.article_text', 'title' => '$step_0.output.title' ],
-                    ],
-                ],
-                'error_strategy' => 'stop_on_fail',
-            ],
-        ] );
-
-        $registry_map->register_composite( 'publish_cross_platform', [
-            'tool_id'     => 'publish_cross_platform',
-            'capability'  => [
-                'summary'  => 'Viết bài và đăng lên website + Facebook',
-                'actions'  => [ 'write', 'post', 'publish', 'share' ],
-                'domains'  => [ 'content', 'website', 'social_media' ],
-                'triggers' => [ 'đăng web và facebook', 'publish cross platform', 'viết bài đăng khắp nơi' ],
-            ],
-            'composition' => [
-                'steps'          => [
-                    [
-                        'tool'          => 'write_article',
-                        'label'         => 'Viết bài viết',
-                        'input_mapping' => [ 'topic' => '$user.topic', 'style' => '$user.style' ],
-                    ],
-                    [
-                        'tool'          => 'post_website',
-                        'label'         => 'Đăng lên website',
-                        'input_mapping' => [ 'content' => '$step_0.output.article_text', 'title' => '$step_0.output.title' ],
-                    ],
-                    [
-                        'tool'          => 'post_facebook',
-                        'label'         => 'Đăng lên Facebook',
-                        'input_mapping' => [ 'content' => '$step_0.output.article_text', 'title' => '$step_0.output.title' ],
-                    ],
-                ],
-                'error_strategy' => 'continue',
-            ],
-        ] );
-
-        $registry_map->register_composite( 'product_launch', [
-            'tool_id'     => 'product_launch',
-            'capability'  => [
-                'summary'  => 'Tạo sản phẩm, viết bài giới thiệu, đăng web + Facebook',
-                'actions'  => [ 'create', 'write', 'post', 'publish', 'launch' ],
-                'domains'  => [ 'product', 'content', 'website', 'social_media' ],
-                'triggers' => [ 'launch sản phẩm', 'ra mắt sản phẩm', 'product launch' ],
-            ],
-            'composition' => [
-                'steps'          => [
-                    [
-                        'tool'          => 'create_product',
-                        'label'         => 'Tạo sản phẩm',
-                        'input_mapping' => [ 'name' => '$user.product_name', 'description' => '$user.description', 'price' => '$user.price' ],
-                    ],
-                    [
-                        'tool'          => 'write_article',
-                        'label'         => 'Viết bài giới thiệu',
-                        'input_mapping' => [ 'topic' => '$step_0.output.product_name', 'style' => 'product_review' ],
-                    ],
-                    [
-                        'tool'          => 'post_website',
-                        'label'         => 'Đăng lên website',
-                        'input_mapping' => [ 'content' => '$step_1.output.article_text', 'title' => '$step_1.output.title' ],
-                    ],
-                    [
-                        'tool'          => 'post_facebook',
-                        'label'         => 'Đăng lên Facebook',
-                        'input_mapping' => [ 'content' => '$step_1.output.article_text', 'title' => '$step_1.output.title' ],
-                    ],
-                ],
-                'error_strategy' => 'continue',
-            ],
-        ] );
-    }
+    // [2026-09-25 Claude Opus 5.5] WP-11 C3a — seed composite tools (Tool_Registry_Map) retired with the class.
 
     // ── O10: WP-Cron for reliable stale conversation cleanup (v3.6.1) ──
     add_action( 'bizcity_intent_stale_cleanup', function () {
@@ -381,29 +188,9 @@ add_action( 'plugins_loaded', function () {
     // Monitor dashboard (admin only) — defer to current_screen to avoid
     // [2026-06-09 Johnny Chu] PERF-1 — instantiating these on EVERY admin page.
     // Intent Monitor / Data Browser / Tool Control Panel only needed on their own pages.
-    add_action( 'current_screen', function ( $screen ) {
-        if ( ! $screen ) {
-            return;
-        }
-        // Boot these on any bizcity-intent* page OR the tool control panel page.
-        if ( false !== strpos( $screen->id, 'bizcity-intent' )
-            || false !== strpos( $screen->id, 'bizcity-tool' )
-            || false !== strpos( $screen->id, 'bizcity-data-browser' )
-        ) {
-            BizCity_Intent_Monitor::instance();
-            BizCity_Intent_Data_Browser::instance();
-            BizCity_Tool_Control_Panel::instance();
-        }
-    }, 1 );
+    // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Intent Monitor / Data Browser / Tool Control Panel retired (group C).
 
-    // REST API for settings (mobile app ready)
-    BizCity_Intent_Settings_API::instance();
-
-    // REST API for tasks & sessions (React / app ready)
-    BizCity_Intent_REST_API::instance();
-
-    // Unified REST API — bizcity/v1 (single namespace for bizcity-app)
-    BizCity_Unified_REST_API::instance();
+    // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — REST bizcity/v1 and bizcity-intent/v1 retired (D-28).
 
     // Fire action so other plugins can register tools
     do_action( 'bizcity_intent_register_tools', BizCity_Intent_Tools::instance() );

@@ -31,6 +31,8 @@ final class BizCity_Bot_Tools {
 
 	/** @var callable|null test seam: fn(array $messages, array $opts): array LLM result */
 	public static $planner_llm = null;
+	/** @var callable|null test seam: fn(int $conversation_id): int — the attachment owner the CRM outbound dispatcher would resolve. */
+	public static $owner_resolver = null;
 	/** @var callable|null test seam: fn(string $event, array $ctx): void — EA-7.4 cross-thread-read logging */
 	public static $log_writer = null;
 
@@ -42,6 +44,84 @@ final class BizCity_Bot_Tools {
 	 * @param array  $tools      Effective tool rows.
 	 * @return array{tool:string,args:array}|null
 	 */
+	/**
+	 * Signals that a customer message may need a tool, per tool family (D-K9). A family is only consulted when a tool of it is
+	 * available this turn. Phrases match whole words (Unicode-aware, so Vietnamese diacritics are safe).
+	 */
+	const PLANNER_SIGNALS = array(
+		'time'     => array( 'tools' => array( 'current_datetime' ), 'phrases' => array( 'hôm nay', 'hôm qua', 'ngày mai', 'ngày mốt', 'thứ mấy', 'ngày mấy', 'mấy giờ', 'bây giờ', 'hiện tại', 'tuần này', 'tuần sau', 'tháng này', 'năm nay', 'còn bao lâu', 'bao giờ', 'ngày bao nhiêu' ) ),
+		'search'   => array( 'tools' => array( 'web_search', 'read_url', 'scrape_social_data', 'search_arxiv', 'search_github', 'search_hackernews', 'search_scholar', 'search_stackexchange', 'search_wikipedia' ),
+			'phrases' => array( 'tìm', 'tìm kiếm', 'tra cứu', 'tra', 'search', 'google', 'tin tức', 'thời sự', 'tin mới', 'mới nhất', 'cập nhật', 'thời tiết', 'tỷ giá', 'giá vàng', 'giá xăng', 'giá usd', 'giá bitcoin', 'cổ phiếu', 'kết quả', 'lịch thi đấu', 'so sánh', 'review', 'đánh giá', 'wiki', 'wikipedia', 'github', 'nghiên cứu', 'bài báo', 'link', 'facebook', 'tiktok', 'youtube' ),
+			'regex' => '~https?://|www\.|(?<![\p{L}\p{N}])[a-z0-9-]+\.(?:com|vn|net|org|io|app|info)(?![\p{L}\p{N}])~u' ),
+		'astro'    => array( 'tools' => array( 'astro_profile' ), 'phrases' => array( 'tử vi', 'chiêm tinh', 'hoàng đạo', 'horoscope', 'ngày sinh', 'cung gì', 'mệnh gì', 'tuổi gì', 'bói' ) ),
+		'memory'   => array( 'tools' => array( 'save_memory' ), 'phrases' => array( 'nhớ', 'ghi nhớ', 'đừng quên', 'lưu lại', 'tôi thích', 'mình thích', 'em thích', 'anh thích', 'chị thích', 'tôi tên', 'mình tên', 'tên tôi', 'tên mình', 'dị ứng', 'sở thích', 'lần sau', 'từ nay', 'từ giờ' ) ),
+		'schedule' => array( 'tools' => array( 'schedule_task' ), 'phrases' => array( 'nhắc', 'hẹn giờ', 'đặt lịch', 'mỗi ngày', 'mỗi sáng', 'mỗi tuần', 'sáng mai', 'tối nay', 'báo thức', 'lịch hẹn' ), 'regex' => '~(?<![\p{L}\p{N}])\d{1,2}\s*(?:h|giờ|:)\s*\d{0,2}(?![\p{L}\p{N}])~u' ),
+		'document' => array( 'tools' => array( 'create_document', 'send_file' ), 'phrases' => array( 'file', 'tài liệu', 'word', 'excel', 'pdf', 'docx', 'xlsx', 'báo giá', 'hợp đồng', 'bảng', 'slide', 'trình chiếu', 'biên bản', 'csv', 'powerpoint', 'soạn' ) ),
+		'media'    => array( 'tools' => array( 'generate_image', 'create_music', 'create_video', 'tts', 'stt', 'read_image' ), 'phrases' => array( 'vẽ', 'tạo ảnh', 'hình ảnh', 'ảnh minh họa', 'bài hát', 'nhạc', 'sáng tác', 'video', 'clip', 'giọng đọc', 'đọc cho', 'voice', 'ghi âm', 'âm thanh', 'nói cho', 'đọc to' ) ),
+		'commerce' => array( 'prefix' => 'vertical_', 'tools' => array(), 'phrases' => array( 'giá', 'còn hàng', 'hết hàng', 'size', 'đặt hàng', 'mua', 'đơn hàng', 'ship', 'giao hàng', 'thanh toán', 'khuyến mãi', 'ưu đãi', 'tồn kho', 'bảo hành', 'đổi trả', 'số lượng', 'mã giảm', 'tra đơn' ) ),
+	);
+
+	/** Generic "do something" phrases for tools that have no family above (group actions, new tools). */
+	const PLANNER_OTHER_PHRASES = array( 'tag', 'gọi tên', 'tạo nhóm', 'thêm vào nhóm', 'bình chọn', 'poll', 'khảo sát', 'thành viên', 'admin', 'quản trị', 'kick', 'xóa khỏi', 'đổi tên nhóm', 'ghim', 'thống kê', 'sticker', 'thả tim', 'react', 'nhắc' );
+	/**
+	 * [2026-09-25 Claude Sonnet 5] D-K9 — should the tool PLANNER (an extra LLM round-trip, ~4s measured live) run for this turn?
+	 *
+	 * The planner exists to catch the rare message that needs a tool; on chit-chat it costs ~4s and answers "no tool". In
+	 * `auto` mode it runs only when the customer's last message carries a signal for a tool that is ACTUALLY available this
+	 * turn. False negatives are the risk (a tool the model would have picked is skipped) — `planner_mode = 2` is the way back,
+	 * and BotPlannerGateTest pins the signals. Pure: no I/O.
+	 *
+	 * @param array<int,array{role:string,content:string}> $messages Context messages (the planner reads the last user one).
+	 * @param array<int,array<string,mixed>>               $tools    Effective tool rows for this turn.
+	 * @param array<string,mixed>                          $claim
+	 */
+	public static function needs_planner( array $messages, array $tools, array $claim = array() ): bool {
+		if ( empty( $tools ) ) {
+			return false;
+		}
+		// A staff member who typed an instruction before pressing "AI reply" asked for something specific: let the planner see it.
+		if ( '' !== trim( (string) ( $claim['staff_instruction'] ?? '' ) ) ) {
+			return true;
+		}
+		$text = '';
+		for ( $i = count( $messages ) - 1; $i >= 0; $i-- ) {
+			if ( 'user' === ( $messages[ $i ]['role'] ?? '' ) ) {
+				$text = (string) $messages[ $i ]['content'];
+				break;
+			}
+		}
+		$text = trim( $text );
+		// Nothing to route: empty, or the runner's own placeholder for a media-only message ("(Khách vừa gửi …)").
+		if ( '' === $text || 0 === strpos( $text, '(Khách vừa gửi' ) ) {
+			return false;
+		}
+		$text  = function_exists( 'mb_strtolower' ) ? mb_strtolower( $text, 'UTF-8' ) : strtolower( $text );
+		$ids   = array_map( 'strval', array_column( $tools, 'id' ) );
+		$known = array();
+		$hit   = static function ( array $phrases ) use ( $text ) {
+			$alt = implode( '|', array_map( static function ( $p ) { return preg_quote( $p, '~' ); }, $phrases ) );
+			return 1 === preg_match( '~(?<![\p{L}\p{N}])(?:' . $alt . ')(?![\p{L}\p{N}])~u', $text );
+		};
+		$has = static function ( array $wanted ) use ( $ids ) {
+			return (bool) array_intersect( $wanted, $ids );
+		};
+		foreach ( self::PLANNER_SIGNALS as $group => $def ) {
+			$present = ! empty( $def['prefix'] )
+				? (bool) array_filter( $ids, static function ( $id ) use ( $def ) { return 0 === strpos( $id, $def['prefix'] ); } )
+				: $has( $def['tools'] );
+			$known = array_merge( $known, (array) ( $def['tools'] ?? array() ) );
+			if ( $present && ( $hit( $def['phrases'] ) || ( ! empty( $def['regex'] ) && 1 === preg_match( $def['regex'], $text ) ) ) ) {
+				return true;
+			}
+		}
+		// A tool nobody listed above (a newly added one, or a Zalo group action) is judged by the generic "action" phrases:
+		// unknown must never mean "silently unreachable".
+		$other = array_filter( $ids, static function ( $id ) use ( $known ) {
+			return ! in_array( $id, $known, true ) && 0 !== strpos( $id, 'vertical_' );
+		} );
+		return ! empty( $other ) && $hit( self::PLANNER_OTHER_PHRASES );
+	}
+
 	public static function plan( $character, array $messages, array $tools ) {
 		if ( empty( $tools ) ) {
 			return null;
@@ -66,7 +146,7 @@ final class BizCity_Bot_Tools {
 		);
 		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — a poll / group-creation JSON (question + options, uid list) does not fit
 		// 120 tokens and a truncated JSON silently means "no tool" (SIDECAR-OUTBOUND-ACTIONS-PHASE-PLAN, first finding).
-		$long_args  = array_intersect( array_column( $tools, 'id' ), array( 'create_poll', 'create_group', 'add_group_members', 'pin_group_note' ) );
+		$long_args  = array_intersect( array_column( $tools, 'id' ), array( 'create_poll', 'create_group', 'add_group_members', 'pin_group_note', 'create_document', 'create_music', 'create_video', 'schedule_task' ) );
 		$opts = array( 'purpose' => 'bot_tool_plan', 'temperature' => 0, 'max_tokens' => empty( $long_args ) ? 120 : 260, 'timeout' => 20 );
 		if ( is_object( $character ) && ! empty( $character->model_id ) ) {
 			$opts['model'] = (string) $character->model_id;
@@ -116,6 +196,10 @@ final class BizCity_Bot_Tools {
 			if ( class_exists( 'BizCity_Bot_Zalo_Actions' ) && BizCity_Bot_Zalo_Actions::handles( $tool_id ) ) {
 				return BizCity_Bot_Zalo_Actions::run( $tool_id, $args, $claim );
 			}
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K5 — six public research lookups (default-off tools, see the registry).
+			if ( class_exists( 'BizCity_Bot_Research_Client' ) && isset( BizCity_Bot_Research_Client::TOOLS[ $tool_id ] ) ) {
+				return self::research( $tool_id, $args );
+			}
 			switch ( $tool_id ) {
 				case 'current_datetime':
 					return array( 'ok' => true, 'content' => 'Bây giờ là ' . ( function_exists( 'wp_date' ) ? wp_date( 'H:i, l d/m/Y' ) : date( 'H:i, l d/m/Y' ) ) . ' (múi giờ site).', 'error' => '' );
@@ -133,6 +217,22 @@ final class BizCity_Bot_Tools {
 					return self::scrape_social_data( $args, $claim );
 				case 'generate_image':
 					return self::generate_image( $args, $claim );
+				// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K2 — look again at a customer photo of THIS conversation.
+				case 'read_image':
+					return self::read_image( $args, $claim );
+				// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K4 — compose + render a document; the runner sends it after the text reply.
+				case 'create_document':
+					return self::create_document( $args, $claim );
+				// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — music/video are BOOKED here and generated by a cron job after the reply.
+				// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — book / list / cancel / update this chat's reminders and recurring jobs.
+				case 'schedule_task':
+					return class_exists( 'BizCity_Bot_Schedule' )
+						? BizCity_Bot_Schedule::run_tool( $args, $claim )
+						: array( 'ok' => false, 'content' => '', 'error' => 'module_not_loaded' );
+				case 'create_music':
+					return self::queue_media( 'music', $args, $claim );
+				case 'create_video':
+					return self::queue_media( 'video', $args, $claim );
 				// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — a short voice companion to the text reply.
 				case 'tts':
 					return self::text_to_speech( $args, $claim );
@@ -186,6 +286,74 @@ final class BizCity_Bot_Tools {
 			return array( 'ok' => true, 'content' => self::fence( 'Kết quả tra cứu', 'Không tìm thấy kết quả phù hợp.' ), 'error' => '' );
 		}
 		return array( 'ok' => true, 'content' => self::fence( 'Kết quả tra cứu web cho "' . mb_substr( $query, 0, 80 ) . '"', implode( "\n", $lines ) ), 'error' => '' );
+	}
+
+	/**
+	 * K5 — format a research lookup for the model. Empty/failed = `ok:false` with the client's error code, so the model is told
+	 * plainly "nothing found" and the runner's repeat guard can count the failure. Every title/snippet is third-party text
+	 * (an arXiv abstract can say "ignore your instructions"), so the whole block is fenced as unverified external data.
+	 */
+	private static function research( string $tool_id, array $args ): array {
+		$res = BizCity_Bot_Research_Client::run( $tool_id, $args );
+		if ( empty( $res['ok'] ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => (string) ( $res['error'] ?? 'lookup_failed' ) . ( ! empty( $res['note'] ) ? ': ' . $res['note'] : '' ) );
+		}
+		$lines = array();
+		foreach ( (array) $res['items'] as $i => $it ) {
+			$lines[] = ( $i + 1 ) . '. ' . $it['title'];
+			$meta    = trim( $it['url'] . '  ' . trim( $it['date'] . ' | ' . $it['source'], ' |' ) );
+			if ( '' !== $meta ) {
+				$lines[] = $meta;
+			}
+			if ( '' !== $it['snippet'] ) {
+				$lines[] = $it['snippet'];
+			}
+		}
+		return array( 'ok' => true, 'content' => self::fence( 'Kết quả ' . (string) ( $res['label'] ?? '' ) . ' cho: "' . mb_substr( (string) ( $res['query'] ?? '' ), 0, 80 ) . '"', implode( "
+", $lines ) ), 'error' => '' );
+	}
+
+	/** The system owner a conversation's bot files/tasks belong to (0 = none — nothing may be booked for it). */
+	public static function conversation_owner( int $conversation_id ): int {
+		return self::resolve_attachment_owner( $conversation_id );
+	}
+
+	private static function queue_media( string $kind, array $args, array $claim ): array {
+		if ( ! class_exists( 'BizCity_Bot_Media_Jobs' ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'module_not_loaded' );
+		}
+		// No owner, no job: the finished file could never be sent, so nothing is booked and nothing is spent.
+		$owner_user_id = self::resolve_attachment_owner( (int) ( $claim['conversation_id'] ?? 0 ) );
+		if ( $owner_user_id <= 0 ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'no_attachment_owner' );
+		}
+		return BizCity_Bot_Media_Jobs::queue( $kind, $args, $claim, $owner_user_id );
+	}
+
+	private static function create_document( array $args, array $claim ): array {
+		if ( ! class_exists( 'BizCity_Bot_Documents' ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'module_not_loaded' );
+		}
+		$conversation_id = (int) ( $claim['conversation_id'] ?? 0 );
+		// The attachment must be owned by the conversation's system owner BEFORE anything is composed or rendered — no owner, no file.
+		$owner_user_id = self::resolve_attachment_owner( $conversation_id );
+		if ( $owner_user_id <= 0 ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'no_attachment_owner' );
+		}
+		return BizCity_Bot_Documents::create( $args, $claim, $owner_user_id );
+	}
+
+	private static function read_image( array $args, array $claim ): array {
+		$conversation_id = (int) ( $claim['conversation_id'] ?? 0 );
+		if ( 'describe' !== (string) ( $claim['vision_mode'] ?? 'off' ) || ! class_exists( 'BizCity_Bot_Vision' ) || ! class_exists( 'BizCity_CRM_Repository' ) ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'vision_off' );
+		}
+		if ( $conversation_id <= 0 ) {
+			return array( 'ok' => false, 'content' => '', 'error' => 'conversation_missing' );
+		}
+		// Only THIS conversation's photos — a model-supplied id can never point at another customer's image.
+		$rows = (array) BizCity_CRM_Repository::list_messages( $conversation_id, 60, 0 );
+		return BizCity_Bot_Vision::answer( $rows, (string) ( $args['question'] ?? $args['query'] ?? '' ), (int) ( $args['index'] ?? 1 ) );
 	}
 
 	private static function read_url( string $url ): array {
@@ -378,6 +546,9 @@ final class BizCity_Bot_Tools {
 	 * Dispatcher not loaded ⇒ 0: without it nothing could be sent anyway.
 	 */
 	private static function resolve_attachment_owner( int $conversation_id ): int {
+		if ( is_callable( self::$owner_resolver ) ) {
+			return (int) call_user_func( self::$owner_resolver, $conversation_id );
+		}
 		if ( ! class_exists( 'BizCity_CRM_Outbound_Dispatcher' ) || ! method_exists( 'BizCity_CRM_Outbound_Dispatcher', 'resolve_bot_media_owner' ) ) {
 			return 0;
 		}

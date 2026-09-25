@@ -477,6 +477,32 @@ Conversation archives are append-only audit/recovery artifacts: the database
 remains the source of truth for lists, filters, assignment and analytics. Folder
 names use stable hashes, never raw phone numbers or provider user ids.
 
+### R-BOTSTUDIO · Channel Gateway is the Bot Studio control plane
+
+Channel Gateway (`/gateway/`) is the **single configuration gateway** for bots, and Bot Studio is the **first**
+navigation group there — above the connected channels: Overview · Agents · Sessions · Contacts · Assistants &
+Zalo numbers · Operations tuning · Queue & runtime. Contacts deep-links into the one CRM contact store; every
+link between screens addresses a customer by `conversation_id`/`contact_id`, never a raw provider UID.
+
+Everything else is a shortcut that reopens the **same** owners — binding (`bizcity_channel_bindings` via
+`inspector/bindings`), Guru persona/instruction (`bizcity_characters` via `quick-edit`), run-on-channel flags and
+tools (`settings.bot` via `bot/runtime`), media keys and config (`bizcity_bot_secrets` via `bot/media`). CRM Inbox
+shortcuts: the `+` add-number sheet must offer **all existing personal numbers with their current owner** (server-listed,
+multi-select, assigned through the existing owner-transfer path) besides adding a new number — an unowned number is assigned
+at once, a number that already has another owner is changed only after an in-sheet confirmation; the composer
+has an options button next to "AI reply" opening the standard action sheet (bot on/off and mode, Guru instruction,
+actions such as image/music generation, each labelled with its scope and availability). Do not add a second config
+store, form or route for bot settings in CRM, `/gpt/`, TwinChat or a satellite plugin, do not widen who may change
+bot settings without an explicit security decision, and do not offer a per-conversation scope until it has an
+owner.
+
+The Agents section configures each agent quickly (no trip into `core/automation`); Contacts lists contacts that are
+actively conversing and can add JSON metadata under `additional_attributes.custom_meta`; context/memory views must be
+traceable per `account_id` and state plainly what the Context Bank ledger cannot attribute.
+
+`/twinchat/` only holds and presents Context Bank values; it is never a bot configuration surface. Each new
+surface needs a read-only browser self-check row and the four R-ERROR-UX states (R-DDV).
+
 ---
 
 ## 7. Errors, cron evidence and async isolation
@@ -881,13 +907,12 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/api/README.md` | BizCity 1-API — Client Integration Guide (bizcity-twin-ai) |  |
 | `docs/mcp/MCP-AUDIT-BEFORE-IMPLEMENT.md` | MCP Audit Before Implementation / Reflect |  |
 
-## 4. Module / plugin / package READMEs (22)
+## 4. Module / plugin / package READMEs (21)
 
 | File | Summary | Status |
 |---|---|---|
 | `core/bizcity-llm/docs/README.md` | core/bizcity-llm/docs/ |  |
 | `core/channel-gateway/frontend/README.md` | Channel Gateway — React Admin SPA |  |
-| `core/knowledge/kg-hub/ui/README.md` | Knowledge Graph Hub UI |  |
 | `core/membership/docs/README.md` | core/membership/docs/ |  |
 | `core/twin-core/event-stream/README.md` | Twin Event Stream — Single Backbone |  |
 | `core/twinbrain/docs/sessions/README.md` | TwinBrain — Brain Sessions Group · Doc Index | ACTIVE · 2026-06-03 · Owner: Twin Core (Johnny Chu) |
@@ -908,7 +933,7 @@ _Rule documents are not published in this repository — see the local environme
 | `packages/twin-ui-sdk/README.md` | @bizcity/twin-ui-sdk |  |
 | `examples/bizcity-reference-plugin/README.md` | BizCity Reference Extension |  |
 
-## 5. bin tools (62) — use the existing tool, do not write an ad-hoc script
+## 5. bin tools (64) — use the existing tool, do not write an ad-hoc script
 
 | Command | Purpose |
 |---|---|
@@ -922,7 +947,7 @@ _Rule documents are not published in this repository — see the local environme
 | `php bin/context-bank-rollup-fixture.php` | Run one disposable Context Bank rollup worker fixture outside Diagnostics CLI. |
 | `php bin/context-bank-route-probe.php` | Context Bank single-host/single-blog route evidence probe. |
 | `php bin/context-bank-two-shard-fixture.php` | Validate Context Bank isolation across two explicitly selected blogs/shards. |
-| `node bin/core-reduction-census.mjs` | CORE-REDUCTION census — read-only inventory for core/knowledge, core/intent, core/tools. |
+| `node bin/core-reduction-census.mjs` | CORE-REDUCTION census — read-only inventory for core/knowledge, core/kg-hub, core/intent, core/tools. |
 | `bash bin/diagnostics-batch-until-complete.sh` | Run one diagnostics batch to completion: a fresh run, then checkpoint resumes |
 | `php bin/diagnostics-run.php` | BizCity Diagnostics — Headless CLI runner (Phase 0.99.8). |
 | `php bin/diagnostics-verdict-report.php` | Read a diagnostics-verdict JSON capture and print a compact report. |
@@ -935,9 +960,11 @@ _Rule documents are not published in this repository — see the local environme
 | `php bin/license-ledger-concurrency-worker.php` | Internal worker for the H4 exact-key concurrency diagnostics probe. |
 | `php bin/log-idempotency-worker.php` | Internal worker for the JSONL idempotency diagnostics probe. |
 | `pwsh bin/secret-scan.ps1` | Secret leak scanner for bizcity-twin-ai before public push. |
+| `php bin/seed-knowledge-skills.php` | Skill Library — Sample Skills Seeder |
 | `bash bin/setting-panel-vps-evidence.sh` | PHASE-0-SETTING-PANEL — VPS MVP evidence runner |
 | `node bin/sync-agent-instructions-fixtures.mjs` | CI runner for the R-AGENT-PARITY gates in bin/sync-agent-instructions.mjs. |
 | `node bin/sync-agent-instructions.mjs` | R-AGENT-PARITY — build one AI-agent environment from the canonical project sources. |
+| `php bin/test-e2e-skill-pipeline.php` | PHASE-1.2 S5 — End-to-End Verification Script |
 | `php bin/twin` | Twin CLI — unified control door for the BizCity Twin Brain framework. |
 | `node bin/validate-brain-retrieval-facade-ownership-fixtures.mjs` | CI runner for the WP7 Brain retrieval facade ownership gate. |
 | `node bin/validate-brain-retrieval-facade-ownership.mjs` | WP7 — route retrieval through the canonical Context Bank/KG facade. |
@@ -996,67 +1023,28 @@ _Rule documents are not published in this repository — see the local environme
   - `node bin/sync-agent-instructions.mjs --check`
   - `node bin/sync-agent-instructions-fixtures.mjs`
   - `node bin/framework-contract-audit.mjs`
-  - `node bin/validate-framework-contract-fixtures.mjs`
-  - `node bin/validate-legacy-table-lifecycle.mjs`
   - `node bin/validate-safe-loader-bootstrap.mjs --base="$base" --head="$HEAD_SHA"`
   - `php bin/twin diagnostics plugin examples/bizcity-reference-plugin --json > build/plugin-diagnostics/reference.json`
-  - `php bin/twin diagnostics plugin tests/fixtures/plugin-diagnostics/broken-plugin --json > build/plugin-diagnostics/broken.json`
   - `php bin/twin diagnostics plugin "$plugin" --json > "$result"`
   - `composer validate --strict --no-check-lock`
   - `composer install --no-progress --prefer-dist --no-interaction`
-  - `composer test -- --testdox`
   - `php bin/bizcity-manifest-validate.php --plugin=examples/bizcity-reference-plugin`
-  - `php bin/bizcity-manifest-validate.php --plugin=tests/fixtures/manifest-adoption-valid-side-effect`
-  - `php bin/bizcity-manifest-validate.php --plugin=tests/fixtures/manifest-adoption-invalid-side-effect`
   - `node bin/validate-jsonl-contract-parity.mjs --strict`
-  - `node bin/validate-jsonl-contract-parity.mjs --fixture-root=tests/fixtures/jsonl-contract-parity/valid`
-  - `node bin/validate-jsonl-contract-parity.mjs --fixture-root=tests/fixtures/jsonl-contract-parity/invalid`
-  - `node bin/validate-manifest-capability-parity.mjs --strict`
-  - `node bin/validate-manifest-capability-parity.mjs --fixture-root=tests/fixtures/manifest-capability-parity/valid`
-  - `node bin/validate-manifest-capability-parity.mjs --fixture-root=tests/fixtures/manifest-capability-parity/invalid`
-  - `node bin/validate-ddl-table-parity.mjs --strict`
-  - `node bin/validate-ddl-table-parity-fixtures.mjs`
-  - `node bin/validate-capability-receipts.mjs --strict`
-  - `node bin/validate-capability-receipts-fixtures.mjs`
-  - `node bin/validate-channel-zone-identity.mjs --strict`
-  - `node bin/validate-channel-zone-identity-fixtures.mjs`
-  - `node bin/validate-crm-ownership.mjs --strict`
-  - `node bin/validate-crm-ownership-fixtures.mjs`
-  - `node bin/validate-crm-contracts.mjs --strict`
-  - `node bin/validate-crm-contracts-fixtures.mjs`
-  - `node bin/validate-channel-file-first-logging.mjs --strict`
-  - `node bin/validate-channel-file-first-logging-fixtures.mjs`
-  - `node bin/validate-sender-ownership.mjs --strict`
-  - `node bin/validate-sender-ownership-fixtures.mjs`
-  - `node bin/validate-context-bank-kg-ownership.mjs --strict`
-  - `node bin/validate-context-bank-kg-ownership-fixtures.mjs`
-  - `node bin/validate-twinbrain-vertical-bridge-ownership.mjs --strict`
-  - `node bin/validate-twinbrain-vertical-bridge-ownership-fixtures.mjs`
-  - `node bin/validate-provider-gateway-isolation.mjs --strict`
-  - `node bin/validate-provider-gateway-isolation-fixtures.mjs`
-  - `node bin/validate-brain-retrieval-facade-ownership.mjs --strict`
-  - `node bin/validate-brain-retrieval-facade-ownership-fixtures.mjs`
-  - `node bin/validate-kg-reranker-ownership.mjs --strict`
-  - `node bin/validate-kg-reranker-ownership-fixtures.mjs`
-  - `php core/diagnostics/validate-schema-changelog.php`
-  - `composer install --no-dev --no-progress --prefer-dist`
-  - `php bin/diagnostics-run.php --host=cli.local --skip-network --filter='core.module-registry' > build/canonical-diagnostics.txt`
-  - `php bin/diagnostics-run.php \`
 
-## 7. Area docs folders (56) — open the module's folder before changing the module
+## 7. Area docs folders (57) — open the module's folder before changing the module
 
 | Folder | published .md | internal .md |
 |---|---|---|
 | `core/automation/docs` | 16 | 12 |
 | `core/bizcity-llm/docs` | 2 | 1 |
-| `core/channel-gateway/docs` | 4 | 58 |
+| `core/channel-gateway/docs` | 5 | 61 |
 | `core/cron/docs` | 0 | 5 |
 | `core/diagnostics/docs` | 3 | 7 |
 | `core/docs` | 4 | 0 |
 | `core/helper/docs` | 2 | 0 |
 | `core/intent/docs` | 8 | 2 |
-| `core/knowledge/docs` | 7 | 0 |
-| `core/knowledge/kg-hub/docs` | 1 | 4 |
+| `core/kg-hub/docs` | 1 | 4 |
+| `core/knowledge/docs` | 16 | 1 |
 | `core/mcp/docs` | 0 | 2 |
 | `core/membership/docs` | 4 | 3 |
 | `core/memory/docs` | 0 | 3 |
@@ -1068,7 +1056,7 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/analysis` | 0 | 20 |
 | `docs/api` | 1 | 0 |
 | `docs/architecture` | 3 | 0 |
-| `docs/audits` | 0 | 2 |
+| `docs/audits` | 0 | 3 |
 | `docs/automation` | 1 | 0 |
 | `docs/channels` | 5 | 0 |
 | `docs/clients` | 4 | 0 |
@@ -1086,22 +1074,23 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/mcp` | 1 | 0 |
 | `docs/reference` | 5 | 0 |
 | `docs/roadmaps` | 0 | 158 |
-| `docs/rules` | 0 | 74 |
+| `docs/rules` | 0 | 77 |
 | `docs/scheduler` | 1 | 0 |
 | `docs/skills` | 1 | 0 |
+| `docs/tools` | 0 | 0 |
 | `docs/twinbrain` | 2 | 0 |
 | `docs/twinchat` | 1 | 0 |
 | `docs/vibe` | 0 | 17 |
 | `modules/twinchat/docs` | 4 | 11 |
+| `modules/twinkg/docs` | 1 | 0 |
 | `modules/twinshell/docs` | 1 | 12 |
 | `modules/twinweb/docs` | 1 | 34 |
-| `modules/webchat/docs` | 1 | 0 |
 | `plugins/bizcity-pagebuilder/docs` | 8 | 3 |
 | `plugins/bizcity-profile/docs` | 1 | 4 |
 | `plugins/bizcity-twin-crm/docs` | 13 | 44 |
 | `plugins/bizcity-video-kling/docs` | 0 | 8 |
 | `plugins/bizcity-zalo-bot/docs` | 1 | 0 |
-| `plugins/bizcity-zalo-personal/docs` | 6 | 1 |
+| `plugins/bizcity-zalo-personal/docs` | 7 | 1 |
 | `plugins/ibs-hi/docs` | 0 | 19 |
 
 ## Scoped: `.github/instructions/diagnostics-vps-ssh-runbook.instructions.md`

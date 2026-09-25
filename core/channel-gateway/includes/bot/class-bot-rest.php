@@ -223,9 +223,11 @@ final class BizCity_Bot_REST {
 		$character    = $character_id > 0 && class_exists( 'BizCity_Knowledge_Database' ) ? BizCity_Knowledge_Database::instance()->get_character( $character_id ) : null;
 		$rows         = BizCity_Bot_Tool_Registry::rows( $character );
 		$disabled     = $character_id > 0 && class_exists( 'BizCity_Bot_Config_Repo' ) ? BizCity_Bot_Config_Repo::get( $character_id )['disabled_tools'] : array();
+		$optional_on  = $character_id > 0 && class_exists( 'BizCity_Bot_Config_Repo' ) ? BizCity_Bot_Config_Repo::get( $character_id )['enabled_optional_tools'] : array();
 		return self::ok( array(
 			'tools'          => $rows,
 			'disabled_tools' => $disabled,
+			'enabled_optional_tools' => $optional_on,
 			'gateway_gaps'   => class_exists( 'BizCity_Bot_Provider' ) ? BizCity_Bot_Provider::GATEWAY_GAPS : array(),
 			'counts'         => array(
 				'available'    => count( array_filter( $rows, static function ( $r ) { return 'available' === $r['status']; } ) ),
@@ -297,6 +299,8 @@ final class BizCity_Bot_REST {
 	/** Same short keys as the zca-bridge action surface (Libe-Zalo reaction-icons.ts). */
 	const REACT_ICONS      = array( 'heart', 'like', 'haha', 'wow', 'ok', 'rose', 'kiss', 'cry', 'angry' );
 	const ALLOWLIST_MAX_UIDS = 500;
+	/** [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — no "seen only": Zalo showing "đã xem" without "đã nhận" makes no sense. */
+	const READ_RECEIPTS    = array( 'off', 'delivered', 'delivered_seen' );
 
 	public static function rest_get_policy( WP_REST_Request $req ) {
 		if ( ! class_exists( 'BizCity_Channel_Binding' ) ) {
@@ -356,6 +360,31 @@ final class BizCity_Bot_REST {
 		if ( array_key_exists( 'auto_react', $body ) ) {
 			$policy['auto_react'] = (bool) $body['auto_react'];
 		}
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K7 — group anti-spam, both default OFF. Auto-kick removes a person from a group, so it can only be
+		// switched on when the account has an owner_uid: somebody accountable for the decision.
+		if ( array_key_exists( 'antispam_enabled', $body ) ) {
+			$policy['antispam_enabled'] = (bool) $body['antispam_enabled'];
+		}
+		if ( array_key_exists( 'antispam_auto_kick', $body ) ) {
+			$policy['antispam_auto_kick'] = (bool) $body['antispam_auto_kick'];
+		}
+		if ( ! empty( $policy['antispam_auto_kick'] ) && '' === trim( (string) ( $policy['owner_uid'] ?? '' ) ) ) {
+			return self::err( 'invalid_param', 'Tự động kick cần UID chủ tài khoản.', 422, 'Nhập UID chủ tài khoản ở khối "Chủ tài khoản" trước, rồi bật tự động kick.', 'bot_policy_auto_kick_needs_owner' );
+		}
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — default OFF: receipts touch Zalo, so opt-in per number.
+		$sync_receipts = false;
+		if ( array_key_exists( 'read_receipts', $body ) ) {
+			$mode = sanitize_key( (string) $body['read_receipts'] );
+			if ( ! in_array( $mode, self::READ_RECEIPTS, true ) ) {
+				return self::err( 'invalid_param', 'Chế độ báo đã nhận/đã xem không hợp lệ.', 422, 'Chọn off, delivered hoặc delivered_seen.', 'bot_policy_read_receipts' );
+			}
+			$policy['read_receipts'] = $mode;
+			$sync_receipts           = true;
+		}
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — default ON (Libe-Zalo parity): only acts when the bot itself is @-tagged.
+		if ( array_key_exists( 'auto_tag_back', $body ) ) {
+			$policy['auto_tag_back'] = (bool) $body['auto_tag_back'];
+		}
 		if ( array_key_exists( 'react_icon', $body ) ) {
 			$icon = sanitize_key( (string) $body['react_icon'] );
 			if ( ! in_array( $icon, self::REACT_ICONS, true ) ) {
@@ -366,6 +395,11 @@ final class BizCity_Bot_REST {
 
 		if ( ! BizCity_Channel_Binding::save_policy( $binding_id, $policy ) ) {
 			return self::err( 'save_failed', 'Không lưu được cấu hình.', 500, 'Thử lại; nếu vẫn lỗi hãy kiểm tra log.', 'bot_policy_save_failed' );
+		}
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — the bridge sends "đã nhận" itself, so it must be told the switch. A failure
+		// (old sidecar, session down) does NOT undo the saved policy but is returned, so the screen can say "not applied yet".
+		if ( $sync_receipts && class_exists( 'BizCity_Bot_Zalo_Actions' ) ) {
+			$policy['receipts_sync'] = BizCity_Bot_Zalo_Actions::configure_receipts( (string) ( $binding['account_id'] ?? '' ), 'off' !== $policy['read_receipts'] );
 		}
 		return self::ok( $policy );
 	}
@@ -399,7 +433,14 @@ final class BizCity_Bot_REST {
 			// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 — default OFF (key absent = no behavior change).
 			'typing_indicator' => ! empty( $decoded['typing_indicator'] ),
 			'auto_react'       => ! empty( $decoded['auto_react'] ),
-			'react_icon'       => isset( $decoded['react_icon'] ) && in_array( $decoded['react_icon'], self::REACT_ICONS, true ) ? (string) $decoded['react_icon'] : 'heart',
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K7 — both default off.
+			'antispam_enabled'   => ! empty( $decoded['antispam_enabled'] ),
+			'antispam_auto_kick' => ! empty( $decoded['antispam_auto_kick'] ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — default off; anything unknown reads as off.
+			'read_receipts'    => isset( $decoded['read_receipts'] ) && in_array( $decoded['read_receipts'], self::READ_RECEIPTS, true ) ? (string) $decoded['read_receipts'] : 'off',
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — default ON: key absent = tag back (a new feature, no stored value to honour).
+			'auto_tag_back'    => ! isset( $decoded['auto_tag_back'] ) || (bool) $decoded['auto_tag_back'],
+			'react_icon'     => isset( $decoded['react_icon'] ) && in_array( $decoded['react_icon'], self::REACT_ICONS, true ) ? (string) $decoded['react_icon'] : 'heart',
 		);
 	}
 

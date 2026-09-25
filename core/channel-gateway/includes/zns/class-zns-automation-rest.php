@@ -239,7 +239,8 @@ class BizCity_ZNS_Automation_REST {
 	public static function get_oa_accounts( WP_REST_Request $req ) {
 		try {
 			$accounts = array();
-			if ( class_exists( 'BizCity_CF7_ZNS_Config', false ) ) {
+			// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — the CF7 ZNS config has no get_oa_accounts(); fall through to the OA list below.
+			if ( method_exists( 'BizCity_CF7_ZNS_Config', 'get_oa_accounts' ) ) {
 				$accounts = BizCity_CF7_ZNS_Config::get_oa_accounts();
 			}
 			// Fallback: lấy từ channel-gateway zalo OA list nếu có

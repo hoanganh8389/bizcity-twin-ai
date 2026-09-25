@@ -60,6 +60,43 @@ if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
 	return;
 }
 
+// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — register TwinChat-owned Setting Panel metadata without moving renderer ownership.
+if ( ! defined( 'BIZCITY_TWINCHAT_SETTING_PANEL_REGISTERED' )
+	&& class_exists( 'BizCity_Twin_Plugin_SDK' )
+	&& class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
+	BizCity_Twin_Plugin_SDK::register_ui( array(
+		'setting_panel' => array(
+			array(
+				'contract'        => 'setting-panel-registration',
+				'version'         => '1.0.0',
+				'id'              => 'core.twinchat.brain',
+				'owner'           => 'modules/twinchat',
+				'origin'          => 'module',
+				'destination'     => 'workspace',
+				'group'           => 'workspace.brain',
+				'label_key'       => 'settings.workspace_brain.label',
+				'description_key' => 'settings.workspace_brain.description',
+				'icon'            => 'cil-star',
+				'capability'      => 'manage_options',
+				'scope'           => 'site',
+				'surface'         => 'admin_shell',
+				'renderer'        => array(
+					'type'           => 'deep_link',
+					'id'             => 'core.twinchat.brain',
+					'canonical_slug' => 'bizcity-twinchat',
+				),
+				'availability'    => array(
+					'policy'         => 'registered-owner',
+					'dependency_ids' => array( 'modules.twinchat' ),
+				),
+				'position'        => 10,
+				'aliases'         => array( 'bizcity-twinbrain' ),
+			),
+		),
+	) );
+	define( 'BIZCITY_TWINCHAT_SETTING_PANEL_REGISTERED', true );
+}
+
 // [2026-08-07 Johnny Chu] R-PERF - the wp-admin TwinChat page renders only a TwinShell iframe; defer the full backend stack to REST/iframe requests.
 $_bizcity_twinchat_admin_shell_only = is_admin()
 	&& isset( $_GET['page'] )

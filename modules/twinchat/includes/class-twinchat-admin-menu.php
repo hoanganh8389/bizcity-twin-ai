@@ -140,6 +140,26 @@ class BizCity_TwinChat_Admin_Menu {
 	}
 
 	// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-1 — build currentUser object for AccountButton config.
+	// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — restored: the body was lost while the admin page and /twin/ still call it.
+	/**
+	 * @param int $user_id
+	 * @return array|null { id, name, email, avatar, plan, planLabel }
+	 */
+	public static function build_current_user( $user_id ) {
+		$user = get_userdata( (int) $user_id );
+		if ( ! $user ) {
+			return null;
+		}
+		return array(
+			'id'        => (int) $user->ID,
+			'name'      => (string) $user->display_name,
+			'email'     => (string) $user->user_email,
+			'avatar'    => (string) get_avatar_url( $user->ID, array( 'size' => 96 ) ),
+			'plan'      => self::resolve_user_plan( $user->ID ),
+			'planLabel' => self::resolve_user_plan_label( $user->ID ),
+		);
+	}
+
 	/**
 	 * Returns the local membership plan slug for a user.
 	 *
@@ -537,6 +557,16 @@ class BizCity_TwinChat_Admin_Menu {
 				$shell_url = add_query_arg( '_iurl', rawurlencode( sanitize_text_field( $iurl_raw ) ), $shell_url );
 			}
 		}
+		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — `r` is the
+		// canonical plugin-relative route (TRC v1); it replaces `_iurl` for any plugin that has
+		// opted into `route_mode` (e.g. `crm`). Forwarded alongside `_iurl` during the migration
+		// window so a plugin still on the legacy path keeps working unchanged.
+		if ( isset( $_GET['r'] ) && '' !== $_GET['r'] ) {
+			$r_raw = wp_unslash( $_GET['r'] );
+			if ( class_exists( 'BizCity_Twin_Shell_Page' ) && BizCity_Twin_Shell_Page::is_safe_route( $r_raw ) ) {
+				$shell_url = add_query_arg( 'r', rawurlencode( sanitize_text_field( $r_raw ) ), $shell_url );
+			}
+		}
 		// [2026-09-16 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX2 — mark the iframe as a host-embedded, loop-safe load. `bizcity_admin_wrapper=1` is the structural loop-breaker: while it is present the shell can never hand the top window back to admin.php, so a /twin/ <-> admin.php redirect loop cannot form.
 		$shell_url = esc_url( add_query_arg(
 			array( 'bizcity_embed' => '1', 'bizcity_admin_wrapper' => '1' ),
@@ -597,10 +627,19 @@ class BizCity_TwinChat_Admin_Menu {
 							}
 						} );
 					}
-					if ( data.iurl ) {
+					// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 —
+					// canonical `r` path, mutually exclusive with legacy `_iurl` (mirrors
+					// twin-shell.js's own `_doWriteShellUrl`, which never sets both for the
+					// same plugin).
+					if ( data.route ) {
+						params.set( 'r', String( data.route ) );
+						params.delete( '_iurl' );
+					} else if ( data.iurl ) {
 						params.set( '_iurl', String( data.iurl ) );
+						params.delete( 'r' );
 					} else {
 						params.delete( '_iurl' );
+						params.delete( 'r' );
 					}
 					var newUrl = window.location.pathname + '?' + params.toString();
 					if ( newUrl !== window.location.pathname + window.location.search ) {

@@ -366,6 +366,30 @@ class BizCity_Zalo_Bridge_Client {
 	 * @return array { success:bool, _degraded?:bool }
 	 */
 	// [2026-06-07 Johnny Chu] PHASE-0.39 M2 — group invite via sidecar /wp/group-invite
+	/**
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — the bridge's own list of outbound actions (zca-bridge ≥ 0.40.0).
+	 * An older image answers 404 → `success:false`, so callers keep those tools at `needs_bridge` instead of
+	 * discovering the gap as a 404 in the middle of a customer turn. Managed mode goes through the Hub's generic
+	 * path proxy; a Hub that does not proxy it degrades the same way.
+	 */
+	public function list_actions(): array {
+		return $this->get( 'wp/actions' );
+	}
+
+	/**
+	 * Run ONE whitelisted Zalo action (react, send_sticker, create_poll, rename_group, create_group …) on a live
+	 * personal account. Authorization is the caller's job (Bot Studio owner gate, admin REST); the bridge only
+	 * validates shape and reports Zalo's silent refusals as errors.
+	 */
+	public function run_action( string $account_id, string $action, array $body ): array {
+		$account_id = trim( $account_id );
+		$action     = preg_replace( '/[^a-z_]/', '', strtolower( $action ) );
+		if ( '' === $account_id || '' === $action ) {
+			return array( 'success' => false, '_degraded' => true, 'code' => 'invalid_param', 'message' => 'account_id and action are required.' );
+		}
+		return $this->post( 'wp/accounts/' . rawurlencode( $account_id ) . '/actions/' . $action, $body );
+	}
+
 	public function invite_to_group( string $account_id, string $group_id, string $user_id ): array {
 		if ( $this->is_managed_mode() ) {
 			return $this->degraded( 'managed_operation_not_supported' );

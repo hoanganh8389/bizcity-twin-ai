@@ -220,7 +220,10 @@ final class BizCity_TwinBrain_Guru_Web_Flag {
 		register_rest_route( self::REST_NS, '/guru/(?P<id>\d+)/web-fallback', [
 			'methods'             => 'POST',
 			'permission_callback' => static function () {
-				return current_user_can( 'manage_options' );
+				// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
 			},
 			'args' => [
 				'id'      => [ 'type' => 'integer', 'required' => true ],
@@ -232,7 +235,10 @@ final class BizCity_TwinBrain_Guru_Web_Flag {
 		register_rest_route( self::REST_NS, '/guru/(?P<id>\d+)/web-fallback', [
 			'methods'             => 'GET',
 			'permission_callback' => static function () {
-				return current_user_can( 'manage_options' );
+				// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+				return class_exists( 'BizCity_Network_Admin_Capability' )
+					? BizCity_Network_Admin_Capability::can_manage()
+					: current_user_can( 'manage_options' );
 			},
 			'callback' => [ __CLASS__, 'rest_get_flag' ],
 		] );

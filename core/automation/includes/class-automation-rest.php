@@ -2755,7 +2755,8 @@ final class BizCity_Automation_REST {
 			), 200 );
 		}
 		$id  = (int) $req->get_param( 'id' );
-		$row = BizCity_Automation_Repo_Workflows::get( $id );
+		// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — the repo reads by id through find(); get() never existed.
+		$row = BizCity_Automation_Repo_Workflows::find( $id );
 		if ( ! $row || is_wp_error( $row ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'error' => 'workflow_not_found' ), 404 );
 		}

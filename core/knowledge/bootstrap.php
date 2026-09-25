@@ -163,9 +163,25 @@ require_once BIZCITY_KNOWLEDGE_LIB . 'class-knowledge-fabric.php'; // Knowledge 
 // 2026-05-01 — restored after OneDrive merge conflict dropped this require.
 // Without this, BizCity_KG_Rest_Controller never registers and the REST
 // routes `bizcity-knowledge/v2/notebooks` / `/graph` return 404.
-if ( file_exists( BIZCITY_KNOWLEDGE_DIR . 'kg-hub/bootstrap.php' ) ) {
-    require_once BIZCITY_KNOWLEDGE_DIR . 'kg-hub/bootstrap.php';
+// [2026-09-24 Claude Opus 5.5] CORE-REDUCTION WP-11 Part A — KG-Hub now lives at core/kg-hub/ (a peer of
+// core/knowledge). Same gate as before: it still loads here, only the path changed. The legacy location is
+// tried second so a partially deployed tree keeps working; a missing KG-Hub is logged, never silent.
+$_bizcity_kg_hub_bootstrap = '';
+foreach ( array( dirname( BIZCITY_KNOWLEDGE_DIR ) . '/kg-hub/bootstrap.php', BIZCITY_KNOWLEDGE_DIR . 'kg-hub/bootstrap.php' ) as $_bizcity_kg_hub_candidate ) {
+    if ( is_file( $_bizcity_kg_hub_candidate ) ) {
+        $_bizcity_kg_hub_bootstrap = $_bizcity_kg_hub_candidate;
+        break;
+    }
 }
+if ( '' === $_bizcity_kg_hub_bootstrap ) {
+    error_log( '[bizcity] kg_hub_bootstrap_missing: core/kg-hub/bootstrap.php not found — KG-Hub routes will 404' );
+} elseif ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+    // R-SAFE-LOADER: no unguarded fallback — the Safe Loader is loaded by core/helper before any module bootstrap.
+    BizCity_Safe_Loader::require_file( $_bizcity_kg_hub_bootstrap, 'knowledge.kg_hub.bootstrap' );
+} else {
+    error_log( '[bizcity] kg_hub_bootstrap_skipped: BizCity_Safe_Loader unavailable' );
+}
+unset( $_bizcity_kg_hub_bootstrap, $_bizcity_kg_hub_candidate );
 
 // Initialize Context API (for hooks)
 BizCity_Knowledge_Context_API::instance();
@@ -204,10 +220,12 @@ if ( ! wp_next_scheduled( 'bizcity_knowledge_fabric_cleanup' ) ) {
 if ( class_exists( 'BizCity_Chat_Gateway' ) ) {
     BizCity_Chat_Gateway::instance();
 }
-if ( class_exists( 'BizCity_Chat_REST_API' ) ) {
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C2 / R-INTENT-MIN R-IM-7 — legacy path C, off unless BIZCITY_LEGACY_PATH_C.
+// REST bizcity-chat/v1 and bizcity-agent/v1 send/stream chat through the gateway's path C endpoints.
+if ( ( defined( 'BIZCITY_LEGACY_PATH_C' ) && BIZCITY_LEGACY_PATH_C ) && class_exists( 'BizCity_Chat_REST_API' ) ) {
     BizCity_Chat_REST_API::instance();
 }
-if ( class_exists( 'BizCity_Agent_REST_API' ) ) {
+if ( ( defined( 'BIZCITY_LEGACY_PATH_C' ) && BIZCITY_LEGACY_PATH_C ) && class_exists( 'BizCity_Agent_REST_API' ) ) {
     BizCity_Agent_REST_API::instance();
 }
 

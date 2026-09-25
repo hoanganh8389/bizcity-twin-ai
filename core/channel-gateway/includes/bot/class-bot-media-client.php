@@ -215,6 +215,35 @@ final class BizCity_Bot_Media_Client {
 	 */
 	public static function init(): void {
 		add_filter( 'bizcity_crm_outbound_allowed_mimes', array( __CLASS__, 'allow_audio_mime' ) );
+		add_filter( 'bizcity_crm_outbound_allowed_mimes', array( __CLASS__, 'allow_bot_file_mimes' ) );
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K0-4 — MIME types of the files a bot turn can now produce: music (wav/m4a),
+	 * video (mp4) and generated documents (docx/xlsx/pptx/markdown). One place, so the media/document features do not
+	 * each patch the dispatcher. The filter is site-wide, so staff can also attach these from the CRM composer — the
+	 * ownership rule (`post_author === owner`) and the size ceiling still apply to every one of them.
+	 * `text/html` is deliberately NOT here: a generated HTML file can carry script, and it is added together with the
+	 * sanitiser that makes it safe (PHASE-0.60K K4).
+	 */
+	const BOT_FILE_MIMES = array(
+		'audio/wav',
+		'audio/mp4',
+		'video/mp4',
+		'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+		'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+		'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+		'text/markdown',
+	);
+
+	public static function allow_bot_file_mimes( $mimes ) {
+		$mimes = is_array( $mimes ) ? $mimes : array();
+		foreach ( self::BOT_FILE_MIMES as $mime ) {
+			if ( ! in_array( $mime, $mimes, true ) ) {
+				$mimes[] = $mime;
+			}
+		}
+		return $mimes;
 	}
 
 	public static function allow_audio_mime( $mimes ) {
@@ -353,6 +382,54 @@ final class BizCity_Bot_Media_Client {
 			return new WP_Error( 'provider_error', 'Nhà cung cấp không trả về audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
 		}
 		return array( 'ok' => true, 'audio_base64' => $audio_b64, 'mime_type' => 'audio/' . $format );
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — the REAL music generation the async job worker calls (test_music() only proves the
+	 * key works). Same request shape as test_music, but no confirm_cost gate (the job queue already gated cost: opt-in tool, hourly
+	 * ceiling, owner check) and a 180 s timeout — it runs in its own cron event, never inside a customer turn.
+	 * Non-streaming on purpose: WP_Http cannot stream SSE, and a whole-body response with a long timeout is what it can do.
+	 *
+	 * @return array{ok:true,binary:string,mime:string,ext:string}|WP_Error  mp3/wav only
+	 */
+	public static function generate_music( int $character_id, string $prompt ) {
+		$cfg   = (array) ( BizCity_Bot_Config_Repo::get( $character_id )['media']['music'] ?? array() );
+		$model = trim( (string) ( $cfg['model'] ?? '' ) );
+		if ( '' === $model ) {
+			return new WP_Error( 'invalid_param', 'Chưa cấu hình Model cho Tạo nhạc.', array( 'status' => 422, 'help_code' => 'bot_media_music_model_required' ) );
+		}
+		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'music_api_key' );
+		if ( '' === $key ) {
+			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key cho Tạo nhạc.', array( 'status' => 422, 'help_code' => 'bot_media_music_key_missing' ) );
+		}
+		$prompt = trim( $prompt );
+		if ( '' === $prompt ) {
+			return new WP_Error( 'invalid_param', 'Thiếu mô tả bài nhạc.', array( 'status' => 422, 'help_code' => 'bot_media_music_prompt_required' ) );
+		}
+		$response = self::post_json(
+			'https://openrouter.ai/api/v1/chat/completions',
+			array( 'model' => $model, 'modalities' => array( 'audio' ), 'messages' => array( array( 'role' => 'user', 'content' => $prompt ) ) ),
+			array( 'Authorization' => 'Bearer ' . $key ),
+			false,
+			180
+		);
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+		$b64 = (string) ( $response['data']['choices'][0]['message']['audio']['data'] ?? '' );
+		if ( '' === $b64 ) {
+			return new WP_Error( 'provider_error', 'Nhà cung cấp không trả về audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
+		}
+		$binary = base64_decode( $b64, true );
+		if ( false === $binary || '' === $binary ) {
+			return new WP_Error( 'provider_error', 'Audio nhà cung cấp trả về không giải mã được.', array( 'status' => 502, 'help_code' => 'bot_media_music_bad_audio' ) );
+		}
+		$ext = (string) ( $cfg['format'] ?? 'mp3' );
+		if ( ! in_array( $ext, array( 'mp3', 'wav' ), true ) ) {
+			// flac is a valid provider format but not one the outbound MIME list (K0-4) accepts: refuse it here rather than pay for a file that cannot be sent.
+			return new WP_Error( 'invalid_param', 'Định dạng nhạc chỉ nhận mp3 hoặc wav để gửi được qua Zalo.', array( 'status' => 422, 'help_code' => 'bot_media_music_format_unsupported' ) );
+		}
+		return array( 'ok' => true, 'binary' => $binary, 'mime' => 'wav' === $ext ? 'audio/wav' : 'audio/mpeg', 'ext' => $ext );
 	}
 
 	/* ── Cào dữ liệu (Apify) — reuses the same real executor scrape_social_data() calls (OW-4A) ── */
@@ -517,11 +594,11 @@ final class BizCity_Bot_Media_Client {
 		}
 	}
 
-	private static function post_json( string $url, array $payload, array $headers, bool $raw_response = false ) {
+	private static function post_json( string $url, array $payload, array $headers, bool $raw_response = false, int $timeout = 0 ) {
 		$headers['Content-Type'] = 'application/json';
 		$args = array(
 			'method'  => 'POST',
-			'timeout' => self::TIMEOUT_SECONDS,
+			'timeout' => $timeout > 0 ? $timeout : self::TIMEOUT_SECONDS,
 			'headers' => $headers,
 			'body'    => wp_json_encode( $payload ),
 		);

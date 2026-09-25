@@ -48,6 +48,9 @@ final class BizCity_Bot_Zalo_Actions {
 			// Existing bridge read route (group-members), not a new action: works on any bridge version. Libe-Zalo pairs it
 			// with kick/deputy/tag — without it the model has no way to turn "kick anh Nam" into a uid.
 			'get_group_info'             => array( 'action' => '_group_members', 'scope' => 'group', 'owner' => false, 'confirm' => false, 'label' => 'Xem thành viên nhóm', 'description' => 'Trả danh sách thành viên (uid + tên, tối đa 50) — gọi trước khi kick/bổ nhiệm ai đó theo tên. args: {}.' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — no bridge action of its own: it only records WHO to @tag; the turn runner
+			// puts the tag at the head of the ONE reply (a second message would bypass the CRM row, the owner rule and the daily cap).
+			'mention_member'             => array( 'action' => '_mention', 'scope' => 'group', 'owner' => false, 'confirm' => false, 'label' => 'Nhắc tên (@tag) thành viên', 'description' => 'Chỉ trong NHÓM: gọi tên (@tag) 1 thành viên ở đầu câu trả lời. Lấy uid từ get_group_info nếu chưa biết. args: {"user_id":"123","name":"Nam"}.' ),
 			'react_message'              => array( 'action' => 'react', 'scope' => 'thread', 'owner' => false, 'confirm' => false, 'label' => 'Thả cảm xúc', 'description' => 'Thả 1 cảm xúc vào tin khách VỪA gửi, kèm hoặc thay câu trả lời ngắn. Loại: heart, like, haha, wow, ok, rose, kiss, cry, angry. args: {"icon":"heart"}.' ),
 			'send_sticker'               => array( 'action' => 'send_sticker', 'scope' => 'thread', 'owner' => false, 'confirm' => false, 'label' => 'Gửi sticker', 'description' => 'Gửi 1 nhãn dán Zalo theo từ khóa cảm xúc (tiếng Việt hoặc Anh). args: {"keyword":"haha"}.' ),
 			'create_poll'                => array( 'action' => 'create_poll', 'scope' => 'group', 'owner' => false, 'confirm' => false, 'label' => 'Tạo bình chọn', 'description' => 'Tạo bình chọn trong NHÓM đang chat. args: {"question":"Trưa nay ăn gì?","options":["Phở","Cơm"],"multi":false,"minutes":0}.' ),
@@ -95,7 +98,7 @@ final class BizCity_Bot_Zalo_Actions {
 		if ( ! isset( $tools[ $tool_id ] ) ) {
 			return array( BizCity_Bot_Tool_Registry::STATUS_UNCONFIGURED, 'Công cụ không có trong danh mục.' );
 		}
-		if ( '_group_members' === $tools[ $tool_id ]['action'] ) {
+		if ( in_array( $tools[ $tool_id ]['action'], array( '_group_members', '_mention' ), true ) ) {
 			return class_exists( 'BizCity_Zalo_Bridge_Client' )
 				? array( BizCity_Bot_Tool_Registry::STATUS_AVAILABLE, 'Chỉ có trong nhóm. Đọc danh sách thành viên qua route group-members đã có.' )
 				: array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, 'Bridge Zalo Personal chưa nạp.' );
@@ -204,6 +207,9 @@ final class BizCity_Bot_Zalo_Actions {
 		if ( '_group_members' === $def['action'] ) {
 			return self::group_members( $account_id, $claim );
 		}
+		if ( '_mention' === $def['action'] ) {
+			return self::mention( $args, $account_id, $claim );
+		}
 		$body = self::body_for( $def['action'], $args, $claim );
 		if ( isset( $body['_error'] ) ) {
 			return self::err( (string) $body['_error'] );
@@ -245,6 +251,110 @@ final class BizCity_Bot_Zalo_Actions {
 		}
 		return array( 'ok' => true, 'content' => BizCity_Bot_Tools::fence( 'Thành viên nhóm (' . count( $lines ) . ')', empty( $lines ) ? 'Không đọc được thành viên.' : implode( "
 ", $lines ) ), 'error' => '' );
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — uid => real display name of THIS group's members, cached 10 min.
+	 * The tag text always comes from here, never from the model (it misspells Vietnamese diacritics), and a uid that is
+	 * not in the roster is never tagged (no tagging strangers, no bulk-tagging by guessing uids).
+	 * A failed read is cached briefly as an empty roster so a dead bridge costs one HTTP call, not one per turn.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function roster( string $account_id, string $group_id ): array {
+		if ( '' === $account_id || '' === $group_id ) {
+			return array();
+		}
+		$key    = 'bzbot_roster_' . ( function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0 ) . '_' . md5( $account_id ) . '_' . md5( $group_id );
+		$cached = function_exists( 'get_transient' ) ? get_transient( $key ) : false;
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		$res = is_callable( self::$runner )
+			? call_user_func( self::$runner, $account_id, '_group_members', array( 'group_id' => $group_id ) )
+			: ( class_exists( 'BizCity_Zalo_Bridge_Client' ) ? BizCity_Zalo_Bridge_Client::instance()->get_group_members( $account_id, $group_id ) : array() );
+		$out = array();
+		if ( ! empty( $res['success'] ) ) {
+			foreach ( (array) ( $res['members'] ?? array() ) as $m ) {
+				$uid  = self::uid( $m['id'] ?? '' );
+				$name = trim( (string) ( $m['displayName'] ?? $m['zaloName'] ?? '' ) );
+				if ( '' !== $uid && '' !== $name ) {
+					$out[ $uid ] = $name;
+				}
+			}
+		}
+		if ( function_exists( 'set_transient' ) ) {
+			set_transient( $key, $out, empty( $out ) ? 60 : 600 );
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K7 — the group's REAL creator and deputies, from Zalo's own group info (bridge action
+	 * `get_group_admins`, bridge ≥ 0.41.0). Cached 10 minutes; a failed read is cached 60 s as "unknown" so a dead bridge costs one call.
+	 *
+	 * @return array{creator:string,admins:string[]}|null null = could not be read (old bridge / session down) — callers must not assume "no admins".
+	 */
+	public static function group_admins( string $account_id, string $group_id ): ?array {
+		if ( '' === $account_id || '' === $group_id ) {
+			return null;
+		}
+		$key    = 'bzbot_gadmins_' . ( function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0 ) . '_' . md5( $account_id ) . '_' . md5( $group_id );
+		$cached = function_exists( 'get_transient' ) ? get_transient( $key ) : false;
+		if ( is_array( $cached ) ) {
+			return isset( $cached['ok'] ) && $cached['ok'] ? array( 'creator' => (string) $cached['creator'], 'admins' => (array) $cached['admins'] ) : null;
+		}
+		$res = self::raw_action( $account_id, 'get_group_admins', array( 'thread_id' => $group_id, 'thread_kind' => 'group', 'group_id' => $group_id ) );
+		$ok  = ! empty( $res['success'] );
+		$out = array( 'ok' => $ok, 'creator' => $ok ? (string) ( $res['creator_id'] ?? '' ) : '', 'admins' => $ok ? array_values( array_filter( array_map( array( __CLASS__, 'uid' ), (array) ( $res['admin_ids'] ?? array() ) ) ) ) : array() );
+		if ( $ok ) {
+			$out['creator'] = self::uid( $out['creator'] );
+		}
+		if ( function_exists( 'set_transient' ) ) {
+			set_transient( $key, $out, $ok ? 600 : 60 );
+		}
+		return $ok ? array( 'creator' => $out['creator'], 'admins' => $out['admins'] ) : null;
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K7 — one bridge action with NO turn/owner gate, for server-side callers that already decided
+	 * (the anti-spam guard's kick). Never throws; a missing bridge is a degraded result, not an exception.
+	 */
+	public static function raw_action( string $account_id, string $action, array $body ): array {
+		try {
+			if ( is_callable( self::$runner ) ) {
+				return (array) call_user_func( self::$runner, $account_id, $action, $body );
+			}
+			if ( class_exists( 'BizCity_Zalo_Bridge_Client' ) && method_exists( 'BizCity_Zalo_Bridge_Client', 'run_action' ) ) {
+				return (array) BizCity_Zalo_Bridge_Client::instance()->run_action( $account_id, $action, $body );
+			}
+		} catch ( Throwable $e ) {
+			return array( 'success' => false, 'code' => 'exception' );
+		}
+		return array( 'success' => false, 'code' => 'bridge_unavailable' );
+	}
+
+	/** mention_member — validate the target against the roster; the runner does the actual tagging. */
+	private static function mention( array $args, string $account_id, array $claim ): array {
+		$group_id = (string) ( $claim['group_id'] ?? '' );
+		if ( '' === $group_id ) {
+			return self::err( 'thread_missing' );
+		}
+		$uid = self::uid( $args['user_id'] ?? '' );
+		if ( '' === $uid ) {
+			return self::err( 'user_id_invalid' );
+		}
+		$roster = self::roster( $account_id, $group_id );
+		if ( ! isset( $roster[ $uid ] ) ) {
+			return self::err( 'not_in_group' );
+		}
+		$name = $roster[ $uid ];
+		return array(
+			'ok'      => true,
+			'content' => BizCity_Bot_Tools::fence( 'Nhắc tên', 'Sẽ gọi @' . $name . ' ở đầu câu trả lời — đừng tự viết @' . $name . ' trong câu trả lời.', false ),
+			'error'   => '',
+			'mention' => array( 'uid' => $uid, 'name' => $name ),
+		);
 	}
 
 	/** Build the bridge request body. Thread/group come from the claim, never from the model. */
@@ -320,7 +430,8 @@ final class BizCity_Bot_Zalo_Actions {
 	 */
 	public static function presence( string $kind, array $claim ): void {
 		try {
-			$action = 'typing' === $kind ? 'typing' : 'react';
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — `seen` = "đã xem" for the customer messages this turn answers.
+			$action = 'typing' === $kind ? 'typing' : ( 'seen' === $kind ? 'mark_seen' : 'react' );
 			$caps   = self::supported_actions();
 			if ( ! is_array( $caps ) || ! in_array( $action, $caps, true ) ) {
 				return;
@@ -334,6 +445,18 @@ final class BizCity_Bot_Zalo_Actions {
 			$body = array( 'thread_id' => $thread_id, 'thread_kind' => $is_group ? 'group' : 'user' );
 			if ( 'typing' === $action ) {
 				$body['duration_ms'] = 60000;
+			} elseif ( 'mark_seen' === $action ) {
+				// Every customer message folded into this turn (debounce burst), else just the triggering one. The bridge
+				// skips ids it does not remember and ids from another thread — nothing is invented here.
+				$ids = array_values( array_filter( array_map( 'strval', (array) ( $claim['seen_ids'] ?? array() ) ), 'strlen' ) );
+				if ( empty( $ids ) ) {
+					$one = self::zalo_msg_id( $claim );
+					$ids = '' !== $one ? array( $one ) : array();
+				}
+				if ( empty( $ids ) ) {
+					return;
+				}
+				$body['msg_ids'] = array_slice( $ids, -50 );
 			} else {
 				$msg_id = self::zalo_msg_id( $claim );
 				if ( '' === $msg_id ) {
@@ -350,6 +473,35 @@ final class BizCity_Bot_Zalo_Actions {
 		} catch ( Throwable $e ) {
 			// swallowed on purpose — presence is decoration, the reply is the product.
 		}
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — push the per-number "báo đã nhận" switch to the bridge, which sends the
+	 * receipt itself the moment a message arrives (no WordPress round trip per message). Called when the policy is saved.
+	 * Never throws; the caller shows the result instead of failing the policy save.
+	 *
+	 * @return array{ok:bool,code:string}
+	 */
+	public static function configure_receipts( string $account_id, bool $delivered ): array {
+		if ( '' === $account_id ) {
+			return array( 'ok' => false, 'code' => 'account_missing' );
+		}
+		$caps = self::supported_actions();
+		if ( ! is_array( $caps ) || ! in_array( 'configure_receipts', $caps, true ) ) {
+			// An old sidecar cannot send receipts: say so instead of pretending the switch took.
+			return array( 'ok' => false, 'code' => 'needs_bridge' );
+		}
+		try {
+			$body = array( 'delivered' => $delivered );
+			$res  = is_callable( self::$runner )
+				? call_user_func( self::$runner, $account_id, 'configure_receipts', $body )
+				: ( class_exists( 'BizCity_Zalo_Bridge_Client' ) && method_exists( 'BizCity_Zalo_Bridge_Client', 'run_action' )
+					? BizCity_Zalo_Bridge_Client::instance()->run_action( $account_id, 'configure_receipts', $body )
+					: array( 'success' => false, 'code' => 'bridge_unavailable' ) );
+		} catch ( Throwable $e ) {
+			return array( 'ok' => false, 'code' => 'exception' );
+		}
+		return ! empty( $res['success'] ) ? array( 'ok' => true, 'code' => '' ) : array( 'ok' => false, 'code' => sanitize_key( (string) ( $res['code'] ?? $res['error'] ?? 'action_failed' ) ) ?: 'action_failed' );
 	}
 
 	/** The Zalo msgId of the message that started this turn (envelope id may carry a prefix). */

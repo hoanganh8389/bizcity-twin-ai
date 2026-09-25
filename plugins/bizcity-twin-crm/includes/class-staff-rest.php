@@ -468,13 +468,14 @@ final class BizCity_CRM_Staff_REST {
 	 * @return array<int,int>
 	 */
 	public static function admin_staff_user_ids(): array {
-		$candidates = get_users( array( 'role__not_in' => array( 'subscriber' ), 'number' => 500, 'orderby' => 'display_name', 'order' => 'ASC', 'fields' => array( 'ID' ) ) );
+		// [2026-09-25 10:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.60H — enumerate users attached to this blog, not network users with unrelated blog roles.
+		$candidates = get_users( array( 'blog_id' => get_current_blog_id(), 'role__not_in' => array( 'subscriber' ), 'number' => 500, 'orderby' => 'display_name', 'order' => 'ASC', 'fields' => array( 'ID' ) ) );
 		$out = array();
 		foreach ( $candidates as $u ) {
 			$uid = (int) $u->ID;
 			// [2026-09-21 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.60-C02 — include network/site administrators in the CRM roster when a multisite blog has no local role row.
 			$is_tenant_admin = ( function_exists( 'is_super_admin' ) && is_super_admin( $uid ) ) || user_can( $uid, 'manage_options' ) || user_can( $uid, 'manage_network' );
-			if ( $is_tenant_admin || BizCity_CRM_Staff_Policy::ROLE_NONE !== BizCity_CRM_Staff_Policy::role( $uid ) || 'suspended' === get_user_meta( $uid, self::META_STATUS, true ) ) {
+			if ( BizCity_CRM_Staff_Policy::is_assignable_user( $uid ) && ( $is_tenant_admin || BizCity_CRM_Staff_Policy::ROLE_NONE !== BizCity_CRM_Staff_Policy::role( $uid ) || 'suspended' === get_user_meta( $uid, self::META_STATUS, true ) ) ) {
 				$out[] = $uid;
 			}
 		}

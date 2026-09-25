@@ -39,7 +39,12 @@ class BizCity_CRM_Repository {
 			// mid-character, $wpdb->insert() rejects the invalid UTF-8, the whole CRM row is lost and the Zalo
 			// bridge retries the same message 25 times (blog 1258, 2026-09-24: 38 of 39 retried texts were long).
 			if ( function_exists( 'mb_substr' ) ) {
-				return mb_substr( $preview, 0, 255, 'UTF-8' );
+				$chars = mb_substr( $preview, 0, 255, 'UTF-8' );
+				// [2026-09-25] ALSO at most 255 BYTES, cut on a character boundary. Live evidence (blog 1450): every refused preview
+				// was longer than 255 BYTES (262, 313) while well under 255 characters; the message row was lost and the bot's reply
+				// never sent. A 255-character cut is not enough for multi-byte text when the column/driver counts bytes; this keeps
+				// both limits and stays valid UTF-8 (mb_strcut never splits a character).
+				return function_exists( 'mb_strcut' ) ? mb_strcut( $chars, 0, 255, 'UTF-8' ) : $chars;
 			}
 			return function_exists( 'wp_check_invalid_utf8' ) ? wp_check_invalid_utf8( substr( $preview, 0, 255 ), true ) : substr( $preview, 0, 255 );
 		}
@@ -59,6 +64,38 @@ class BizCity_CRM_Repository {
 			if ( '' !== $attachment_type ) { return '[Tệp]'; }
 		}
 		return '';
+	}
+
+	/**
+	 * [2026-09-25 Claude Sonnet 5] The preview column was added later (`ALTER … ADD COLUMN VARCHAR(255)`) and takes the
+	 * TABLE's charset, which on some sites is 3-byte `utf8`. A 4-byte character (any emoji: Guru replies are full of
+	 * them) is then refused by wpdb ("Processing the value for the following field failed: content_preview"), the
+	 * whole message row is lost and the Zalo bot's reply is never sent. Live evidence 2026-09-24: 9 refused bot
+	 * replies, `content_bytes=366`, `preview_valid_utf8=true`. Drop 4-byte characters from the PREVIEW only when the
+	 * column cannot store them; on utf8mb4 (or when the charset is unknown) the preview is untouched.
+	 *
+	 * @param string       $preview
+	 * @param string|false $charset  What $wpdb->get_col_charset() said for the column.
+	 */
+	public static function preview_for_charset( string $preview, $charset ): string {
+		if ( ! is_string( $charset ) || '' === $charset || 0 === stripos( $charset, 'utf8mb4' ) ) {
+			return $preview;
+		}
+		$stripped = preg_replace( '/[\x{10000}-\x{10FFFF}]/u', '', $preview );
+		return is_string( $stripped ) ? trim( $stripped ) : $preview;
+	}
+
+	/** The row was written after the preview had to be dropped: say so (ids only), so the refusal is not the last word. */
+	private static function log_insert_recovered( array $row, array $stats = array() ): void {
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return;
+		}
+		BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_WARN, 'crm_message_insert_recovered', 'CRM message row stored without its preview after the preview was refused.', $stats + array(
+			'inbox_id'        => (int) ( $row['inbox_id'] ?? 0 ),
+			'conversation_id' => (int) ( $row['conversation_id'] ?? 0 ),
+			'message_type'    => (string) ( $row['message_type'] ?? '' ),
+			'content_type'    => (string) ( $row['content_type'] ?? '' ),
+		) );
 	}
 
 	/**
@@ -1699,6 +1736,8 @@ class BizCity_CRM_Repository {
 			$attachments
 		);
 
+		$preview = self::preview_for_charset( $preview, method_exists( $wpdb, 'get_col_charset' ) ? $wpdb->get_col_charset( $tbl, 'content_preview' ) : false );
+
 		$row = array(
 			'conversation_id'    => $conv_id,
 			'inbox_id'           => $inbox_id,
@@ -1719,6 +1758,25 @@ class BizCity_CRM_Repository {
 		);
 
 		$ok = $wpdb->insert( $tbl, $row );
+		if ( ! $ok && null !== $row['content_preview'] ) {
+			// The preview is DERIVED data (a list snippet); the message is not. Whatever made the DB refuse the preview
+			// (charset, length, a driver quirk), never lose the message over it: log the first refusal, retry without it.
+			self::log_insert_failure( $row, (string) $wpdb->last_error );
+			// What was refused, measured BEFORE it is dropped: the cause (4-byte character vs length vs charset) is still a
+			// hypothesis, and this is what settles it.
+			$refused = (string) $row['content_preview'];
+			$stats   = array(
+				'preview_chars'   => function_exists( 'mb_strlen' ) ? mb_strlen( $refused, 'UTF-8' ) : strlen( $refused ),
+				'preview_bytes'   => strlen( $refused ),
+				'preview_4byte'   => 1 === preg_match( '/[\x{10000}-\x{10FFFF}]/u', $refused ),
+				'preview_charset' => method_exists( $wpdb, 'get_col_charset' ) ? (string) $wpdb->get_col_charset( $tbl, 'content_preview' ) : '',
+			);
+			$row['content_preview'] = null;
+			$ok = $wpdb->insert( $tbl, $row );
+			if ( $ok ) {
+				self::log_insert_recovered( $row, $stats );
+			}
+		}
 		if ( ! $ok ) {
 			self::log_insert_failure( $row, (string) $wpdb->last_error );
 			return 0;
@@ -1774,9 +1832,12 @@ class BizCity_CRM_Repository {
 			$prior = $wpdb->get_row( $wpdb->prepare( "SELECT created_at, first_reply_at, assignee_id FROM `{$conv_tbl}` WHERE id = %d", $conv_id ), ARRAY_A );
 			$wpdb->query( $wpdb->prepare(
 				"UPDATE `{$conv_tbl}` SET last_message_id = %d, last_activity_at = %s, updated_at = %s,
-					waiting_since = NULL, first_reply_at = COALESCE(first_reply_at, %s), unread_count = 0
+					waiting_since = NULL, first_reply_at = COALESCE(first_reply_at, %d), unread_count = 0
 				 WHERE id = %d",
-				$msg_id, $row['created_at'], $now, $row['created_at'], $conv_id
+				// [2026-09-25] first_reply_at is a BIGINT epoch (like waiting_since above), not a DATETIME: a string here was
+				// "Data truncated for column 'first_reply_at'" on every staff reply, and the conversation's last message, unread
+				// badge and wait clock were never updated.
+				$msg_id, $row['created_at'], $now, (int) strtotime( (string) $row['created_at'] ), $conv_id
 			) );
 			// PHASE-0.56 D-5 — `conv_handled`/`conv_first_reply` rollup facts, gated the same way
 			// `fetch_reply_aggregates()` already computes "replied by X" live (documented known
@@ -1825,6 +1886,27 @@ class BizCity_CRM_Repository {
 		}
 
 		return $msg_id;
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K2 — merge a patch into ONE attachment's `meta_json` (no schema change: the column
+	 * already exists). Only the `vision` key may be written here — Bot Studio's cached photo description — so this can never
+	 * become a generic "edit any attachment field" door. A value that is not an array is refused.
+	 */
+	public static function update_attachment_meta( int $attachment_id, array $patch ): bool {
+		global $wpdb;
+		if ( $attachment_id <= 0 || ! isset( $patch['vision'] ) || ! is_array( $patch['vision'] ) ) {
+			return false;
+		}
+		$att_tbl = BizCity_CRM_DB_Installer_V2::tbl_attachments();
+		$raw     = $wpdb->get_var( $wpdb->prepare( "SELECT meta_json FROM {$att_tbl} WHERE id = %d", $attachment_id ) );
+		if ( null === $raw ) {
+			return false; // no such attachment.
+		}
+		$meta = is_string( $raw ) && '' !== $raw ? json_decode( $raw, true ) : array();
+		$meta = is_array( $meta ) ? $meta : array();
+		$meta['vision'] = $patch['vision'];
+		return false !== $wpdb->update( $att_tbl, array( 'meta_json' => wp_json_encode( $meta, JSON_UNESCAPED_UNICODE ) ), array( 'id' => $attachment_id ), array( '%s' ), array( '%d' ) );
 	}
 
 	public static function get_message( int $id ): ?array {

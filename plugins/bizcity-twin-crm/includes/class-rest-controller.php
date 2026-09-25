@@ -14509,7 +14509,9 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 	 */
 	public static function get_crm_assignable_users( WP_REST_Request $req ) {
 		return self::wrap( static function () {
+			// [2026-09-25 10:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.60H — restrict assignable users to the current multisite blog.
 			$wp_users = get_users( array(
+				'blog_id'    => get_current_blog_id(),
 				// [2026-09-07 09:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D-CRM-ADMIN-INBOX-MENU-V2 — expose every non-subscriber WP operator through the server-owned staff scope catalog
 				'role__not_in' => array( 'subscriber' ),
 				// [2026-09-24 Claude Sonnet 5] PHASE-0.60H — a role-less user slips through `role__not_in`; the powerless
@@ -14522,6 +14524,7 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 			) );
 			$out = array();
 			foreach ( $wp_users as $u ) {
+				if ( class_exists( 'BizCity_CRM_Staff_Policy' ) && ! BizCity_CRM_Staff_Policy::is_assignable_user( (int) $u->ID ) ) { continue; }
 				$out[] = array(
 					'id'           => (int) $u->ID,
 					'display_name' => (string) $u->display_name,
@@ -14553,9 +14556,12 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 		if ( $user_id <= 0 || ! function_exists( 'get_userdata' ) ) { return false; }
 		$user = get_userdata( $user_id );
 		if ( ! $user || in_array( 'subscriber', (array) $user->roles, true ) ) { return false; }
-		// [2026-09-21 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.60-C02 — Super Admins and tenant admins remain valid CRM principals even when the current multisite blog has no local role row.
-		if ( ( function_exists( 'is_super_admin' ) && is_super_admin( $user_id ) ) || user_can( $user_id, 'manage_options' ) || user_can( $user_id, 'manage_network' ) ) {
-			return true;
+		// [2026-09-25 10:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.60H — network/site admin capability never substitutes for membership in this tenant blog.
+		if ( class_exists( 'BizCity_CRM_Staff_Policy' ) ) {
+			return BizCity_CRM_Staff_Policy::is_assignable_user( $user_id );
+		}
+		if ( function_exists( 'is_multisite' ) && is_multisite() ) {
+			return function_exists( 'is_user_member_of_blog' ) && is_user_member_of_blog( $user_id, get_current_blog_id() );
 		}
 		return ! function_exists( 'is_user_member_of_blog' ) || is_user_member_of_blog( $user_id, get_current_blog_id() );
 	}
@@ -14663,7 +14669,7 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 				foreach ( is_array( $member_rows ) ? $member_rows : array() as $member_row ) {
 					$inbox_id  = (int) ( $member_row['inbox_id'] ?? 0 );
 					$user_id   = (int) ( $member_row['user_id'] ?? 0 );
-					if ( $inbox_id > 0 && $user_id > 0 ) {
+					if ( $inbox_id > 0 && self::is_crm_assignable_user( $user_id ) ) {
 						$member_map[ $inbox_id ][] = $user_id;
 					}
 				}
@@ -14791,6 +14797,7 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 				}
 				$members = array();
 				foreach ( (array) ( $member_map[ $inbox_id ] ?? array() ) as $member_user_id ) {
+					if ( ! self::is_crm_assignable_user( (int) $member_user_id ) ) { continue; }
 					$member_user = get_userdata( (int) $member_user_id );
 					$members[] = array(
 						'user_id'      => (int) $member_user_id,

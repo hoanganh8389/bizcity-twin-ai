@@ -324,6 +324,10 @@ final class BizCity_CRM_Staff_Policy {
 		if ( $user_id <= 0 || ! function_exists( 'get_userdata' ) ) { return false; }
 		$user = get_userdata( $user_id );
 		if ( ! $user || in_array( 'subscriber', (array) $user->roles, true ) ) { return false; }
+		// [2026-09-25 10:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.60H — fail closed when the multisite blog-membership API is unavailable.
+		if ( function_exists( 'is_multisite' ) && is_multisite() ) {
+			return function_exists( 'is_user_member_of_blog' ) && is_user_member_of_blog( $user_id, get_current_blog_id() );
+		}
 		return ! function_exists( 'is_user_member_of_blog' ) || is_user_member_of_blog( $user_id, get_current_blog_id() );
 	}
 

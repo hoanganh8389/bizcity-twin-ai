@@ -21,6 +21,11 @@
  * falling back to manage_options — the same gate as the legacy AJAX handlers and the v1
  * quick-edit REST. The existing logged-in `GET /gurus` (attach picker) is not touched.
  *
+ * Errors (WP-10 B1, R-ERROR-UX, owner decision D-15): every error body carries `code`, `message`
+ * (English), `hint` and `help_code`, keeps the real HTTP status, and is built through
+ * BizCity_Error_Payload. Faults (5xx) are recorded by the reporter and flagged `_degraded`;
+ * user-input errors (4xx) are not recorded, so validation noise cannot push real faults out.
+ *
  * PHP 7.4 compatible — no match, no enums, no nullsafe, no readonly.
  *
  * @package    Bizcity_Twin_AI
@@ -45,8 +50,24 @@ class BizCity_Guru_Admin_REST {
 			: current_user_can( 'manage_options' );
 	}
 
+	/**
+	 * Route permission: same gate as can_manage(), but a refusal carries hint + help_code
+	 * (R-ERROR-UX, added by error_response) instead of WordPress's bare `rest_forbidden`.
+	 *
+	 * @return true|WP_Error
+	 */
+	public static function permission() {
+		if ( self::can_manage() ) {
+			return true;
+		}
+		if ( ! is_user_logged_in() ) {
+			return new WP_Error( 'guru_not_logged_in', 'You are not logged in.', array( 'status' => 401, 'hint' => self::help_for( 'guru_not_logged_in' )['hint'], 'help_code' => 'guru_not_logged_in' ) );
+		}
+		return new WP_Error( 'guru_admin_forbidden', 'Only site administrators can manage Gurus.', array( 'status' => 403, 'hint' => self::help_for( 'guru_admin_forbidden' )['hint'], 'help_code' => 'guru_admin_forbidden' ) );
+	}
+
 	public static function register_routes(): void {
-		$perm = array( __CLASS__, 'can_manage' );
+		$perm = array( __CLASS__, 'permission' );
 
 		register_rest_route( self::NS, '/gurus/admin', array(
 			'methods'             => 'GET',
@@ -117,7 +138,7 @@ class BizCity_Guru_Admin_REST {
 	public static function import( WP_REST_Request $req ) {
 		$body = $req->get_json_params();
 		if ( ! is_array( $body ) || ! isset( $body['data'] ) ) {
-			return new WP_Error( 'invalid_body', 'Body cần { data, overwrite?, apply_profile? }.', array( 'status' => 400 ) );
+			return self::error_response( new WP_Error( 'invalid_body', 'The body must be { data, overwrite?, apply_profile? }.', array( 'status' => 400 ) ) );
 		}
 		return self::respond( self::service()->import( (int) $req['id'], $body['data'], array(
 			'overwrite'     => ! empty( $body['overwrite'] ),
@@ -159,7 +180,7 @@ class BizCity_Guru_Admin_REST {
 	public static function patch_profile( WP_REST_Request $req ) {
 		$body = $req->get_json_params();
 		if ( ! is_array( $body ) ) {
-			return new WP_Error( 'invalid_body', 'Body phải là JSON object.', array( 'status' => 400 ) );
+			return self::error_response( new WP_Error( 'invalid_body', 'The body must be a JSON object.', array( 'status' => 400 ) ) );
 		}
 		return self::respond( self::service()->patch_profile( (int) $req['id'], $body ), 'profile' );
 	}
@@ -189,15 +210,81 @@ class BizCity_Guru_Admin_REST {
 	}
 
 	/**
-	 * Wrap a service result: WP_Error passes through (WP REST renders it as the standard
-	 * `{ code, message, data.status }` envelope); arrays gain `ok: true`, optionally nested.
+	 * Wrap a service result: a WP_Error becomes the R-ERROR-UX payload (real HTTP status kept);
+	 * arrays gain `ok: true`, optionally nested.
 	 */
 	private static function respond( $result, string $key = '', int $status = 200 ) {
 		if ( is_wp_error( $result ) ) {
-			return $result;
+			return self::error_response( $result );
 		}
 		$payload = '' === $key ? array_merge( array( 'ok' => true ), (array) $result ) : array( 'ok' => true, $key => $result );
 		return new WP_REST_Response( $payload, $status );
+	}
+
+	/**
+	 * Convert a WP_Error into the R-ERROR-UX body (`code`, `message`, `hint`, `help_code`) with the
+	 * real HTTP status. 5xx goes through BizCity_Error_Payload::from_wp_error (recorded, degraded);
+	 * 4xx is the same shape without the reporter write.
+	 */
+	public static function error_response( WP_Error $error ): WP_REST_Response {
+		$data   = $error->get_error_data();
+		$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 500;
+		$code   = (string) $error->get_error_code();
+		$help   = self::help_for( $code );
+
+		if ( $status >= 500 && class_exists( 'BizCity_Error_Payload' ) ) {
+			$payload = BizCity_Error_Payload::from_wp_error( $error, $help['hint'], $help['help_code'] );
+		} else {
+			$payload = array(
+				'success'   => false,
+				'_degraded' => $status >= 500,
+				'code'      => $code,
+				'message'   => (string) $error->get_error_message(),
+				'hint'      => $help['hint'],
+				'help_code' => $help['help_code'],
+				'context'   => array(),
+			);
+		}
+		return new WP_REST_Response( $payload, $status );
+	}
+
+	/**
+	 * Action-oriented hint and help code per error code. `help_code` equals the code so the FE
+	 * help catalog can key on it. Unknown codes fall back to a generic retry hint.
+	 *
+	 * @return array{hint:string,help_code:string}
+	 */
+	private static function help_for( string $code ): array {
+		$hints = array(
+			'guru_not_logged_in'        => 'Log in again, then retry.',
+			'guru_admin_forbidden'      => 'Ask a site administrator to make this change.',
+			'invalid_id'                => 'Reopen the Guru from the list and retry.',
+			'not_found'                 => 'Refresh the list; the Guru may have been deleted.',
+			'module_not_loaded'         => 'Check that the bizcity-twin-ai plugin is active and has no PHP fatal error.',
+			'invalid_body'              => 'Reload the page and retry; if it repeats, report it to support.',
+			'invalid_name'              => 'Enter a name for the Guru.',
+			'invalid_slug'              => 'Enter a slug made of letters, numbers and dashes.',
+			'slug_taken'                => 'Choose a different slug.',
+			'invalid_status'            => 'Pick one of the listed statuses.',
+			'invalid_greeting_messages' => 'Send greeting_messages as a list.',
+			'invalid_capabilities'      => 'Send capabilities as a list.',
+			'invalid_notebook_policy'   => 'Pick augment or restrict.',
+			'invalid_min_role'          => 'Pick one of the listed roles.',
+			'invalid_min_plan'          => 'Pick one of the listed plans.',
+			'guru_on_channel'           => 'Switch the listed channels to another Guru in Bot Studio, then delete again.',
+			'db_error'                  => 'Retry in a moment; if it repeats, contact support.',
+			'gateway_missing'           => 'Check that the bizcity-twin-ai plugin is active, then reload.',
+			'gateway_not_ready'         => 'Set the BizCity API key in the gateway settings, then reload.',
+			'gateway_bad_response'      => 'Retry in a few minutes; if it repeats, contact support.',
+			'empty_row'                 => 'Fill in the title or the content.',
+			'faq_not_found'             => 'Reload the FAQ list; the row may have been removed.',
+			'invalid_import'            => 'Export a Guru file from this page and import that file.',
+			'import_too_large'          => 'Split the file into smaller imports.',
+		);
+		return array(
+			'hint'      => isset( $hints[ $code ] ) ? $hints[ $code ] : 'Retry; if it repeats, contact support.',
+			'help_code' => isset( $hints[ $code ] ) ? $code : 'guru_generic',
+		);
 	}
 }
 

@@ -21,7 +21,12 @@ class BizCity_CRM_ZNS_Send_Log {
 	private static $table_exists_cache = null;
 
 	private static function table(): string {
-		return BizCity_CRM_DB_Installer_V2::tbl_zns_send_logs();
+		// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — the installer has no tbl_zns_send_logs(); same fail-open fallback as the email log.
+		if ( class_exists( 'BizCity_CRM_DB_Installer_V2' ) && method_exists( 'BizCity_CRM_DB_Installer_V2', 'tbl_zns_send_logs' ) ) {
+			return BizCity_CRM_DB_Installer_V2::tbl_zns_send_logs();
+		}
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_crm_zns_send_logs';
 	}
 
 	private static function table_exists(): bool {

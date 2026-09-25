@@ -279,7 +279,9 @@ class BizCity_CG_Zalo_OA_Integration extends BizCity_Channel_Integration {
 			case 'unfollow':
 				$type = $event_name;
 				// On follow — queue contact sync.
-				if ( $event_name === 'follow' && class_exists( 'BizCity_Zalo_OA_Contact_Sync' ) ) {
+				// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — Contact_Sync handles follow through its bizcity_channel_normalized
+				// subscriber and has no schedule_sync(); calling it fataled every OA follow webhook.
+				if ( $event_name === 'follow' && method_exists( 'BizCity_Zalo_OA_Contact_Sync', 'schedule_sync' ) ) {
 					BizCity_Zalo_OA_Contact_Sync::schedule_sync( $sender_id, $oa_id );
 				}
 				break;

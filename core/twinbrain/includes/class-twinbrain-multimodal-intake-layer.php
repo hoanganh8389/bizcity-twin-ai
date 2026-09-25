@@ -461,7 +461,7 @@ class BizCity_TwinBrain_Multimodal_Intake_Layer {
 			return;
 		}
 		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( dirname( dirname( __DIR__ ) ) ) . '/';
-		$client = $root . 'core/knowledge/kg-hub/includes/clients/class-av-transcribe-client.php';
+		$client = $root . 'core/kg-hub/includes/clients/class-av-transcribe-client.php';
 		if ( is_readable( $client ) ) {
 			require_once $client;
 		}

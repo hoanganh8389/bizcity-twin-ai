@@ -74,7 +74,7 @@ final class BizCity_Probe_KG_Guru_Notebook_Binding implements BizCity_Diagnostic
 		$need = [ 'BizCity_KG_Notebook_Service', 'BizCity_KG_Graph_Service', 'BizCity_KG_Database', 'BizCity_KG_Notebook_Folder', 'BizCity_Knowledge_Database', 'BizCity_TwinBrain_Notebook_Selector' ];
 		foreach ( $need as $cls ) {
 			if ( ! class_exists( $cls ) ) {
-				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — knowledge/kg-hub bootstrap không hoàn tất.' );
+				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — kg-hub bootstrap không hoàn tất.' );
 			}
 		}
 		if ( ! function_exists( 'wp_generate_uuid4' ) ) {

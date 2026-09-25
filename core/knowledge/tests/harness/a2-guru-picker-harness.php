@@ -38,7 +38,7 @@ class FakeWpdb {
 }
 $GLOBALS['wpdb'] = new FakeWpdb();
 
-require dirname( __DIR__, 2 ) . '/kg-hub/includes/class-kg-rest-controller.php';
+require dirname( __DIR__, 3 ) . '/kg-hub/includes/class-kg-rest-controller.php'; // core/kg-hub (WP-11)
 
 $c = BizCity_KG_Rest_Controller::instance();
 $pass = 0; $fail = 0;

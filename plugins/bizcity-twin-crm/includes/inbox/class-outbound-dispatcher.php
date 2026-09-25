@@ -614,9 +614,12 @@ final class BizCity_CRM_Outbound_Dispatcher {
 	}
 
 	/** Maximum outbound attachment size; reuses the shipped Twin GPT upload ceiling. */
-	public static function max_attachment_bytes( int $user_id ): int {
+	public static function max_attachment_bytes( int $user_id, string $mime = '' ): int {
 		$max = (int) apply_filters( 'bizcity_twinweb_attachment_max_bytes', 10 * 1024 * 1024, $user_id );
-		return $max > 0 ? $max : 10 * 1024 * 1024;
+		$max = $max > 0 ? $max : 10 * 1024 * 1024;
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K0-4/K3 — a generated MP4 is routinely 10–25 MB and the sidecar accepts 40 MB, so an
+		// MP4 gets its own 25 MB ceiling (never lowers a site's own higher limit). Every other type keeps the shared ceiling.
+		return 'video/mp4' === $mime ? max( $max, 25 * 1024 * 1024 ) : $max;
 	}
 
 	/**
@@ -655,7 +658,7 @@ final class BizCity_CRM_Outbound_Dispatcher {
 			}
 			$path  = get_attached_file( $attachment_id );
 			$bytes = ( $path && file_exists( $path ) ) ? (int) filesize( $path ) : 0;
-			if ( $bytes > self::max_attachment_bytes( $user_id ) ) {
+			if ( $bytes > self::max_attachment_bytes( $user_id, $mime ) ) {
 				$summary['mime']  = $mime;
 				$summary['bytes'] = $bytes;
 				return self::attachment_failure( 'attachment_too_large', 'attachment_too_large', 'Tệp vượt quá dung lượng cho phép.', $summary );

@@ -1,5 +1,11 @@
 name: CI
 
+# PRIVATE EVIDENCE (2026-09-25): `core/diagnostics/` (engine, changelog, probes) and the top-level `tests/` tree
+# stay in the workspace / on the VPS for internal testing, and are NOT published to GitHub. Every gate that reads
+# them runs only when the file is present in the checkout (a full workspace or a self-hosted runner) and is SKIPPED
+# otherwise (public GitHub). SKIP is not PASS: the `evidence-boundary` job prints, per run, which gates ran and
+# which were skipped. Never read a green GitHub run as coverage of the skipped gates.
+
 on:
   push:
     branches: [main, dev]
@@ -10,6 +16,25 @@ on:
   workflow_dispatch:
 
 jobs:
+
+  detect:
+    name: Detect private evidence files
+    runs-on: ubuntu-latest
+    outputs:
+      tests: ${{ steps.scan.outputs.tests }}
+      diag: ${{ steps.scan.outputs.diag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan checkout
+        id: scan
+        shell: bash
+        run: |
+          tests=false
+          diag=false
+          if [ -f tests/bootstrap.php ]; then tests=true; fi
+          if [ -f core/diagnostics/bootstrap.php ] && [ -f core/diagnostics/validate-schema-changelog.php ]; then diag=true; fi
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          echo "diag=$diag" >> "$GITHUB_OUTPUT"
 
   public-contracts:
     name: Public Contracts & SDK
@@ -67,9 +92,11 @@ jobs:
         run: node bin/framework-contract-audit.mjs
 
       - name: Validate deterministic contract fixtures
+        if: hashFiles('tests/bootstrap.php') != ''
         run: node bin/validate-framework-contract-fixtures.mjs
 
       - name: Enforce legacy table lifecycle gates
+        if: hashFiles('core/diagnostics/bootstrap.php') != ''
         run: node bin/validate-legacy-table-lifecycle.mjs
 
       - name: Enforce R-SAFE-LOADER bootstrap rule
@@ -99,7 +126,7 @@ jobs:
           php-version: '7.4'
           extensions: json, mbstring, curl
 
-      - name: Run reference and broken diagnostics fixtures
+      - name: Run reference diagnostics (static contract)
         shell: bash
         run: |
           set -euo pipefail
@@ -120,6 +147,14 @@ jobs:
               exit( 1 );
             }
           ' build/plugin-diagnostics/reference.json
+
+
+      - name: Run broken-plugin diagnostics fixture (needs tests/)
+        if: hashFiles('tests/bootstrap.php') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/plugin-diagnostics
 
           set +e
           php bin/twin diagnostics plugin tests/fixtures/plugin-diagnostics/broken-plugin --json > build/plugin-diagnostics/broken.json
@@ -243,7 +278,7 @@ jobs:
         run: composer install --no-progress --prefer-dist --no-interaction
 
       - name: Run PHPUnit contract tests
-        if: matrix.php == '7.4'
+        if: matrix.php == '7.4' && hashFiles('tests/bootstrap.php') != ''
         run: composer test -- --testdox
 
       - name: PHP syntax check
@@ -267,9 +302,11 @@ jobs:
         run: php bin/bizcity-manifest-validate.php --plugin=examples/bizcity-reference-plugin
 
       - name: Run diagnostics batch orchestrator fixtures
+        if: hashFiles('tests/bootstrap.php') != ''
         run: bash tests/fixtures/diagnostics-batch-until-complete/run.sh
 
       - name: Validate side-effect capability idempotency fixtures
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           php bin/bizcity-manifest-validate.php --plugin=tests/fixtures/manifest-adoption-valid-side-effect
@@ -279,9 +316,12 @@ jobs:
           fi
 
       - name: Validate JSONL log contract parity
+        run: node bin/validate-jsonl-contract-parity.mjs --strict
+
+      - name: Validate JSONL log contract parity fixtures (needs tests/)
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
-          node bin/validate-jsonl-contract-parity.mjs --strict
           node bin/validate-jsonl-contract-parity.mjs --fixture-root=tests/fixtures/jsonl-contract-parity/valid
           if node bin/validate-jsonl-contract-parity.mjs --fixture-root=tests/fixtures/jsonl-contract-parity/invalid; then
             echo "::error::Invalid JSONL contract fixture must fail parity validation"
@@ -289,6 +329,7 @@ jobs:
           fi
 
       - name: Reconcile manifest capabilities with registration symbols
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-manifest-capability-parity.mjs --strict
@@ -299,72 +340,84 @@ jobs:
           fi
 
       - name: Reconcile DDL tables across changelog, diagnostics and schema registries
+        if: hashFiles('tests/bootstrap.php') != '' && hashFiles('core/diagnostics/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-ddl-table-parity.mjs --strict
           node bin/validate-ddl-table-parity-fixtures.mjs
 
       - name: Reconcile capability registration receipts
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-capability-receipts.mjs --strict
           node bin/validate-capability-receipts-fixtures.mjs
 
       - name: Enforce channel zone and identity discriminator
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-channel-zone-identity.mjs --strict
           node bin/validate-channel-zone-identity-fixtures.mjs
 
       - name: Enforce CRM repository ownership
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-crm-ownership.mjs --strict
           node bin/validate-crm-ownership-fixtures.mjs
 
       - name: Enforce normalized CRM contracts and spine correlation
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-crm-contracts.mjs --strict
           node bin/validate-crm-contracts-fixtures.mjs
 
       - name: Enforce file-first channel operational evidence
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-channel-file-first-logging.mjs --strict
           node bin/validate-channel-file-first-logging-fixtures.mjs
 
       - name: Enforce canonical sender ownership and duplicate-send prevention
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-sender-ownership.mjs --strict
           node bin/validate-sender-ownership-fixtures.mjs
 
       - name: Enforce Context Bank pointer isolation and KG promotion ownership
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-context-bank-kg-ownership.mjs --strict
           node bin/validate-context-bank-kg-ownership-fixtures.mjs
 
       - name: Enforce TwinBrain vertical bridge registry ownership
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-twinbrain-vertical-bridge-ownership.mjs --strict
           node bin/validate-twinbrain-vertical-bridge-ownership-fixtures.mjs
 
       - name: Enforce provider gateway isolation (R-GW-8, Node-portable evidence)
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-provider-gateway-isolation.mjs --strict
           node bin/validate-provider-gateway-isolation-fixtures.mjs
 
       - name: Enforce Brain retrieval facade ownership
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-brain-retrieval-facade-ownership.mjs --strict
           node bin/validate-brain-retrieval-facade-ownership-fixtures.mjs
 
       - name: Enforce KG reranker ownership
+        if: hashFiles('tests/bootstrap.php') != ''
         run: |
           set -e
           node bin/validate-kg-reranker-ownership.mjs --strict
@@ -476,12 +529,14 @@ jobs:
           php-version: '7.4'
           extensions: mbstring, json
       - name: Validate JSON changelog
+        if: hashFiles('core/diagnostics/bootstrap.php') != ''
         run: php core/diagnostics/validate-schema-changelog.php
 
   diagnostics-mock:
     name: Diagnostics CLI runner (mock mode)
     runs-on: ubuntu-latest
-    needs: [lint-php]
+    needs: [lint-php, detect]
+    if: needs.detect.outputs.diag == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -829,6 +884,133 @@ jobs:
                 echo "No failed probe testcases in JUnit output.\n";
               }
             '
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  shipped-tree:
+    name: Shipped plugin tree (static, runs everywhere)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: wp-content/plugins/bizcity-twin-ai
+
+      - name: Verify shipped plugin tree
+        run: |
+          set -euo pipefail
+          provider='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/includes/profile/class-personal-profile-wheel-provider.php'
+          if [ ! -f "$provider" ]; then
+            echo "::error::Clean checkout is missing $provider"
+            echo "The Profile module is required by plugins/bizcity-profile/bootstrap.php."
+            exit 1
+          fi
+          echo "Profile provider present: $provider"
+
+          crm_bootstrap='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/bootstrap.php'
+          if [ -f "$crm_bootstrap" ]; then
+            crm_access='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/includes/class-inbox-access.php'
+            crm_legacy_access='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/includes/inbox/class-inbox-access.php'
+            if [ ! -f "$crm_access" ] && [ ! -f "$crm_legacy_access" ]; then
+              echo "::warning::CRM checkout is partial; proprietary CRM will be skipped by the main loader."
+              echo "Expected $crm_access or $crm_legacy_access for a complete CRM deployment."
+              echo "This does not block the public framework Diagnostics matrix."
+            elif grep -Eq "require_once[[:space:]]+\\\$inc[[:space:]]*\\.[[:space:]]*'inbox/class-inbox-access\\.php'" "$crm_bootstrap"; then
+              echo "::error::Stale CRM bootstrap directly requires the removed Inbox Access path."
+              echo "Deploy the CRM loader with its canonical/legacy readable-path fallback before running Diagnostics."
+              exit 1
+            else
+              echo "CRM loader dependency contract present: $crm_bootstrap"
+            fi
+          else
+            echo "CRM package absent; proprietary CRM checks are skipped."
+          fi
+
+          scheduler_manager='wp-content/plugins/bizcity-twin-ai/core/scheduler/includes/class-scheduler-manager.php'
+          if [ ! -f "$scheduler_manager" ] || ! grep -Fq 'Site Provisioner may create the canonical table' "$scheduler_manager"; then
+            echo "::error::Scheduler migration guard is missing from the shipped runner tree."
+            echo "Canonical bizcity_crm_events must skip historical CREATE/RENAME replay."
+            exit 1
+          fi
+          echo "Scheduler canonical migration guard present: $scheduler_manager"
+
+          profile_bootstrap='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/bootstrap.php'
+          profile_entry='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/bizcity-personal.php'
+          if [ ! -f "$profile_bootstrap" ] || [ ! -f "$profile_entry" ]; then
+            echo "::error::Profile bootstrap or entrypoint is missing from the shipped tree."
+            exit 1
+          fi
+          if grep -Eq "require_once[[:space:]]+BIZCITY_PERSONAL_DIR|require_once[[:space:]]+\\\$probe" "$profile_bootstrap"; then
+            echo "::error::Profile bootstrap contains an unguarded module/probe require_once."
+            echo "Use BizCity_Safe_Loader::require_file() for every Profile artifact."
+            exit 1
+          fi
+          if grep -Eq "require_once[[:space:]]+__DIR__[[:space:]]*\\.[[:space:]]*'bootstrap\\.php'" "$profile_entry"; then
+            echo "::error::Profile entrypoint contains an unguarded bootstrap require_once."
+            exit 1
+          fi
+          if ! grep -Fq 'BizCity_Safe_Loader::require_file' "$profile_bootstrap" \
+            || ! grep -Fq 'BizCity_Safe_Loader::require_file' "$profile_entry"; then
+            echo "::error::Profile artifact loading is not routed through BizCity_Safe_Loader."
+            exit 1
+          fi
+          echo "Profile Safe Loader contract present: $profile_bootstrap"
+
+  evidence-boundary:
+    name: Evidence boundary (which gates ran)
+    runs-on: ubuntu-latest
+    needs: [detect]
+    if: always()
+    steps:
+      - name: Report ran / SKIP gates
+        shell: bash
+        env:
+          TESTS: ${{ needs.detect.outputs.tests }}
+          DIAG: ${{ needs.detect.outputs.diag }}
+        run: |
+          row() { # name, needs (tests|diag|both)
+            local ok=false
+            case "$2" in
+              tests) [ "$TESTS" = "true" ] && ok=true ;;
+              diag)  [ "$DIAG" = "true" ] && ok=true ;;
+              both)  [ "$TESTS" = "true" ] && [ "$DIAG" = "true" ] && ok=true ;;
+            esac
+            if [ "$ok" = "true" ]; then
+              echo "| $1 | RUNS (private files present; see the step result) |"
+            else
+              echo "| $1 | SKIP (not verified in this run) |"
+            fi
+          }
+          {
+            echo "## Evidence boundary"
+            echo ""
+            echo "tests/ present: $TESTS · core/diagnostics present: $DIAG"
+            echo ""
+            if [ "$TESTS" != "true" ] || [ "$DIAG" != "true" ]; then
+              echo "Some private evidence files are absent from this checkout (expected on public GitHub). Gates marked SKIP are **not verified by this run**. SKIP is not PASS."
+              echo ""
+            fi
+            echo "| Gate | Status |"
+            echo "|---|---|"
+            row "PHPUnit contract tests (composer test)" tests
+            row "Deterministic contract fixtures" tests
+            row "Broken-plugin diagnostics fixture" tests
+            row "Diagnostics batch orchestrator fixtures" tests
+            row "Side-effect capability idempotency fixtures" tests
+            row "JSONL parity fixture roots (strict scan always runs)" tests
+            row "Manifest capability parity" tests
+            row "DDL table parity" both
+            row "Capability receipts" tests
+            row "Channel zone and identity" tests
+            row "CRM ownership and CRM contracts" tests
+            row "File-first channel logging" tests
+            row "Sender ownership" tests
+            row "Context Bank / KG ownership" tests
+            row "TwinBrain vertical bridge ownership" tests
+            row "Provider gateway isolation (R-GW-8 validator)" tests
+            row "Brain retrieval facade ownership" tests
+            row "KG reranker ownership" tests
+            row "Legacy table lifecycle gates" diag
+            row "R-DCL schema changelog validation" diag
+            row "Diagnostics CLI runner (mock mode), wp bizcity health, framework smoke" diag
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
   docs-hooks-coverage:

@@ -31,6 +31,7 @@ final class BizCity_Bot_Config_Repo {
 	const HISTORY_MIN    = 1;
 	const HISTORY_MAX    = 200;
 	const MAX_DISABLED   = 100;
+	const VISION_MODES   = array( 'off', 'describe' );
 
 	/* ── settings.bot (per character) ────────────────────────────────── */
 
@@ -41,6 +42,11 @@ final class BizCity_Bot_Config_Repo {
 			// [2026-09-23 03:05 PM Claude Fable 5.1] PHASE-0.60A W5 — capability layer: list of DISABLED tool ids
 			// (doc §3.6: both layers store the OFF list so a new tool is on by default for old rows).
 			'disabled_tools'  => array(),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K D-K6 — the OPT-IN list: tools the registry marks `default_off` (research, music,
+			// video, documents) only run for a Guru that names them here. Mirror image of disabled_tools, which is an opt-OUT list.
+			'enabled_optional_tools' => array(),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K D-K3 — `off` | `describe`. Off by default: turning it on sends the customer's photos to the AI provider.
+			'vision_mode'     => 'off',
 			// [2026-09-23 03:05 PM Claude Fable 5.1] PHASE-0.60A B6.2 — 'crm' (fast) | 'hybrid' (CRM + Context Bank fill).
 			'context_source'  => 'hybrid',
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — NON-secret media config only (mockup B-03
@@ -86,6 +92,8 @@ final class BizCity_Bot_Config_Repo {
 		$bot      = isset( $settings['bot'] ) && is_array( $settings['bot'] ) ? $settings['bot'] : array();
 		$merged   = array_merge( self::defaults(), $bot );
 		$merged['disabled_tools'] = self::sanitize_tool_list( $merged['disabled_tools'] );
+		$merged['enabled_optional_tools'] = self::sanitize_tool_list( $merged['enabled_optional_tools'] ?? array() );
+		$merged['vision_mode'] = in_array( $merged['vision_mode'] ?? 'off', self::VISION_MODES, true ) ? $merged['vision_mode'] : 'off';
 		$merged['context_source'] = in_array( $merged['context_source'], array( 'crm', 'hybrid' ), true ) ? $merged['context_source'] : 'hybrid';
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — a plain array_merge() above already
 		// replaced the whole 'media' key wholesale with whatever was stored; deep-merge each
@@ -138,6 +146,19 @@ final class BizCity_Bot_Config_Repo {
 				return new WP_Error( 'invalid_param', 'disabled_tools phải là danh sách.', array( 'status' => 422, 'hint' => 'Gửi một mảng id công cụ.', 'help_code' => 'bot_disabled_tools_shape' ) );
 			}
 			$bot['disabled_tools'] = self::sanitize_tool_list( $patch['disabled_tools'] );
+		}
+		if ( array_key_exists( 'enabled_optional_tools', $patch ) ) {
+			if ( ! is_array( $patch['enabled_optional_tools'] ) ) {
+				return new WP_Error( 'invalid_param', 'enabled_optional_tools phải là danh sách.', array( 'status' => 422, 'hint' => 'Gửi một mảng id công cụ.', 'help_code' => 'bot_enabled_optional_tools_shape' ) );
+			}
+			$bot['enabled_optional_tools'] = self::sanitize_tool_list( $patch['enabled_optional_tools'] );
+		}
+		if ( array_key_exists( 'vision_mode', $patch ) ) {
+			$mode = sanitize_key( (string) $patch['vision_mode'] );
+			if ( ! in_array( $mode, self::VISION_MODES, true ) ) {
+				return new WP_Error( 'invalid_param', 'Chế độ xem ảnh chỉ nhận off hoặc describe.', array( 'status' => 422, 'hint' => 'Chọn "Tắt" hoặc "Mô tả ảnh thành chữ".', 'help_code' => 'bot_vision_mode_enum' ) );
+			}
+			$bot['vision_mode'] = $mode;
 		}
 		if ( array_key_exists( 'context_source', $patch ) ) {
 			$src = sanitize_key( (string) $patch['context_source'] );
@@ -373,12 +394,32 @@ final class BizCity_Bot_Config_Repo {
 		return array(
 			'pause_window_minutes' => array( 'label' => 'Cửa sổ tạm dừng', 'unit' => 'phút', 'group' => 'turns', 'min' => 1, 'max' => 1440, 'default' => 30, 'hint' => 'Bot im lặng bấy nhiêu phút sau khi nhân viên nhắn tay cho khách.' ),
 			'daily_message_cap'    => array( 'label' => 'Trần tin bot gửi / ngày / hội thoại', 'unit' => 'tin', 'group' => 'queue', 'min' => 1, 'max' => 500, 'default' => 40, 'hint' => 'Lưới đỡ cuối chống khóa nick. Tin chủ động (chúc sinh nhật) tính cùng trần.' ),
-			'debounce_seconds'     => array( 'label' => 'Chờ gộp tin', 'unit' => 'giây', 'group' => 'queue', 'min' => 1, 'max' => 120, 'default' => 8, 'hint' => 'Khách hay gửi ảnh rồi mới gõ chú thích; đợi im lặng bấy nhiêu giây rồi mới trả lời.' ),
+			'debounce_seconds'     => array( 'label' => 'Chờ gộp tin', 'unit' => 'giây', 'group' => 'queue', 'min' => 1, 'max' => 120, 'default' => 5, 'hint' => 'Khách hay gửi ảnh rồi mới gõ chú thích; đợi im lặng bấy nhiêu giây rồi mới trả lời. (Mặc định 5 giây từ 2026-09-25: đo thật cho thấy 8 giây cộng độ trễ cron làm khách chờ ~38 giây.)' ),
+			'planner_mode'         => array( 'label' => 'Bộ chọn công cụ', 'unit' => '(0=tắt, 1=tự động, 2=luôn chạy)', 'group' => 'tools', 'min' => 0, 'max' => 2, 'default' => 1, 'hint' => '1 = tự động (khuyến nghị): chỉ hỏi model "có cần công cụ không" khi tin của khách có dấu hiệu cần công cụ (tra cứu, ngày giờ, link, tạo file/ảnh/nhạc, nhắc lịch, hỏi hàng/giá, thao tác nhóm…); chuyện thường trả lời thẳng, nhanh hơn ~4 giây. 2 = luôn hỏi như trước (đường lùi nếu thấy bot bỏ sót công cụ). 0 = không dùng công cụ.' ),
 			'max_batch_messages'   => array( 'label' => 'Trần tin mỗi lượt', 'unit' => 'tin', 'group' => 'queue', 'min' => 1, 'max' => 200, 'default' => 32, 'hint' => 'Chỉ chặn bộ nhớ — batch to vẫn là MỘT lượt; tin vượt trần vẫn vào lịch sử.' ),
 			'send_delay_min_ms'    => array( 'label' => 'Giãn nhịp gửi (tối thiểu)', 'unit' => 'ms', 'group' => 'send', 'min' => 0, 'max' => 10000, 'default' => 900, 'hint' => 'Trả lời tức thì mọi lúc trông rất máy móc.' ),
 			'send_delay_max_ms'    => array( 'label' => 'Giãn nhịp gửi (tối đa)', 'unit' => 'ms', 'group' => 'send', 'min' => 0, 'max' => 15000, 'default' => 2600, 'hint' => 'Phải lớn hơn hoặc bằng mức tối thiểu.' ),
 			'turn_timeout_seconds' => array( 'label' => 'Trần thời gian một lượt', 'unit' => 'giây', 'group' => 'turns', 'min' => 10, 'max' => 300, 'default' => 90, 'hint' => 'Quá hạn thì lượt bị bỏ và khách vẫn nhận một câu trung thực.' ),
 			'history_char_budget'  => array( 'label' => 'Ngân sách ký tự ngữ cảnh', 'unit' => 'ký tự', 'group' => 'context', 'min' => 2000, 'max' => 60000, 'default' => 12000, 'hint' => 'Một tin Zalo có thể rất dài nên đếm tin không chặn được ngữ cảnh phình. Vượt mức thì bỏ tin cũ trước, không cắt giữa một tin.' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — two bots that tag each other would loop forever without this.
+			'tagback_cooldown_seconds' => array( 'label' => 'Giãn cách tự tag lại', 'unit' => 'giây', 'group' => 'send', 'min' => 5, 'max' => 600, 'default' => 45, 'hint' => 'Cùng một người trong cùng một nhóm chỉ được bot tag lại sau khoảng này (chống hai bot tag nhau vô hạn).' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K2 — 0 = the bot never looks at photos, whatever the Guru says.
+			'vision_max_images_per_turn' => array( 'label' => 'Số ảnh xem tối đa mỗi lượt', 'unit' => 'ảnh', 'group' => 'context', 'min' => 0, 'max' => 6, 'default' => 3, 'hint' => 'Mỗi ảnh là một lần gọi model xem ảnh (tốn phí). 0 = tắt hẳn việc xem ảnh trên toàn site.' ),
+			'vision_history_images' => array( 'label' => 'Số ảnh cũ nhớ trong lịch sử', 'unit' => 'ảnh', 'group' => 'context', 'min' => 0, 'max' => 8, 'default' => 4, 'hint' => 'Ảnh khách gửi ở các lượt trước hiện trong lịch sử dạng [Ảnh: mô tả] — chỉ những ảnh đã được mô tả sẵn, không gọi thêm model.' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K4 — files are sent to real customers: a hard hourly ceiling per conversation.
+			'document_max_per_hour' => array( 'label' => 'Số file tài liệu tối đa mỗi giờ / cuộc chat', 'unit' => 'file', 'group' => 'tools', 'min' => 0, 'max' => 50, 'default' => 10, 'hint' => '0 = tắt hẳn việc tạo file tài liệu (Word/Excel/PDF/CSV/Markdown).' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — music/video cost real money per use: a hard hourly ceiling per conversation.
+			'music_max_per_hour'   => array( 'label' => 'Số bài nhạc tối đa mỗi giờ / cuộc chat', 'unit' => 'bài', 'group' => 'tools', 'min' => 0, 'max' => 20, 'default' => 5, 'hint' => '0 = tắt hẳn việc tạo nhạc (~1 phút và tốn phí mỗi bài).' ),
+			'video_max_per_hour'   => array( 'label' => 'Số video tối đa mỗi giờ / cuộc chat', 'unit' => 'video', 'group' => 'tools', 'min' => 0, 'max' => 10, 'default' => 3, 'hint' => '0 = tắt hẳn việc tạo video (vài phút và tốn phí mỗi video).' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — a repeat under 5 minutes is what gets a Zalo account locked ("every 1m = 1440 messages/day").
+			'schedule_min_interval_minutes' => array( 'label' => 'Khoảng lặp tối thiểu của lịch hẹn', 'unit' => 'phút', 'group' => 'tools', 'min' => 1, 'max' => 1440, 'default' => 5, 'hint' => 'Người không phải chủ tài khoản luôn bị nâng lên tối thiểu 60 phút.' ),
+			'schedule_max_jobs_per_thread' => array( 'label' => 'Số lịch hẹn tối đa mỗi cuộc chat', 'unit' => 'lịch', 'group' => 'tools', 'min' => 1, 'max' => 200, 'default' => 20, 'hint' => 'Lịch đang bật của một cuộc chat.' ),
+			'schedule_max_proactive_per_day' => array( 'label' => 'Số tin chủ động tối đa mỗi ngày / cuộc chat', 'unit' => 'tin', 'group' => 'tools', 'min' => 1, 'max' => 100, 'default' => 10, 'hint' => 'Tin bot tự gửi theo lịch (không phải trả lời khách). Hết trần: lịch một lần dời sang 8h sáng mai, lịch lặp bỏ lượt.' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K7 — group anti-spam thresholds (the guard itself is opt-in per Zalo number).
+			'antispam_threshold'   => array( 'label' => 'Ngưỡng tin coi là dồn dập', 'unit' => 'tin', 'group' => 'antispam', 'min' => 2, 'max' => 100, 'default' => 5, 'hint' => 'Số tin chữ của MỘT người trong cửa sổ bên dưới thì bot cảnh báo admin nhóm.' ),
+			'antispam_window_seconds' => array( 'label' => 'Cửa sổ đếm tin', 'unit' => 'giây', 'group' => 'antispam', 'min' => 5, 'max' => 600, 'default' => 20, 'hint' => 'Cửa sổ trượt: chỉ tin trong khoảng này được tính.' ),
+			'antispam_cooldown_minutes' => array( 'label' => 'Giãn cách cảnh báo cùng một người', 'unit' => 'phút', 'group' => 'antispam', 'min' => 1, 'max' => 1440, 'default' => 15, 'hint' => 'Một người trong một nhóm chỉ bị cảnh báo một lần trong khoảng này.' ),
+			'antispam_kick_veto_seconds' => array( 'label' => 'Thời gian admin phản đối trước khi kick', 'unit' => 'giây', 'group' => 'antispam', 'min' => 10, 'max' => 600, 'default' => 45, 'hint' => 'Chỉ dùng khi bật tự động kick: bất kỳ tin nào của admin/chủ tài khoản trong khoảng này sẽ huỷ lệnh kick.' ),
 			'max_tool_steps'       => array( 'label' => 'Số bước công cụ tối đa', 'unit' => 'bước', 'group' => 'tools', 'min' => 0, 'max' => 5, 'default' => 2, 'hint' => '0 = không dùng công cụ. Mỗi bước là một lần hỏi model có cần gọi công cụ không.' ),
 		);
 	}
@@ -451,4 +492,38 @@ final class BizCity_Bot_Config_Repo {
 		}
 		return $out;
 	}
+}
+
+// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K0-6 / R-CACHE — the Bot Studio cache group was used everywhere and declared nowhere.
+// ONE registration per group: BizCity_Cache_Registry::register() REPLACES the group's entry, so a later slice that adds a key
+// (mention tag-back cooldown, media-job rate limit, research cache, anti-spam counters…) edits THIS list. tests/unit/
+// BotCacheRegistryTest.php scans the bot sources for every `bzbot_*` transient name and fails when one is not listed here.
+// Keys are blog-scoped by their own {blog} segment — never share a counter across sites of a network.
+if ( class_exists( 'BizCity_Cache_Registry' ) ) {
+	BizCity_Cache_Registry::register( 'bzbot', 'core.channel-gateway', array(
+		'tuning'                          => array( 'ttl' => 3600,   'desc' => 'Merged Bot Studio tuning (BizCity_Cache); flushed on save' ),
+		'pause_{blog}_{contact}'          => array( 'ttl' => 1800,   'desc' => 'Bot paused for a contact after a human replied (pause_window_minutes)' ),
+		'cap_{blog}_{contact}_{ymd}'      => array( 'ttl' => 86400,  'desc' => 'Messages the bot sent to this thread today; expires at local midnight' ),
+		'active_{blog}'                   => array( 'ttl' => 900,    'desc' => 'Contacts with a turn in flight (queue status)' ),
+		'lock_{blog}_{contact}'           => array( 'ttl' => 95,     'desc' => 'One turn at a time per contact' ),
+		'debounce_{blog}_{contact}'       => array( 'ttl' => 128,    'desc' => 'Pending claim waiting for the debounce window' ),
+		'threads_{blog}_{contact}'        => array( 'ttl' => 900,    'desc' => 'Group slots shown by list_threads for this session (EA-7)' ),
+		'astro_asked_{blog}_{conversation}' => array( 'ttl' => 172800, 'desc' => 'Astro tool already asked for a birth date (one ask per window)' ),
+		'roster_{blog}_{account}_{group}' => array( 'ttl' => 600,    'desc' => 'Members (uid => name) of a group, for @mention validation; a failed read is cached 60s' ),
+		'tagback_{blog}_{account}_{group}_{uid}' => array( 'ttl' => 600, 'desc' => 'Bot already tagged this member back in this group (tagback_cooldown_seconds)' ),
+		'research_{blog}_{hash}'          => array( 'ttl' => 21600,  'desc' => 'Public research lookup result (arXiv/Scholar/GitHub/StackExchange/HN/Wikipedia) for one tool+query; a failure is cached 5 min' ),
+		// wp_option-backed (autoload = no) — not transients, but they are 'bzbot_*' state and belong in the same inventory. The options table is
+		// per site, so isolation is inherent; "ttl" is the prune horizon.
+		'media_job_{id}'                  => array( 'ttl' => 172800, 'desc' => 'wp_option: one async music/video job (ids, bounded prompt, counters; no secrets). Pruned after 48h when a new job is queued' ),
+		'media_jobs_index'                => array( 'ttl' => 172800, 'desc' => 'wp_option: ids of the newest ≤200 media jobs (drives pruning and the diagnostics health count)' ),
+		'proactive_{conversation}_{ymd}_{n}' => array( 'ttl' => 172800, 'desc' => 'wp_option: slot n of the bot\'s proactive messages to this chat today — add_option is atomic, so two fires never share a slot' ),
+		'proactive_notice_{conversation}_{ymd}' => array( 'ttl' => 172800, 'desc' => 'wp_option: the ONE internal staff note per chat per day when the proactive ceiling was hit' ),
+		'docrate_{blog}_{conversation}'   => array( 'ttl' => 3700,   'desc' => 'Timestamps of documents the bot created in this conversation in the last hour (document_max_per_hour)' ),
+		'mediarate_{kind}_{blog}_{conversation}' => array( 'ttl' => 3700, 'desc' => 'Timestamps of music/video jobs booked in this conversation in the last hour (music_max_per_hour / video_max_per_hour)' ),
+		'flood_{blog}_{account}_{group}_{sender}'      => array( 'ttl' => 600, 'desc' => 'Recent text timestamps + last 5 texts of one group member (anti-spam sliding window; texts are 120-char normalised, never logged)' ),
+		'floodwarn_{blog}_{account}_{group}_{sender}'  => array( 'ttl' => 86400, 'desc' => 'This member was already warned about in this group (antispam_cooldown_minutes)' ),
+		'pendingkick_{blog}_{account}_{group}'         => array( 'ttl' => 720, 'desc' => 'A kick waiting out its veto window (at most one per group); removed by an admin message or by the kick itself' ),
+		'gadmins_{blog}_{account}_{group}'             => array( 'ttl' => 600, 'desc' => "The group's real creator + deputies from Zalo (get_group_admins); a failed read is cached 60s as unknown" ),
+		'bridge_actions'                  => array( 'ttl' => 300,    'desc' => 'zca-bridge advertised action list (GET /wp/actions); a failed read is cached 60s' ),
+	) );
 }

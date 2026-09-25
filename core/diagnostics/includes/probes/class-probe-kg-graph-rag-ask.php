@@ -61,7 +61,7 @@ final class BizCity_Probe_KG_Graph_RAG_Ask implements BizCity_Diagnostics_Probe 
 		];
 		foreach ( $need as $cls ) {
 			if ( ! class_exists( $cls ) ) {
-				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — knowledge/kg-hub bootstrap không hoàn tất.' );
+				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — kg-hub bootstrap không hoàn tất.' );
 			}
 		}
 		if ( ! class_exists( 'BizCity_Knowledge_Embedding' ) ) {

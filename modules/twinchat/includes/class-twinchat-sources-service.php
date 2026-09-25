@@ -33,7 +33,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 // PHASE-0.41 L3 — trait is required for the `use` below; load defensively so
 // this file works even if core/diagnostics bootstrap hasn't fired yet.
 if ( ! trait_exists( 'BizCity_REST_Error' ) ) {
-	$__trait = dirname( __DIR__, 3 ) . '/core/diagnostics/includes/trait-rest-error.php';
+	$__trait = dirname( __DIR__, 3 ) . '/core/helper/includes/trait-rest-error.php';
 	if ( file_exists( $__trait ) ) {
 		require_once $__trait;
 	}
@@ -1073,8 +1073,8 @@ class BizCity_TwinChat_Sources_Service {
 			return;
 		}
 		$base = dirname( __DIR__, 3 );
-		$iface = $base . '/core/knowledge/kg-hub/includes/adapters/interface-source-adapter.php';
-		$reg   = $base . '/core/knowledge/kg-hub/includes/adapters/class-adapter-registry.php';
+		$iface = $base . '/core/kg-hub/includes/adapters/interface-source-adapter.php';
+		$reg   = $base . '/core/kg-hub/includes/adapters/class-adapter-registry.php';
 		if ( file_exists( $iface ) ) {
 			require_once $iface;
 		}

@@ -56,7 +56,7 @@ final class BizCity_Probe_KG_Search_Multi_Doc_Highlight implements BizCity_Diagn
 		$need = [ 'BizCity_KG_Notebook_Service', 'BizCity_KG_Source_Service', 'BizCity_KG_Notebook_Folder', 'BizCity_TwinSearch_Core' ];
 		foreach ( $need as $cls ) {
 			if ( ! class_exists( $cls ) ) {
-				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — knowledge/kg-hub hoặc core/twinsearch bootstrap không hoàn tất.' );
+				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — kg-hub hoặc core/twinsearch bootstrap không hoàn tất.' );
 			}
 		}
 		return true;

@@ -123,6 +123,10 @@ final class BizCity_TwinBrain_Admin_Menu {
 			5
 		);
 
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role on every destination in this loop.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		// [2026-09-16 10:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — expose the six canonical Control Panel destinations as stable Twin Brain submenu deep-links.
 		$destinations = array(
 			'workspace'        => array( 'Twin Brain', 'Twin Brain' ),
@@ -137,7 +141,7 @@ final class BizCity_TwinBrain_Admin_Menu {
 				$parent,
 				$labels[0],
 				$labels[1],
-				'manage_options',
+				$capability,
 				'bizcity-twinbrain-' . $destination,
 				static function () use ( $destination ) {
 					// WordPress links the top-level "Twin Brain" item to this first submenu, so the Brain entry

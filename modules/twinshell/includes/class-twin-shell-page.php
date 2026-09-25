@@ -478,7 +478,20 @@ class BizCity_Twin_Shell_Page {
 			$has_plan_gate = ! empty( $p['plan'] ) && 'free' !== $p['plan'];
 
 			if ( $has_plan_gate ) {
-				// Plan-gated entries are ALWAYS shown in ActivityBar (upgrade incentive).
+				// [2026-09-24 Johnny Chu] PHASE-TWINSHELL-NAV — a plan-gated entry only appears when its
+				// plugin is actually loaded. No plugin ⇒ no icon (no more PRO upsell placeholders);
+				// a bookmarked `?plugin=` URL still gets the "not active" notice via `$locked_map`.
+				// Same absence rule as `plugin_locked` below, but evaluated regardless of plan tier.
+				$hub_covers_gate = BizCity_Twin_Shell_Registry::plan_order( $hub_plan )
+				                   >= BizCity_Twin_Shell_Registry::plan_order( $p['plan'] );
+				if ( ! empty( $p['requires'] )
+				     && ( ! empty( $p['pro_package'] ) || ! $hub_covers_gate )
+				     && ! BizCity_Twin_Shell_Registry::requirement_met( $p['requires'] ) ) {
+					$locked_map[ $p['id'] ] = $p;
+					continue;
+				}
+
+				// Plan-gated entries whose plugin is present stay in ActivityBar (plan_locked ⇒ upgrade incentive).
 				// plan_locked  = user tier is below required tier.
 				// plugin_locked = plan ok but plugin (requires) not installed.
 				$plan_locked = BizCity_Twin_Shell_Registry::plan_order( $user_plan )

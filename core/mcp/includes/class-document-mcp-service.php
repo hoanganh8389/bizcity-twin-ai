@@ -574,7 +574,7 @@ final class BizCity_Document_MCP_Service {
 		if ( function_exists( 'bizcity_kg_validate_citations_in_json' ) ) {
 			return true;
 		}
-		$helper = dirname( __DIR__, 2 ) . '/knowledge/kg-hub/includes/kg-helpers.php';
+		$helper = dirname( __DIR__, 2 ) . '/kg-hub/includes/kg-helpers.php';
 		if ( is_readable( $helper ) ) {
 			require_once $helper;
 		}

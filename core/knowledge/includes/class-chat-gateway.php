@@ -63,6 +63,12 @@ class BizCity_Chat_Gateway {
 
     /* ─── Constructor ─── */
     public function __construct() {
+        // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C2 / R-INTENT-MIN R-IM-7 — legacy path C, off unless BIZCITY_LEGACY_PATH_C.
+        // The class stays for get_ai_response() / prepare_llm_call() (CRM AI replier, voice-chat, legacy content flow);
+        // its AJAX send/stream/history endpoints were path C entry points (no live client) and register only when enabled.
+        if ( ! ( defined( 'BIZCITY_LEGACY_PATH_C' ) && BIZCITY_LEGACY_PATH_C ) ) {
+            return;
+        }
         // ── Unified AJAX endpoints (admin-only with nonce) ──
         add_action('wp_ajax_bizcity_chat_send',    [$this, 'ajax_send']);
         add_action('wp_ajax_bizcity_chat_history', [$this, 'ajax_history']);

@@ -136,8 +136,8 @@ class BizCity_Zalobot_Upload_Link_Handler {
 	private static function ensure_runtime_dependencies(): void {
 		$root = dirname( __DIR__, 3 );
 		$files = array(
-			'BizCity_KG_Channel_Notebook_Bridge' => $root . '/core/knowledge/kg-hub/includes/class-kg-channel-notebook-bridge.php',
-			'BizCity_KG_Channel_Upload_Link_Service' => $root . '/core/knowledge/kg-hub/includes/class-kg-channel-upload-link-service.php',
+			'BizCity_KG_Channel_Notebook_Bridge' => $root . '/core/kg-hub/includes/class-kg-channel-notebook-bridge.php',
+			'BizCity_KG_Channel_Upload_Link_Service' => $root . '/core/kg-hub/includes/class-kg-channel-upload-link-service.php',
 		);
 		foreach ( $files as $class => $file ) {
 			if ( ! class_exists( $class, false ) && is_readable( $file ) ) {

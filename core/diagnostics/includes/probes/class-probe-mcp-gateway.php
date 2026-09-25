@@ -692,7 +692,7 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 		);
 		if ( 'fail' === $twinweb_policy_contract_status ) { $pass = false; }
 
-		$score_contract_ok = is_readable( $base . 'includes/class-brain-mcp-service.php' ) && is_readable( $base . '../knowledge/kg-hub/includes/class-kg-retriever.php' );
+		$score_contract_ok = is_readable( $base . 'includes/class-brain-mcp-service.php' ) && is_readable( $base . '../kg-hub/includes/class-kg-retriever.php' );
 		$steps[] = array(
 			'label'  => 'core.mcp.gateway — Disk: canonical score contract',
 			'status' => $score_contract_ok ? 'pass' : 'fail',

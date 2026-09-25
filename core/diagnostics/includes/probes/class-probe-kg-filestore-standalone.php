@@ -75,7 +75,7 @@ final class BizCity_Probe_KG_Filestore_Standalone implements BizCity_Diagnostics
 		];
 		foreach ( $need as $cls ) {
 			if ( ! class_exists( $cls ) ) {
-				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — knowledge/kg-hub bootstrap không hoàn tất.' );
+				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — kg-hub bootstrap không hoàn tất.' );
 			}
 		}
 		if ( ! class_exists( 'BizCity_Knowledge_Embedding' ) ) {
@@ -327,7 +327,7 @@ final class BizCity_Probe_KG_Filestore_Standalone implements BizCity_Diagnostics
 				? 'KG filestore standalone: ingest zero-leak, hydrate parity, search (entities/relations/passages), visualize, and RAG citation evidence pack all passed.'
 				: 'KG filestore standalone FAILED: ' . implode( ', ', array_unique( $failures ) ) . '.',
 			'error'    => empty( $failures ) ? '' : implode( '; ', array_unique( $failures ) ),
-			'fix_hint' => empty( $failures ) ? '' : 'Xem core/knowledge/kg-hub/docs/PHASE-KG-FILESTORE-STANDALONE-VALIDATION.md — bảng risk map theo từng failure code ở trên.',
+			'fix_hint' => empty( $failures ) ? '' : 'Xem core/kg-hub/docs/PHASE-KG-FILESTORE-STANDALONE-VALIDATION.md — bảng risk map theo từng failure code ở trên.',
 			'steps'    => $steps,
 		];
 	}

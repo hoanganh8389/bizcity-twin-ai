@@ -842,7 +842,7 @@ class BizCity_Admin_Menu {
 		// [2026-06-22 Johnny Chu] PHASE-TWINWEB — remove menus relocated to SLUG_GATEWAY/SLUG_KNOWLEDGE
 		// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T3 — the `bizcity-twinchat-gurus` and
 		// `bizcity-kg-hub` cleanups are gone with the class that registered those two pages
-		// (core/knowledge/kg-hub/includes/class-kg-admin-menu.php). Nothing adds them any more,
+		// (core/knowledge/kg-hub/includes/class-kg-admin-menu.php, since retired). Nothing adds them any more,
 		// so removing them again would only hide a future page that reused the slug.
 		remove_submenu_page( 'bizcity-twinchat', 'bizchat-gateway-spa' );       // moved → SLUG_GATEWAY
 		remove_submenu_page( 'bizcity-twinchat', 'bizcity-automation' );        // moved → SLUG_GATEWAY

@@ -51,14 +51,30 @@ final class BizCity_Bot_Tool_Registry {
 			// web_search's check_search() — that is "infra wired", not "verified against a live
 			// account" (see the client's own docblock confidence note before trusting a live run).
 			'scrape_social_data' => array( 'label' => 'Cào dữ liệu mạng xã hội (Apify)', 'group' => 'read', 'description' => 'Lấy dữ liệu công khai Facebook/TikTok/YouTube/Shopee qua Apify Actor đã cấu hình cho trợ lý này.', 'infra' => 'khóa Apify + Actor ID riêng theo trợ lý', 'check' => 'check_apify' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K5 — six public research lookups (no key). `default_off`: each one adds ~25 tokens to EVERY
+			// planner call, and a sales bot has no use for arXiv — a Guru opts in (settings.bot.enabled_optional_tools).
+			'search_arxiv'     => array( 'label' => 'Tra cứu arXiv', 'group' => 'read', 'default_off' => true, 'description' => 'Tìm bài báo arXiv (hoặc tra theo mã arXiv 2401.12345). args: {"query":"retrieval augmented generation","count":5}.', 'infra' => 'export.arxiv.org (không cần khóa, cache 6 giờ)', 'check' => 'check_research' ),
+			'search_scholar'   => array( 'label' => 'Tra cứu bài báo khoa học', 'group' => 'read', 'default_off' => true, 'description' => 'Tìm bài báo khoa học/y khoa (Semantic Scholar → Crossref → PubMed). args: {"query":"vitamin D and sleep","count":5}.', 'infra' => 'Semantic Scholar · Crossref · PubMed (không cần khóa, cache 6 giờ)', 'check' => 'check_research' ),
+			'search_github'    => array( 'label' => 'Tra cứu GitHub', 'group' => 'read', 'default_off' => true, 'description' => 'Tìm repo GitHub, hoặc issue khi câu có "issue/bug/lỗi". args: {"query":"zalo bot node","count":5}.', 'infra' => 'api.github.com (không khóa: 10 lượt/phút/IP)', 'check' => 'check_research' ),
+			'search_stackexchange' => array( 'label' => 'Tra cứu StackOverflow', 'group' => 'read', 'default_off' => true, 'description' => 'Tìm câu hỏi kỹ thuật trên StackOverflow/SuperUser/ServerFault. args: {"query":"nginx 502 bad gateway","count":5}.', 'infra' => 'api.stackexchange.com (không cần khóa, cache 6 giờ)', 'check' => 'check_research' ),
+			'search_hackernews' => array( 'label' => 'Tra cứu Hacker News', 'group' => 'read', 'default_off' => true, 'description' => 'Tìm bài thảo luận công nghệ trên Hacker News. args: {"query":"rust vs go","count":5}.', 'infra' => 'hn.algolia.com (không cần khóa, cache 6 giờ)', 'check' => 'check_research' ),
+			'search_wikipedia' => array( 'label' => 'Tra cứu Wikipedia', 'group' => 'read', 'default_off' => true, 'description' => 'Tìm bài Wikipedia (lang: vi | en | auto). args: {"query":"Chiến dịch Điện Biên Phủ","lang":"auto"}.', 'infra' => 'wikipedia.org (không cần khóa, cache 6 giờ)', 'check' => 'check_research' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K2 — look AGAIN at a photo the customer sent, with a specific question. Offered only to a
+			// Guru whose `vision_mode` is `describe` (check_read_image); the first look happens automatically at the start of the turn.
+			'read_image'       => array( 'label' => 'Xem lại ảnh khách gửi', 'group' => 'read', 'description' => 'Nhìn lại ẢNH khách đã gửi với 1 câu hỏi cụ thể (đếm, đọc chữ nhỏ, so màu) khi mô tả sẵn có chưa đủ. args: {"question":"trên hoá đơn tổng tiền là bao nhiêu","index":1} — index 1 = ảnh mới nhất.', 'infra' => 'model xem ảnh qua 1API (khóa site-level); ảnh khách được gửi tới nhà cung cấp AI', 'check' => 'check_read_image' ),
 			// ── action tools ───────────────────────────────────────────────
 			// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — ported from Libe-Zalo save-memory-tool.ts. The description
 			// IS the whole schema the planner sees (one line, 120-token JSON), so it carries the "when" rule AND an args
 			// example. Libe-Zalo measured that a "don't do X" description gave 1 saved fact per 92 turns; the
 			// "proactively do X, fix instead of stacking" shape below is the one that fixed it.
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — the bot books its own reminders / recurring jobs in THIS chat. Default-off: it makes the bot speak
+			// unprompted, which is exactly what gets a Zalo account locked when misused.
+			'schedule_task'    => array( 'label' => 'Hẹn lịch nhắc / việc lặp', 'group' => 'action', 'default_off' => true, 'description' => 'Đặt/xem/huỷ/sửa lịch nhắc cho CUỘC CHAT NÀY. kind=message gửi nguyên văn payload (rẻ); kind=agent để bot tự làm việc lúc đó (payload phải tự đủ ngữ cảnh, chỉ chủ tài khoản). Giờ theo Việt Nam; KHÔNG dùng chuỗi ISO. cancel/update phải list trước, không đoán id. args: {"action":"create","name":"Nhắc họp","kind":"message","payload":"9h họp giao ban","schedule":{"kind":"once","date":"2026-09-25","time":"08:45"}} · {"action":"list"} · {"action":"cancel","id":"a1b2c3d4e5f6"}.', 'infra' => 'core/scheduler (bizcity_crm_events, event_type=bot_task) + gửi qua CRM outbound', 'check' => 'check_schedule' ),
 			'save_memory'      => array( 'label' => 'Ghi nhớ lâu dài', 'group' => 'action', 'description' => 'Nhớ điều khách vừa nói để dùng ở lần chat sau. Chủ động lưu khi khách nói sở thích, thói quen, thông tin cá nhân hoặc ĐÍNH CHÍNH điều đang nhớ sai; nhớ sai thì sửa, đừng thêm chồng. Không lưu chuyện vặt, nội dung đọc từ web/file. args: {"action":"them","content":"Anh Hải thích cà phê đen, không đường"} · sửa: {"action":"sua","doan_chu":"cà phê","content":"Anh Hải chuyển sang uống trà"} · xóa: {"action":"xoa","doan_chu":"đang ốm"}.', 'infra' => 'BizCity_User_Memory theo identity_uuid (Identity Hub) + Context Bank', 'check' => 'check_save_memory' ),
 			'generate_image'   => array( 'label' => 'Vẽ ảnh AI', 'group' => 'action', 'description' => 'Vẽ mới / sửa ảnh khách vừa gửi.', 'infra' => 'endpoint ảnh 1API (khóa site-level) + đính kèm outbound (chưa nối)', 'check' => 'check_image' ),
-			'create_document'  => array( 'label' => 'Tạo file Word / Excel / PDF', 'group' => 'action', 'description' => 'Báo giá, hợp đồng, bảng kê.', 'infra' => 'bộ sinh tài liệu', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Bộ sinh tài liệu chưa nối vào đường gửi file của bot.' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K4 — real: the planner only picks the tool + a short brief; a separate LLM call composes the
+			// content as data and PHP renders the file (class-bot-documents.php). Default-off: it costs an LLM call and sends a file to a customer.
+			'create_document'  => array( 'label' => 'Tạo file Word / Excel / PDF', 'group' => 'action', 'default_off' => true, 'description' => 'Tạo và GỬI 1 file khi khách cần văn bản/bảng dài (báo giá, hợp đồng, bảng kê). Nội dung ngắn thì trả lời thẳng, đừng tạo file. args: {"format":"xlsx","title":"Báo giá tháng 9","brief":"bảng 5 sản phẩm: tên, số lượng, đơn giá, thành tiền, có dòng tổng"}. format: docx|xlsx|pdf|csv|md.', 'infra' => 'bộ sinh tài liệu PHP (DOCX/XLSX tự viết, PDF = tFPDF + Noto Sans) + 1 lượt LLM soạn nội dung', 'check' => 'check_documents' ),
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F §2.2A/§6.1 — these three now have a REAL
 			// per-character key + a working manual Test path (0.60E D-E1, GuruBotMediaPanel), so the
 			// old static "1API chưa có — xin Hub bổ sung" hint became stale/misleading the moment a
@@ -66,7 +82,9 @@ final class BizCity_Bot_Tool_Registry {
 			// call these as a turn tool (class-bot-tools.php has no execution path for them yet,
 			// doc §6.1 "không được đánh PASS khi chỉ có test") — but the hint must say which of the
 			// two gaps applies: "no key yet" vs. "key works, tool just isn't wired to a turn".
-			'create_music'     => array( 'label' => 'Tạo nhạc', 'group' => 'action', 'description' => 'Nhạc nền theo mô tả.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_music' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — real, but ASYNC: the tool only books a job; a cron event generates the file and sends it.
+			// Default-off (costs money per use) and capped per conversation per hour.
+			'create_music'     => array( 'label' => 'Tạo nhạc', 'group' => 'action', 'default_off' => true, 'description' => 'Sáng tác 1 bài hát/bản nhạc bằng AI rồi gửi file sau khoảng 1 phút (tốn phí). Chỉ khi khách YÊU CẦU rõ. args: {"prompt":"nhạc lofi thư giãn, không lời, 60 giây"}.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + job nền (WP-Cron) + gửi qua CRM outbound', 'check' => 'check_music' ),
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-05) — GuruBotMediaPanel now has
 			// a real config form (model/duration/aspect_ratio/with_audio) and a working manual Test
 			// (class-bot-media-client.php::test_video(), a genuine BizCity_Video_Client::submit() call,
@@ -74,13 +92,13 @@ final class BizCity_Bot_Tool_Registry {
 			// only ever reads the site-level key, same as chat) and no turn executor/outbound-attach
 			// path exists yet — but the hint now tells the operator which of the two gaps applies
 			// instead of the old static "chưa có form cấu hình" that became stale the moment this shipped.
-			'create_video'     => array( 'label' => 'Tạo video', 'group' => 'action', 'description' => 'Clip ngắn theo mô tả.', 'infra' => 'Video_Client 1API (khóa site-level) + đính kèm outbound (chưa nối)', 'check' => 'check_video' ),
+			'create_video'     => array( 'label' => 'Tạo video', 'group' => 'action', 'default_off' => true, 'description' => 'Tạo 1 video ngắn bằng AI, gửi sau vài phút (tốn phí). Chỉ khi khách YÊU CẦU rõ. args: {"prompt":"cô gái đi dạo dưới mưa","duration":5,"aspect_ratio":"9:16"}.', 'infra' => 'Video_Client 1API (khóa site-level) + job nền (WP-Cron) + gửi qua CRM outbound', 'check' => 'check_video' ),
 			// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — wired to a turn (option A): the model writes the short text to
 			// speak; it is sent as an MP3 right after the text reply. The description is the planner's whole schema.
 			'tts'              => array( 'label' => 'Giọng nói (TTS)', 'group' => 'action', 'description' => 'Gửi thêm một tin thoại đọc một đoạn NGẮN (tối đa vài câu) — chỉ khi khách xin nghe giọng hoặc nhờ đọc. args: {"text":"Dạ bên em còn size M ạ"}.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + đính kèm outbound (MP3)', 'check' => 'check_tts' ),
 			'stt'              => array( 'label' => 'Phiên âm tin thoại (STT)', 'group' => 'action', 'description' => 'Chuyển tin thoại khách gửi thành chữ.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_stt' ),
 			'send_file'        => array( 'label' => 'Gửi file', 'group' => 'action', 'description' => 'Gửi file kèm chú thích.', 'infra' => 'bridge enqueue_outbound', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Cần tool tạo file trước; đường gửi đã có.' ),
-			'mention_member'   => array( 'label' => 'Nhắc tên (@tag) trong nhóm', 'group' => 'action', 'description' => 'Gọi đúng người trong nhóm.', 'infra' => 'bridge mentions', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Bot chưa đọc roster nhóm trong lượt trả lời.' ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — `mention_member` moved to BizCity_Bot_Zalo_Actions (real executor + roster check).
 			// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — react/sticker/recall/poll/group-admin moved to
 			// BizCity_Bot_Zalo_Actions (one tool id per command, status from the bridge's own capability list).
 			// The old umbrella `group_admin` row is gone on purpose: Libe-Zalo and the sidecar plan both require
@@ -117,6 +135,8 @@ final class BizCity_Bot_Tool_Registry {
 				'status'      => $status,
 				'hint'        => $hint,
 				'kind'        => 'builtin',
+				// [2026-09-24 Claude Sonnet 5] PHASE-0.60K D-K6 — costs tokens on every planner call or money per use: off until a Guru opts in.
+				'default_off' => ! empty( $row['default_off'] ),
 			);
 		}
 		if ( class_exists( 'BizCity_Bot_Zalo_Actions' ) ) {
@@ -140,7 +160,8 @@ final class BizCity_Bot_Tool_Registry {
 	 * @param array  $binding_off   binding policy disabled_tools
 	 * @return array<int,array> rows (subset of rows()).
 	 */
-	public static function effective( $character, array $character_off, array $binding_off ): array {
+	public static function effective( $character, array $character_off, array $binding_off, array $enabled_optional = array() ): array {
+		$on  = BizCity_Bot_Config_Repo::sanitize_tool_list( $enabled_optional );
 		$off = array_unique( array_merge(
 			BizCity_Bot_Config_Repo::sanitize_tool_list( $character_off ),
 			BizCity_Bot_Config_Repo::sanitize_tool_list( $binding_off )
@@ -152,6 +173,9 @@ final class BizCity_Bot_Tool_Registry {
 			}
 			if ( in_array( $row['id'], $off, true ) ) {
 				continue;
+			}
+			if ( ! empty( $row['default_off'] ) && ! in_array( $row['id'], $on, true ) ) {
+				continue; // an opt-in tool this Guru never opted into (the binding's off-list still wins above).
 			}
 			$out[] = $row;
 		}
@@ -222,6 +246,50 @@ final class BizCity_Bot_Tool_Registry {
 		return array( self::STATUS_AVAILABLE, '' );
 	}
 
+	/**
+	 * K2 — needs the vision helper, the LLM client, and a Guru that opted in to `describe`. Without a character (catalog-only
+	 * listing) it is reported as needing the switch, never as available.
+	 */
+	public static function check_read_image( $character = null ): array {
+		if ( ! class_exists( 'BizCity_Bot_Vision' ) || ! class_exists( 'BizCity_LLM_Client' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Module xem ảnh hoặc BizCity LLM Client chưa nạp.' );
+		}
+		$id   = is_object( $character ) ? (int) ( $character->id ?? 0 ) : 0;
+		$mode = $id > 0 && class_exists( 'BizCity_Bot_Config_Repo' ) ? (string) BizCity_Bot_Config_Repo::get( $id )['vision_mode'] : 'off';
+		return 'describe' === $mode
+			? array( self::STATUS_AVAILABLE, 'Ảnh khách gửi được gửi tới nhà cung cấp AI qua 1API để đọc.' )
+			: array( self::STATUS_UNCONFIGURED, 'Đang tắt: bật "Xem ảnh khách gửi" trong Quick Edit của Guru (ảnh khách sẽ được gửi tới nhà cung cấp AI).' );
+	}
+
+	/** K6 — needs the scheduler owner module (its table) and the schedule class. */
+	public static function check_schedule(): array {
+		if ( ! class_exists( 'BizCity_Bot_Schedule' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Module hẹn lịch (class-bot-schedule.php) chưa nạp.' );
+		}
+		if ( ! class_exists( 'BizCity_Scheduler_Manager' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'core/scheduler chưa nạp — lịch được lưu ở đó.' );
+		}
+		return array( self::STATUS_AVAILABLE, 'Mặc định TẮT. Lịch được quét mỗi ~5 phút (tin có thể tới trễ vài phút); trần tin chủ động mỗi ngày và khoảng lặp tối thiểu chỉnh ở Cấu hình vận hành.' );
+	}
+
+	/** K4 — needs the renderers and the LLM client; ZipArchive is what DOCX/XLSX are written with. */
+	public static function check_documents(): array {
+		if ( ! class_exists( 'BizCity_Bot_Documents' ) || ! class_exists( 'BizCity_Bot_Document_Schema' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Module tạo tài liệu chưa nạp.' );
+		}
+		if ( ! class_exists( 'ZipArchive' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'PHP thiếu extension zip — không tạo được DOCX/XLSX.' );
+		}
+		return array( self::STATUS_AVAILABLE, 'Mặc định TẮT — bật riêng cho từng Guru. Mỗi file tốn thêm 1 lượt gọi model.' );
+	}
+
+	/** K5 — the six lookups need only outbound HTTP; the client class must be loaded. */
+	public static function check_research(): array {
+		return class_exists( 'BizCity_Bot_Research_Client' )
+			? array( self::STATUS_AVAILABLE, 'Không cần khóa. Mặc định TẮT — bật riêng cho từng Guru.' )
+			: array( self::STATUS_UNCONFIGURED, 'Module tra cứu (class-bot-research-client.php) chưa nạp.' );
+	}
+
 	public static function check_search(): array {
 		if ( ! class_exists( 'BizCity_Search_Client' ) ) {
 			return array( self::STATUS_UNCONFIGURED, 'Module bizcity-llm Search_Client chưa nạp.' );
@@ -285,7 +353,10 @@ final class BizCity_Bot_Tool_Registry {
 		if ( ! $ready ) {
 			return array( self::STATUS_UNCONFIGURED, 'Chưa có API key BizCity 1API cho video; nhập ở Cài đặt BizCity LLM (site-level, dùng chung cho mọi Guru).' );
 		}
-		return array( self::STATUS_UNCONFIGURED, 'Đã có khóa 1API cho video (Test thủ công trong Quick Edit gửi được job thật), nhưng công cụ này CHƯA được nối vào lượt trả lời của bot, và đường đính kèm video vào tin Zalo cũng chưa nối.' );
+		if ( ! class_exists( 'BizCity_Bot_Media_Jobs' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Bộ chạy job nhạc/video chưa nạp.' );
+		}
+		return array( self::STATUS_AVAILABLE, 'Mặc định TẮT. Bot xếp job nền: vài phút sau file mp4 (≤ 25 MB, lớn hơn thì gửi link) được gửi; lỗi thì khách nhận đúng một tin báo lỗi. Tốn phí mỗi video.' );
 	}
 
 	/**
@@ -348,8 +419,29 @@ final class BizCity_Bot_Tool_Registry {
 		return self::check_media_key( $character, 'stt_api_key', 'Phiên âm (STT)' );
 	}
 
+	/** K3 — available once the job runner is loaded AND this Guru has both a music model and a key (its own, per-Guru). */
 	public static function check_music( $character = null ): array {
-		return self::check_media_key( $character, 'music_api_key', 'Tạo nhạc' );
+		$base = self::check_media_key( $character, 'music_api_key', 'Tạo nhạc' );
+		$id   = is_object( $character ) ? (int) ( $character->id ?? 0 ) : 0;
+		if ( $id <= 0 || ! self::media_key_present( $id, 'music_api_key' ) ) {
+			return $base; // the exact "no key yet" hint from check_media_key() — the first thing an operator must fix.
+		}
+		if ( ! class_exists( 'BizCity_Bot_Media_Jobs' ) || ! method_exists( 'BizCity_Bot_Media_Client', 'generate_music' ) ) {
+			return array( self::STATUS_UNCONFIGURED, 'Bộ chạy job nhạc/video chưa nạp.' );
+		}
+		$model = trim( (string) ( BizCity_Bot_Config_Repo::get( $id )['media']['music']['model'] ?? '' ) );
+		if ( '' === $model ) {
+			return array( self::STATUS_UNCONFIGURED, 'Có khóa Tạo nhạc nhưng chưa chọn Model — mở khối Tạo nhạc trong Quick Edit.' );
+		}
+		return array( self::STATUS_AVAILABLE, 'Mặc định TẮT. Bot xếp job nền: khoảng 1 phút sau file mp3/wav được gửi; lỗi thì khách nhận đúng một tin báo lỗi. Tốn phí mỗi bài.' );
+	}
+
+	private static function media_key_present( int $character_id, string $field ): bool {
+		try {
+			return (bool) BizCity_Bot_Secrets_Repo::has( $character_id, $field );
+		} catch ( \Throwable $e ) {
+			return false;
+		}
 	}
 
 	/**

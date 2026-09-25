@@ -1160,7 +1160,10 @@ class BizCity_Intent_Tools {
                 ] );
             }
 
-            $script_id = BizCity_Video_Kling_Database::save_script( $script_data );
+            // [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — the Kling repo exposes create_script(), not save_script().
+            $script_id = method_exists( 'BizCity_Video_Kling_Database', 'save_script' )
+                ? BizCity_Video_Kling_Database::save_script( $script_data )
+                : BizCity_Video_Kling_Database::create_script( $script_data );
 
             if ( $script_id ) {
                 do_action( 'bizcity_intent_tool_create_video', $slots, $script_id );

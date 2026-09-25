@@ -288,7 +288,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'mode'        => 'embed',
 			'public_slug' => '/scheduler/',
 			'capability'  => 'read',
-			'section'     => 'bottom',
+			// [2026-09-24 Johnny Chu] PHASE-TWINSHELL-NAV — Reminders sits in the top group right after Twin Chat (see ACTIVITY_PRIORITY in twin-shell.js).
+			'section'     => 'top',
 			'params'      => [ 'id' ],
 		],
 		[
@@ -299,7 +300,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'mode'        => 'link',
 			'target_url'  => admin_url( 'admin.php?page=bizcity-automation' ),
 			'capability'  => 'read',
-			'section'     => 'bottom',
+			// [2026-09-24 Johnny Chu] PHASE-TWINSHELL-NAV — Automation sits in the top group right after Twin Chat (see ACTIVITY_PRIORITY in twin-shell.js).
+			'section'     => 'top',
 		],
 		// 2026-05-13 — `tools` removed from ActivityBar (still reachable at /tools-map/).
 		[

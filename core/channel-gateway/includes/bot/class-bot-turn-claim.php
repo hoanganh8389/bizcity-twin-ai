@@ -49,10 +49,11 @@ final class BizCity_Bot_Turn_Claim {
 	 * @param string $trigger_key
 	 */
 	public static function on_normalized( array $envelope, string $trigger_key ): void {
-		if ( ! class_exists( 'BizCity_Channel_Binding' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+		if ( strtoupper( (string) ( $envelope['platform'] ?? '' ) ) !== self::PLATFORM ) {
 			return;
 		}
-		if ( strtoupper( (string) ( $envelope['platform'] ?? '' ) ) !== self::PLATFORM ) {
+		if ( ! class_exists( 'BizCity_Channel_Binding' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+			self::skip( 'module_not_loaded', $envelope );
 			return;
 		}
 		// [2026-09-23 03:45 PM Claude Fable 5.1] PHASE-0.60A B4.1a — symmetric bail: Zone 1 Personal only (Guru_Bridge bails the other way).
@@ -63,6 +64,7 @@ final class BizCity_Bot_Turn_Claim {
 		$account_id = (string) ( $envelope['account_id'] ?? '' );
 		$chat_id    = (string) ( $envelope['chat_id'] ?? '' );
 		if ( $account_id === '' || $chat_id === '' ) {
+			self::skip( 'envelope_incomplete', $envelope );
 			return;
 		}
 		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H — `$envelope['contact_id']` is NOT a CRM contact id: the
@@ -77,11 +79,14 @@ final class BizCity_Bot_Turn_Claim {
 
 		$binding = BizCity_Channel_Binding::resolve( self::PLATFORM, $account_id );
 		if ( ! $binding ) {
+			self::skip( 'no_binding', $envelope, $thread );
 			return;
 		}
 		$character_id = (int) ( $binding['character_id'] ?? 0 );
 		$mode         = (string) ( $binding['mode'] ?? '' );
 		if ( $character_id <= 0 || ! in_array( $mode, array( 'auto', 'hybrid' ), true ) ) {
+			// The commonest reason a customer gets no answer: the number is in manual mode, or no Guru is bound to it.
+			self::skip( $character_id <= 0 ? 'no_character' : 'mode_manual', $envelope, $thread, $binding );
 			return; // reuses existing binding fields — no separate "bot enabled" flag (doc §3.2).
 		}
 
@@ -89,6 +94,7 @@ final class BizCity_Bot_Turn_Claim {
 		// reply_in_group and EA-3's passive_listen_in_group (same policy_json blob, doc §3.2).
 		$bot_policy = self::decode_json_map( $binding['policy_json'] ?? '' );
 		if ( ! self::allowlist_pass( $bot_policy, $envelope, $contact_id ) ) {
+			self::skip( 'allowlist', $envelope, $thread, $binding );
 			return; // EA-1.3: not allowlisted → the bot does not take the turn.
 			        // [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — this used to leave the built-in Default_Reply
 			        // net ON as a fallback. Zalo Cá nhân now has ONE replier (Bot Studio): the matcher never runs
@@ -98,11 +104,13 @@ final class BizCity_Bot_Turn_Claim {
 
 		$policy = self::decode_office_hours( $binding['office_hours_json'] ?? '' );
 		if ( BizCity_Bot_Office_Hours::is_staff_on_duty( $policy ) ) {
+			self::skip( 'office_hours', $envelope, $thread, $binding );
 			return; // staff on duty → bot silent (E10 polarity).
 		}
 		// A brand-new customer has no CRM contact yet ($contact_id 0): nobody can have paused or capped them,
 		// and the runner re-checks both against the real CRM id before it ever sends (may_still_send()).
 		if ( $contact_id > 0 && ! empty( $policy['pause_on_manual_reply'] ) && self::is_paused( $contact_id ) ) {
+			self::skip( 'paused_manual_reply', $envelope, $thread, $binding );
 			return; // a human just replied — leave room, per the doc's pause-window mitigation.
 		}
 
@@ -112,15 +120,18 @@ final class BizCity_Bot_Turn_Claim {
 			// require_mention_in_group: the bot never answers in ANY group thread, so the @mention
 			// gate below would be moot and is skipped entirely (doc §6 EA-2.3).
 			if ( isset( $bot_policy['reply_in_group'] ) && ! $bot_policy['reply_in_group'] ) {
+				self::skip( 'group_reply_off', $envelope, $thread, $binding );
 				return; // EA-2.2: chat riêng của cùng số Zalo vẫn trả lời bình thường (not reached here).
 			}
 			if ( ! empty( $policy['require_mention_in_group'] ) && empty( $envelope['mention_detected'] ) ) {
+				self::skip( 'mention_required', $envelope, $thread, $binding );
 				return; // group chat requires @mention unless explicitly turned off.
 			}
 		}
 
 		$tuning = BizCity_Bot_Config_Repo::get_tuning();
 		if ( $contact_id > 0 && self::today_count( $contact_id ) >= (int) $tuning['daily_message_cap'] ) {
+			self::skip( 'daily_cap', $envelope, $thread, $binding );
 			return; // daily cap reached — the account-ban mitigation the doc's risk table flags.
 		}
 
@@ -146,6 +157,13 @@ final class BizCity_Bot_Turn_Claim {
 			// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 — opt-in presence actions (default off).
 			'typing_indicator' => ! empty( $bot_policy['typing_indicator'] ),
 			'auto_react'       => ! empty( $bot_policy['auto_react'] ),
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — the bot was @-tagged in this group message (sidecar + Zalo_Inbound_Emitter,
+			// K0-7) and may tag the sender back; on by default like Libe-Zalo, policy `auto_tag_back` turns it off.
+			'mention_detected' => 'group' === $chat_kind && ! empty( $envelope['mention_detected'] ),
+			'auto_tag_back'    => ! isset( $bot_policy['auto_tag_back'] ) || (bool) $bot_policy['auto_tag_back'],
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — "đã xem" only for a turn the bot really handles (the bridge sends
+			// "đã nhận" itself for every message). Absent policy = off: it touches Zalo, so it is opt-in per number.
+			'seen_receipts'    => 'delivered_seen' === (string) ( $bot_policy['read_receipts'] ?? 'off' ),
 			'react_icon'       => sanitize_key( (string) ( $bot_policy['react_icon'] ?? 'heart' ) ),
 			'mode'             => $mode, // auto = send · hybrid = draft only (doc B-04)
 			'text'             => (string) ( $envelope['message_text_clean'] ?? $envelope['message'] ?? '' ),
@@ -154,6 +172,8 @@ final class BizCity_Bot_Turn_Claim {
 			'bypass_notebook'  => ! empty( $bot_settings['bypass_notebook'] ),
 			'context_source'   => (string) $bot_settings['context_source'],
 			'character_off'    => (array) $bot_settings['disabled_tools'],
+			'enabled_optional' => (array) ( $bot_settings['enabled_optional_tools'] ?? array() ),
+			'vision_mode'      => (string) ( $bot_settings['vision_mode'] ?? 'off' ),
 			'binding_off'      => BizCity_Bot_Config_Repo::sanitize_tool_list( $policy['disabled_tools'] ?? array() ),
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-3.3 — carried to the runner so
 			// Bot_Context_Builder::build() can filter non-@mention group rows out of history
@@ -167,6 +187,33 @@ final class BizCity_Bot_Turn_Claim {
 		// in this feature: turn off the built-in default-reply net for THIS request only, since
 		// the bot is taking the turn instead. R-CH-UNI §1.2 explicitly permits this.
 		add_filter( 'bizcity_automation_default_reply_enabled', '__return_false' );
+	}
+
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K §15 — a turn Bot Studio DECLINES leaves a trace. CRM's own AI replier
+	 * yields every Zalo Cá nhân message to Bot Studio (D-H7), so a refusal here is, to the customer, plain silence —
+	 * and until now it left nothing behind. `reason_bucket` is one of: module_not_loaded · envelope_incomplete ·
+	 * no_binding · no_character · mode_manual · allowlist · office_hours · paused_manual_reply · group_reply_off ·
+	 * mention_required · daily_cap. No text, no raw UID or phone: the account is a short hash.
+	 *
+	 * @param array      $envelope Normalized envelope.
+	 * @param array|null $thread   thread_ref() result, when already computed.
+	 * @param array|null $binding  The resolved binding, when there is one.
+	 */
+	private static function skip( string $reason_bucket, array $envelope, ?array $thread = null, ?array $binding = null ): void {
+		if ( ! class_exists( 'BizCity_Bot_Turn_Runner' ) || ! method_exists( 'BizCity_Bot_Turn_Runner', 'lifecycle' ) ) {
+			return;
+		}
+		$account_id = (string) ( $envelope['account_id'] ?? '' );
+		BizCity_Bot_Turn_Runner::lifecycle( 'bot_turn_skipped', array(
+			'reason_bucket' => $reason_bucket,
+			'channel'       => 'zalo_personal',
+			'chat_kind'     => is_array( $thread ) ? (string) $thread['chat_kind'] : '',
+			'account_ref'   => '' === $account_id ? '' : substr( md5( $account_id ), 0, 8 ),
+			'binding_id'    => is_array( $binding ) ? (int) ( $binding['id'] ?? 0 ) : 0,
+			'mode'          => is_array( $binding ) ? (string) ( $binding['mode'] ?? '' ) : '',
+		) );
 	}
 
 	/** A workflow run was enqueued for the message we claimed → the workflow wins (0.60D §4.2). */

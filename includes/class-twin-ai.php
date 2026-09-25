@@ -59,9 +59,9 @@ class BizCity_Twin_AI {
     private static function load_modules(): void {
         $mod_dir = BIZCITY_TWIN_AI_DIR . 'modules/';
 
-        $modules = [
-            'webchat'    => 'webchat/bootstrap.php',
-        ];
+        // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1b — webchat archived (modules/_archived/webchat);
+        // its shared message store is core/conversation. No bundled module is loaded from here any more.
+        $modules = [];
 
         foreach ( $modules as $name => $mod ) {
             $file = $mod_dir . $mod;
@@ -87,9 +87,7 @@ class BizCity_Twin_AI {
      * without module.json discovery.
      */
     private static function register_loaded_modules(): void {
-        $registry = [
-            'webchat'    => [ 'guard' => 'BizCity_WebChat_Database', 'type' => 'class' ],
-        ];
+        $registry = []; // WP-11 C1b — webchat archived
 
         foreach ( $registry as $name => $check ) {
             $loaded = ( $check['type'] === 'class' )
@@ -124,64 +122,44 @@ class BizCity_Twin_AI {
             BizCity_Twin_DB_Installer::install();
         }
 
-        // Auto-copy (or overwrite) mu-plugin compat loader
+        // Retire a deployed mu-plugin compat loader (WP-11 C1c — no longer needed).
         self::sync_compat_loader();
     }
 
     /**
-     * Sync mu-plugin/bizcity-twin-compat.php → mu-plugins/ when the bundle changes.
+     * Retire the deployed mu-plugins/bizcity-twin-compat.php.
      *
-     * @return bool True when the destination is already current or was updated.
+     * [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1c — the early compat loader is no longer needed: this
+     * plugin loads everything it used to preload (LLM client, knowledge, intent, twin-core, market, connection
+     * gate, loader registry, cron schedules, feature flags), the three duties only it had (magic-link admin
+     * context, translation-notice filter, bundled activation cleanup) now live in bizcity-twin-ai.php, and the
+     * webchat module it loaded is archived. The source copy under mu-plugin/ was removed, so this method no longer
+     * copies anything: it deletes a deployed copy left behind by older bundles. Only our own file is touched
+     * (recognised by the BIZCITY_TWIN_COMPAT_VERSION marker). Name kept: the activation hook and the
+     * plugins_loaded@-100 hook already call it.
+     *
+     * @return bool True when no compat loader remains in mu-plugins/.
      */
     public static function sync_compat_loader(): bool {
-        // [2026-08-07 Johnny Chu] R-AUTO-MU — self-heal the deployed compat loader after a client pulls a newer plugin bundle.
         if ( ! defined( 'WPMU_PLUGIN_DIR' ) || '' === WPMU_PLUGIN_DIR ) {
-            return false;
-        }
-
-        $src  = BIZCITY_TWIN_AI_DIR . 'mu-plugin/bizcity-twin-compat.php';
-        $dest_dir = rtrim( WPMU_PLUGIN_DIR, '/\\' );
-        $dest = $dest_dir . '/bizcity-twin-compat.php';
-
-        // [2026-08-26 Johnny Chu] R-AUTO-MU — the bundle source is the only authority; a missing or unreadable source cannot overwrite the client MU loader.
-        if ( ! is_file( $src ) || ! is_readable( $src ) ) {
-            return false;
-        }
-
-        if ( ! is_dir( $dest_dir ) && ! wp_mkdir_p( $dest_dir ) ) {
-            return false;
-        }
-
-        if ( ! is_writable( $dest_dir ) ) {
-            return false;
-        }
-
-        $src_hash = md5_file( $src );
-        if ( false === $src_hash ) {
-            return false;
-        }
-
-        $compat_status = self::compat_loader_status();
-        $src_version   = $compat_status['source_version'];
-        $dest_version  = $compat_status['client_version'];
-        $version_drift = ! $compat_status['version_match'];
-        $hash_drift    = ! is_file( $dest ) || ! is_readable( $dest ) || $src_hash !== md5_file( $dest );
-        // [2026-08-26 Johnny Chu] R-AUTO-MU — version drift is authoritative; hash is only a fallback when the source has no version marker.
-        if ( ! $version_drift && ( '' !== $src_version || ! $hash_drift ) ) {
             return true;
         }
-
-        // [2026-08-07 Johnny Chu] R-AUTO-MU — stage beside the destination so a failed copy never truncates the active loader.
-        $tmp = tempnam( $dest_dir, '.bizcity-twin-compat-' );
-        if ( false !== $tmp ) {
-            if ( @copy( $src, $tmp ) && @rename( $tmp, $dest ) ) {
-                return true;
-            }
-            @unlink( $tmp );
+        $dest = rtrim( WPMU_PLUGIN_DIR, '/\\' ) . '/bizcity-twin-compat.php';
+        if ( ! is_file( $dest ) ) {
+            return true;
         }
-
-        // Windows hosts may reject rename() over an existing file; retain a direct-copy fallback.
-        return @copy( $src, $dest );
+        $head = (string) @file_get_contents( $dest, false, null, 0, 4096 );
+        if ( false === strpos( $head, 'BIZCITY_TWIN_COMPAT_VERSION' ) ) {
+            return false; // Not our file — never delete someone else's mu-plugin.
+        }
+        if ( @unlink( $dest ) ) {
+            if ( function_exists( 'opcache_invalidate' ) ) {
+                @opcache_invalidate( $dest, true );
+            }
+            return true;
+        }
+        error_log( '[bizcity] compat_loader_retire_failed: mu-plugins/bizcity-twin-compat.php is not writable — delete it manually' );
+        return false;
     }
 
     /**
@@ -267,8 +245,9 @@ class BizCity_Twin_AI {
     }
 
     public static function get_agent_plugins(): array {
-        if ( class_exists( 'BizCity_Market_Catalog' ) ) {
-            return BizCity_Market_Catalog::get_agent_plugins();
+        // [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — the catalog only exposes get_agent_plugins_with_headers().
+        if ( method_exists( 'BizCity_Market_Catalog', 'get_agent_plugins_with_headers' ) ) {
+            return (array) BizCity_Market_Catalog::get_agent_plugins_with_headers();
         }
         return [];
     }

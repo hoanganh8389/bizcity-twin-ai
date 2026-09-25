@@ -53,6 +53,15 @@ final class BizCity_CRM_Pipeline_SLA_Runner {
 	public static function tick() {
 		// [2026-09-21 07:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.63A WP-3.6 — job lock, bounded claim, and cron evidence.
 		$cron = class_exists( 'BizCity_Cron_Manager' ) ? BizCity_Cron_Manager::instance() : null;
+		// [2026-09-24 Claude Sonnet 5] The 60s job is registered network-wide, but the CRM schema only exists on sites where the
+		// installer ran. On any other site the hot query below is a guaranteed "Table doesn't exist" DB error every minute
+		// (seen live for blogs 424 and 647). A site without the deadlines table has no deadlines: nothing is due, so skip cleanly.
+		if ( ! self::schema_ready() ) {
+			if ( $cron && method_exists( $cron, 'note' ) ) {
+				$cron->note( array( 'counters' => array( 'scanned' => 0, 'claimed' => 0, 'fired' => 0, 'skipped' => 1 ) ) );
+			}
+			return array( 'scanned' => 0, 'claimed' => 0, 'fired' => 0, 'skipped' => 1, 'reason' => 'schema_missing' );
+		}
 		if ( $cron && method_exists( $cron, 'is_locked_out' ) && $cron->is_locked_out( self::JOB_ID ) ) {
 			return array( 'scanned' => 0, 'claimed' => 0, 'fired' => 0, 'skipped' => 1 );
 		}
@@ -95,6 +104,10 @@ final class BizCity_CRM_Pipeline_SLA_Runner {
 		global $wpdb;
 		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_results' ) || ! method_exists( $wpdb, 'query' ) ) {
 			return self::error( 'db_unavailable', 'Hàng đợi SLA chưa sẵn sàng.', 503 );
+		}
+		// claim_due() is public and callable outside tick(): keep the same guard so it can never query a missing table.
+		if ( ! self::schema_ready() ) {
+			return array();
 		}
 		$limit = max( 1, min( self::BATCH, (int) $limit ) );
 		$table = self::deadlines_table();
@@ -222,6 +235,17 @@ final class BizCity_CRM_Pipeline_SLA_Runner {
 	private static function rung_time( int $anchor, int $due, string $at ): ?string { $timestamp = self::rung_timestamp( $anchor, $due, $at ); return null === $timestamp ? null : self::db_time( $timestamp ); }
 	private static function release_claim( int $id, string $error ): void { global $wpdb; if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'update' ) ) { return; } $wpdb->update( self::deadlines_table(), array( 'claimed_by' => null, 'claimed_at' => null, 'last_error' => sanitize_text_field( $error ), 'updated_at' => self::db_now() ), array( 'id' => $id ) ); }
 	private static function worker_id(): string { return substr( 'crm-sla-' . md5( (string) getmypid() . '|' . microtime( true ) ), 0, 64 ); }
+	/**
+	 * Does THIS blog have the deadlines table? Uses the CRM installer's cached existence check (R-SHOW-TABLES /
+	 * R-METADATA-CACHE — never a raw SHOW TABLES). When the installer class is not loaded there is no way to know, so the
+	 * old behaviour stands (query, and let a real failure surface as the DB error it is).
+	 */
+	public static function schema_ready(): bool {
+		if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) || ! method_exists( 'BizCity_CRM_DB_Installer_V2', 'table_exists' ) ) {
+			return true;
+		}
+		return BizCity_CRM_DB_Installer_V2::table_exists( self::deadlines_table() );
+	}
 	private static function deadlines_table(): string { global $wpdb; return class_exists( 'BizCity_CRM_DB_Installer_V2' ) ? BizCity_CRM_DB_Installer_V2::tbl_pipeline_deadlines() : $wpdb->prefix . 'bizcity_crm_pipeline_deadlines'; }
 	private static function now_ts(): int { return function_exists( 'current_time' ) ? (int) current_time( 'timestamp' ) : time(); }
 	private static function db_now(): string { return function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' ); }

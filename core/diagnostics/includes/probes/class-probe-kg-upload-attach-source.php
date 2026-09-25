@@ -71,7 +71,7 @@ final class BizCity_Probe_KG_Upload_Attach_Source implements BizCity_Diagnostics
 		];
 		foreach ( $need as $cls ) {
 			if ( ! class_exists( $cls ) ) {
-				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — knowledge/kg-hub hoặc modules/twinchat bootstrap không hoàn tất.' );
+				return new WP_Error( 'kg_class_missing', $cls . ' chưa load — kg-hub hoặc modules/twinchat bootstrap không hoàn tất.' );
 			}
 		}
 		if ( ! class_exists( 'BizCity_Knowledge_Embedding' ) ) {

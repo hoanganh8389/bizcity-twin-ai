@@ -985,7 +985,7 @@ final class BizCity_Diagnostics {
 	 * §5b — PHASE-0-RULE-SKELETON skeleton diagnostics
 	 *
 	 * Delegated to BizCity_KG_Skeleton_Diagnostic (KG-Hub class).
-	 * See core/knowledge/kg-hub/skeleton/class-kg-skeleton-diagnostic.php
+	 * See core/kg-hub/skeleton/class-kg-skeleton-diagnostic.php
 	 * ============================================================ */
 
 	/* ============================================================

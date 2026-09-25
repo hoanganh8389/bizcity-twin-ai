@@ -9,7 +9,7 @@
     "bizcity_context_bank": {
       "since": "1.0.0",
       "purpose": "Tenant-scoped rebuildable Context Bank pointer/correlation ledger. It stores verified file metadata and provenance only; canonical payload remains in the registered business filestore or Event Stream owner.",
-      "note": "Never store memory, message, document, rule, decrypted content, embedding, credential, raw secret or copied JSON payload in this table.",
+      "note": "Never store memory, message, document, rule, decrypted content, embedding, credential, raw secret or copied JSON payload in this table. Convention (PHASE-0.60J, no DDL): memory pointers written from a channel carry the account they were learned on as secondary_type='channel_account' + secondary_key=<bridge account id>; older pointers have empty secondary_* and must not be attributed to any account.",
       "engine": "InnoDB",
       "charset": "utf8mb4",
       "collate": "utf8mb4_unicode_ci",

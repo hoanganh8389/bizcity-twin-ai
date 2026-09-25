@@ -70,7 +70,7 @@ final class BizCity_Probe_KG_Skeleton implements BizCity_Diagnostics_Probe {
 		$ctx->emit_step( $s );
 		if ( $missing ) {
 			return self::fail( $steps, 'KG skeleton classes missing.', 'class_missing',
-				'Verify core/knowledge/kg-hub/skeleton/ bootstrap chạy.' );
+				'Verify core/kg-hub/skeleton/ bootstrap chạy.' );
 		}
 
 		// ── Layer 3 · RUNTIME · audit_blog() ──────────────────────────

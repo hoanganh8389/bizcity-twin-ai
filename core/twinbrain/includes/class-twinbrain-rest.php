@@ -148,7 +148,10 @@ class BizCity_TwinBrain_REST {
 
 	public function perm_hil_builder() {
 		// [2026-08-15 Johnny Chu] MPR-V5-HIL-COMPILER — restrict prompt compilation to workflow administrators.
-		return is_user_logged_in() && current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		return is_user_logged_in() && ( class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' ) );
 	}
 
 	public function handle_hil_compile( WP_REST_Request $req ) {

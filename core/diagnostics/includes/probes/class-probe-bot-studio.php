@@ -45,7 +45,8 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 	public function run( $ctx ): array {
 		$steps = array();
 		$emit  = function ( $label, $ok, $detail ) use ( $ctx, &$steps ) {
-			$step    = array( 'label' => $label, 'status' => $ok ? 'pass' : 'fail', 'detail' => $detail );
+			// [2026-09-24 0.60I] null = the prerequisite is unavailable → 'skip', never a silent pass (R-DDV).
+			$step    = array( 'label' => $label, 'status' => null === $ok ? 'skip' : ( $ok ? 'pass' : 'fail' ), 'detail' => $detail );
 			$steps[] = $step;
 			$ctx->emit_step( $step );
 		};
@@ -69,6 +70,8 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 			// first genuine tool executor added after this probe's original 12.
 			'class-bot-studio-rest.php'     => 'BizCity_Bot_Studio_REST',
 			'class-bot-apify-client.php'    => 'BizCity_Bot_Apify_Client',
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — Libe-Zalo action parity (sticker, poll, group admin…).
+			'class-bot-zalo-actions.php'    => 'BizCity_Bot_Zalo_Actions',
 		);
 		$disk_missing = array();
 		foreach ( $classes as $file => $class ) {
@@ -188,17 +191,19 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		$emit( 'Runtime - Parser ngày VN (03/12 = 3 tháng 12; mơ hồ thì hỏi) + khối ngữ cảnh có nhãn nguồn', $pure_ok, $pure_ok ? 'd/m/Y đúng, ca mơ hồ trả ambiguous, khối ngữ cảnh ghi nguồn và ô trống.' : 'Parser hoặc renderer lệch với 0.60B §6 / 0.60D §2.6.' );
 
 		// Runtime — schema reality check (no SHOW COLUMNS in a runtime path: use the cached helper when present).
-		global $wpdb;
-		$table = BizCity_Channel_Binding::table();
-		$cols  = $wpdb->get_col( "DESCRIBE {$table}", 0 );
-		$schema_ok = is_array( $cols ) && in_array( 'office_hours_json', $cols, true );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-METADATA-CACHE — a raw DESCRIBE in a runtime path is forbidden;
+		// go through the cached BizCity_Table_Metadata helper and report SKIP (not pass/fail) when it is unavailable.
+		$table     = BizCity_Channel_Binding::table();
+		$schema_ok = class_exists( 'BizCity_Table_Metadata' )
+			? ( BizCity_Table_Metadata::column_exists( $table, 'office_hours_json' ) && BizCity_Table_Metadata::column_exists( $table, 'policy_json' ) )
+			: null;
 		$contacts_ok = null;
 		if ( class_exists( 'BizCity_CRM_DB_Installer_V2' ) && function_exists( 'bizcity_column_exists' ) ) {
 			$ct = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 			$contacts_ok = bizcity_column_exists( $ct, 'birthday' ) && bizcity_column_exists( $ct, 'birthday_md' );
 		}
-		$emit( 'Runtime - Cột office_hours_json (bindings) + birthday/birthday_md (contacts) tồn tại thật', $schema_ok && false !== $contacts_ok,
-			( $schema_ok ? 'bindings.office_hours_json OK. ' : 'bindings.office_hours_json THIẾU — chạy maybe_install(). ' ) . ( null === $contacts_ok ? 'contacts: CRM chưa nạp (bỏ qua).' : ( $contacts_ok ? 'contacts.birthday + birthday_md OK.' : 'contacts.birthday/birthday_md THIẾU — chạy migrate_phase_060b().' ) ) );
+		$emit( 'Runtime - Cột office_hours_json + policy_json (bindings) và birthday/birthday_md (contacts) tồn tại thật', null === $schema_ok ? null : ( $schema_ok && false !== $contacts_ok ),
+			( null === $schema_ok ? 'BizCity_Table_Metadata chưa nạp — không kiểm được bindings. ' : ( $schema_ok ? 'bindings.office_hours_json + policy_json OK. ' : 'bindings.office_hours_json/policy_json THIẾU — chạy maybe_install(). ' ) ) . ( null === $contacts_ok ? 'contacts: CRM chưa nạp (bỏ qua).' : ( $contacts_ok ? 'contacts.birthday + birthday_md OK.' : 'contacts.birthday/birthday_md THIẾU — chạy migrate_phase_060b().' ) ) );
 
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60G §8.3 — the unified read projection routes must really be
 		// registered on this site (read-only: inspects the route table, never calls a route).
@@ -207,13 +212,21 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		if ( function_exists( 'rest_get_server' ) ) {
 			$route_table = rest_get_server()->get_routes();
 			$missing_rt  = array();
-			foreach ( array( 'accounts', 'sessions', 'identity' ) as $rt ) {
+			foreach ( array( 'accounts', 'sessions', 'identity', 'contacts', 'turns' ) as $rt ) {
 				if ( ! isset( $route_table[ '/bizcity-channel/v1/bot-studio/' . $rt ] ) ) { $missing_rt[] = $rt; }
 			}
 			$routes_ok     = empty( $missing_rt );
-			$routes_detail = $routes_ok ? 'bizcity-channel/v1/bot-studio/{accounts,sessions,identity} đã đăng ký.' : 'Chưa đăng ký: ' . implode( ', ', $missing_rt ) . '.';
+			$routes_detail = $routes_ok ? 'bizcity-channel/v1/bot-studio/{accounts,sessions,identity,contacts,turns} đã đăng ký.' : 'Chưa đăng ký: ' . implode( ', ', $missing_rt ) . '.';
 		}
 		$emit( 'Loader - Route đọc hợp nhất bot-studio/accounts + sessions + identity đã đăng ký', false !== $routes_ok, $routes_detail );
+
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K §15.2 — where the lifecycle evidence is WRITTEN. The stage list, the
+		// delivery hook and the single dispatch path are checked by the lifecycle-contract step further down; this one
+		// covers the part that step cannot see: without a registered log contract BizCity_Channel_File_Logger drops every
+		// event (`channel_contract_missing`) and `GET bot-studio/turns` would read an empty log forever. Read-only.
+		$lc_contract = class_exists( 'BizCity_Log_Contract_Registry', false ) ? BizCity_Log_Contract_Registry::has( 'core.channel_gateway.channel_gateway' ) : null;
+		$emit( 'Runtime - Nơi ghi bằng chứng lifecycle: contract log core.channel_gateway.channel_gateway đã đăng ký (bot-studio/turns đọc từ đây)', $lc_contract,
+			null === $lc_contract ? 'SKIP — BizCity_Log_Contract_Registry chưa nạp nên chưa xác nhận được nơi ghi.' : ( $lc_contract ? 'Đã đăng ký; log kênh giữ 7 ngày (retention của contract) — chạy self-check trong 7 ngày kể từ tin thử.' : 'CHƯA đăng ký: mọi sự kiện lifecycle sẽ bị bỏ, không có dấu vết nào cho bot-studio/turns đọc.' ) );
 
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — the bot-replied automation trigger must be reported
 		// explicitly (never silent): source fires it, allowlist accepts it, block is catalogued, matcher listens.
@@ -232,6 +245,30 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		}
 		$emit( 'Loader - G2 Automation trigger cho bizcity_bot_turn_completed (PASS/SKIP nêu rõ, không im lặng)', $g2_ok, $g2_detail );
 
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — does the RUNNING sidecar advertise the Libe-Zalo action set?
+		// Read-only (GET /wp/actions, cached 5 min); never runs an action. SKIP when unreadable, FAIL when a catalogued
+		// tool's action is missing (old image deployed), PASS when every tool's action is advertised.
+		$za_ok     = null;
+		$za_detail = 'SKIP — BizCity_Bot_Zalo_Actions chưa nạp.';
+		if ( class_exists( 'BizCity_Bot_Zalo_Actions', false ) ) {
+			$caps = BizCity_Bot_Zalo_Actions::supported_actions();
+			if ( null === $caps ) {
+				$za_detail = 'SKIP — không đọc được GET /wp/actions (bridge < 0.40.0, chưa cấu hình, hoặc managed chưa proxy). Mọi công cụ hành động Zalo đang ở needs_bridge.';
+			} else {
+				$missing = array();
+				foreach ( BizCity_Bot_Zalo_Actions::tools() as $tool_id => $def ) {
+					if ( '_' !== substr( $def['action'], 0, 1 ) && ! in_array( $def['action'], $caps, true ) ) {
+						$missing[] = $tool_id . '→' . $def['action'];
+					}
+				}
+				$za_ok     = empty( $missing );
+				$za_detail = $za_ok
+					? 'PASS — sidecar quảng bá đủ ' . count( BizCity_Bot_Zalo_Actions::tools() ) . ' công cụ (poll, sticker, cảm xúc, thu hồi, quản trị nhóm, tạo nhóm). Chưa tính là đã chạy thật trên Zalo.'
+					: 'FAIL — sidecar đang chạy thiếu: ' . implode( ', ', $missing ) . '. Build + deploy lại zca-bridge 0.40.0.';
+			}
+		}
+		$emit( 'Runtime - zca-bridge quảng bá bộ hành động Libe-Zalo (/wp/actions)', $za_ok, $za_detail );
+
 		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Bot Studio is the only auto-replier for Zalo Cá nhân and every
 		// turn rides WP-Cron: a turn stuck past due means customers get silence. Read-only look at the cron array.
 		$cron_ok     = true;
@@ -245,13 +282,86 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		}
 		$emit( 'Runtime - Lượt Bot Studio không kẹt trong WP-Cron (D-H7: bot là bộ trả lời duy nhất của Zalo Cá nhân)', $cron_ok, $cron_detail );
 
-		$pass = $disk_ok && $loader_ok && $hook_priority_ok && $office_hours_ok && $negative_ok && $tools_ok && $provider_ok && $pure_ok && $schema_ok && false !== $contacts_ok && false !== $routes_ok && $g2_ok && $cron_ok;
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K §15.2/§15.3 Slice D — the lifecycle-evidence contract. Static on purpose:
+		// emitting a real event would write a production log line and touch the event bus, and this probe must never do
+		// either (B12.2). The stage list is spelled out HERE, not read back from the constant — a stage someone deletes
+		// from the runner must turn this red, not silently shrink the expectation with it.
+		$life_ok     = null;
+		$life_detail = 'SKIP — BizCity_Bot_Turn_Runner chưa nạp.';
+		if ( class_exists( 'BizCity_Bot_Turn_Runner', false ) ) {
+			$life_missing = self::lifecycle_contract( $turn_runner_src, array(
+				'delivery_hook' => false !== has_action( 'bizcity_crm_message_delivery_updated', array( 'BizCity_Bot_Turn_Runner', 'on_delivery_updated' ) ),
+				'cron_hook'     => false !== has_action( BizCity_Bot_Turn_Runner::CRON_HOOK, array( 'BizCity_Bot_Turn_Runner', 'on_run_turn_cron' ) ),
+				// The chain's two ends the runner does not own: the CRM outbound owner and the Zalo Personal adapter.
+				'dispatcher'    => class_exists( 'BizCity_CRM_Outbound_Dispatcher', false ),
+				'adapter'       => class_exists( 'BizCity_CRM_Adapter_ZaloPersonal', false ),
+			) );
+			$life_ok     = empty( $life_missing );
+			$life_detail = $life_ok
+				? 'PASS (hợp đồng, chưa phải bằng chứng runtime) — đủ ' . count( self::LIFECYCLE_REQUIRED_STAGES ) . ' stage, hook delivery_updated + cron đã đăng ký, dispatcher + adapter Zalo Cá nhân đã nạp, mọi lượt gửi đi qua dispatch_with_evidence. Bằng chứng thật = một chuỗi event cùng trace_id trong log sau một tin Zalo mới.'
+				: 'Thiếu: ' . implode( '; ', $life_missing ) . '.';
+		}
+		$emit( 'Runtime - Lifecycle evidence Bot Studio: claimed→scheduled→cron→llm→dispatch→zalo_delivery (+failed có reason_bucket)', $life_ok, $life_detail );
+
+		// Goal Loop is NOT wired into Bot Studio yet (§15.3 Slice C). The turn runner says `skip / goal_loop_not_wired` on
+		// every turn; this step says the same at probe level so a green probe is never read as "Goal Loop works".
+		$goal_wired = strpos( $turn_runner_src, 'BizCity_TwinBrain_Goal_Loop_Runtime' ) !== false;
+		$emit( 'Runtime - Goal Loop post_turn của lượt Bot Studio (§15.3 Slice C)', null,
+			$goal_wired
+				? 'SKIP — runner đã nhắc BizCity_TwinBrain_Goal_Loop_Runtime nhưng probe chưa có bước kiểm PASS; không tự coi là PASS.'
+				: 'SKIP — chưa nối: runner báo goal_loop_post_turn state=skip reason=goal_loop_not_wired ở mọi lượt. Chỉ nối sau khi outbound có bằng chứng runtime (§15.4).' );
+
+		// [2026-09-24 0.60I P0] the secrets table (per-Guru media keys) must be registered in the Schema Registry AND exist.
+		$secrets_ok = null;
+		$secrets_detail = 'BizCity_Bot_Secrets_Repo hoặc BizCity_Table_Metadata chưa nạp.';
+		if ( class_exists( 'BizCity_Bot_Secrets_Repo' ) && class_exists( 'BizCity_Table_Metadata' ) ) {
+			$exists     = BizCity_Table_Metadata::table_exists( BizCity_Bot_Secrets_Repo::table() );
+			$secrets_ok = (bool) $exists;
+			$secrets_detail = $exists ? 'bảng bizcity_bot_secrets tồn tại.' : 'bảng bizcity_bot_secrets CHƯA có — mở /wp-admin một lần trên đúng tenant (maybe_install) hoặc chạy provisioner.';
+		}
+		$emit( 'Runtime - Bảng khóa Guru bizcity_bot_secrets tồn tại (khóa TTS/STT/nhạc/Apify)', $secrets_ok, $secrets_detail );
+
+		$pass = $disk_ok && $loader_ok && $hook_priority_ok && $office_hours_ok && $negative_ok && $tools_ok && $provider_ok && $pure_ok && false !== $schema_ok && false !== $secrets_ok && false !== $contacts_ok && false !== $routes_ok && $g2_ok && $cron_ok && false !== $life_ok;
 		return array(
 			'status'   => $pass ? 'pass' : 'fail',
 			'summary'  => $pass ? 'Bot Studio W1–W8: file, loader, hook priority, giờ trực, lưới đỡ, registry công cụ, nguồn AI, parser/ngữ cảnh và schema đều PASS.' : 'Bot Studio chưa sẵn sàng — xem các bước fail ở trên.',
 			'fix_hint' => $pass ? '' : 'Xem lại core/channel-gateway/bootstrap.php (thứ tự require + init()), BizCity_Channel_Binding::maybe_install() và BizCity_CRM_DB_Installer_V2::migrate_phase_060b().',
 			'steps'    => $steps,
 		);
+	}
+
+	/**
+	 * The stages one automatic turn must be able to report (PHASE-0.60K §15.2), spelled out here rather than read back
+	 * from the runner's constant — a stage deleted from the runner must turn the probe red, not shrink the expectation.
+	 */
+	const LIFECYCLE_REQUIRED_STAGES = array(
+		'bot_turn_claimed', 'bot_turn_scheduled', 'bot_turn_cron_started', 'bot_turn_llm_completed', 'bot_turn_dispatch_started',
+		'bot_turn_dispatch_completed', 'bot_turn_zalo_delivery', 'bot_turn_failed', 'goal_loop_post_turn',
+	);
+
+	/**
+	 * Pure decision behind the lifecycle probe step. Public for BotStudioProbeLifecycleTest.
+	 *
+	 * @param string              $runner_src The runner's source text.
+	 * @param array<string,bool>  $facts      delivery_hook, cron_hook, dispatcher, adapter — whatever the runtime reports.
+	 * @return string[]                        What is missing; empty = the contract holds.
+	 */
+	public static function lifecycle_contract( string $runner_src, array $facts ): array {
+		$missing  = array();
+		$declared = defined( 'BizCity_Bot_Turn_Runner::LIFECYCLE_STAGES' ) ? (array) constant( 'BizCity_Bot_Turn_Runner::LIFECYCLE_STAGES' ) : array();
+		foreach ( array_diff( self::LIFECYCLE_REQUIRED_STAGES, $declared ) as $stage ) {
+			$missing[] = 'stage:' . $stage;
+		}
+		if ( ! method_exists( 'BizCity_Bot_Turn_Runner', 'lifecycle' ) ) { $missing[] = 'method:lifecycle'; }
+		if ( empty( $facts['delivery_hook'] ) ) { $missing[] = 'hook:bizcity_crm_message_delivery_updated (không có verdict bất đồng bộ của bridge)'; }
+		if ( empty( $facts['cron_hook'] ) ) { $missing[] = 'hook:bizcity_bot_run_turn'; }
+		if ( empty( $facts['dispatcher'] ) ) { $missing[] = 'class:BizCity_CRM_Outbound_Dispatcher'; }
+		if ( empty( $facts['adapter'] ) ) { $missing[] = 'class:BizCity_CRM_Adapter_ZaloPersonal'; }
+		// Every send must ride the evidence wrapper — a bare dispatch() would be an outbound with no dispatch_* events.
+		if ( strpos( $runner_src, 'self::dispatch_with_evidence(' ) === false ) { $missing[] = 'source:dispatch_with_evidence'; }
+		// …and it must be the ONLY caller: the one real call (`::dispatch( $request )`, comments say `dispatch()`) lives inside it.
+		if ( substr_count( $runner_src, 'BizCity_CRM_Outbound_Dispatcher::dispatch( $' ) > 1 ) { $missing[] = 'source:dispatch() gọi trần ngoài dispatch_with_evidence'; }
+		return $missing;
 	}
 
 	public function cleanup(): void {}

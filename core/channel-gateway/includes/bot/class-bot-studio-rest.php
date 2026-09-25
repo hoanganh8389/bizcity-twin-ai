@@ -84,6 +84,19 @@ final class BizCity_Bot_Studio_REST {
 				'before_id'  => array( 'type' => 'integer', 'default' => 0 ),
 			),
 		) );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K §15.2 — "where did this message stop?" One row per turn, built from the
+		// bounded lifecycle events the runner writes (claimed → … → zalo_delivery). Read-only; no event owner of its own.
+		register_rest_route( self::NAMESPACE_V1, '/bot-studio/turns', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'rest_turns' ),
+			'permission_callback' => array( __CLASS__, 'can_or_error' ),
+			'args'                => array(
+				'conversation_id' => array( 'type' => 'integer', 'default' => 0 ),
+				'trace_id'        => array( 'type' => 'string', 'default' => '' ),
+				'days'            => array( 'type' => 'integer', 'default' => 2 ),
+				'limit'           => array( 'type' => 'integer', 'default' => 20 ),
+			),
+		) );
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-3 §2.4/§5.4A — identity resolution ONLY.
 		// This is deliberately narrow: it resolves platform+account_id+external_uid → identity_uuid
 		// (+ the CRM contact/conversation ids the FE needs to then call EXISTING owner routes:
@@ -398,6 +411,342 @@ final class BizCity_Bot_Studio_REST {
 			'has_more'    => $has_more,
 			'next_cursor' => ( $has_more && $last_row ) ? (int) $last_row['id'] : null,
 		) );
+	}
+
+	/** The stages an automatic turn must pass through, in order (BizCity_Bot_Turn_Runner::LIFECYCLE_STAGES minus failed/goal_loop). */
+	const TURN_CHAIN = array(
+		'bot_turn_claimed', 'bot_turn_scheduled', 'bot_turn_cron_started', 'bot_turn_llm_completed',
+		'bot_turn_dispatch_started', 'bot_turn_dispatch_completed', 'bot_turn_zalo_delivery',
+	);
+
+	/**
+	 * GET /bot-studio/turns — one row per recent Bot Studio turn: how far it got, and if it stopped, where and why.
+	 * The data is the bounded lifecycle log the runner writes (channel `channel_gateway`); this route only reads it.
+	 */
+	public static function rest_turns( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return self::not_loaded();
+		}
+		$conversation_id = max( 0, (int) $req->get_param( 'conversation_id' ) );
+		$trace_id        = sanitize_text_field( (string) $req->get_param( 'trace_id' ) );
+		$days            = max( 1, min( 7, (int) $req->get_param( 'days' ) ) );
+		$limit           = max( 1, min( 50, (int) $req->get_param( 'limit' ) ) );
+		$log_available   = class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query_contract' );
+		$rows            = array();
+		$outbound_rows   = array();
+		if ( $log_available ) {
+			$args = array( 'channel' => BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, 'days' => $days, 'limit' => 3000, 'q' => 'Bot Studio turn event' );
+			if ( '' !== $trace_id ) {
+				$args['trace_id'] = $trace_id;
+			}
+			$rows = (array) BizCity_Channel_File_Logger::query_records( $args );
+			// The outbound leg's own error/warn rows: the CRM row write, the adapter, the bridge call. A turn that says
+			// `dispatch / http_error` names a bucket, not a cause; these rows carry the cause.
+			foreach ( array( array( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, 'error' ), array( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, 'warn' ), array( BizCity_Channel_File_Logger::CH_ZALO_PERSONAL, 'error' ), array( BizCity_Channel_File_Logger::CH_ZALO_PERSONAL, 'warn' ) ) as $src ) {
+				$outbound_rows = array_merge( $outbound_rows, (array) BizCity_Channel_File_Logger::query_records( array( 'channel' => $src[0], 'level' => $src[1], 'days' => $days, 'limit' => 60 ) ) );
+			}
+		}
+		return self::ok( array(
+			'items'         => array_slice( self::summarize_turns( $rows, time(), 300, $conversation_id ), 0, $limit ),
+			'skipped'       => self::summarize_skips( $rows ),
+			'outbound_diag' => self::summarize_outbound_diag( $outbound_rows ),
+			'log_available' => $log_available,
+			'scanned'       => count( $rows ),
+		) );
+	}
+
+	/**
+	 * Pure: where a turn's wall-clock time went, in whole seconds (the log stores second-resolution timestamps).
+	 *
+	 *  debounce_s  the wait the runner asked for ("Chờ gộp tin")
+	 *  cron_lag_s  how much LATER than that the WP-Cron worker actually started — the number that decides whether the
+	 *              cron trigger is the bottleneck (0 = on time; a system cron ticking once a minute shows up as 0–60)
+	 *  llm_ms      the model call, as measured inside the turn
+	 *  wait_s      claim → the reply was accepted by the bridge: what the customer experienced, minus their own typing
+	 *  delivery_s  claim → Zalo/bridge confirmed (null until the callback arrives)
+	 *
+	 * Any figure the log cannot support is null, never a guess.
+	 *
+	 * @param array{claimed:int,scheduled:int,debounce:int,cron:int,llm_ms:?int,dispatched:int,delivery_cb:int} $t
+	 * @return array<string,int|null>
+	 */
+	public static function turn_timings( array $t ): array {
+		$have = static function ( $v ) { return is_int( $v ) && $v > 0; };
+		$due  = $have( $t['scheduled'] ) ? $t['scheduled'] + max( 0, (int) $t['debounce'] ) : 0;
+		return array(
+			'debounce_s' => $have( $t['scheduled'] ) ? (int) $t['debounce'] : null,
+			'cron_lag_s' => $have( $due ) && $have( $t['cron'] ) ? max( 0, $t['cron'] - $due ) : null,
+			'llm_ms'     => $t['llm_ms'],
+			'wait_s'     => $have( $t['claimed'] ) && $have( $t['dispatched'] ) ? max( 0, $t['dispatched'] - $t['claimed'] ) : null, // from the customer's LAST message
+			'messages'   => (int) ( $t['messages'] ?? 0 ) ?: null,
+			'burst_s'    => ( $t['messages'] ?? 0 ) > 1 && $have( $t['first_claimed'] ?? 0 ) && $have( $t['claimed'] ) ? max( 0, $t['claimed'] - $t['first_claimed'] ) : null,
+			'delivery_s' => $have( $t['claimed'] ) && $have( $t['delivery_cb'] ) ? max( 0, $t['delivery_cb'] - $t['claimed'] ) : null,
+			// Inside the worker, in ms (null = the log did not measure it): what fills the gap between cron_started and the reply.
+			'prep_ms'     => $t['prep_ms'] ?? null,
+			'plan_ms'     => $t['plan_ms'] ?? null,
+			'context_ms'  => $t['context_ms'] ?? null,
+			'pre_send_ms' => $t['pre_send_ms'] ?? null,
+			'dispatch_ms' => $t['dispatch_ms'] ?? null,
+		);
+	}
+	/**
+	 * Pure: error/warn rows of the outbound leg into a short, safe list (newest first) plus a count per event. Only
+	 * short scalar context values are kept; anything that could be message text, a phone or a credential is dropped
+	 * (the logger already redacts by key name; this is a second, positive allow-list on top).
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 * @return array{recent:array<int,array<string,mixed>>,counts:array<string,int>}
+	 */
+	public static function summarize_outbound_diag( array $rows, int $limit = 12 ): array {
+		$allowed = array( 'reason', 'reason_bucket', 'code', 'error_code', 'status', 'http_status', 'db_error', 'error', 'conversation_id', 'inbox_id', 'message_type', 'content_type', 'content_bytes', 'preview_valid_utf8', 'attempts', 'retryable', 'channel', 'job_ref', 'ai_metadata_bytes', 'preview_chars', 'preview_bytes', 'preview_4byte', 'preview_charset' );
+		$found   = array();
+		$seen    = array();
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			// The gateway log is shared with every other feature (campaign scenario debug, order tracking, …). Only the outbound
+			// leg's own events count here; anything else, however loud, is somebody else's noise — a broad filter once reported a
+			// harmless per-message Facebook-campaign debug line (`on_message_received_resolve_null`, x49) as a send failure.
+			$event = (string) ( $row['event'] ?? '' );
+			if ( 1 !== preg_match( '/^(crm_message_|crm_outbound_|outbound_|send_|bridge_|personal_|zalo_personal_)/', $event ) ) {
+				continue;
+			}
+			$uuid = (string) ( $row['event_uuid'] ?? '' );
+			if ( '' !== $uuid && isset( $seen[ $uuid ] ) ) {
+				continue;
+			}
+			$seen[ $uuid ] = true;
+			$ctx  = isset( $row['context'] ) && is_array( $row['context'] ) ? $row['context'] : array();
+			$keep = array();
+			foreach ( $ctx as $k => $v ) {
+				if ( in_array( (string) $k, $allowed, true ) && is_scalar( $v ) ) {
+					$keep[ (string) $k ] = is_string( $v ) ? mb_substr( class_exists( 'BizCity_Bot_Turn_Runner' ) ? BizCity_Bot_Turn_Runner::safe_error( $v ) : $v, 0, 160 ) : $v;
+				}
+			}
+			$time    = strtotime( (string) ( $row['occurred_at'] ?? $row['ts'] ?? '' ) );
+			$found[] = array( '_t' => false === $time ? 0 : (int) $time, 'at' => $time ? gmdate( 'c', (int) $time ) : '', 'event' => (string) ( $row['event'] ?? '' ), 'level' => (string) ( $row['level'] ?? '' ), 'channel' => (string) ( $row['channel'] ?? '' ), 'context' => $keep );
+		}
+		usort( $found, static function ( $a, $b ) { return $b['_t'] <=> $a['_t']; } );
+		$counts = array();
+		foreach ( $found as $f ) {
+			$counts[ $f['event'] ] = ( $counts[ $f['event'] ] ?? 0 ) + 1;
+		}
+		arsort( $counts );
+		$recent = array();
+		foreach ( array_slice( $found, 0, max( 1, $limit ) ) as $f ) {
+			unset( $f['_t'] );
+			$recent[] = $f;
+		}
+		return array( 'recent' => $recent, 'counts' => $counts );
+	}
+	/**
+	 * Pure: the messages Bot Studio DECLINED (event `bot_turn_skipped`) — why a customer got no answer at all.
+	 * These have no trace (nothing was claimed), so they cannot appear in summarize_turns().
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 * @return array{recent:array<int,array<string,mixed>>,counts:array<string,int>} counts is per reason_bucket over ALL rows;
+	 *         recent is the newest $limit.
+	 */
+	public static function summarize_skips( array $rows, int $limit = 20 ): array {
+		$found = array();
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) || 'bot_turn_skipped' !== (string) ( $row['event'] ?? '' ) ) {
+				continue;
+			}
+			$ctx  = isset( $row['context'] ) && is_array( $row['context'] ) ? $row['context'] : array();
+			$time = strtotime( (string) ( $row['occurred_at'] ?? $row['ts'] ?? '' ) );
+			$found[] = array(
+				'at'            => false === $time || $time <= 0 ? '' : gmdate( 'c', (int) $time ),
+				'_t'            => false === $time ? 0 : (int) $time,
+				'reason_bucket' => (string) ( $ctx['reason_bucket'] ?? 'unknown' ),
+				'mode'          => (string) ( $ctx['mode'] ?? '' ),
+				'chat_kind'     => (string) ( $ctx['chat_kind'] ?? '' ),
+				'account_ref'   => (string) ( $ctx['account_ref'] ?? '' ),
+				'binding_id'    => (int) ( $ctx['binding_id'] ?? 0 ),
+			);
+		}
+		usort( $found, static function ( $a, $b ) { return $b['_t'] <=> $a['_t']; } );
+		$counts = array();
+		foreach ( $found as $f ) {
+			$counts[ $f['reason_bucket'] ] = ( $counts[ $f['reason_bucket'] ] ?? 0 ) + 1;
+		}
+		$recent = array();
+		foreach ( array_slice( $found, 0, max( 1, $limit ) ) as $f ) {
+			unset( $f['_t'] );
+			$recent[] = $f;
+		}
+		arsort( $counts );
+		return array( 'recent' => $recent, 'counts' => $counts );
+	}
+	/**
+	 * Pure: lifecycle log rows → one summary per trace, newest first (PHASE-0.60K §15.2).
+	 *
+	 * status —
+	 *   delivered   Zalo/bridge confirmed (sent|delivered callback)                → the only PASS
+	 *   accepted    the bridge took the job, no confirmation yet                    → NOT a pass
+	 *   failed      a bot_turn_failed event, or a failed delivery                   → `reason_bucket` says why
+	 *   dropped     the cron ran but conditions had changed (a human replied, …)   → intended silence
+ *   draft       a composer suggestion / hybrid note: the model answered the staff member, nothing was sent → done
+	 *   in_progress the last event is younger than $stall_seconds
+	 *   stalled     the chain stopped and nothing has happened for $stall_seconds   → `stopped_after`/`missing` say where
+	 *
+	 * @param array<int,array<string,mixed>> $rows            Channel-diagnostics rows (event, trace_id, occurred_at, context).
+	 * @param int                            $conversation_id 0 = every conversation.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public static function summarize_turns( array $rows, int $now, int $stall_seconds = 300, int $conversation_id = 0 ): array {
+		$lifecycle = class_exists( 'BizCity_Bot_Turn_Runner' ) ? BizCity_Bot_Turn_Runner::LIFECYCLE_STAGES : array_merge( self::TURN_CHAIN, array( 'bot_turn_failed', 'goal_loop_post_turn' ) );
+		$by_trace  = array();
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$event    = (string) ( $row['event'] ?? '' );
+			$trace_id = (string) ( $row['trace_id'] ?? '' );
+			// `bot_turn_skipped` is a declined message, not a turn — even if the logger stamped a trace_id on it (see summarize_skips()).
+			if ( '' === $trace_id || 'bot_turn_skipped' === $event || ! in_array( $event, $lifecycle, true ) ) {
+				continue;
+			}
+			$ctx  = isset( $row['context'] ) && is_array( $row['context'] ) ? $row['context'] : array();
+			$time = strtotime( (string) ( $row['occurred_at'] ?? $row['ts'] ?? '' ) );
+			$by_trace[ $trace_id ][] = array( 'event' => $event, 'at' => false === $time ? 0 : (int) $time, 'ctx' => $ctx );
+		}
+
+		$out = array();
+		foreach ( $by_trace as $trace_id => $events ) {
+			$conversation = 0;
+			foreach ( $events as $e ) {
+				$conversation = $conversation ?: (int) ( $e['ctx']['conversation_id'] ?? 0 );
+			}
+			if ( $conversation_id > 0 && $conversation !== $conversation_id ) {
+				continue;
+			}
+			// Same-second events (a fast turn) keep the order the turn really ran in: chain, then failure, then Goal Loop.
+			$order = array_flip( array_merge( self::TURN_CHAIN, array( 'bot_turn_failed', 'goal_loop_post_turn' ) ) );
+			usort( $events, static function ( $a, $b ) use ( $order ) {
+				return $a['at'] === $b['at']
+					? ( ($order[ $a['event'] ] ?? 99) <=> ($order[ $b['event'] ] ?? 99) )
+					: $a['at'] <=> $b['at'];
+			} );
+
+			$present = array();
+			$failed  = null;
+			$goal    = null;
+			$dropped = false;
+			$draft   = false;
+			$planner = '';
+			$rescued = 0;
+			$t = array( 'claimed' => 0, 'scheduled' => 0, 'debounce' => 0, 'cron' => 0, 'llm_ms' => null, 'dispatched' => 0, 'delivery_cb' => 0, 'first_claimed' => 0, 'messages' => 0, 'prep_ms' => null, 'plan_ms' => null, 'context_ms' => null, 'pre_send_ms' => null, 'dispatch_ms' => null );
+			$states  = array();
+			$compact = array();
+			foreach ( $events as $e ) {
+				$present[ $e['event'] ] = true;
+				$ctx = $e['ctx'];
+				if ( 'bot_turn_failed' === $e['event'] && null === $failed ) {
+					$failed = array( 'stage' => (string) ( $ctx['stage'] ?? '' ), 'reason_bucket' => (string) ( $ctx['reason_bucket'] ?? 'unknown' ), 'code' => (string) ( $ctx['code'] ?? '' ) );
+				}
+				// A burst of messages re-arms the debounce and shares ONE trace (the first claim's). The customer's wait runs from
+				// their LAST message, so `claimed` is the last claim; the first one only gives the span of the burst.
+				if ( 'bot_turn_claimed' === $e['event'] ) {
+					$t['messages']++;
+					if ( 0 === $t['first_claimed'] ) { $t['first_claimed'] = $e['at']; }
+					$t['claimed'] = $e['at'];
+				}
+				if ( 'bot_turn_scheduled' === $e['event'] && 'sweeper' === (string) ( $ctx['source'] ?? '' ) ) { $rescued++; } // the cron event was lost; the sweeper re-armed it
+				if ( 'bot_turn_scheduled' === $e['event'] ) { $t['scheduled'] = $e['at']; $t['debounce'] = (int) ( $ctx['delay_seconds'] ?? 0 ); } // the LAST one wins: a burst re-arms the timer.
+				if ( 'bot_turn_cron_started' === $e['event'] && ! empty( $ctx['ran'] ) ) { $t['cron'] = $e['at']; }
+				if ( 'bot_turn_llm_completed' === $e['event'] && isset( $ctx['latency_ms'] ) ) { $t['llm_ms'] = (int) $ctx['latency_ms']; }
+				if ( 'bot_turn_llm_completed' === $e['event'] && isset( $ctx['planner'] ) ) { $planner = (string) $ctx['planner']; }
+				if ( 'bot_turn_llm_completed' === $e['event'] ) {
+					foreach ( array( 'prep_ms', 'plan_ms', 'context_ms' ) as $phase ) {
+						if ( isset( $ctx[ $phase ] ) ) { $t[ $phase ] = (int) $ctx[ $phase ]; }
+					}
+				}
+				if ( 'bot_turn_dispatch_started' === $e['event'] && isset( $ctx['pre_send_ms'] ) && null === $t['pre_send_ms'] ) { $t['pre_send_ms'] = (int) $ctx['pre_send_ms']; }
+				if ( 'bot_turn_dispatch_completed' === $e['event'] && ! empty( $ctx['ok'] ) && null === $t['dispatch_ms'] && isset( $ctx['latency_ms'] ) ) { $t['dispatch_ms'] = (int) $ctx['latency_ms']; }
+				// A composer "Gợi ý" (or hybrid note) ends after the model on purpose: nothing is sent, so no dispatch is expected.
+				if ( 'bot_turn_llm_completed' === $e['event'] && ! empty( $ctx['ok'] ) && in_array( (string) ( $ctx['kind'] ?? '' ), array( 'draft', 'hybrid_note' ), true ) ) { $draft = true; }
+				if ( 'bot_turn_dispatch_completed' === $e['event'] && ! empty( $ctx['ok'] ) && 0 === $t['dispatched'] ) { $t['dispatched'] = $e['at']; }
+				if ( 'bot_turn_zalo_delivery' === $e['event'] && 'callback' === (string) ( $ctx['source'] ?? '' ) && in_array( (string) ( $ctx['state'] ?? '' ), array( 'sent', 'delivered' ), true ) && 0 === $t['delivery_cb'] ) { $t['delivery_cb'] = $e['at']; }
+				if ( 'goal_loop_post_turn' === $e['event'] ) {
+					$goal = array( 'state' => (string) ( $ctx['state'] ?? '' ), 'reason_bucket' => (string) ( $ctx['reason_bucket'] ?? '' ) );
+				}
+				// A worker that woke up and found the conditions gone (a human replied, office hours began) is intended
+				// silence, not a fault; `thread_busy` only parks the turn and it runs later.
+				if ( 'bot_turn_cron_started' === $e['event'] && empty( $ctx['ran'] ) && in_array( (string) ( $ctx['reason_bucket'] ?? '' ), array( 'conditions_changed', 'human_took_over' ), true ) ) {
+					$dropped = true;
+				}
+				if ( 'bot_turn_zalo_delivery' === $e['event'] ) {
+					$states[] = (string) ( $ctx['state'] ?? '' );
+				}
+				$compact[] = array_filter( array(
+					'stage'         => $e['event'],
+					'at'            => $e['at'] > 0 ? gmdate( 'c', $e['at'] ) : '',
+					'ok'            => array_key_exists( 'ok', $ctx ) ? (bool) $ctx['ok'] : null,
+					'state'         => isset( $ctx['state'] ) ? (string) $ctx['state'] : null,
+					'source'        => isset( $ctx['source'] ) ? (string) $ctx['source'] : null,
+					'reason_bucket' => isset( $ctx['reason_bucket'] ) ? (string) $ctx['reason_bucket'] : null,
+					// The machine code (e.g. crm_message_write_failed) says what a generic bucket like `http_error` cannot.
+					'code'          => isset( $ctx['code'] ) ? (string) $ctx['code'] : null,
+				), static function ( $v ) { return null !== $v && '' !== $v; } );
+			}
+
+			$delivery_state = 'none';
+			foreach ( array( 'delivered', 'sent', 'failed', 'accepted', 'replayed' ) as $rank ) {
+				if ( in_array( $rank, $states, true ) ) {
+					$delivery_state = $rank;
+					break;
+				}
+			}
+			$last_at  = (int) max( array_column( $events, 'at' ) );
+			$idle     = $now - $last_at;
+			$stopped  = '';
+			$missing  = '';
+			foreach ( self::TURN_CHAIN as $i => $stage ) {
+				if ( isset( $present[ $stage ] ) ) {
+					$stopped = $stage;
+					$missing = self::TURN_CHAIN[ $i + 1 ] ?? '';
+				}
+			}
+			if ( null !== $failed || 'failed' === $delivery_state ) {
+				$status = 'failed';
+			} elseif ( $dropped && ! isset( $present['bot_turn_llm_completed'] ) ) {
+				$status = 'dropped';
+			} elseif ( $draft && ! isset( $present['bot_turn_dispatch_started'] ) ) {
+				$status = 'draft'; // finished as designed: text went back to the staff member, not to the customer.
+			} elseif ( in_array( $delivery_state, array( 'delivered', 'sent' ), true ) ) {
+				$status = 'delivered';
+			} elseif ( 'accepted' === $delivery_state || 'replayed' === $delivery_state ) {
+				$status = 'accepted';
+			} else {
+				$status = $idle < $stall_seconds ? 'in_progress' : 'stalled';
+			}
+
+			$out[ $trace_id ] = array(
+				'trace_id'        => $trace_id,
+				'conversation_id' => $conversation,
+				'started_at'      => $events[0]['at'] > 0 ? gmdate( 'c', $events[0]['at'] ) : '',
+				'status'          => $status,
+				'passed'          => 'delivered' === $status,
+				'delivery_state'  => $delivery_state,
+				'stopped_after'   => $stopped,
+				'missing'         => in_array( $status, array( 'stalled', 'in_progress' ), true ) ? $missing : '',
+				'failure'         => $failed,
+				'goal_loop'       => $goal,
+				'timings'         => self::turn_timings( $t ),
+				'rescued'         => $rescued,
+				'planner'         => $planner ?: null,
+				'events'          => $compact,
+				'_sort'           => (int) $events[0]['at'],
+			);
+		}
+		uasort( $out, static function ( $a, $b ) { return $b['_sort'] <=> $a['_sort']; } );
+		foreach ( $out as &$item ) {
+			unset( $item['_sort'] );
+		}
+		unset( $item );
+		return array_values( $out );
 	}
 
 	/**

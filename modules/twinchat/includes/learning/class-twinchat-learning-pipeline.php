@@ -1038,7 +1038,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 		$plan_slug   = isset( $diag['user_plan'] )  ? (string) $diag['user_plan']  : '';
 		$plan_label  = isset( $diag['plan_label'] ) ? (string) $diag['plan_label'] : '';
 		$upgrade_url = isset( $diag['upgrade_url'] ) ? (string) $diag['upgrade_url'] : home_url( '/pricing' );
-		$admin_url   = isset( $diag['admin_url'] )  ? (string) $diag['admin_url']  : admin_url( 'admin.php?page=bizcity-kg-hub-settings' );
+		$admin_url   = isset( $diag['admin_url'] )  ? (string) $diag['admin_url']  : admin_url( 'admin.php?page=bizcity-twinkg&view=settings' );
 
 		// Emit ONE structured event for FE banner.
 		if ( $events && ! $already_paused ) {

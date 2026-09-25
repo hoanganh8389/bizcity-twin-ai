@@ -1103,7 +1103,7 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 		}
 
 		// (b) source-scrape add_passage() for the do_action call
-		$svc_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/knowledge/kg-hub/includes/class-kg-source-service.php';
+		$svc_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/kg-hub/includes/class-kg-source-service.php';
 		if ( is_readable( $svc_file ) ) {
 			$svc_src = (string) file_get_contents( $svc_file );
 			if ( preg_match( "/do_action\\(\\s*['\"]bizcity_twin_notebook_event['\"]\\s*,\\s*['\"]note_created['\"]/", $svc_src ) ) {

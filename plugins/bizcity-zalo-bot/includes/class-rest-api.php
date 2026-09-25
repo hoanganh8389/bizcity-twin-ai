@@ -1082,7 +1082,7 @@ class BizCity_Zalo_Bot_REST_API {
 
 	/**
 	 * List notebooks on the current site (for binding dropdown).
-	 * Reads `bizcity_kg_notebooks` directly — table is created by core/knowledge/kg-hub.
+	 * Reads `bizcity_kg_notebooks` directly — table is created by core/kg-hub.
 	 */
 	public function mgmt_list_notebooks( $request ) {
 		global $wpdb;

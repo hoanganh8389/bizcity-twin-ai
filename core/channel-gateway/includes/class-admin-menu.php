@@ -131,14 +131,14 @@ class BizCity_Gateway_Admin {
 				'label'       => 'WebChat',
 				'desc'        => 'Chat trực tiếp trên website cho khách hàng',
 				'icon'        => '🌐',
-				'status'      => class_exists( 'BizCity_WebChat_Trigger' ) || class_exists( 'BizCity_WebChat_Database' ),
+				'status'      => class_exists( 'BizCity_WebChat_Trigger' ),
 				'admin_page'  => '',
 			],
 			'adminchat' => [
 				'label'       => 'Admin Chat',
 				'desc'        => 'Chat nội bộ dành cho quản trị viên',
 				'icon'        => '👤',
-				'status'      => class_exists( 'BizCity_WebChat_Database' ),
+				'status'      => class_exists( 'BizCity_WebChat_Trigger' ),
 				'admin_page'  => '',
 			],
 		];

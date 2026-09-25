@@ -5820,7 +5820,7 @@ class BizCity_CRM_Sprint_Diagnostic {
 		);
 
 		// Quick check: adapter file on disk.
-		$adapter_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/knowledge/kg-hub/includes/adapters/class-liteparse-adapter.php';
+		$adapter_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/kg-hub/includes/adapters/class-liteparse-adapter.php';
 		$adapter_ok   = is_readable( $adapter_file );
 		$adapter_class = class_exists( 'BizCity_KG_LiteParse_Adapter', false );
 

@@ -896,6 +896,10 @@
     qr: 40,
     web: 50,
     'profile-public': 60,
+    // [2026-09-24 Johnny Chu] PHASE-TWINSHELL-NAV — Automation + Reminders follow the Twin Chat (brain) icon.
+    twinchat: 70,
+    workflow: 71,
+    scheduler: 72,
     skills: 900,
     settings: 910,
   };

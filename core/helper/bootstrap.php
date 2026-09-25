@@ -251,7 +251,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'indexed'            => true,
 	) );
 	BizCity_Log_Contract_Registry::register( 'core.knowledge.kg_source_progress', array(
-		'owner_module'       => 'core/knowledge/kg-hub',
+		'owner_module'       => 'core/kg-hub',
 		'label'              => 'KG source progress',
 		'jsonl_folder'       => 'bizcity-usage-logs',
 		'jsonl_module'       => 'kg-source-progress',
@@ -261,7 +261,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 	) );
 	// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — register KG cleanup audit as a canonical JSONL contract before SQL retirement.
 	BizCity_Log_Contract_Registry::register( 'core.knowledge.kg_cleanup_audit', array(
-		'owner_module'       => 'core/knowledge/kg-hub',
+		'owner_module'       => 'core/kg-hub',
 		'label'              => 'KG cleanup audit',
 		'jsonl_folder'       => 'bizcity-kg-logs',
 		'jsonl_module'       => 'cleanup',
@@ -310,7 +310,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'indexed'            => true,
 	) );
 	BizCity_Log_Contract_Registry::register( 'core.knowledge.notebook_bridge', array(
-		'owner_module'       => 'core/knowledge/kg-hub',
+		'owner_module'       => 'core/kg-hub',
 		'label'              => 'KG notebook bridge lifecycle',
 		'jsonl_folder'       => 'bizcity-notebook-bridge-logs',
 		'jsonl_module'       => 'capture-lifecycle',
@@ -393,7 +393,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'indexed'            => true,
 	) );
 	BizCity_Log_Contract_Registry::register( 'core.knowledge.kg_skeleton_trace', array(
-		'owner_module'       => 'core/knowledge/kg-hub',
+		'owner_module'       => 'core/kg-hub',
 		'label'              => 'KG notebook skeleton trace',
 		'jsonl_folder'       => 'bizcity-kg-logs',
 		'jsonl_module'       => 'skeleton',

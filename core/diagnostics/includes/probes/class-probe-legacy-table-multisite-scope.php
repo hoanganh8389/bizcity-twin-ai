@@ -52,7 +52,7 @@ final class BizCity_Probe_Legacy_Table_Multisite_Scope implements BizCity_Diagno
         $base_drop_refused = ! BizCity_Legacy_Table_Policy::can_drop( 'bizcity_google_usage_logs' );
         $emit( 'Global/base-prefix cleanup is refused by per-blog path', $base_drop_refused, $base_drop_refused ? 'Network owner is required for base-prefix cleanup.' : 'Per-blog path can drop a global table.' );
 
-        $kg_file = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 4 ) . '/' ) . 'core/knowledge/kg-hub/includes/class-kg-source-progress-log.php';
+        $kg_file = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 4 ) . '/' ) . 'core/kg-hub/includes/class-kg-source-progress-log.php';
         $kg_source = is_readable( $kg_file ) ? (string) file_get_contents( $kg_file ) : '';
         $restore_ok = strpos( $kg_source, 'switch_to_blog' ) !== false && strpos( $kg_source, 'finally' ) !== false && strpos( $kg_source, 'restore_current_blog' ) !== false;
         $emit( 'Legacy migration restores the original blog in finally', $restore_ok, $restore_ok ? 'KG cleanup has switch/restore exception safety.' : 'Switch/restore finally contract is missing.' );

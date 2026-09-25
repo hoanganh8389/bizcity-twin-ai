@@ -28,6 +28,17 @@ class BizCity_TwinChat_Notes_Service {
 	const BUSINESS_CONTRACT_ID = 'modules.twinchat.memory_notes';
 	const ALLOWED_TYPES = [ 'manual', 'chat_pinned', 'auto_pinned', 'studio_generated', 'research_auto' ];
 
+	/** @var self|null */
+	private static $instance = null;
+
+	// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — KG-Hub skeleton, Studio input builder and the context bundle call instance().
+	public static function instance(): self {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
+
 	// ── CRUD ───────────────────────────────────────────────────────────
 
 	public function create( array $data ) {

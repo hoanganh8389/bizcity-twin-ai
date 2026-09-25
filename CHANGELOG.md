@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI evidence boundary — private test and diagnostics files are not published - 2026-09-25
+
+> Stamp: `[2026-09-25 Claude Sonnet 5]` · workflow: `.github/workflows/ci.yml`
+
+`core/diagnostics/` (engine, schema changelog, probes) and the top-level `tests/` tree (PHPUnit, fixtures, baselines) stay in the private workspace and on the VPS for internal testing. They are **not published to GitHub**.
+
+The workflow detects them (`detect` job) and gates every step that reads them: with the files present (a full workspace or a self-hosted runner) the step runs; without them (public GitHub) it is **SKIPPED**. **SKIP is not PASS**: a green public run does **not** verify the skipped gates, and the `evidence-boundary` job prints, in every run summary, which gates ran and which were skipped.
+
+Not verified by a public GitHub run: PHPUnit contract tests (`composer test`); every `*-fixtures` validator; the ownership / parity validators that need a `tests/fixtures/*/baseline.json` (DDL table parity, capability receipts, manifest capability parity, channel zone and identity, CRM ownership and contracts, file-first channel logging, sender ownership, Context Bank / KG ownership, TwinBrain vertical bridge ownership, provider gateway isolation, Brain retrieval facade ownership, KG reranker ownership); legacy table lifecycle gates; R-DCL schema changelog validation; the Diagnostics CLI runner (mock mode), `wp bizcity health` and the framework smoke. The ownership validators are gated, not weakened: without their baseline they would report every known item as new.
+
+Always run, public or private: public contract JSON and fixtures, SDK build and release metadata, plugin contract registry, agent-instruction parity, framework contract audit, R-SAFE-LOADER bootstrap rule, PHP 7.4 / 8.1 / 8.2 syntax, PHP 7.4 compatibility and R-GW-8 grep guards, the shipped-tree static checks, the strict JSONL parity scan, the reference-plugin diagnostics check, HOOKS.md coverage, SDK package smoke.
+
+Release claim: a build published from GitHub is **not** labelled as verified for the skipped gates. Runtime-sensitive evidence comes from the private workspace / VPS runs, the separate Diagnostics package and the browser self-check (`docs/tools/core-reduction-selfcheck.js`).
+
 ### PHASE-0.60A/B/C/D — Bot Studio: AI assistant replies on Zalo Personal - 2026-09-23
 
 > Stamp: `[2026-09-23 05:40 PM Claude Fable 5.1]` · docs: `core/channel-gateway/docs/PHASE-0.60A..D-*.md`

@@ -27,7 +27,7 @@ final class BizCity_Diagnostics_Installer_Resolver {
 
 	/** Manual owner → installer-id heuristics (substring match). */
 	private static $owner_map = [
-		'core/knowledge/kg-hub'      => 'kg_hub',
+		'core/kg-hub'      => 'kg_hub',
 		'core/knowledge'             => 'knowledge',
 		'core/intent'                => 'intent',
 		'core/twin-core'             => 'twin_state',
@@ -43,6 +43,8 @@ final class BizCity_Diagnostics_Installer_Resolver {
 		'modules/twinchat/learning'  => 'kg_hub',
 		'modules/twinchat/studio'    => 'studio_job',
 		'modules/webchat'            => 'webchat',
+		// [2026-09-24 Claude Opus 5.5] CORE-REDUCTION WP-11 C0b — the store's tables are owned by core/conversation; installer id stays `webchat` (persisted state).
+		'core/conversation'          => 'webchat',
 		'plugins/bizcity-twin-crm'   => 'crm',
 		'plugins/bizgpt-tool-google' => 'tool_google',
 	];

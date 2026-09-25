@@ -323,7 +323,10 @@ function twf_process_flow_from_params($params, $client_id='', $platform='') {
 			if (is_string($weekdays)) {
 				$weekdays = array_map('trim', explode(',', $weekdays));
 			}
-			if ($chu_de && $hours) {
+			// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — the scheduler function is defined nowhere in the bundle; answer instead of fataling.
+			if ($chu_de && $hours && ! function_exists('bizgpt_add_facebook_schedule_ai')) {
+				$msg = "Tính năng lên lịch đăng bài Facebook tự động hiện chưa khả dụng.";
+			} elseif ($chu_de && $hours) {
 				bizgpt_add_facebook_schedule_ai($chu_de, $hours, $weekdays);
 				$msg = "Đã lên lịch đăng bài Facebook tự động với chủ đề: *$chu_de* vào các khung giờ: " . implode(', ', $hours) . " vào các ngày: " . implode(', ', $weekdays) . ". Nội dung và ảnh sẽ được AI tạo tự động.";
 			} else {

@@ -150,8 +150,62 @@ if ( file_exists( __DIR__ . '/core/diagnostics/includes/class-qm-loader-integrat
     require_once __DIR__ . '/core/diagnostics/includes/class-qm-loader-integration.php';
 }
 
-// [2026-08-07 Johnny Chu] R-AUTO-MU — sync the bundled early loader before normal plugin boot after a Git pull.
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1c — the mu-plugin compat loader is retired: this plugin loads
+// everything it used to preload, so activating bizcity-twin-ai alone is enough. Remove a deployed copy left in
+// mu-plugins/ (only our own file, recognised by its version marker). Replaces the R-AUTO-MU copy step.
 add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'sync_compat_loader' ], -100 );
+
+// Ported from the retired compat loader: silence WP 6.7+ "translation loaded too early" notices for this text
+// domain only (200+ early __() call sites; WordPress still JIT-loads the translation correctly).
+add_filter( 'doing_it_wrong_trigger_error', static function ( $trigger, $function_name, $message ) {
+    if ( '_load_textdomain_just_in_time' === $function_name && is_string( $message ) && false !== strpos( $message, 'bizcity-twin-ai' ) ) {
+        return false;
+    }
+    return $trigger;
+}, 10, 3 );
+
+// Ported from the retired compat loader: bundled plugins under plugins/ are booted by this plugin, never activated
+// on their own; drop stale activation entries (except the three manual-activation extensions) on admin requests.
+if ( ! function_exists( 'bizcity_twin_cleanup_bundled_activation_entries' ) ) {
+    function bizcity_twin_cleanup_bundled_activation_entries() {
+        $slug            = defined( 'BIZCITY_TWIN_AI_SLUG' ) ? BIZCITY_TWIN_AI_SLUG : basename( __DIR__ );
+        $prefix          = $slug . '/plugins/';
+        $manual_prefixes = array( $prefix . 'bizcity-tool-content/', $prefix . 'bizcity-tool-image/', $prefix . 'bizcity-content-creator/' );
+        $is_manual       = static function ( $plugin ) use ( $manual_prefixes ) {
+            foreach ( $manual_prefixes as $manual_prefix ) {
+                if ( is_string( $plugin ) && 0 === strpos( $plugin, $manual_prefix ) && is_file( WP_PLUGIN_DIR . '/' . $plugin ) ) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        $active = (array) get_option( 'active_plugins', array() );
+        $clean  = array();
+        foreach ( $active as $plugin ) {
+            if ( ! is_string( $plugin ) || 0 !== strpos( $plugin, $prefix ) || $is_manual( $plugin ) ) {
+                $clean[] = $plugin;
+            }
+        }
+        $clean = array_values( array_unique( $clean ) );
+        if ( count( $clean ) !== count( $active ) ) {
+            update_option( 'active_plugins', $clean );
+        }
+        if ( is_multisite() ) {
+            $network = (array) get_site_option( 'active_sitewide_plugins', array() );
+            $changed = false;
+            foreach ( array_keys( $network ) as $plugin ) {
+                if ( is_string( $plugin ) && 0 === strpos( $plugin, $prefix ) && ! $is_manual( $plugin ) ) {
+                    unset( $network[ $plugin ] );
+                    $changed = true;
+                }
+            }
+            if ( $changed ) {
+                update_site_option( 'active_sitewide_plugins', $network );
+            }
+        }
+    }
+}
+add_action( 'admin_init', 'bizcity_twin_cleanup_bundled_activation_entries', 1 );
 
 // PHASE-0.41 L3 — REST_Error trait must load BEFORE any controller that
 // `use`s it (research/twinbrain/twinchat-sources). Diagnostics bootstrap
@@ -247,6 +301,15 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
         BizCity_Safe_Loader::require_file( $_bizcity_helper_bootstrap, 'core.helper.bootstrap' );
     }
     unset( $_bizcity_helper_bootstrap );
+    // [2026-09-24 Claude Opus 5.5] CORE-REDUCTION WP-11 C1a / R-INTENT-MIN R-IM-6 — the shared message store
+    // (bizcity_webchat_* tables: TwinChat, Twin GPT, Channel Gateway, CRM, profile) has its own owner now that
+    // modules/webchat is archived. Declarations + one gated schema check only; loaded on every surface (except the TwinChat admin shell, like helper) because
+    // webhooks and public /gpt/ pages write messages too (the old webchat gate skipped /zalohook/ and /facehook/).
+    $_bizcity_conversation_bootstrap = __DIR__ . '/core/conversation/bootstrap.php';
+    if ( class_exists( 'BizCity_Safe_Loader', false ) && is_file( $_bizcity_conversation_bootstrap ) && is_readable( $_bizcity_conversation_bootstrap ) ) {
+        BizCity_Safe_Loader::require_file( $_bizcity_conversation_bootstrap, 'core.conversation.bootstrap' );
+    }
+    unset( $_bizcity_conversation_bootstrap );
     // [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — make taxonomy-gated event registration available before extension plugins boot.
     $bizcity_event_contract_dir = __DIR__ . '/core/twin-core/event-stream';
     if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
@@ -334,6 +397,12 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 				|| ( ! empty( $_POST['_wpcf7'] ) )
 			)
 		);
+}
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1c — ported from the retired mu-plugin compat loader (it defined
+// $_bizcity_admin_ctx first, so this rule was in force): Zalo/CRM magic-link landings (?bzzalolink=, ?zid=, return cookie)
+// are plain frontend GETs that still need knowledge + channel code to consume the token.
+if ( ! empty( $_GET['bzzalolink'] ) || ! empty( $_GET['zid'] ) || ! empty( $_COOKIE['bizcity_crm_magic_link_return'] ) ) {
+	$_bizcity_admin_ctx = true;
 }
 
 // [2026-08-09 Johnny Chu] R-PERF — Knowledge is needed by admin/REST/webhook runtime, not plain frontend HTML.
@@ -489,14 +558,15 @@ $_bizcity_intent_ajax_request = false;
 if ( isset( $_REQUEST['action'] ) && is_scalar( $_REQUEST['action'] ) ) {
     $bizcity_intent_ajax_action = sanitize_key( (string) wp_unslash( $_REQUEST['action'] ) );
     $_bizcity_intent_ajax_request = 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_intent' )
-        || 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_chat' )
-        || 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_webchat' )
-        || 0 === strpos( $bizcity_intent_ajax_action, 'bizc_pipeline' )
-        || 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_rolling_memory' )
-        || 'bizcity_project_move_conv' === $bizcity_intent_ajax_action;
+        // [2026-09-25 Claude Opus 5.5] WP-11 C2 — bizcity_chat* AJAX (Chat_Gateway send/stream/history) is path C.
+        || ( defined( 'BIZCITY_LEGACY_PATH_C' ) && BIZCITY_LEGACY_PATH_C && 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_chat' ) )
+        // [2026-09-25 Claude Opus 5.5] WP-11 C1b — bizcity_webchat* / bizc_pipeline* / bizcity_project_move_conv were webchat-only (archived).
+        || 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_rolling_memory' );
     unset( $bizcity_intent_ajax_action );
 }
-$_bizcity_intent_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C2 — the public intent pages are path C; only with BIZCITY_LEGACY_PATH_C.
+$_bizcity_intent_public_request = defined( 'BIZCITY_LEGACY_PATH_C' ) && BIZCITY_LEGACY_PATH_C
+    && ! empty( $_SERVER['REQUEST_URI'] )
     && preg_match( '#/(?:tools-map|tool-control-panel|tool-stats|tasks|chat-sessions)(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
 $_bizcity_intent_runtime_request = $_bizcity_intent_public_request
     || ( $_bizcity_admin_ctx && ( ! is_admin()
@@ -726,10 +796,7 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_agent_public_request )
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/runtime/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/runtime/bootstrap.php';
 }
-// Phase 0.16 / Vòng 4 — Intent Shell (foundation only, not yet wired into Intent_Engine)
-if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/intent/shell/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/intent/shell/bootstrap.php';
-}
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Intent Shell (shadow mode) retired (D-27); core/intent/shell/* renamed *_deleted.php.
 
 // Phase 0.18.1 — Guru Research Studio (Tavily ReAct port; multi-scope: character | user)
 // REST routes only → admin_ctx (REST gate) is sufficient; not needed on HTML renders.
@@ -920,8 +987,7 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     $_bizcity_crm_api_ready = ! $_bizcity_is_crm_bundle
         || ( defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' )
             && 'surfaces_for@1' === BIZCITY_CRM_MUSTLOAD_CONTRACT
-            && class_exists( 'BizCity_CRM_Admin_Menu', false )
-            && method_exists( 'BizCity_CRM_Admin_Menu', 'surfaces_for' ) );
+            && class_exists( 'BizCity_CRM_Plugin', false ) );
     // [2026-09-22 09:30 AM GitHub Copilot] PHASE-CRM-MUSTLOAD — a version
     // constant alone is not proof that the bundled CRM runtime is loaded. A
     // stale MU/regular-plugin loader may define BIZCITY_CRM_VERSION first and
@@ -965,20 +1031,21 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         && class_exists( 'BizCity_Safe_Loader', false ) ) {
         BizCity_Safe_Loader::require_file( $_bundled_file, 'bundled.' . $_slug );
     }
-    if ( $_bizcity_is_crm_bundle && ( ! defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' ) || ! class_exists( 'BizCity_CRM_Plugin', false ) || ! method_exists( 'BizCity_CRM_Admin_Menu', 'surfaces_for' ) ) ) {
-        // [2026-09-23 Claude Sonnet 5] HOTFIX — this was firing on nearly every single request
-        // (multiple times per second in bps_php_error.log). Root cause: `bizcity-twin-crm.php`
-        // early-returns on a `?page=bizcity-twinchat` admin request BEFORE it ever defines
-        // BizCity_CRM_Admin_Menu — and require_once dedupes by file path regardless of what that
-        // first run actually did. Any PHP-FPM worker whose first-ever require of that file was a
-        // twinchat-admin request is stuck never loading the CRM contract for the rest of its
-        // life. That's a real bug to fix in bizcity-twin-crm.php's own load order (load the
-        // admin-menu contract before the early return, not just the heavy bootstrap after it) —
-        // until then, throttle the log instead of spamming it every request.
-        if ( function_exists( 'get_transient' ) && function_exists( 'set_transient' ) && false === get_transient( 'bizcity_crm_mustload_warn' ) ) {
-            set_transient( 'bizcity_crm_mustload_warn', 1, 5 * MINUTE_IN_SECONDS );
-            error_log( '[BizCity_Twin_AI] CRM mandatory bundle contract is not ready; check for a stale or partial CRM artifact set.' );
-        }
+    if ( $_bizcity_is_crm_bundle
+        && ! $_bizcity_twinchat_admin_shell_request
+        && ! defined( 'BIZCITY_CRM_MUSTLOAD_RUNTIME_CHECK_REGISTERED' ) ) {
+        // [2026-09-24 11:28 PM GitHub Copilot] PHASE-CRM-MUSTLOAD — the CRM plugin declares its contract and class before plugins_loaded, but Admin_Menu is loaded during CRM boot. Defer the readiness check until after the CRM boot callback instead of logging a false partial-artifact warning on every request.
+        add_action( 'plugins_loaded', static function () {
+            if ( defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' )
+                && 'surfaces_for@1' === BIZCITY_CRM_MUSTLOAD_CONTRACT
+                && class_exists( 'BizCity_CRM_Plugin', false )
+                && class_exists( 'BizCity_CRM_Admin_Menu', false )
+                && method_exists( 'BizCity_CRM_Admin_Menu', 'surfaces_for' ) ) {
+                return;
+            }
+            error_log( '[BizCity_Twin_AI] CRM mandatory bundle contract is not ready after plugins_loaded; check for a stale or partial CRM artifact set.' );
+        }, 7 );
+        define( 'BIZCITY_CRM_MUSTLOAD_RUNTIME_CHECK_REGISTERED', true );
     }
     unset( $_bizcity_is_crm_bundle, $_bizcity_crm_api_ready );
 }
@@ -1032,90 +1099,26 @@ register_deactivation_hook( __FILE__, static function () {
 
 unset( $_bizcity_twinchat_admin_shell_request );
 
-// ── Compat Loader Check ──────────────────────────────────────────────────────
-// Cảnh báo admin nếu bizcity-twin-compat.php chưa được copy vào mu-plugins/.
-// Không có file này → Intent providers, Market Catalog, và TouchBar sẽ lỗi.
+// ── Compat Loader retirement check ───────────────────────────────────────────
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1c — mu-plugins/bizcity-twin-compat.php is retired; activating
+// bizcity-twin-ai is enough. BizCity_Twin_AI::sync_compat_loader() deletes a leftover deployed copy on every boot;
+// admins only see a notice when that delete failed (read-only mu-plugins/), with the manual fix.
 add_action( 'admin_notices', 'bizcity_twin_ai_notice_compat_loader' );
-add_action( 'admin_init',    'bizcity_twin_ai_maybe_copy_compat_loader' );
 
 // ── Changelog Dashboard — archived 2026-06-01, moved to changelog/_archived/ ─
 
 function bizcity_twin_ai_notice_compat_loader(): void {
-    if ( ! current_user_can( 'manage_options' ) ) {
+    if ( ! current_user_can( 'manage_options' ) || ! defined( 'WPMU_PLUGIN_DIR' ) ) {
         return;
     }
-
-    $compat_status = BizCity_Twin_AI::compat_loader_status();
-    $dest = WPMU_PLUGIN_DIR . '/bizcity-twin-compat.php';
-    $src  = BIZCITY_TWIN_AI_DIR . 'mu-plugin/bizcity-twin-compat.php';
-
-    // [2026-08-26 Johnny Chu] R-AUTO-MU — version match is the canonical current-state check; source/deployed comments may differ harmlessly.
-    if ( ! empty( $compat_status['current'] ) ) {
+    $dest = rtrim( WPMU_PLUGIN_DIR, '/\\' ) . '/bizcity-twin-compat.php';
+    if ( ! is_file( $dest ) ) {
         return;
     }
-
-    // Missing entirely
-    if ( ! file_exists( $dest ) ) {
-        $copy_url = wp_nonce_url(
-            add_query_arg( 'bizcity_copy_compat', '1', admin_url() ),
-            'bizcity_copy_compat'
-        );
-
-        echo '<div class="notice notice-error">';
-        // [2026-09-02 06:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-BRAND — standardize the product name in loader diagnostics.
-        echo '<p><strong>⚠ BTCare Twin Brain:</strong> Missing mu-plugin loader '
-           . '<code>mu-plugins/bizcity-twin-compat.php</code>. '
-           . 'Without this file, Intent Providers, Market Catalog and TouchBar will not work.'
-           . '<br><small>Thiếu file mu-plugin loader. Không có file này, các tính năng chính sẽ không hoạt động.</small></p>';
-
-        $dest_dir = rtrim( WPMU_PLUGIN_DIR, '/\\' );
-        if ( file_exists( $src ) && is_writable( $dest_dir ) ) {
-            echo '<p><a href="' . esc_url( $copy_url ) . '" class="button button-primary">'
-               . 'Auto-copy to mu-plugins/</a></p>';
-        } else {
-            echo '<p>Manual copy:<br>'
-               . '<code>cp plugins/bizcity-twin-ai/mu-plugin/bizcity-twin-compat.php mu-plugins/bizcity-twin-compat.php</code></p>';
-        }
-        echo '</div>';
-        return;
-    }
-
-    // Exists but outdated
-    if ( file_exists( $src ) && md5_file( $src ) !== md5_file( $dest ) ) {
-        $copy_url = wp_nonce_url(
-            add_query_arg( 'bizcity_copy_compat', '1', admin_url() ),
-            'bizcity_copy_compat'
-        );
-
-        $dest_dir = rtrim( WPMU_PLUGIN_DIR, '/\\' );
-        echo '<div class="notice notice-warning">';
-        echo '<p><strong>🔄 BTCare Twin Brain:</strong> The mu-plugin loader is outdated. '
-           . 'Please update to match the current plugin version.'
-           . '<br><small>File mu-plugin loader đã cũ. Cần cập nhật cho đồng bộ với phiên bản plugin hiện tại.</small></p>';
-
-        if ( is_writable( $dest_dir ) ) {
-            echo '<p><a href="' . esc_url( $copy_url ) . '" class="button button-primary">'
-               . 'Update mu-plugin now</a></p>';
-        }
-        echo '</div>';
-    }
-}
-
-function bizcity_twin_ai_maybe_copy_compat_loader(): void {
-    if ( ! isset( $_GET['bizcity_copy_compat'] ) ) {
-        return;
-    }
-    if ( ! check_admin_referer( 'bizcity_copy_compat' ) ) {
-        return;
-    }
-    if ( ! current_user_can( 'manage_options' ) ) {
-        return;
-    }
-
-    BizCity_Twin_AI::sync_compat_loader();
-
-    wp_safe_redirect( add_query_arg( 'bizcity_compat_copied', '1', admin_url() ) );
-    exit;
+    echo '<div class="notice notice-warning"><p><strong>BTCare Twin Brain:</strong> '
+       . 'The early loader <code>mu-plugins/bizcity-twin-compat.php</code> is retired and could not be removed automatically '
+       . '(the folder is not writable). Delete that file — the plugin works without it.'
+       . '<br><small>File mu-plugin cũ không còn cần thiết nhưng không tự xóa được; hãy xóa thủ công.</small></p></div>';
 }
 
 // [2026-06-04 Johnny Chu] HOTFIX — removed temporary debug notice (was always visible for admins).

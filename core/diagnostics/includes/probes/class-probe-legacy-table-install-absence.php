@@ -145,7 +145,7 @@ final class BizCity_Probe_Legacy_Table_Install_Absence implements BizCity_Diagno
 		// (core/skills/includes/class-skill-database.php) is deliberately NOT listed: it builds
 		// DDL for `bizcity_skills` only, which is an active table, so it has no legacy installer
 		// to keep fail-closed.
-		'core/knowledge/kg-hub/includes/class-kg-cleanup-service.php',
+		'core/kg-hub/includes/class-kg-cleanup-service.php',
 		'core/intent/includes/conversation/class-rolling-memory.php',
 		'core/intent/includes/conversation/class-episodic-memory.php',
 		'core/intent/includes/orchestration/class-intent-engine.php',

@@ -91,8 +91,8 @@ vendor/
 # Phase 0.42 — LiteParse layout-preserving adapter (private/optional addon).
 # Kept OUT of public repo: deployed to Linux VPS via scp; absent on most clones.
 # Registry + bootstrap both guard with file_exists() so vắng file = no-op.
-/core/knowledge/kg-hub/includes/adapters/class-liteparse-adapter.php
-/core/knowledge/kg-hub/includes/adapters/liteparse-sidecar.py
+/core/kg-hub/includes/adapters/class-liteparse-adapter.php
+/core/kg-hub/includes/adapters/liteparse-sidecar.py
 /core/diagnostics/includes/probes/class-probe-liteparse.php
 
 # R-AGENT-PARITY — private agent instructions and generated local indexes.
@@ -102,3 +102,10 @@ vendor/
 /.github/instructions/*.local.instructions.md
 /docs/AGENT-DOC-CATALOG.local.md
 /CLAUDE.local.md
+
+# Private evidence (2026-09-25) — stays in the workspace and on the VPS (deployed by scp), NOT published to GitHub.
+# core/diagnostics = Diagnostics engine, schema changelog (R-DCL source) and probes; tests = PHPUnit, fixtures, baselines.
+# Runtime never requires them: the only hard dependency (trait BizCity_REST_Error) lives in core/helper; the other
+# users guard with file_exists / class_exists. Without them, GitHub CI SKIPs their gates (see .github/workflows/ci.yml).
+/core/diagnostics/
+/tests/

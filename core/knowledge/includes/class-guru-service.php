@@ -182,17 +182,17 @@ class BizCity_Knowledge_Guru_Service {
 		if ( array_key_exists( 'name', $input ) ) {
 			$name = trim( sanitize_text_field( (string) $input['name'] ) );
 			if ( '' === $name ) {
-				return $this->error( 'invalid_name', 'Tên Guru không được để trống.', 422 );
+				return $this->error( 'invalid_name', 'Guru name cannot be empty.', 422 );
 			}
 			$data['name'] = $name;
 		}
 		if ( array_key_exists( 'slug', $input ) ) {
 			$slug = sanitize_title( (string) $input['slug'] );
 			if ( '' === $slug ) {
-				return $this->error( 'invalid_slug', 'Slug không được để trống.', 422 );
+				return $this->error( 'invalid_slug', 'Slug cannot be empty.', 422 );
 			}
 			if ( $this->slug_taken( $slug, $id ) ) {
-				return $this->error( 'slug_taken', 'Slug đã được dùng bởi Guru khác.', 409 );
+				return $this->error( 'slug_taken', 'This slug is already used by another Guru.', 409 );
 			}
 			$data['slug'] = $slug;
 		}
@@ -205,7 +205,7 @@ class BizCity_Knowledge_Guru_Service {
 		if ( array_key_exists( 'status', $input ) ) {
 			$status = sanitize_key( (string) $input['status'] );
 			if ( ! in_array( $status, self::STATUSES, true ) ) {
-				return $this->error( 'invalid_status', 'Trạng thái không hợp lệ.', 422 );
+				return $this->error( 'invalid_status', 'Status is not valid.', 422 );
 			}
 			$data['status'] = $status;
 		}
@@ -221,13 +221,13 @@ class BizCity_Knowledge_Guru_Service {
 		}
 		if ( array_key_exists( 'greeting_messages', $input ) ) {
 			if ( ! is_array( $input['greeting_messages'] ) ) {
-				return $this->error( 'invalid_greeting_messages', 'greeting_messages phải là mảng.', 422 );
+				return $this->error( 'invalid_greeting_messages', 'greeting_messages must be an array.', 422 );
 			}
 			$data['greeting_messages'] = wp_json_encode( $this->sanitize_deep( array_values( $input['greeting_messages'] ) ), JSON_UNESCAPED_UNICODE );
 		}
 		if ( array_key_exists( 'capabilities', $input ) ) {
 			if ( ! is_array( $input['capabilities'] ) ) {
-				return $this->error( 'invalid_capabilities', 'capabilities phải là mảng.', 422 );
+				return $this->error( 'invalid_capabilities', 'capabilities must be an array.', 422 );
 			}
 			$data['capabilities'] = array_values( array_filter( array_map( 'sanitize_text_field', array_map( 'strval', $input['capabilities'] ) ), 'strlen' ) );
 		}
@@ -235,7 +235,7 @@ class BizCity_Knowledge_Guru_Service {
 			if ( array_key_exists( $key, $input ) ) {
 				$value = sanitize_key( (string) $input[ $key ] );
 				if ( ! in_array( $value, $allowed, true ) ) {
-					return $this->error( 'invalid_' . $key, $key . ' không hợp lệ.', 422 );
+					return $this->error( 'invalid_' . $key, $key . ' is not valid.', 422 );
 				}
 				$data[ $key ] = $value;
 			}
@@ -277,7 +277,7 @@ class BizCity_Knowledge_Guru_Service {
 		if ( $data ) {
 			$result = BizCity_Knowledge_Database::instance()->update_character( $id, $data );
 			if ( is_wp_error( $result ) ) {
-				return $this->error( 'db_error', $result->get_error_message(), 500 );
+				return $this->db_error( $result->get_error_message() );
 			}
 		}
 
@@ -323,7 +323,7 @@ class BizCity_Knowledge_Guru_Service {
 			}, $active );
 			return new WP_Error(
 				'guru_on_channel',
-				'Guru đang trực kênh: ' . implode( ', ', $labels ) . '. Đổi Guru cho các kênh này trong Bot Studio trước khi xoá.',
+				'This Guru is serving channels: ' . implode( ', ', $labels ) . '. Switch those channels to another Guru in Bot Studio before deleting.',
 				array( 'status' => 409, 'channels' => $active )
 			);
 		}
@@ -346,7 +346,7 @@ class BizCity_Knowledge_Guru_Service {
 
 		$deleted = BizCity_Knowledge_Database::instance()->delete_character( $id );
 		if ( false === $deleted ) {
-			return $this->error( 'db_error', (string) $wpdb->last_error, 500 );
+			return $this->db_error( (string) $wpdb->last_error );
 		}
 		if ( class_exists( 'BizCity_TwinBrain_Guru_Policy' ) ) {
 			BizCity_TwinBrain_Guru_Policy::invalidate( $id );
@@ -392,7 +392,7 @@ class BizCity_Knowledge_Guru_Service {
 
 		$new_id = $db->create_character( $data );
 		if ( is_wp_error( $new_id ) ) {
-			return $this->error( 'db_error', $new_id->get_error_message(), 500 );
+			return $this->db_error( $new_id->get_error_message() );
 		}
 		$new_id = (int) $new_id;
 
@@ -434,7 +434,7 @@ class BizCity_Knowledge_Guru_Service {
 	public function slug_check( string $name, string $slug, int $exclude_id = 0 ) {
 		$slug = sanitize_title( '' !== trim( $slug ) ? $slug : $name );
 		if ( '' === $slug ) {
-			return $this->error( 'invalid_slug', 'Cần tên hoặc slug để kiểm tra.', 422 );
+			return $this->error( 'invalid_slug', 'A name or slug is required to check.', 422 );
 		}
 		$exists = $this->slug_taken( $slug, $exclude_id );
 		return array(
@@ -449,11 +449,11 @@ class BizCity_Knowledge_Guru_Service {
 	/** @return array|WP_Error { models[] } */
 	public function models() {
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
-			return $this->error( 'gateway_missing', 'BizCity_LLM_Client chưa được nạp.', 503 );
+			return $this->error( 'gateway_missing', 'The AI gateway client is not loaded.', 503 );
 		}
 		$client = BizCity_LLM_Client::instance();
 		if ( ! $client->is_ready() ) {
-			return $this->error( 'gateway_not_ready', 'BizCity API key chưa cấu hình (gateway).', 503 );
+			return $this->error( 'gateway_not_ready', 'The BizCity API key is not configured for the gateway.', 503 );
 		}
 
 		$cached = get_transient( self::MODELS_TRANSIENT );
@@ -463,7 +463,7 @@ class BizCity_Knowledge_Guru_Service {
 
 		$raw = $client->get_available_models();
 		if ( empty( $raw ) || ! is_array( $raw ) ) {
-			return $this->error( 'gateway_bad_response', 'Gateway không trả về danh sách model.', 502 );
+			return $this->error( 'gateway_bad_response', 'The gateway did not return a model list.', 502 );
 		}
 		$models = array();
 		foreach ( $raw as $m ) {
@@ -503,7 +503,7 @@ class BizCity_Knowledge_Guru_Service {
 		$title   = sanitize_text_field( $title );
 		$content = sanitize_textarea_field( $content );
 		if ( '' === $title && '' === $content ) {
-			return $this->error( 'empty_row', 'Cần tiêu đề hoặc nội dung.', 422 );
+			return $this->error( 'empty_row', 'A title or content is required.', 422 );
 		}
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_knowledge_sources';
@@ -524,10 +524,10 @@ class BizCity_Knowledge_Guru_Service {
 				$id
 			) );
 			if ( ! $owned ) {
-				return $this->error( 'faq_not_found', 'Không tìm thấy dòng FAQ của Guru này.', 404 );
+				return $this->error( 'faq_not_found', 'That FAQ row was not found for this Guru.', 404 );
 			}
 			if ( false === $wpdb->update( $table, $cols, array( 'id' => $source_id ) ) ) {
-				return $this->error( 'db_error', (string) $wpdb->last_error, 500 );
+				return $this->db_error( (string) $wpdb->last_error );
 			}
 			return array( 'id' => $source_id, 'op' => 'updated', 'title' => $title, 'content' => $content );
 		}
@@ -536,7 +536,7 @@ class BizCity_Knowledge_Guru_Service {
 		$cols['source_type']  = 'quick_faq';
 		$cols['created_at']   = $now;
 		if ( false === $wpdb->insert( $table, $cols ) || ! $wpdb->insert_id ) {
-			return $this->error( 'db_error', (string) $wpdb->last_error, 500 );
+			return $this->db_error( (string) $wpdb->last_error );
 		}
 		return array( 'id' => (int) $wpdb->insert_id, 'op' => 'created', 'title' => $title, 'content' => $content );
 	}
@@ -553,7 +553,7 @@ class BizCity_Knowledge_Guru_Service {
 			array( 'id' => $source_id, 'character_id' => $id, 'source_type' => 'quick_faq' )
 		);
 		if ( 0 === $deleted ) {
-			return $this->error( 'faq_not_found', 'Không tìm thấy dòng FAQ của Guru này.', 404 );
+			return $this->error( 'faq_not_found', 'That FAQ row was not found for this Guru.', 404 );
 		}
 		return array( 'id' => $source_id, 'deleted' => $deleted );
 	}
@@ -781,7 +781,7 @@ class BizCity_Knowledge_Guru_Service {
 			$payload = json_decode( $payload, true );
 		}
 		if ( ! is_array( $payload ) ) {
-			return $this->error( 'invalid_import', 'File import không phải JSON hợp lệ.', 422 );
+			return $this->error( 'invalid_import', 'The import file is not valid JSON.', 422 );
 		}
 
 		$guru    = null;
@@ -834,11 +834,11 @@ class BizCity_Knowledge_Guru_Service {
 				}
 			}
 		} else {
-			return $this->error( 'invalid_import', 'Không nhận ra định dạng file Guru.', 422 );
+			return $this->error( 'invalid_import', 'The file is not a recognised Guru export.', 422 );
 		}
 
 		if ( count( $sources ) > self::IMPORT_MAX_SOURCES || count( $faq ) > self::IMPORT_MAX_FAQ ) {
-			return $this->error( 'import_too_large', sprintf( 'Tối đa %d nguồn và %d dòng FAQ mỗi lần import.', self::IMPORT_MAX_SOURCES, self::IMPORT_MAX_FAQ ), 413 );
+			return $this->error( 'import_too_large', sprintf( 'An import can hold at most %d sources and %d FAQ rows.', self::IMPORT_MAX_SOURCES, self::IMPORT_MAX_FAQ ), 413 );
 		}
 		foreach ( $sources as $i => $s ) {
 			$sources[ $i ] = array(
@@ -848,7 +848,7 @@ class BizCity_Knowledge_Guru_Service {
 				'content'     => (string) ( $s['content'] ?? '' ),
 			);
 			if ( mb_strlen( $sources[ $i ]['content'] ) > self::IMPORT_MAX_CHARS ) {
-				return $this->error( 'import_too_large', sprintf( 'Nguồn "%s" vượt %d ký tự.', $sources[ $i ]['source_name'], self::IMPORT_MAX_CHARS ), 413 );
+				return $this->error( 'import_too_large', sprintf( 'Source "%s" exceeds %d characters.', $sources[ $i ]['source_name'], self::IMPORT_MAX_CHARS ), 413 );
 			}
 		}
 
@@ -930,15 +930,15 @@ class BizCity_Knowledge_Guru_Service {
 	/** @return array|WP_Error Raw character row. */
 	private function load( int $id ) {
 		if ( $id <= 0 ) {
-			return $this->error( 'invalid_id', 'ID Guru không hợp lệ.', 400 );
+			return $this->error( 'invalid_id', 'The Guru ID is not valid.', 400 );
 		}
 		if ( ! class_exists( 'BizCity_Knowledge_Database' ) ) {
-			return $this->error( 'module_not_loaded', 'Knowledge database chưa sẵn sàng.', 503 );
+			return $this->error( 'module_not_loaded', 'The knowledge database is not ready.', 503 );
 		}
 		global $wpdb;
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}bizcity_characters WHERE id = %d", $id ), ARRAY_A );
 		if ( ! is_array( $row ) ) {
-			return $this->error( 'not_found', 'Không tìm thấy Guru.', 404 );
+			return $this->error( 'not_found', 'Guru not found.', 404 );
 		}
 		return $row;
 	}
@@ -1025,6 +1025,14 @@ class BizCity_Knowledge_Guru_Service {
 			return $value;
 		}
 		return sanitize_textarea_field( (string) $value );
+	}
+
+	/** Generic 500 for the client; the raw database text goes to the server log only (R-ERROR-UX: no SQL in messages). */
+	private function db_error( string $detail ): WP_Error {
+		if ( '' !== $detail ) {
+			error_log( '[bizcity-guru] db_error: ' . $detail ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		}
+		return $this->error( 'db_error', 'The database could not save this change.', 500 );
 	}
 
 	private function error( string $code, string $message, int $status ): WP_Error {
