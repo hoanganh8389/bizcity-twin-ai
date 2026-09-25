@@ -207,7 +207,11 @@ final class BizCity_CRM_Team_Manager {
 		return $rows;
 	}
 
-	public static function add_inbox_member( int $inbox_id, int $user_id, string $member_role = 'agent', bool $can_assign = false ): bool {
+	/**
+	 * @param bool|null $can_assign null = "not specified": keep the stored value on an existing row (a role change
+	 *                              from the "Người trực" sheet does not send it) and default to 0 for a new row.
+	 */
+	public static function add_inbox_member( int $inbox_id, int $user_id, string $member_role = 'agent', ?bool $can_assign = null ): bool {
 		if ( $inbox_id <= 0 || ! self::wp_user_exists( $user_id ) ) {
 			return false;
 		}
@@ -216,10 +220,16 @@ final class BizCity_CRM_Team_Manager {
 		$table = BizCity_CRM_DB_Installer_V2::tbl_inbox_members();
 		$now = current_time( 'mysql' );
 		$existing = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$table}` WHERE inbox_id = %d AND user_id = %d LIMIT 1", $inbox_id, $user_id ) );
-		$data = array( 'member_role' => $member_role, 'can_assign' => $can_assign ? 1 : 0, 'is_active' => 1, 'updated_at' => $now );
 		if ( $existing ) {
-			$ok = false !== $wpdb->update( $table, $data, array( 'id' => (int) $existing ), array( '%s', '%d', '%d', '%s' ), array( '%d' ) );
+			$data    = array( 'member_role' => $member_role, 'is_active' => 1, 'updated_at' => $now );
+			$formats = array( '%s', '%d', '%s' );
+			if ( null !== $can_assign ) {
+				$data['can_assign'] = $can_assign ? 1 : 0;
+				$formats[]          = '%d';
+			}
+			$ok = false !== $wpdb->update( $table, $data, array( 'id' => (int) $existing ), $formats, array( '%d' ) );
 		} else {
+			$data = array( 'member_role' => $member_role, 'can_assign' => $can_assign ? 1 : 0, 'is_active' => 1, 'updated_at' => $now );
 			$ok = false !== $wpdb->insert( $table, array_merge( array( 'inbox_id' => $inbox_id, 'user_id' => $user_id ), $data, array( 'created_at' => $now ) ), array( '%d', '%d', '%s', '%d', '%d', '%s', '%s' ) );
 		}
 		if ( $ok ) {

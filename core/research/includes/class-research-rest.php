@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) || exit;
 // PHASE-0.41 L3 — trait is required for the `use` below; load defensively so
 // this file works even if core/diagnostics bootstrap hasn't fired yet.
 if ( ! trait_exists( 'BizCity_REST_Error' ) ) {
-    $__trait = dirname( __DIR__, 2 ) . '/diagnostics/includes/trait-rest-error.php';
+    $__trait = dirname( __DIR__, 2 ) . '/helper/includes/trait-rest-error.php';
     if ( file_exists( $__trait ) ) {
         require_once $__trait;
     }

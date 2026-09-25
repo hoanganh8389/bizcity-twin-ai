@@ -38,6 +38,8 @@ if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
 
 // [2026-06-05 Johnny Chu] R-ERROR-UX — canonical error payload builder
 BizCity_Safe_Loader::require_file( $_helper_includes . 'class-bizcity-error-payload.php', 'helper.error_payload' );
+// [2026-09-25 Claude Sonnet 5] CORE-REDUCTION — BizCity_REST_Error trait now lives here, not in the unpublished core/diagnostics.
+BizCity_Safe_Loader::require_file( $_helper_includes . 'trait-rest-error.php', 'helper.rest_error_trait' );
 
 // [2026-08-20 Johnny Chu] CODEC-CORE — shared base64url, JSON state, authenticated payload, and legacy crypto primitives.
 BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-codec.php', 'helper.codec' );
@@ -101,7 +103,7 @@ if ( class_exists( 'BizCity_File_Contract_Registry' ) ) {
 	) );
 	// [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — WebChat session-memory extraction records are canonicalized in contract-backed filestore.
 	BizCity_File_Contract_Registry::register( 'modules.webchat.session_memory', array(
-		'owner_module'       => 'modules/webchat',
+		'owner_module'       => 'core/memory', // WP-11 C4a — class moved to core/memory/includes/class-session-memory.php
 		'label'              => 'WebChat session memory business records',
 		'folder'             => 'bizcity-memory-data',
 		'module'             => 'session',
@@ -123,7 +125,7 @@ if ( class_exists( 'BizCity_File_Contract_Registry' ) ) {
 	) );
 	// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — move WebChat session metadata/state out of SQL into encrypted folded records.
 	BizCity_File_Contract_Registry::register( 'modules.webchat.session_state', array(
-		'owner_module'       => 'modules/webchat',
+		'owner_module'       => 'core/conversation',
 		'label'              => 'WebChat session state business records',
 		'folder'             => 'bizcity-memory-data',
 		'module'             => 'session-state',

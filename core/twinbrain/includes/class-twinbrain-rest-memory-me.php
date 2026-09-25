@@ -22,7 +22,7 @@
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 if ( ! trait_exists( 'BizCity_REST_Error' ) ) {
-	$__trait = dirname( __DIR__, 2 ) . '/diagnostics/includes/trait-rest-error.php';
+	$__trait = dirname( __DIR__, 2 ) . '/helper/includes/trait-rest-error.php';
 	if ( file_exists( $__trait ) ) {
 		require_once $__trait;
 	}

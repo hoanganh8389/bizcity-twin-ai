@@ -2804,7 +2804,7 @@ class BizCity_CRM_REST_Controller {
 	public static function post_inbox_member( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			$user_id = (int) $req->get_param( 'user_id' );
-			$ok = BizCity_CRM_Team_Manager::add_inbox_member( (int) $req['id'], $user_id, sanitize_key( (string) ( $req->get_param( 'member_role' ) ?? 'agent' ) ), ! empty( $req->get_param( 'can_assign' ) ) );
+			$ok = BizCity_CRM_Team_Manager::add_inbox_member( (int) $req['id'], $user_id, sanitize_key( (string) ( $req->get_param( 'member_role' ) ?? 'agent' ) ), null === $req->get_param( 'can_assign' ) ? null : ! empty( $req->get_param( 'can_assign' ) ) );
 			if ( ! $ok ) { throw new \RuntimeException( 'inbox_member_save_failed' ); }
 			return array( 'saved' => true, 'inbox_id' => (int) $req['id'], 'user_id' => $user_id );
 		} );
@@ -14662,15 +14662,18 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 
 			// 2) Business inbox membership.
 			$member_map = array();
+			// [2026-09-25] `member_role` per (inbox, user) — the "Người trực" sheet needs it to tell lead from agent.
+			$member_role_map = array();
 			$members_table = BizCity_CRM_DB_Installer_V2::tbl_inbox_members();
 			if ( ! empty( $inbox_ids ) && BizCity_CRM_DB_Installer_V2::table_exists( $members_table ) ) {
 				$placeholders = implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) );
-				$member_rows = $wpdb->get_results( $wpdb->prepare( "SELECT inbox_id, user_id FROM `{$members_table}` WHERE is_active = 1 AND inbox_id IN ({$placeholders})", $inbox_ids ), ARRAY_A );
+				$member_rows = $wpdb->get_results( $wpdb->prepare( "SELECT inbox_id, user_id, member_role FROM `{$members_table}` WHERE is_active = 1 AND inbox_id IN ({$placeholders})", $inbox_ids ), ARRAY_A );
 				foreach ( is_array( $member_rows ) ? $member_rows : array() as $member_row ) {
 					$inbox_id  = (int) ( $member_row['inbox_id'] ?? 0 );
 					$user_id   = (int) ( $member_row['user_id'] ?? 0 );
 					if ( $inbox_id > 0 && self::is_crm_assignable_user( $user_id ) ) {
 						$member_map[ $inbox_id ][] = $user_id;
+						$member_role_map[ $inbox_id ][ $user_id ] = sanitize_key( (string) ( $member_row['member_role'] ?? 'agent' ) );
 					}
 				}
 			}
@@ -14802,6 +14805,7 @@ public static function get_recent_activities( WP_REST_Request $req ) {
 					$members[] = array(
 						'user_id'      => (int) $member_user_id,
 						'display_name' => $member_user ? sanitize_text_field( (string) $member_user->display_name ) : ( '#' . $member_user_id ),
+						'member_role'  => (string) ( $member_role_map[ $inbox_id ][ (int) $member_user_id ] ?? 'agent' ),
 					);
 				}
 				$business[] = array(
