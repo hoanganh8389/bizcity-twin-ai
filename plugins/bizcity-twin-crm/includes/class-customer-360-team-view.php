@@ -1,6 +1,6 @@
 <?php
 /**
- * BizCity CRM — B2 serializer for `customer-360-team-view@1.1.0` (PHASE-0.50 C-02, master roadmap M3-01).
+ * BizCity CRM — B2 serializer for `customer-360-team-view@1.2.0` (PHASE-0.50 C-02, master roadmap M3-01).
  *
  * `GET /crm-contacts/{id}/team-360` composes a flat read model (owner, conversations, touches, orders…)
  * that the `/crm/` SPA already consumes. This class is the ONE place that turns that read model into the
@@ -27,7 +27,7 @@ if ( class_exists( 'BizCity_CRM_Customer_360_Team_View', false ) ) {
 final class BizCity_CRM_Customer_360_Team_View {
 
 	const CONTRACT = 'customer-360-team-view';
-	const VERSION  = '1.1.0';
+	const VERSION  = '1.2.0'; // 1.2.0 (PHASE-0.63C GC-6): optional contact.roles[]
 	const SURFACE  = 'B2_ADMIN_CRM';
 
 	const MAX_CONVERSATIONS = 20;
@@ -139,6 +139,8 @@ final class BizCity_CRM_Customer_360_Team_View {
 		);
 		if ( '' !== $phone ) { $out['phone'] = self::cut( $phone, 32 ); }
 		if ( '' !== $email ) { $out['email'] = self::cut( $email, 190 ); }
+		// [2026-09-26 PHASE-0.63C GC-6] business roles of the contact (role:* tags) — the pipeline selector and filters key off them.
+		if ( $id > 0 && class_exists( 'BizCity_CRM_Contact_Roles' ) ) { $out['roles'] = array_values( BizCity_CRM_Contact_Roles::get( $id ) ); }
 		return $out;
 	}
 

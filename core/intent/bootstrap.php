@@ -46,13 +46,8 @@ if ( ! defined( 'BIZCITY_INTENT_URL' ) ) {
 
 /* ── Load sub-classes (skip if already loaded by legacy mu-plugin) ── */
 if ( class_exists( 'BizCity_Intent_Database' ) ) {
-    // Legacy mu-plugin loaded core classes — still load newer infra that mu-plugin doesn't have
-    if ( ! class_exists( 'BizCity_Trace_Store' ) ) {
-        require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-trace-store.php';
-    }
-    if ( ! class_exists( 'BizCity_Execution_Logger' ) ) {
-        require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-execution-logger.php';
-    }
+    // Legacy mu-plugin loaded core classes.
+    // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Trace_Store / Execution_Logger are owned and loaded by core/runtime now.
     return;
 }
 
@@ -61,16 +56,12 @@ if ( class_exists( 'BizCity_Intent_Database' ) ) {
 /* -- infrastructure/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-database.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-logger.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-execution-logger.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-trace-store.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-prompt-context-logger.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-job-trace.php';
+// [2026-09-25 Claude Opus 5.5] WP-11 C5 — Prompt_Context_Logger retired (written only by the old classifier).
+// [2026-09-25 Claude Opus 5.5] WP-11 C4b — Execution_Logger, Trace_Store, Job_Trace → core/runtime.
 
 /* -- conversation/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-intent-conversation.php';
-require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-rolling-memory.php';
-require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-episodic-memory.php';
-require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-context-builder.php';
+// [2026-09-25 Claude Opus 5.5] WP-11 C4b — Rolling_Memory, Episodic_Memory → core/memory; Context_Builder → core/twin-core.
 
 /* -- providers/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-provider.php';
@@ -85,16 +76,15 @@ require_once BIZCITY_INTENT_DIR . '/includes/routing/class-intent-router.php';
 // intent request. Knowledge routing is owned by the KG-Hub retriever and TwinBrain.
 
 /* -- classification/ -- */
+// [2026-09-25 Claude Opus 5.5] WP-11 C5 — Mode_Classifier is a thin alias over Intent_Router (sunset); Classify_Cache retired.
 require_once BIZCITY_INTENT_DIR . '/includes/classification/class-mode-classifier.php';
-require_once BIZCITY_INTENT_DIR . '/includes/classification/class-intent-classify-cache.php';
 
 /* -- tools/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tools.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tool-index.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-run.php';
 
-/* -- orchestration/ -- */
-require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-planner.php';
+// [2026-09-25 Claude Opus 5.5] WP-11 C5 — Intent_Planner retired (only the old Router used it).
 
 /* -- Phase 1 — Unified Pipeline (Evidence, IO Mapper, Core Planner, Scenario) -- */
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-evidence.php';
@@ -103,8 +93,7 @@ require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-evidence.php';
 
 /* -- Phase 1.1 — Pipeline Middleware (HIL, Evidence, ToDos, Schema Adapter, Messenger) -- */
 
-/* -- observability/ -- */
-require_once BIZCITY_INTENT_DIR . '/includes/observability/class-context-layers-capture.php';
+// [2026-09-25 Claude Opus 5.5] WP-11 C4b — Context_Layers_Capture → core/twin-core (with the prompt-capture hooks).
 
 /* ── Init CPT registrations ── */
 BizCity_Tool_Evidence::init();
@@ -113,14 +102,7 @@ BizCity_Tool_Evidence::init();
 
 // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Memory Spec (pipeline working brief) retired with the skill pipeline (D-25).
 
-/* ── Phase 1.6: Context Layers Capture — 100% prompt observability ── */
-// Listener for bizcity_system_prompt_built (fired by twin_resolver)
-add_action( 'bizcity_system_prompt_built', [ 'BizCity_Context_Layers_Capture', 'on_prompt_built' ], 10, 3 );
-// Universal capture: ensure started @0, capture final @99, persist on message @15
-add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Context_Layers_Capture', 'ensure_started' ], 0, 2 );
-add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Context_Layers_Capture', 'capture_final_prompt' ], 99, 2 );
-add_action( 'bizcity_chat_message_processed', [ 'BizCity_Context_Layers_Capture', 'persist_on_message' ], 15, 1 );
-
+// [2026-09-25 Claude Opus 5.5] WP-11 C4b — the Phase 1.6 Context Layers Capture hooks moved to core/twin-core/bootstrap.php.
 
 /* ══════════════════════════════════════════════════════════════
  *  TEMPLATE PAGE — Tools Map (universal AI tools panel)
@@ -133,49 +115,35 @@ add_action( 'plugins_loaded', function () {
     // Database table check / creation
     BizCity_Intent_Database::instance()->maybe_create_tables();
 
-    // Context builder (5-layer priority chain)
-    BizCity_Context_Builder::instance();
-
-    // Memory services (Rolling + Episodic) — always needed (Smart Gateway uses them)
-    // [2026-07-28 Johnny Chu] HOTFIX P0 — a partial/invalid deploy of one memory class must
-    // degrade that service instead of turning every intent request into Class-not-found fatal.
-    if ( class_exists( 'BizCity_Rolling_Memory' ) ) {
-        BizCity_Rolling_Memory::instance();
-    } else {
-        error_log( '[BizCity_Intent] BizCity_Rolling_Memory unavailable after require_once — skipping rolling memory boot; verify deployment artifact.' );
-    }
-    if ( class_exists( 'BizCity_Episodic_Memory' ) ) {
-        BizCity_Episodic_Memory::instance();
-    } else {
-        error_log( '[BizCity_Intent] BizCity_Episodic_Memory unavailable after require_once — skipping episodic memory boot; verify deployment artifact.' );
-    }
+    // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Context_Builder boots from core/twin-core; Rolling + Episodic memory boot from core/memory.
 
     // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Intent Engine retired (path C); get_ai_response never used it.
 
     // [2026-09-25 Claude Opus 5.5] WP-11 C3a — seed composite tools (Tool_Registry_Map) retired with the class.
 
     // ── O10: WP-Cron for reliable stale conversation cleanup (v3.6.1) ──
-    add_action( 'bizcity_intent_stale_cleanup', function () {
-        BizCity_Intent_Database::instance()->expire_stale();
-    } );
-    if ( ! wp_next_scheduled( 'bizcity_intent_stale_cleanup' ) ) {
-        wp_schedule_event( time(), 'hourly', 'bizcity_intent_stale_cleanup' );
+    // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — intent_conversations is write-refused (draining cohort),
+    // so the hourly expiry job is unscheduled instead of firing a no-op.
+    global $wpdb;
+    $bizcity_intent_conv_writable = class_exists( 'BizCity_Legacy_Table_Policy' )
+        && BizCity_Legacy_Table_Policy::allow_sql( $wpdb->prefix . 'bizcity_intent_conversations', 'write' );
+    if ( $bizcity_intent_conv_writable ) {
+        add_action( 'bizcity_intent_stale_cleanup', function () {
+            BizCity_Intent_Database::instance()->expire_stale();
+        } );
+        if ( ! wp_next_scheduled( 'bizcity_intent_stale_cleanup' ) ) {
+            wp_schedule_event( time(), 'hourly', 'bizcity_intent_stale_cleanup' );
+        }
+    } elseif ( wp_next_scheduled( 'bizcity_intent_stale_cleanup' ) ) {
+        wp_clear_scheduled_hook( 'bizcity_intent_stale_cleanup' );
     }
 
-    // ── Episodic Memory: daily habit aggregation cron ──
-    add_action( 'bizcity_episodic_daily_aggregate', function () {
-        BizCity_Episodic_Memory::instance()->cron_daily_aggregate();
-    } );
-    if ( ! wp_next_scheduled( 'bizcity_episodic_daily_aggregate' ) ) {
-        wp_schedule_event( time(), 'daily', 'bizcity_episodic_daily_aggregate' );
-    }
+    // [2026-09-25 Claude Opus 5.5] WP-11 C4b — the Episodic Memory daily aggregation cron is scheduled from core/memory.
 
-    // ── Prompt Context Logger: daily cleanup (v3.9.0) ──
-    add_action( 'bizcity_prompt_log_cleanup', function () {
-        BizCity_Prompt_Context_Logger::instance()->cleanup( 7 );
-    } );
-    if ( ! wp_next_scheduled( 'bizcity_prompt_log_cleanup' ) ) {
-        wp_schedule_event( time(), 'daily', 'bizcity_prompt_log_cleanup' );
+    // [2026-09-25 Claude Opus 5.5] WP-11 C5 — the Prompt Context Logger (written only by the retired classifier) is retired:
+    // drop its daily cleanup event so no scheduled hook is left without a handler.
+    if ( wp_next_scheduled( 'bizcity_prompt_log_cleanup' ) ) {
+        wp_clear_scheduled_hook( 'bizcity_prompt_log_cleanup' );
     }
 
     // [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — bounded cleanup for the two

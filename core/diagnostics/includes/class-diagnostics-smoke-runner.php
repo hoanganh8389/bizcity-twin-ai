@@ -57,7 +57,7 @@ final class BizCity_Diagnostics_Smoke_Runner {
 		'core.legacy_table.owner_parity',
 		// [2026-09-02 09:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-DDV — persist WebChat owner results before CRUD-stop evaluates the retired projection rows.
 		'core.webchat.sql_lifecycle',
-		'core.webchat.tool_registry_parity',
+		// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1b — 'core.webchat.tool_registry_parity' retired with modules/webchat.
 		// [2026-09-18 12:47 PM Johnny Chu - Chu Hoàng Anh] M-101 — add missing WebChat filestore parity probes to manifest.
 		'core.webchat.session_filestore_parity',
 		'core.webchat.conversation_message_unify',

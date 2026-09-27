@@ -46,7 +46,7 @@ require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-
 require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-fb-post.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-web-post.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-reminder-zalo.php';
-require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-telegram-send.php';
+// [2026-09-27 Claude Sonnet 5] CORE-REDUCTION WP-12 D-33 — Telegram customer channel retired (one axis).
 require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-reminder-personal.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-automation-workflow.php';
 
@@ -132,7 +132,6 @@ add_action( 'bizcity_scheduler_register_adapters', static function () {
 	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_FB_Post() );
 	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Web_Post() );
 	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Reminder_Zalo() );
-	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Telegram_Send() );
 	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Reminder_Personal() );
 	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Automation_Workflow() );
 }, 5 );

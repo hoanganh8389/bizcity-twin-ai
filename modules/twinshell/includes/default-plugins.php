@@ -23,7 +23,7 @@
  *   scheduler  → /scheduler/            (core/scheduler)
  *   workflow   → admin: bizcity-automation               (mode=link)
  *   tools      → /tools-map/            (intent tool map)
- *   skills     → /skills/               (skills page)
+ *   (skills entry removed 2026-09-27 — core/skills archived, WP-12)
  *   gateway    → admin: bizchat-gateway                  (mode=link)
  *   marketplace → admin: index.php?page=bizcity-marketplace (mode=link)
  *
@@ -34,7 +34,7 @@
  *   [ 'function' => 'fn_name'     ]   — function_exists(...)
  *   [ 'plugin'   => 'slug/file.php' ] — is_plugin_active(...)
  * Entries WITHOUT `requires` are considered **core** and ALWAYS show:
- *   twinchat · gateway · crm · scheduler · workflow · skills · settings · account.
+ *   twinchat · gateway · crm · scheduler · workflow · settings · account.
  * Non-core entries whose requirement fails are hidden from the ActivityBar.
  * Bookmarked URLs (`/twin/?plugin=xxx`) hitting a locked entry render the
  * “Plugin chưa được kích hoạt / gói Pro” notice (see class-twin-shell-page).
@@ -304,17 +304,10 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'section'     => 'top',
 		],
 		// 2026-05-13 — `tools` removed from ActivityBar (still reachable at /tools-map/).
-		[
-			'id'          => 'skills',
-			'label'       => __( 'Skills',                        $td ),
-			'icon'        => 'skills',
-			'emoji'       => '⚡',
-			'mode'        => 'embed',
-			'public_slug' => '/skills/',
-			'capability'  => 'read',
-			'section'     => 'bottom',
-			'params'      => [ 'id' ],
-		],
+		// [2026-09-27 Claude Sonnet 5] CORE-REDUCTION WP-12 — `skills` removed from the ActivityBar.
+		// core/skills was archived on 2026-09-26 (R0-R4); its `^skills/?$` rewrite rule lived only in
+		// core/skills/bootstrap.php, which no longer loads, so /skills/ has had no route since — this
+		// entry had no `requires` gate (an "always shown" core entry), so it kept embedding a dead page.
 		[
 			'id'          => 'settings',
 			'label'       => __( 'Settings',                      $td ),

@@ -877,6 +877,11 @@ class BizCity_Scheduler_Google {
 		if ( ! empty( $event->google_event_id ) ) {
 			return;
 		}
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — a Bot Studio scheduled task belongs to a customer chat, stored under the system
+		// owner's user id; it must never appear in that person's Google Calendar.
+		if ( 'bot_task' === (string) ( $event->event_type ?? '' ) ) {
+			return;
+		}
 		// Need a connected backend for this user.
 		$user_id = (int) ( $event->user_id ?? 0 );
 		if ( ! $this->is_connected_for_user( $user_id ) ) {

@@ -158,6 +158,8 @@ class BizCity_Channel_Binding {
 		$option = self::CACHE_GENERATION_OPTION . '_' . $blog_id;
 		$next   = (int) get_option( $option, 1 ) + 1;
 		update_option( $option, $next, false );
+		// [2026-09-26] PHASE-0.80 Lane C 4a-8 — every binding write (upsert, save_policy, disable) lands here: tell config-sync listeners.
+		do_action( 'bizcity_bot_config_changed', 'binding', $account_id );
 	}
 
 	public static function all(): array {

@@ -110,9 +110,13 @@ final class BizCity_Bot_Tool_Registry {
 	 * Catalog rows with live availability, plus vertical tools (0.60D §3) when a character is given.
 	 *
 	 * @param object|null $character  Character row (for allowed_verticals). Null = catalog only.
+	 * @param string      $account_id [2026-09-27 Claude Sonnet 5] PHASE-0.80 — bridge_account_id of the ONE
+	 *   number this catalog is being shown for, when the caller has exactly one in scope (CRM's "Bot trả
+	 *   lời…" sheet). Passed through to BizCity_Bot_Zalo_Actions so its zca-only tools can say plainly when
+	 *   THIS number is zalo-hub instead of always pointing at the site's own zca-bridge sidecar.
 	 * @return array<int,array{id:string,label:string,group:string,description:string,infra:string,status:string,hint:string,kind:string}>
 	 */
-	public static function rows( $character = null ): array {
+	public static function rows( $character = null, string $account_id = '' ): array {
 		$out = array();
 		foreach ( self::catalog() as $id => $row ) {
 			$status = isset( $row['status'] ) ? $row['status'] : self::STATUS_AVAILABLE;
@@ -140,7 +144,7 @@ final class BizCity_Bot_Tool_Registry {
 			);
 		}
 		if ( class_exists( 'BizCity_Bot_Zalo_Actions' ) ) {
-			foreach ( BizCity_Bot_Zalo_Actions::catalog_rows() as $zrow ) {
+			foreach ( BizCity_Bot_Zalo_Actions::catalog_rows( $account_id ) as $zrow ) {
 				$out[] = $zrow;
 			}
 		}

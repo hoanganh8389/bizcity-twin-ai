@@ -588,6 +588,13 @@ endif;
  * Usage: [bizcity_character_chat id="1"]
  */
 add_shortcode('bizcity_character_chat', function($atts) {
+    // [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 A3 (R-GP-2/R-GP-4) — this public widget posted anonymously to
+    // bizcity-knowledge/v1/characters/{id}/query, which is now admin/API-key only. A visitor must not talk to a Guru directly
+    // (customers reach a Guru through its bound channel), so the shortcode renders nothing instead of a chat box that would 401.
+    // Pages that still contain [bizcity_character_chat] simply show no widget.
+    if ( true ) {
+        return '';
+    }
     $atts = shortcode_atts([
         'id' => '',
         'style' => 'embed', // embed | float

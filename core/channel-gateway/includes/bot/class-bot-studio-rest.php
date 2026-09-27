@@ -34,7 +34,17 @@ final class BizCity_Bot_Studio_REST {
 	}
 
 	public static function can_or_error() {
-		return self::can() ? true : self::err( 'permission_denied', 'Bạn không có quyền xem Bot Studio.', 403, 'Cần quyền quản trị site (manage_options).', 'bot_studio_capability_required' );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-1 (G-0 0-C1, security) — WP_Error, not WP_REST_Response: core only denies on
+		// false/null/WP_Error, so the old Response let anonymous callers read and change Bot Studio data.
+		if ( self::can() ) {
+			return true;
+		}
+		$logged_in = function_exists( 'is_user_logged_in' ) && is_user_logged_in();
+		return new WP_Error( 'permission_denied', 'You do not have permission to view Bot Studio.', array(
+			'status'    => $logged_in ? 403 : 401,
+			'hint'      => 'Site administrator permission (manage_options) is required.',
+			'help_code' => 'bot_studio_capability_required',
+		) );
 	}
 
 	/** @var array<string,bool|null> platform|account_id → auto_reply, memoized per-request (BizCity_Channel_Binding::resolve() already caches the DB read; this only saves the array-shuffling). */
@@ -301,7 +311,7 @@ final class BizCity_Bot_Studio_REST {
 			}
 			$found = BizCity_CRM_Repository::list_conversations( array( 'id' => $conv_param, 'limit' => 1 ) );
 			if ( empty( $found[0] ) ) {
-				return self::err( 'conversation_not_found', 'Không tìm thấy hội thoại này.', 404, 'Mở lại từ danh sách Phiên hội thoại.', 'bot_studio_conversation_not_found' );
+				return self::err( 'conversation_not_found', 'Conversation not found.', 404, 'Reopen it from the conversation sessions list.', 'bot_studio_conversation_not_found' );
 			}
 			$conv_row     = $found[0];
 			$external_uid = (string) ( $conv_row['source_id'] ?? '' );
@@ -311,7 +321,7 @@ final class BizCity_Bot_Studio_REST {
 			}
 		}
 		if ( '' === $account_id || '' === $external_uid ) {
-			return self::err( 'invalid_param', 'Thiếu account_id hoặc external_uid.', 422, 'Chọn một số Zalo và nhập UID khách, hoặc mở từ một hội thoại.', 'bot_studio_identity_missing_param' );
+			return self::err( 'invalid_param', 'account_id or external_uid is missing.', 422, 'Select a Zalo number and enter the customer UID, or open this from a conversation.', 'bot_studio_identity_missing_param' );
 		}
 
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-3 — R-CH-IDMEM: "group chat is conversation
@@ -637,6 +647,8 @@ final class BizCity_Bot_Studio_REST {
 			$draft   = false;
 			$planner = '';
 			$rescued = 0;
+			$via     = '';
+			$kick    = '';
 			$t = array( 'claimed' => 0, 'scheduled' => 0, 'debounce' => 0, 'cron' => 0, 'llm_ms' => null, 'dispatched' => 0, 'delivery_cb' => 0, 'first_claimed' => 0, 'messages' => 0, 'prep_ms' => null, 'plan_ms' => null, 'context_ms' => null, 'pre_send_ms' => null, 'dispatch_ms' => null );
 			$states  = array();
 			$compact = array();
@@ -654,8 +666,9 @@ final class BizCity_Bot_Studio_REST {
 					$t['claimed'] = $e['at'];
 				}
 				if ( 'bot_turn_scheduled' === $e['event'] && 'sweeper' === (string) ( $ctx['source'] ?? '' ) ) { $rescued++; } // the cron event was lost; the sweeper re-armed it
+				if ( 'bot_turn_scheduled' === $e['event'] && isset( $ctx['kick'] ) ) { $kick = (string) $ctx['kick']; } // how the LAST arming was kicked: sent | error | off | too_long
 				if ( 'bot_turn_scheduled' === $e['event'] ) { $t['scheduled'] = $e['at']; $t['debounce'] = (int) ( $ctx['delay_seconds'] ?? 0 ); } // the LAST one wins: a burst re-arms the timer.
-				if ( 'bot_turn_cron_started' === $e['event'] && ! empty( $ctx['ran'] ) ) { $t['cron'] = $e['at']; }
+				if ( 'bot_turn_cron_started' === $e['event'] && ! empty( $ctx['ran'] ) ) { $t['cron'] = $e['at']; $via = (string) ( $ctx['via'] ?? '' ); } // who started it: cron | kick
 				if ( 'bot_turn_llm_completed' === $e['event'] && isset( $ctx['latency_ms'] ) ) { $t['llm_ms'] = (int) $ctx['latency_ms']; }
 				if ( 'bot_turn_llm_completed' === $e['event'] && isset( $ctx['planner'] ) ) { $planner = (string) $ctx['planner']; }
 				if ( 'bot_turn_llm_completed' === $e['event'] ) {
@@ -670,7 +683,7 @@ final class BizCity_Bot_Studio_REST {
 				if ( 'bot_turn_dispatch_completed' === $e['event'] && ! empty( $ctx['ok'] ) && 0 === $t['dispatched'] ) { $t['dispatched'] = $e['at']; }
 				if ( 'bot_turn_zalo_delivery' === $e['event'] && 'callback' === (string) ( $ctx['source'] ?? '' ) && in_array( (string) ( $ctx['state'] ?? '' ), array( 'sent', 'delivered' ), true ) && 0 === $t['delivery_cb'] ) { $t['delivery_cb'] = $e['at']; }
 				if ( 'goal_loop_post_turn' === $e['event'] ) {
-					$goal = array( 'state' => (string) ( $ctx['state'] ?? '' ), 'reason_bucket' => (string) ( $ctx['reason_bucket'] ?? '' ) );
+					$goal = array( 'state' => (string) ( $ctx['state'] ?? '' ), 'reason_bucket' => (string) ( $ctx['reason_bucket'] ?? '' ), 'mode' => isset( $ctx['goal_mode'] ) ? (int) $ctx['goal_mode'] : null, 'injected' => isset( $ctx['injected'] ) ? (bool) $ctx['injected'] : null, 'goal_ms' => isset( $ctx['goal_ms'] ) ? (int) $ctx['goal_ms'] : null );
 				}
 				// A worker that woke up and found the conditions gone (a human replied, office hours began) is intended
 				// silence, not a fault; `thread_busy` only parks the turn and it runs later.
@@ -737,6 +750,8 @@ final class BizCity_Bot_Studio_REST {
 				'timings'         => self::turn_timings( $t ),
 				'rescued'         => $rescued,
 				'planner'         => $planner ?: null,
+				'via'             => $via ?: null,
+				'kick'            => $kick ?: null,
 				'events'          => $compact,
 				'_sort'           => (int) $events[0]['at'],
 			);
@@ -1004,15 +1019,19 @@ final class BizCity_Bot_Studio_REST {
 	}
 
 	private static function not_loaded(): WP_REST_Response {
-		return self::err( 'module_not_loaded', 'Bot Studio chưa sẵn sàng.', 503, 'Kiểm tra bootstrap core/channel-gateway đã nạp includes/bot/.', 'module_not_loaded' );
+		return self::err( 'module_not_loaded', 'Bot Studio is not ready.', 503, 'Check that the core/channel-gateway bootstrap loaded includes/bot/.', 'module_not_loaded' );
 	}
 
 	private static function err( string $code, string $message, int $status = 400, string $hint = '', string $help_code = '' ): WP_REST_Response {
+		// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 B1b (R-ERROR-UX, Q-5) — English text, real HTTP status kept; `success` and
+		// `_degraded` (5xx only) match the Guru routes' payload. `ok` stays for the existing Bot Studio front-end.
 		return new WP_REST_Response( array(
 			'ok'        => false,
+			'success'   => false,
+			'_degraded' => $status >= 500,
 			'code'      => $code,
 			'message'   => $message,
-			'hint'      => '' !== $hint ? $hint : 'Thử lại; nếu vẫn lỗi hãy liên hệ quản trị viên.',
+			'hint'      => '' !== $hint ? $hint : 'Retry; if it still fails, contact the site administrator.',
 			'help_code' => '' !== $help_code ? $help_code : 'bot_studio_' . $code,
 		), $status );
 	}

@@ -478,7 +478,8 @@ class BizCity_Intent_Tools {
             }
 
             // ── Auto-complete any active trace that the callback forgot to close ──
-            $active_trace = BizCity_Job_Trace::current();
+            // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Job_Trace is owned by core/runtime now; degrade if it is not loaded.
+            $active_trace = class_exists( 'BizCity_Job_Trace' ) ? BizCity_Job_Trace::current() : null;
             if ( $active_trace && $active_trace->get_status() === 'running' ) {
                 if ( ! empty( $result['success'] ) ) {
                     $active_trace->complete( $result['data'] ?? [] );
@@ -507,7 +508,7 @@ class BizCity_Intent_Tools {
             error_log( "[BizCity_Intent_Tools] Error executing '{$name}': " . $e->getMessage() );
 
             // ── Auto-fail any active trace on exception ──
-            $active_trace = BizCity_Job_Trace::current();
+            $active_trace = class_exists( 'BizCity_Job_Trace' ) ? BizCity_Job_Trace::current() : null;
             if ( $active_trace && $active_trace->get_status() === 'running' ) {
                 $active_trace->fail( $e->getMessage() );
             }

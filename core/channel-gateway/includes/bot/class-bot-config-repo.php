@@ -28,8 +28,11 @@ final class BizCity_Bot_Config_Repo {
 
 	const CACHE_GROUP    = 'bzbot';
 	const OPTION_TUNING  = 'bizcity_bot_tuning';
-	const HISTORY_MIN    = 1;
-	const HISTORY_MAX    = 200;
+	// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 D1 (owner: "only one place, Bot Studio at Channel Gateway; a Guru is FAQ,
+	// notebook, persona instruction") — the reloaded-message count of a turn is NOT a Guru setting: it lives only on the channel
+	// binding (`policy_json.history_limit`), 20–200, default 20. See resolve_history_limit(). HISTORY_MIN/MAX (the old 1–200 Guru range) are gone.
+	const TURN_HISTORY_MIN = 20;
+	const TURN_HISTORY_MAX = 200;
 	const MAX_DISABLED   = 100;
 	const VISION_MODES   = array( 'off', 'describe' );
 
@@ -38,7 +41,6 @@ final class BizCity_Bot_Config_Repo {
 	public static function defaults(): array {
 		return array(
 			'bypass_notebook' => true,
-			'history_limit'   => 20,
 			// [2026-09-23 03:05 PM Claude Fable 5.1] PHASE-0.60A W5 — capability layer: list of DISABLED tool ids
 			// (doc §3.6: both layers store the OFF list so a new tool is on by default for old rows).
 			'disabled_tools'  => array(),
@@ -91,6 +93,7 @@ final class BizCity_Bot_Config_Repo {
 		$settings = self::decode_settings( $character->settings ?? '' );
 		$bot      = isset( $settings['bot'] ) && is_array( $settings['bot'] ) ? $settings['bot'] : array();
 		$merged   = array_merge( self::defaults(), $bot );
+		unset( $merged['history_limit'] ); // [2026-09-26] D1 — legacy per-Guru value: never returned, never used (the binding owns it).
 		$merged['disabled_tools'] = self::sanitize_tool_list( $merged['disabled_tools'] );
 		$merged['enabled_optional_tools'] = self::sanitize_tool_list( $merged['enabled_optional_tools'] ?? array() );
 		$merged['vision_mode'] = in_array( $merged['vision_mode'] ?? 'off', self::VISION_MODES, true ) ? $merged['vision_mode'] : 'off';
@@ -110,66 +113,91 @@ final class BizCity_Bot_Config_Repo {
 	}
 
 	/**
+	 * [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 D1 — how many recent messages one turn reloads.
+	 * ONE source: the channel binding (`policy_json.history_limit`, per Zalo account, set in Bot Studio at Channel Gateway).
+	 * Unset or invalid → 20; the result is clamped to 20–200. Every place that builds a claim (webhook turn, composer/schedule turn,
+	 * Guru context resolver) calls this, so they cannot drift. A Guru has no value: any `settings.bot.history_limit` left in old rows
+	 * is ignored, never read.
+	 *
+	 * @param array $bot_policy Decoded binding policy (may be empty).
+	 * @param array $ignored    Kept only so existing two-argument callers keep working; the Guru settings no longer take part.
+	 */
+	public static function resolve_history_limit( array $bot_policy, array $ignored = array() ): int {
+		$value = self::TURN_HISTORY_MIN;
+		if ( isset( $bot_policy['history_limit'] ) && is_numeric( $bot_policy['history_limit'] ) && (int) $bot_policy['history_limit'] > 0 ) {
+			$value = (int) $bot_policy['history_limit'];
+		}
+		return max( self::TURN_HISTORY_MIN, min( self::TURN_HISTORY_MAX, $value ) );
+	}
+
+	/**
 	 * Read-merge-write into settings.bot only. `$patch` may contain any subset
-	 * of {bypass_notebook, history_limit, disabled_tools, context_source}; anything else is ignored.
+	 * of {bypass_notebook, disabled_tools, enabled_optional_tools, vision_mode, context_source, media}; anything else (incl. the old
+	 * `history_limit`, now owned by the channel binding) is ignored.
 	 *
 	 * @return array|WP_Error resulting bot settings, or WP_Error on bad input.
 	 */
 	public static function save( int $character_id, array $patch ) {
 		$character = self::load_character( $character_id );
 		if ( ! $character ) {
-			return new WP_Error( 'not_found', 'Character không tồn tại.', array( 'status' => 404, 'hint' => 'Chọn lại Guru rồi thử lại.', 'help_code' => 'bot_character_missing' ) );
+			return new WP_Error( 'not_found', 'Character does not exist.', array( 'status' => 404, 'hint' => 'Select the Guru again and retry.', 'help_code' => 'bot_character_missing' ) );
 		}
 
 		// [2026-09-23 03:05 PM Claude Fable 5.1] PHASE-0.60A B1.9 — settings.bot must never carry a secret (export/clone copies it).
 		$secret = self::find_secret_like( $patch );
 		if ( null !== $secret ) {
-			return new WP_Error( 'bot_secret_not_allowed', 'Không được lưu khóa/token vào cấu hình trợ lý.', array( 'status' => 422, 'hint' => 'Khóa API cấu hình ở trang Cài đặt nguồn AI của site, không phải ở Guru.', 'help_code' => 'bot_settings_secret', 'field' => $secret ) );
+			return new WP_Error( 'bot_secret_not_allowed', 'Keys and tokens must not be stored in the assistant configuration.', array( 'status' => 422, 'hint' => 'Configure API keys on the site AI source settings page, not on the Guru.', 'help_code' => 'bot_settings_secret', 'field' => $secret ) );
 		}
 
 		$settings = self::decode_settings( $character->settings ?? '' );
 		$bot      = isset( $settings['bot'] ) && is_array( $settings['bot'] ) ? $settings['bot'] : array();
 		$bot      = array_merge( self::defaults(), $bot );
+		// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 D1 — `history_limit` is not a Guru setting (it lives on the channel binding). A
+		// `history_limit` in the patch is ignored like any other unknown key, and a value left in an old row is dropped on the next save.
+		unset( $bot['history_limit'] );
 
 		if ( array_key_exists( 'bypass_notebook', $patch ) ) {
 			$bot['bypass_notebook'] = ! empty( $patch['bypass_notebook'] );
 		}
-		if ( array_key_exists( 'history_limit', $patch ) ) {
-			$limit = (int) $patch['history_limit'];
-			if ( $limit < self::HISTORY_MIN || $limit > self::HISTORY_MAX ) {
-				return new WP_Error( 'invalid_param', 'Số tin nạp lại phải trong khoảng 1–200.', array( 'status' => 422, 'hint' => 'Nhập một số từ 1 đến 200.', 'help_code' => 'bot_history_limit_range' ) );
-			}
-			$bot['history_limit'] = $limit;
-		}
 		if ( array_key_exists( 'disabled_tools', $patch ) ) {
 			if ( ! is_array( $patch['disabled_tools'] ) ) {
-				return new WP_Error( 'invalid_param', 'disabled_tools phải là danh sách.', array( 'status' => 422, 'hint' => 'Gửi một mảng id công cụ.', 'help_code' => 'bot_disabled_tools_shape' ) );
+				return new WP_Error( 'invalid_param', 'disabled_tools must be a list.', array( 'status' => 422, 'hint' => 'Send an array of tool ids.', 'help_code' => 'bot_disabled_tools_shape' ) );
 			}
 			$bot['disabled_tools'] = self::sanitize_tool_list( $patch['disabled_tools'] );
 		}
 		if ( array_key_exists( 'enabled_optional_tools', $patch ) ) {
 			if ( ! is_array( $patch['enabled_optional_tools'] ) ) {
-				return new WP_Error( 'invalid_param', 'enabled_optional_tools phải là danh sách.', array( 'status' => 422, 'hint' => 'Gửi một mảng id công cụ.', 'help_code' => 'bot_enabled_optional_tools_shape' ) );
+				return new WP_Error( 'invalid_param', 'enabled_optional_tools must be a list.', array( 'status' => 422, 'hint' => 'Send an array of tool ids.', 'help_code' => 'bot_enabled_optional_tools_shape' ) );
 			}
 			$bot['enabled_optional_tools'] = self::sanitize_tool_list( $patch['enabled_optional_tools'] );
 		}
 		if ( array_key_exists( 'vision_mode', $patch ) ) {
 			$mode = sanitize_key( (string) $patch['vision_mode'] );
 			if ( ! in_array( $mode, self::VISION_MODES, true ) ) {
-				return new WP_Error( 'invalid_param', 'Chế độ xem ảnh chỉ nhận off hoặc describe.', array( 'status' => 422, 'hint' => 'Chọn "Tắt" hoặc "Mô tả ảnh thành chữ".', 'help_code' => 'bot_vision_mode_enum' ) );
+				return new WP_Error( 'invalid_param', 'Image vision mode accepts only off or describe.', array( 'status' => 422, 'hint' => 'Choose "Off" or "Describe images as text".', 'help_code' => 'bot_vision_mode_enum' ) );
 			}
 			$bot['vision_mode'] = $mode;
 		}
 		if ( array_key_exists( 'context_source', $patch ) ) {
 			$src = sanitize_key( (string) $patch['context_source'] );
 			if ( ! in_array( $src, array( 'crm', 'hybrid' ), true ) ) {
-				return new WP_Error( 'invalid_param', 'Nguồn ngữ cảnh chỉ nhận crm hoặc hybrid.', array( 'status' => 422, 'hint' => 'Chọn "Hybrid" hoặc "Chỉ CRM".', 'help_code' => 'bot_context_source_enum' ) );
+				return new WP_Error( 'invalid_param', 'Context source accepts only crm or hybrid.', array( 'status' => 422, 'hint' => 'Choose "Hybrid" or "CRM only".', 'help_code' => 'bot_context_source_enum' ) );
 			}
 			$bot['context_source'] = $src;
 		}
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-3 (R-GS-3) — knowledge scope is a setting of THIS Guru; the resolver
+		// owns the allowed values so the Bot Studio sheet, the PHP engine and the Hub contract read one definition.
+		if ( array_key_exists( 'scope', $patch ) ) {
+			if ( ! is_array( $patch['scope'] ) ) {
+				return new WP_Error( 'invalid_param', 'scope must be an object.', array( 'status' => 422, 'hint' => 'Send {knowledge, notebook_ids, max_context_chars, max_blocks, contact_block, compose_prefer}.', 'help_code' => 'bot_scope_shape' ) );
+			}
+			$current = isset( $bot['scope'] ) && is_array( $bot['scope'] ) ? $bot['scope'] : array();
+			$merged_scope = array_merge( $current, $patch['scope'] );
+			$bot['scope'] = class_exists( 'BizCity_Guru_Context_Resolver' ) ? BizCity_Guru_Context_Resolver::sanitize_scope( $merged_scope ) : $merged_scope;
+		}
 		if ( array_key_exists( 'media', $patch ) ) {
 			if ( ! is_array( $patch['media'] ) ) {
-				return new WP_Error( 'invalid_param', 'media phải là object.', array( 'status' => 422, 'hint' => 'Gửi các khối tts/stt/music/apify cần sửa.', 'help_code' => 'bot_media_shape' ) );
+				return new WP_Error( 'invalid_param', 'media must be an object.', array( 'status' => 422, 'hint' => 'Send only the tts/stt/music/apify blocks you want to change.', 'help_code' => 'bot_media_shape' ) );
 			}
 			$media = self::media_defaults();
 			$stored_media = isset( $bot['media'] ) && is_array( $bot['media'] ) ? $bot['media'] : array();
@@ -189,12 +217,15 @@ final class BizCity_Bot_Config_Repo {
 
 		$db = class_exists( 'BizCity_Knowledge_Database' ) ? BizCity_Knowledge_Database::instance() : null;
 		if ( ! $db ) {
-			return new WP_Error( 'module_not_loaded', 'Knowledge database chưa sẵn sàng.', array( 'status' => 503, 'hint' => 'Bật module Knowledge rồi thử lại.', 'help_code' => 'module_not_loaded' ) );
+			return new WP_Error( 'module_not_loaded', 'The Knowledge database is not ready.', array( 'status' => 503, 'hint' => 'Enable the Knowledge module and try again.', 'help_code' => 'module_not_loaded' ) );
 		}
 		$db->update_character( $character_id, array( 'settings' => wp_json_encode( $settings, JSON_UNESCAPED_UNICODE ) ) );
 		if ( class_exists( 'BizCity_Cache' ) ) {
 			BizCity_Cache::flush_group( self::CACHE_GROUP );
 		}
+		// [2026-09-26] PHASE-0.80 Lane C 4a-8 — tool switches live here; zalo-hub numbers of this site re-sync (debounced).
+		do_action( 'bizcity_bot_config_changed', 'character', $character_id );
+		if ( class_exists( 'BizCity_Guru_Context_Resolver' ) ) { BizCity_Guru_Context_Resolver::reset(); } // R-GURU-SOURCE: profile memo must not outlive the edit
 
 		return $bot;
 	}
@@ -235,7 +266,7 @@ final class BizCity_Bot_Config_Repo {
 			if ( array_key_exists( 'provider', $p ) ) {
 				$provider = sanitize_key( (string) $p['provider'] );
 				if ( ! in_array( $provider, self::TTS_PROVIDERS, true ) ) {
-					return new WP_Error( 'invalid_param', 'Nhà cung cấp TTS không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_tts_provider' ) );
+					return new WP_Error( 'invalid_param', 'Invalid TTS provider.', array( 'status' => 422, 'help_code' => 'bot_media_tts_provider' ) );
 				}
 				$media['tts']['provider'] = $provider;
 			}
@@ -247,7 +278,7 @@ final class BizCity_Bot_Config_Repo {
 				$format         = sanitize_key( (string) $p['format'] );
 				$valid_formats  = self::tts_formats_for( $media['tts']['provider'] );
 				if ( ! in_array( $format, $valid_formats, true ) ) {
-					return new WP_Error( 'invalid_param', 'Định dạng TTS không hợp lệ cho nhà cung cấp đã chọn (' . implode( ', ', $valid_formats ) . ').', array( 'status' => 422, 'help_code' => 'bot_media_tts_format' ) );
+					return new WP_Error( 'invalid_param', 'Invalid TTS format for the selected provider (' . implode( ', ', $valid_formats ) . ').', array( 'status' => 422, 'help_code' => 'bot_media_tts_format' ) );
 				}
 				$media['tts']['format'] = $format;
 			}
@@ -263,7 +294,7 @@ final class BizCity_Bot_Config_Repo {
 			if ( array_key_exists( 'provider', $p ) ) {
 				$provider = sanitize_key( (string) $p['provider'] );
 				if ( ! in_array( $provider, self::MUSIC_PROVIDERS, true ) ) {
-					return new WP_Error( 'invalid_param', 'Nhà cung cấp tạo nhạc không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_music_provider' ) );
+					return new WP_Error( 'invalid_param', 'Invalid music provider.', array( 'status' => 422, 'help_code' => 'bot_media_music_provider' ) );
 				}
 				$media['music']['provider'] = $provider;
 			}
@@ -271,7 +302,7 @@ final class BizCity_Bot_Config_Repo {
 			if ( array_key_exists( 'format', $p ) ) {
 				$format = sanitize_key( (string) $p['format'] );
 				if ( ! in_array( $format, self::MUSIC_FORMATS, true ) ) {
-					return new WP_Error( 'invalid_param', 'Định dạng nhạc chỉ nhận mp3/wav/flac.', array( 'status' => 422, 'help_code' => 'bot_media_music_format' ) );
+					return new WP_Error( 'invalid_param', 'Music format accepts only mp3/wav/flac.', array( 'status' => 422, 'help_code' => 'bot_media_music_format' ) );
 				}
 				$media['music']['format'] = $format;
 			}
@@ -290,14 +321,14 @@ final class BizCity_Bot_Config_Repo {
 			if ( array_key_exists( 'duration', $p ) ) {
 				$duration = (int) $p['duration'];
 				if ( $duration < self::VIDEO_DURATION_MIN || $duration > self::VIDEO_DURATION_MAX ) {
-					return new WP_Error( 'invalid_param', sprintf( 'Thời lượng video phải trong khoảng %d–%d giây.', self::VIDEO_DURATION_MIN, self::VIDEO_DURATION_MAX ), array( 'status' => 422, 'help_code' => 'bot_media_video_duration' ) );
+					return new WP_Error( 'invalid_param', sprintf( 'Video duration must be between %d and %d seconds.', self::VIDEO_DURATION_MIN, self::VIDEO_DURATION_MAX ), array( 'status' => 422, 'help_code' => 'bot_media_video_duration' ) );
 				}
 				$media['video']['duration'] = $duration;
 			}
 			if ( array_key_exists( 'aspect_ratio', $p ) ) {
 				$ratio = (string) $p['aspect_ratio'];
 				if ( ! in_array( $ratio, self::VIDEO_ASPECT_RATIOS, true ) ) {
-					return new WP_Error( 'invalid_param', 'Tỉ lệ khung hình video không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_video_aspect' ) );
+					return new WP_Error( 'invalid_param', 'Invalid video aspect ratio.', array( 'status' => 422, 'help_code' => 'bot_media_video_aspect' ) );
 				}
 				$media['video']['aspect_ratio'] = $ratio;
 			}
@@ -309,7 +340,7 @@ final class BizCity_Bot_Config_Repo {
 			if ( array_key_exists( 'size', $p ) ) {
 				$size = (string) $p['size'];
 				if ( ! in_array( $size, self::IMAGE_SIZES, true ) ) {
-					return new WP_Error( 'invalid_param', 'Kích thước ảnh không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_image_size' ) );
+					return new WP_Error( 'invalid_param', 'Invalid image size.', array( 'status' => 422, 'help_code' => 'bot_media_image_size' ) );
 				}
 				$media['image']['size'] = $size;
 			}
@@ -395,6 +426,8 @@ final class BizCity_Bot_Config_Repo {
 			'pause_window_minutes' => array( 'label' => 'Cửa sổ tạm dừng', 'unit' => 'phút', 'group' => 'turns', 'min' => 1, 'max' => 1440, 'default' => 30, 'hint' => 'Bot im lặng bấy nhiêu phút sau khi nhân viên nhắn tay cho khách.' ),
 			'daily_message_cap'    => array( 'label' => 'Trần tin bot gửi / ngày / hội thoại', 'unit' => 'tin', 'group' => 'queue', 'min' => 1, 'max' => 500, 'default' => 40, 'hint' => 'Lưới đỡ cuối chống khóa nick. Tin chủ động (chúc sinh nhật) tính cùng trần.' ),
 			'debounce_seconds'     => array( 'label' => 'Chờ gộp tin', 'unit' => 'giây', 'group' => 'queue', 'min' => 1, 'max' => 120, 'default' => 5, 'hint' => 'Khách hay gửi ảnh rồi mới gõ chú thích; đợi im lặng bấy nhiêu giây rồi mới trả lời. (Mặc định 5 giây từ 2026-09-25: đo thật cho thấy 8 giây cộng độ trễ cron làm khách chờ ~38 giây.)' ),
+			'loopback_kick'        => array( 'label' => 'Kích hoạt lượt bằng loopback', 'unit' => '(0=tắt, 1=bật)', 'group' => 'queue', 'min' => 0, 'max' => 1, 'default' => 1, 'hint' => '1 = khi hẹn giờ một lượt, site tự gọi lại chính nó (có chữ ký) để chạy lượt đúng hạn — bỏ độ trễ 8–33 giây của WP-Cron. WP-Cron vẫn được hẹn song song làm lưới an toàn. 0 = chỉ dùng WP-Cron (đường lùi nếu host chặn loopback).' ),
+			'goal_loop_mode'       => array( 'label' => 'Goal Loop (mục tiêu hội thoại)', 'unit' => '(0=tắt, 1=quan sát, 2=bật)', 'group' => 'tools', 'min' => 0, 'max' => 2, 'default' => 0, 'hint' => '0 = tắt (mặc định). 1 = quan sát: gọi Goal Loop của TwinBrain trước/sau mỗi lượt chat riêng để ghi bằng chứng, nhưng KHÔNG đưa mục tiêu vào câu trả lời — bật vài ngày trước khi chọn 2. 2 = bật: mục tiêu/việc tiếp theo của khách được đưa vào ngữ cảnh trả lời. Chỉ chat riêng, chỉ khách đã có định danh (Identity Hub); nhóm không dùng.' ),
 			'planner_mode'         => array( 'label' => 'Bộ chọn công cụ', 'unit' => '(0=tắt, 1=tự động, 2=luôn chạy)', 'group' => 'tools', 'min' => 0, 'max' => 2, 'default' => 1, 'hint' => '1 = tự động (khuyến nghị): chỉ hỏi model "có cần công cụ không" khi tin của khách có dấu hiệu cần công cụ (tra cứu, ngày giờ, link, tạo file/ảnh/nhạc, nhắc lịch, hỏi hàng/giá, thao tác nhóm…); chuyện thường trả lời thẳng, nhanh hơn ~4 giây. 2 = luôn hỏi như trước (đường lùi nếu thấy bot bỏ sót công cụ). 0 = không dùng công cụ.' ),
 			'max_batch_messages'   => array( 'label' => 'Trần tin mỗi lượt', 'unit' => 'tin', 'group' => 'queue', 'min' => 1, 'max' => 200, 'default' => 32, 'hint' => 'Chỉ chặn bộ nhớ — batch to vẫn là MỘT lượt; tin vượt trần vẫn vào lịch sử.' ),
 			'send_delay_min_ms'    => array( 'label' => 'Giãn nhịp gửi (tối thiểu)', 'unit' => 'ms', 'group' => 'send', 'min' => 0, 'max' => 10000, 'default' => 900, 'hint' => 'Trả lời tức thì mọi lúc trông rất máy móc.' ),
@@ -463,16 +496,16 @@ final class BizCity_Bot_Config_Repo {
 			}
 			$row = $registry[ $key ];
 			if ( ! is_numeric( $value ) ) {
-				return new WP_Error( 'invalid_param', sprintf( '%s phải là số.', $row['label'] ), array( 'status' => 422, 'hint' => sprintf( 'Nhập số trong khoảng %d–%d %s.', $row['min'], $row['max'], $row['unit'] ), 'help_code' => 'bot_tuning_' . $key ) );
+				return new WP_Error( 'invalid_param', sprintf( '%s must be a number.', $key ), array( 'status' => 422, 'hint' => sprintf( 'Enter a whole number between %d and %d.', $row['min'], $row['max'] ), 'help_code' => 'bot_tuning_' . $key ) );
 			}
 			$v = (int) $value;
 			if ( $v < $row['min'] || $v > $row['max'] ) {
-				return new WP_Error( 'invalid_param', sprintf( '%s phải trong khoảng %d–%d %s.', $row['label'], $row['min'], $row['max'], $row['unit'] ), array( 'status' => 422, 'hint' => 'Sửa giá trị rồi lưu lại; chưa có gì được ghi.', 'help_code' => 'bot_tuning_' . $key ) );
+				return new WP_Error( 'invalid_param', sprintf( '%s must be between %d and %d.', $key, $row['min'], $row['max'] ), array( 'status' => 422, 'hint' => 'Fix the value and save again; nothing was written.', 'help_code' => 'bot_tuning_' . $key ) );
 			}
 			$next[ $key ] = $v;
 		}
 		if ( $next['send_delay_max_ms'] < $next['send_delay_min_ms'] ) {
-			return new WP_Error( 'invalid_param', 'Giãn nhịp gửi tối đa phải lớn hơn hoặc bằng tối thiểu.', array( 'status' => 422, 'hint' => 'Đặt tối đa ≥ tối thiểu.', 'help_code' => 'bot_tuning_send_delay' ) );
+			return new WP_Error( 'invalid_param', 'send_delay_max_ms must be greater than or equal to send_delay_min_ms.', array( 'status' => 422, 'hint' => 'Set the maximum to a value greater than or equal to the minimum.', 'help_code' => 'bot_tuning_send_delay' ) );
 		}
 
 		update_option( self::OPTION_TUNING, $next, false );
@@ -525,5 +558,8 @@ if ( class_exists( 'BizCity_Cache_Registry' ) ) {
 		'pendingkick_{blog}_{account}_{group}'         => array( 'ttl' => 720, 'desc' => 'A kick waiting out its veto window (at most one per group); removed by an admin message or by the kick itself' ),
 		'gadmins_{blog}_{account}_{group}'             => array( 'ttl' => 600, 'desc' => "The group's real creator + deputies from Zalo (get_group_admins); a failed read is cached 60s as unknown" ),
 		'bridge_actions'                  => array( 'ttl' => 300,    'desc' => 'zca-bridge advertised action list (GET /wp/actions); a failed read is cached 60s' ),
+		// PHASE-0.60K D-K8 (loopback kick).
+		'kick_n_{blog}'                   => array( 'ttl' => 330,    'desc' => 'How many loopback kick workers are in flight on this site (soft cap KICK_MAX_WAITERS); the rest fall back to WP-Cron' ),
+		'run_{blog}_{contact}_{gen}'      => array( 'ttl' => 3600,   'desc' => 'wp_option: "who runs this arming" guard (INSERT IGNORE — cron and the kick race for it; exactly one wins). Purged after 1h by the sweeper' ),
 	) );
 }

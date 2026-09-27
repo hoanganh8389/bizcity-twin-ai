@@ -92,14 +92,17 @@ final class BizCity_CRM_Pipeline_Run_Service {
 			'pipeline_def_id'     => isset( $args['pipeline_def_id'] ) ? (int) $args['pipeline_def_id'] : null,
 			'pipeline_def_version'=> $version,
 			'custom_json'         => self::json( $custom ),
+			// stage_entered_at is added below only when the column exists.
 			'created_by'          => isset( $args['created_by'] ) ? (int) $args['created_by'] : ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : null ),
 			'created_at'          => $now,
 			'updated_at'          => $now,
 		);
+		if ( self::has_column( 'stage_entered_at' ) ) { $row['stage_entered_at'] = $now; }
 		if ( false === $wpdb->insert( $table, $row ) ) {
 			return self::error( 'run_create_failed', 'Không thể mở pipeline lúc này.', 500, 'Thử lại sau.' );
 		}
 		$run_id = (int) $wpdb->insert_id;
+		self::bump_board_cache();
 		self::audit( $run_id, 'created', null, array( 'pipeline_kind' => $kind, 'contact_id' => $contact_id ) );
 		self::sync_sla( $run_id );
 		return $run_id;
@@ -298,6 +301,70 @@ final class BizCity_CRM_Pipeline_Run_Service {
 		return $out;
 	}
 
+	/**
+	 * Move a run from the definition version it was opened with to the CURRENT one (PHASE-0.63C GC-20a).
+	 *
+	 * A run stays pinned on purpose: editing a definition must never break work in flight. So an upgrade is an
+	 * explicit act, and it is refused unless it is provably harmless — every step the run has already touched
+	 * (started / done / blocked), its current stage and every open exception must still exist in the new
+	 * definition. Steps the run never touched are simply re-aligned (dropped if gone, added as 'ready' if new).
+	 *
+	 * @return array|WP_Error The run as it now stands, `upgrade_blocked` (409, with `missing`) when it is not safe.
+	 */
+	public static function upgrade_definition( int $run_id, array $args = array() ) {
+		$row = self::load_row( $run_id );
+		if ( ! $row ) { return self::error( 'run_not_found', 'Không tìm thấy pipeline đang chạy.', 404, 'Tải lại danh sách pipeline.' ); }
+		$kind    = self::clean_kind( (string) ( $row['pipeline_kind'] ?? '' ) );
+		$pinned  = (int) ( $row['pipeline_def_version'] ?? 0 );
+		$current = '' !== $kind ? self::current_definition_version( $kind ) : 0;
+		$new_def = '' !== $kind && class_exists( 'BizCity_CRM_Pipeline_Registry' ) ? BizCity_CRM_Pipeline_Registry::get( $kind ) : null;
+		if ( ! is_array( $new_def ) || $current <= 0 ) { return self::error( 'pipeline_not_found', 'Không tìm thấy định nghĩa pipeline.', 404, 'Chọn một pipeline đang được bật.' ); }
+		if ( $pinned >= $current ) { return self::error( 'definition_current', 'Pipeline này đã ở phiên bản mới nhất.', 409, 'Không cần nâng cấp.' ); }
+
+		$old_def = self::definition_for_row( $row );
+		$custom  = self::decode( $row['custom_json'] ?? '' );
+		$old_lock = (int) ( $custom['_lock'] ?? 0 );
+		if ( self::lock_enabled( $old_def ) ) {
+			if ( ! array_key_exists( 'lock_version', $args ) ) { return self::error( 'lock_version_required', 'Thiếu phiên bản khóa của pipeline.', 409, 'Tải lại pipeline rồi gửi lại phiên bản khóa hiện tại.' ); }
+			if ( (int) $args['lock_version'] !== $old_lock ) { return self::error( 'stale_write', 'Pipeline đã được thay đổi bởi người khác.', 409, 'Tải lại pipeline trước khi ghi tiếp.' ); }
+		}
+
+		$new_keys = array_flip( self::all_step_keys( $new_def ) );
+		$stages   = is_array( $custom['stages'] ?? null ) ? $custom['stages'] : array();
+		$missing  = array();
+		foreach ( $stages as $key => $entry ) {
+			$touched = is_array( $entry ) && 'ready' !== (string) ( $entry['state'] ?? 'ready' );
+			if ( $touched && ! isset( $new_keys[ (string) $key ] ) ) { $missing[] = (string) $key; }
+		}
+		$current_stage = (string) ( $custom['pipeline_stage'] ?? $row['stage'] ?? '' );
+		if ( '' !== $current_stage && ! isset( $new_keys[ $current_stage ] ) ) { $missing[] = $current_stage; }
+		$new_exceptions = array();
+		foreach ( (array) ( $new_def['exceptions'] ?? array() ) as $exception ) { if ( is_array( $exception ) && isset( $exception['key'] ) ) { $new_exceptions[ (string) $exception['key'] ] = true; } }
+		foreach ( (array) ( $custom['exceptions'] ?? array() ) as $exception ) {
+			if ( is_array( $exception ) && in_array( (string) ( $exception['state'] ?? '' ), array( 'open', 'ack' ), true ) && ! isset( $new_exceptions[ (string) ( $exception['key'] ?? '' ) ] ) ) { $missing[] = 'exception:' . (string) ( $exception['key'] ?? '' ); }
+		}
+		if ( $missing ) {
+			return new WP_Error( 'upgrade_blocked', 'Bản mới không còn một số bước mà pipeline này đã làm.', array( 'status' => 409, 'missing' => array_values( array_unique( $missing ) ), 'hint' => 'Giữ các bước đó trong định nghĩa mới hoặc để pipeline này chạy nốt bản cũ.', 'help_code' => 'pipeline_upgrade_blocked' ) );
+		}
+
+		$before = $custom;
+		foreach ( array_keys( $stages ) as $key ) {
+			if ( ! isset( $new_keys[ (string) $key ] ) ) { unset( $custom['stages'][ $key ] ); } // only untouched ('ready') keys can be here
+		}
+		foreach ( array_keys( $new_keys ) as $key ) {
+			if ( ! isset( $custom['stages'][ $key ] ) ) { $custom['stages'][ $key ] = array( 'state' => 'ready' ); }
+		}
+		$custom['pipeline_def_version'] = $current;
+		$custom['_lock']  = $old_lock + 1;
+		$now = function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' );
+		$updated = self::write_row( $row, $custom, (string) ( $row['status'] ?? 'open' ), $now, $old_def, array( 'pipeline_def_version' => $current ) );
+		if ( is_wp_error( $updated ) ) { return $updated; }
+		self::audit( $run_id, 'definition_upgraded', $before, $custom );
+		self::sync_sla( $run_id ); // deadlines are derived from the definition — re-derive against the new one
+		self::emit_lifecycle( $run_id, (int) ( $row['contact_id'] ?? 0 ), $kind, $current_stage, 'definition_upgraded' );
+		return self::shape_run( $updated, $custom, $new_def );
+	}
+
 	/** Apply one server-side stage transition. */
 	private static function transition( int $run_id, string $stage_key, string $state, array $args ) {
 		$row = self::load_row( $run_id );
@@ -342,8 +409,10 @@ final class BizCity_CRM_Pipeline_Run_Service {
 		$custom['pipeline_stage'] = self::derived_stage( $definition, $custom['stages'], $stage_key );
 		$custom['stage_at'] = $now_ts;
 		$custom['_lock'] = $old_lock + 1;
-		$status = self::is_terminal( $definition, $stage_key ) && 'done' === $state ? 'won' : ( 'blocked' === $state ? 'open' : (string) ( $row['status'] ?? 'open' ) );
-		$updated = self::write_row( $row, $custom, $status, $now, $definition );
+		// [2026-09-25 PHASE-0.63C GC-18] A terminal stage closes the run with the outcome the definition declares
+		// (`won` when absent — every definition written before 1.1.0 behaves exactly as it did).
+		$status = self::is_terminal( $definition, $stage_key ) && 'done' === $state ? self::terminal_status( $step ) : ( 'blocked' === $state ? 'open' : (string) ( $row['status'] ?? 'open' ) );
+		$updated = self::write_row( $row, $custom, $status, $now, $definition, self::closing_columns( $row, $status, $state, $args, $now ) );
 		if ( is_wp_error( $updated ) ) { return $updated; }
 		self::audit( $run_id, 'stage_' . $state, $before, $custom );
 		self::sync_sla( $run_id );
@@ -408,7 +477,13 @@ final class BizCity_CRM_Pipeline_Run_Service {
 	private static function is_done( array $stages, string $key ): bool { return 'done' === (string) ( $stages[ $key ]['state'] ?? '' ); }
 	private static function gate_missing( array $definition, array $custom, string $key ): array { $missing = array(); $stages = is_array( $custom['stages'] ?? null ) ? $custom['stages'] : array(); foreach ( (array) ( $definition['gates'] ?? array() ) as $gate ) { if ( ! is_array( $gate ) || (string) ( $gate['stage'] ?? '' ) !== $key ) { continue; } $requires = is_array( $gate['requires'] ?? null ) ? $gate['requires'] : array(); if ( isset( $requires['all_of'] ) ) { foreach ( (array) $requires['all_of'] as $required ) { if ( ! self::is_done( $stages, (string) $required ) ) { $missing[] = (string) $required; } } } elseif ( isset( $requires['any_of'] ) ) { $any_done = false; foreach ( (array) $requires['any_of'] as $required ) { if ( self::is_done( $stages, (string) $required ) ) { $any_done = true; break; } } if ( ! $any_done ) { $missing = array_map( 'strval', (array) $requires['any_of'] ); } } } return array_values( array_unique( $missing ) ); }
 	private static function gate_open( array $definition, array $custom, string $key ): bool { return empty( self::gate_missing( $definition, $custom, $key ) ); }
-	private static function derived_stage( array $definition, array $stages, string $changed ): string { foreach ( (array) ( $definition['stages'] ?? array() ) as $stage ) { if ( is_array( $stage ) && self::is_done( $stages, (string) ( $stage['key'] ?? '' ) ) === false && ( 'doing' === ( $stages[ (string) ( $stage['key'] ?? '' ) ]['state'] ?? '' ) || (string) ( $stage['key'] ?? '' ) === $changed ) ) { return (string) $stage['key']; } } return $changed; }
+	private static function derived_stage( array $definition, array $stages, string $changed ): string { foreach ( (array) ( $definition['stages'] ?? array() ) as $stage ) { if ( is_array( $stage ) && self::is_done( $stages, (string) ( $stage['key'] ?? '' ) ) === false && ( 'doing' === ( $stages[ (string) ( $stage['key'] ?? '' ) ]['state'] ?? '' ) || (string) ( $stage['key'] ?? '' ) === $changed ) ) { return (string) $stage['key']; } } return self::parent_stage_key( $definition, $changed ); }
+	/**
+	 * The main stage a step key belongs to: itself when it is a stage, its parent when it is a sub-step.
+	 * [2026-09-25 PHASE-0.63C GC-20c] Ticking a sub-step goes through the same transition() as a stage, so the
+	 * fallback of derived_stage() must not hand a sub-step key back as `pipeline_stage` (it would vanish from the rail).
+	 */
+	private static function parent_stage_key( array $definition, string $key ): string { foreach ( (array) ( $definition['stages'] ?? array() ) as $stage ) { if ( ! is_array( $stage ) ) { continue; } foreach ( (array) ( $stage['sub_steps'] ?? array() ) as $sub ) { if ( is_array( $sub ) && (string) ( $sub['key'] ?? '' ) === $key ) { return (string) ( $stage['key'] ?? $key ); } } } return $key; }
 	private static function blocking_exception( array $custom, string $stage_key ): bool { foreach ( (array) ( $custom['exceptions'] ?? array() ) as $exception ) { if ( is_array( $exception ) && in_array( (string) ( $exception['state'] ?? '' ), array( 'open', 'ack' ), true ) && ( empty( $exception['stage'] ) || (string) $exception['stage'] === $stage_key ) ) { return true; } } return false; }
 	private static function missing_requirements( array $step, array $args ): array { $requires = is_array( $step['requires'] ?? null ) ? $step['requires'] : array(); $data = is_array( $args['data'] ?? null ) ? $args['data'] : array(); $missing = array(); foreach ( (array) ( $requires['fields'] ?? array() ) as $field ) { if ( ! array_key_exists( $field, $data ) || '' === trim( (string) $data[ $field ] ) ) { $missing[] = 'field:' . $field; } } $evidence = is_array( $args['evidence'] ?? null ) ? $args['evidence'] : array(); $required_evidence = (array) ( $requires['evidence'] ?? array() ); $min_count = max( 0, (int) ( $requires['min_count'] ?? 0 ) ); if ( count( $evidence ) < $min_count ) { $missing[] = 'evidence:min_count'; } foreach ( $required_evidence as $kind ) { $found = false; foreach ( $evidence as $item ) { if ( ( is_string( $item ) && $item === $kind ) || ( is_array( $item ) && (string) ( $item['type'] ?? '' ) === $kind ) ) { $found = true; break; } } if ( ! $found ) { $missing[] = 'evidence:' . $kind; } } return $missing; }
 	private static function is_terminal( array $definition, string $key ): bool { $step = self::step_info( $definition, $key ); return is_array( $step ) && ! empty( $step['terminal'] ); }
@@ -423,7 +498,12 @@ final class BizCity_CRM_Pipeline_Run_Service {
 		'service_address' => is_array( $custom['service_address'] ?? null ) ? $custom['service_address'] : null,
 		'team_id' => isset( $custom['team_id'] ) ? (int) $custom['team_id'] : null,
 		'reassign_suggestion' => is_array( $custom['reassign_suggestion'] ?? null ) ? $custom['reassign_suggestion'] : null,
+		// [2026-09-25 PHASE-0.63C GC-20a] A run stays pinned to the version it opened with (so editing a definition never
+		// breaks it) — but the surface must be able to say so instead of silently showing an old, shorter rail.
+		'definition_version_current' => self::current_definition_version( (string) ( $row['pipeline_kind'] ?? $definition['kind'] ?? '' ) ),
+		'definition_outdated' => self::current_definition_version( (string) ( $row['pipeline_kind'] ?? $definition['kind'] ?? '' ) ) > (int) ( $row['pipeline_def_version'] ?? 0 ) && (int) ( $row['pipeline_def_version'] ?? 0 ) > 0,
 		'definition' => $definition ); }
+	private static function current_definition_version( string $kind ): int { $kind = self::clean_kind( $kind ); return '' !== $kind && class_exists( 'BizCity_CRM_Pipeline_Registry' ) ? (int) BizCity_CRM_Pipeline_Registry::current_version( $kind ) : 0; }
 
 	/**
 	 * Recipient-resolution context for one stage of a run (0.63 §3.5 `roles{}`).
@@ -451,7 +531,59 @@ final class BizCity_CRM_Pipeline_Run_Service {
 			'assignee_id' => $stage_by > 0 ? $stage_by : $owner_id,
 		);
 	}
-	private static function write_row( array $row, array $custom, string $status, string $now, array $definition ) { global $wpdb; $old_json = (string) ( $row['custom_json'] ?? '' ); $new_json = self::json( $custom ); $table = self::opportunities_table(); $sql = "UPDATE `{$table}` SET stage = %s, status = %s, custom_json = %s, updated_at = %s WHERE id = %d"; $params = array( (string) ( $custom['pipeline_stage'] ?? $row['stage'] ?? '' ), $status, $new_json, $now, (int) $row['id'] ); if ( self::lock_enabled( $definition ) ) { $sql .= ' AND custom_json = %s'; $params[] = $old_json; } $changed = $wpdb->query( $wpdb->prepare( $sql, $params ) ); if ( 1 !== (int) $changed ) { return self::error( 'stale_write', 'Pipeline đã được thay đổi bởi người khác.', 409, 'Tải lại pipeline trước khi ghi tiếp.' ); } $row['stage'] = $custom['pipeline_stage'] ?? $row['stage']; $row['status'] = $status; $row['custom_json'] = $new_json; $row['updated_at'] = $now; return $row; }
+	private static function write_row( array $row, array $custom, string $status, string $now, array $definition, array $extra = array() ) {
+		global $wpdb;
+		$old_json  = (string) ( $row['custom_json'] ?? '' );
+		$new_json  = self::json( $custom );
+		$table     = self::opportunities_table();
+		$new_stage = (string) ( $custom['pipeline_stage'] ?? $row['stage'] ?? '' );
+		$sets      = array( 'stage = %s', 'status = %s', 'custom_json = %s', 'updated_at = %s' );
+		$params    = array( $new_stage, $status, $new_json, $now );
+		// [2026-09-25 PHASE-0.63C GC-25.1] `updated_at` moves on EVERY write (ticking a sub-step included), so "stuck in this
+		// stage" needs its own clock: stamped only when the stage really changes, and only once the column exists.
+		if ( $new_stage !== (string) ( $row['stage'] ?? '' ) && self::has_column( 'stage_entered_at' ) ) { $sets[] = 'stage_entered_at = %s'; $params[] = $now; }
+		foreach ( $extra as $column => $value ) { if ( in_array( $column, array( 'amount', 'lost_reason', 'actual_close_date', 'pipeline_def_version' ), true ) ) { $sets[] = $column . ' = %s'; $params[] = (string) $value; } }
+		$sql      = "UPDATE `{$table}` SET " . implode( ', ', $sets ) . ' WHERE id = %d';
+		$params[] = (int) $row['id'];
+		if ( self::lock_enabled( $definition ) ) { $sql .= ' AND custom_json = %s'; $params[] = $old_json; }
+		$changed = $wpdb->query( $wpdb->prepare( $sql, $params ) );
+		if ( 1 !== (int) $changed ) { return self::error( 'stale_write', 'Pipeline đã được thay đổi bởi người khác.', 409, 'Tải lại pipeline trước khi ghi tiếp.' ); }
+		$row['stage'] = $new_stage; $row['status'] = $status; $row['custom_json'] = $new_json; $row['updated_at'] = $now;
+		if ( isset( $extra['pipeline_def_version'] ) ) { $row['pipeline_def_version'] = (int) $extra['pipeline_def_version']; }
+		self::bump_board_cache();
+		return $row;
+	}
+
+	/** Status a run takes when a terminal step closes: the step's declared `outcome`, else `won`. */
+	private static function terminal_status( array $step ): string { $outcome = (string) ( $step['outcome'] ?? '' ); return in_array( $outcome, array( 'won', 'lost', 'closed' ), true ) ? $outcome : 'won'; }
+
+	/**
+	 * Real columns for what a closing step captured, so dashboards can SUM/GROUP BY instead of JSON_EXTRACT (GC-25.5):
+	 * `amount` from order_value (else quote_value), `lost_reason`, and `actual_close_date` the moment the run closes.
+	 */
+	private static function closing_columns( array $row, string $status, string $state, array $args, string $now ): array {
+		$out  = array();
+		$data = is_array( $args['data'] ?? null ) ? $args['data'] : array();
+		if ( 'done' === $state ) {
+			foreach ( array( 'order_value', 'quote_value' ) as $field ) {
+				if ( isset( $data[ $field ] ) && is_numeric( $data[ $field ] ) && (float) $data[ $field ] >= 0 && (float) $data[ $field ] < 1.0E+15 ) { $out['amount'] = number_format( round( (float) $data[ $field ], 2 ), 2, '.', '' ); break; }
+			}
+		}
+		if ( in_array( $status, array( 'won', 'lost', 'closed' ), true ) && (string) ( $row['status'] ?? '' ) !== $status ) {
+			$out['actual_close_date'] = substr( $now, 0, 10 );
+			if ( 'lost' === $status && isset( $data['lost_reason'] ) && '' !== trim( (string) $data['lost_reason'] ) ) { $out['lost_reason'] = self::text( (string) $data['lost_reason'], 190 ); }
+		}
+		return $out;
+	}
+
+	/** Column presence through the shared metadata cache; false when the helper is absent (unit tests, pre-migration). */
+	private static function has_column( string $column ): bool { return function_exists( 'bizcity_column_exists' ) && class_exists( 'BizCity_CRM_DB_Installer_V2' ) && bizcity_column_exists( self::opportunities_table(), $column ); }
+
+	/** Invalidate the kind-board / dashboard cache: the key carries this counter (same one the legacy board uses). */
+	public static function bump_board_cache(): void {
+		if ( function_exists( 'update_option' ) && function_exists( 'get_option' ) ) { update_option( 'bizcity_crm_pipeline_cache_ver', (int) get_option( 'bizcity_crm_pipeline_cache_ver', 1 ) + 1, false ); }
+		if ( class_exists( 'BizCity_Cache' ) && method_exists( 'BizCity_Cache', 'flush_group' ) ) { BizCity_Cache::flush_group( 'crm_pipeline_board' ); }
+	}
 	private static function audit( int $run_id, string $action, ?array $before, ?array $after ): void { if ( class_exists( 'BizCity_CRM_Audit_Log' ) ) { BizCity_CRM_Audit_Log::log( 'crm_opportunity', $run_id, $action, $before, $after, array( 'user_id' => function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0 ) ); } }
 	private static function sync_sla( int $run_id ): void { if ( class_exists( 'BizCity_CRM_Pipeline_SLA_Service' ) && method_exists( 'BizCity_CRM_Pipeline_SLA_Service', 'sync_for_run' ) ) { BizCity_CRM_Pipeline_SLA_Service::sync_for_run( $run_id ); } }
 	private static function cancel_open_sla( int $run_id, string $reason ): void { if ( class_exists( 'BizCity_CRM_Pipeline_SLA_Service' ) && method_exists( 'BizCity_CRM_Pipeline_SLA_Service', 'cancel_for_run' ) ) { BizCity_CRM_Pipeline_SLA_Service::cancel_for_run( $run_id, $reason ); } }

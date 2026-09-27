@@ -29,7 +29,7 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 	public function estimate_ms(): int { return 30; }
 
 	public function precondition() {
-		foreach ( array( 'BizCity_TwinBrain_Goal_Loop_State', 'BizCity_TwinBrain_Goal_Loop_Repository', 'BizCity_TwinBrain_Goal_Loop_Intent_Adapter', 'BizCity_TwinBrain_Goal_Loop_Runtime', 'BizCity_TwinBrain_Temporal_Context_Resolver', 'BizCity_TwinBrain_Goal_Alignment', 'BizCity_TwinBrain_Goal_Loop_Delta', 'BizCity_TwinBrain_Goal_Loop_Parser', 'BizCity_TwinBrain_Goal_Loop_Reflector', 'BizCity_TwinBrain_Goal_Loop_Question_Engine', 'BizCity_TwinBrain_Goal_Loop_REST', 'BizCity_TwinBrain_Goal_Loop_Scheduler', 'BizCity_Twin_Event_Taxonomy', 'BizCity_Twin_Data_Contract' ) as $class ) {
+		foreach ( array( 'BizCity_TwinBrain_Goal_Loop_State', 'BizCity_TwinBrain_Goal_Loop_Repository', 'BizCity_TwinBrain_Goal_Loop_Runtime', 'BizCity_TwinBrain_Temporal_Context_Resolver', 'BizCity_TwinBrain_Goal_Alignment', 'BizCity_TwinBrain_Goal_Loop_Delta', 'BizCity_TwinBrain_Goal_Loop_Parser', 'BizCity_TwinBrain_Goal_Loop_Reflector', 'BizCity_TwinBrain_Goal_Loop_Question_Engine', 'BizCity_TwinBrain_Goal_Loop_REST', 'BizCity_TwinBrain_Goal_Loop_Scheduler', 'BizCity_Twin_Event_Taxonomy', 'BizCity_Twin_Data_Contract' ) as $class ) {
 			if ( ! class_exists( $class ) ) {
 				return new WP_Error( 'class_missing', $class . ' chưa load.' );
 			}
@@ -569,19 +569,7 @@ final class BizCity_Probe_TwinBrain_Goal_Loop implements BizCity_Diagnostics_Pro
 			&& (string) ( $cursor_state['root_session_id'] ?? '' ) === 'session_root';
 		$ok = $this->step( $ctx, $steps, 'Runtime: Goal Link root/cursor contract', $cursor_contract_ok, $cursor_contract_ok ? 'Root session, numeric event_id, and event_uuid are available for audit projection.' : wp_json_encode( $cursor_state ) ) && $ok;
 
-		$adapter = BizCity_TwinBrain_Goal_Loop_Intent_Adapter::from_conversation( array(
-			'conversation_id' => 'intent_9',
-			'session_id' => 'session_456',
-			'goal' => 'business_report',
-			'goal_label' => 'Tạo báo cáo kinh doanh',
-			'status' => 'ACTIVE',
-			'open_loops' => array( 'Bổ sung số liệu' ),
-		), array( 'identity_uuid' => 'id-9' ) );
-		$adapter_ok = ( $adapter['goal_id'] ?? '' ) === 'goal_intent_9'
-			&& ( $adapter['primary_goal'] ?? '' ) === 'Tạo báo cáo kinh doanh'
-			&& ( $adapter['identity_uuid'] ?? '' ) === 'id-9'
-			&& (int) ( $adapter['blog_id'] ?? 0 ) === (int) get_current_blog_id();
-		$ok = $this->step( $ctx, $steps, 'Runtime: Intent adapter preserves goal ownership', $adapter_ok, $adapter_ok ? 'Intent state maps into canonical Goal State.' : wp_json_encode( $adapter ) ) && $ok;
+		// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — Goal_Loop_Intent_Adapter retired (D-26): no intent compatibility step.
 
 		$delta_goal = BizCity_TwinBrain_Goal_Loop_State::normalize( array(
 			'goal_id' => 'delta_1',

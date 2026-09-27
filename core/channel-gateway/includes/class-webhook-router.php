@@ -31,7 +31,7 @@ class BizCity_Webhook_Router {
 	private static $legacy_map = array(
 		'#^/bizfbhook/?$#i'                  => 'FB_MESS',
 		'#^/zalohook(/|_test/)?$#i'          => 'ZALO_BOT',
-		'#^/bizhook/?$#i'                    => 'ZALO_HOTLINE',
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R10 — '/bizhook/' → ZALO_HOTLINE alias removed (Hotline retired, R-ONE-AXIS D-29).
 		'#^/webchat-hook/?$#i'               => 'WEBCHAT',
 	);
 
@@ -40,7 +40,6 @@ class BizCity_Webhook_Router {
 		'facebook'      => 'FB_MESS',
 		'fb'            => 'FB_MESS',
 		'zalo-bot'      => 'ZALO_BOT',
-		'zalo-hotline'  => 'ZALO_HOTLINE',
 		'webchat'       => 'WEBCHAT',
 		'telegram'      => 'TELEGRAM',
 	);

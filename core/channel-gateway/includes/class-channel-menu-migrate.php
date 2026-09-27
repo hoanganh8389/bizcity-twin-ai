@@ -96,39 +96,7 @@ add_action( 'bizchat_gateway_register_subpages', function ( $reg ) {
 		}
 	}
 
-	// ── T-P0.37.1.2.4 — Legacy Zalo guides (3 pages) ─────────────────
-	if ( function_exists( 'bizcity_guides_admin_page' ) ) {
-		$reg->add_subpage( [
-			'group'    => 'channels',
-			'slug'     => 'zalo-legacy-guide',
-			'title'    => __( 'Zalo BizCity', $td ),
-			'icon'     => '💬',
-			'callback' => 'bizcity_guides_admin_page',
-			'order'    => 45,
-		] );
-	}
-
-	if ( function_exists( 'twf_zalo_users_admin_page' ) ) {
-		$reg->add_subpage( [
-			'group'    => 'channels',
-			'slug'     => 'zalo-user-mapping',
-			'title'    => __( 'Zalo User Mapping', $td ),
-			'icon'     => '👥',
-			'callback' => 'twf_zalo_users_admin_page',
-			'order'    => 50,
-		] );
-	}
-
-	if ( function_exists( 'twf_telegram_command_widget_content' ) ) {
-		$reg->add_subpage( [
-			'group'    => 'channels',
-			'slug'     => 'zalo-legacy',
-			'title'    => __( 'Zalo Legacy Guide', $td ),
-			'icon'     => '📖',
-			'callback' => 'twf_telegram_command_widget_content',
-			'order'    => 55,
-		] );
-	}
+	// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — T-P0.37.1.2.4 legacy Zalo BizCity guide pages removed (Hotline channel retired, R-ONE-AXIS D-29).
 
 	// ── T-P0.37.1.2.5 — Facebook pages (2 pages) ─────────────────────
 	if ( class_exists( 'BizCity_Facebook_Bot_Admin_Menu', false ) ) {
@@ -151,40 +119,8 @@ add_action( 'bizchat_gateway_register_subpages', function ( $reg ) {
 		] );
 	}
 
-	// ── T-P0.37.1.2.6 — Zalo Hotline ─────────────────────────────────
-	// Module lives in plugins/bizcity-admin-hook-zalo (bundled must-load — see
-	// bizcity-twin-ai.php $_bizcity_bundled_must_load). Admin renderer is
-	// `bizcity_zalo_hotline_render_page()` defined in that plugin's
-	// includes/admin-page.php. Class-based variants are kept as fallbacks.
-	$hotline_cb = null;
-	foreach ( [ 'BizCity_Zalo_Hotline_Admin_Menu', 'BizCity_Zalo_Hotline_Admin', 'BizCity_Admin_Hook_Zalo_Menu' ] as $cls ) {
-		if ( class_exists( $cls, false ) ) {
-			if ( method_exists( $cls, 'instance' ) && method_exists( $cls, 'render_page' ) ) {
-				$hotline_cb = [ $cls::instance(), 'render_page' ];
-			} elseif ( method_exists( $cls, 'render_page' ) ) {
-				$hotline_cb = [ $cls, 'render_page' ];
-			}
-			break;
-		}
-	}
-	if ( $hotline_cb === null && function_exists( 'bizcity_zalo_hotline_render_page' ) ) {
-		$hotline_cb = 'bizcity_zalo_hotline_render_page';
-	}
-	if ( $hotline_cb === null ) {
-		$hotline_cb = function () {
-			echo '<div class="wrap"><h1>📞 Zalo Hotline (ZNS)</h1>';
-			echo '<div class="notice notice-warning"><p><strong>Module chưa được nạp.</strong> ';
-			echo 'Plugin <code>bizcity-admin-hook-zalo</code> không tìm thấy renderer — kiểm tra <code>plugins/bizcity-admin-hook-zalo/includes/admin-page.php</code> đã được deploy chưa.</p></div></div>';
-		};
-	}
-	$reg->add_subpage( [
-		'group'    => 'channels',
-		'slug'     => 'zalo-hotline',
-		'title'    => __( 'Zalo Hotline', $td ),
-		'icon'     => '📞',
-		'callback' => $hotline_cb,
-		'order'    => 70,
-	] );
+	// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — T-P0.37.1.2.6 Zalo Hotline page removed; it rendered a permanent
+	// "Module chưa được nạp" warning once plugins/bizcity-zalo-bizcity was archived (R-ONE-AXIS D-29).
 
 	/* ═══════════════════════════════════════════════════════════
 	 *  M1.W3 — Demote orphan integrations into the hub.
@@ -292,12 +228,14 @@ add_action( 'admin_init', function () {
 		'bizcity-zalo-bot-listener'    => 'group=channels&sub=zalo-bot-listener',
 		'bizcity-zalo-bot-test-api'    => 'group=channels&sub=zalo-bot-test-api',
 		'bizcity-zalo-bot-logs'        => 'group=channels&sub=zalo-bot-logs',
-		'zalo-video-guider'            => 'group=channels&sub=zalo-legacy-guide',
-		'zalo-users-admin'             => 'group=channels&sub=zalo-user-mapping',
-		'zalo-guider'                  => 'group=channels&sub=zalo-legacy',
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — the Hotline subpages are gone; old bookmarks land on the
+		// Channels hub instead of a sub without a callback (which renders a blank page, see the scheduler note below).
+		'zalo-video-guider'            => 'group=channels',
+		'zalo-users-admin'             => 'group=channels',
+		'zalo-guider'                  => 'group=channels',
 		'bizcity-facebook-bots'        => 'group=channels&sub=facebook-page',
 		'bizcity-facebook-bot-connect' => 'group=channels&sub=facebook-connect',
-		'bizcity-zalo-hotline'         => 'group=channels&sub=zalo-hotline',
+		'bizcity-zalo-hotline'         => 'group=channels',
 		// M1.W3 demotions
 		'bizcity-channels'             => 'group=channels',
 		'bzgoogle-settings'            => 'group=integrations&sub=google',

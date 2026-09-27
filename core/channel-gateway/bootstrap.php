@@ -72,7 +72,7 @@ $_bzc_stub_adapters = array(
 	$webchat_dir  . 'class-webchat-adapter.php'       => 'channel.adapter.webchat',
 	$adapters_dir . 'class-adminchat-adapter.php'     => 'channel.adapter.adminchat',
 	$adapters_dir . 'class-email-smtp-adapter.php'    => 'channel.adapter.email_smtp',
-	$adapters_dir . 'class-zalo-hotline-adapter.php'  => 'channel.adapter.zalo_hotline',
+	// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — zalo_hotline adapter retired with the Hotline channel (R-ONE-AXIS D-29).
 );
 foreach ( $_bzc_stub_adapters as $_bzc_stub_file => $_bzc_stub_label ) {
 	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
@@ -461,6 +461,10 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-zalo-actions.php'   => 'channel.bot.zalo_actions',
 	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — pure @mention helper, loaded before the turn runner that calls it.
 	$gateway_dir . 'bot/class-bot-mentions.php'       => 'channel.bot.mentions',
+	// [2026-09-25 Claude Sonnet 5] PHASE-0.60K §15.7 C1 — the only Bot Studio caller of the canonical TwinBrain Goal Loop; loaded before the runner.
+	$gateway_dir . 'bot/class-bot-goal-loop.php'      => 'channel.bot.goal_loop',
+	// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-1 — the one Guru content source (instruction/prompt split, gate 0); before the builder that composes it.
+	$gateway_dir . 'bot/class-guru-context-resolver.php' => 'channel.bot.guru_context_resolver',
 	$gateway_dir . 'bot/class-bot-context-builder.php' => 'channel.bot.context_builder',
 	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',
 	$gateway_dir . 'bot/class-bot-turn-runner.php'    => 'channel.bot.turn_runner',
@@ -560,9 +564,6 @@ add_action( 'bizcity_register_channel', function ( $bridge ) {
 	}
 	if ( class_exists( 'BizCity_Email_SMTP_Adapter' ) ) {
 		$bridge->register_adapter( new BizCity_Email_SMTP_Adapter() );
-	}
-	if ( class_exists( 'BizCity_Zalo_Hotline_Adapter' ) ) {
-		$bridge->register_adapter( new BizCity_Zalo_Hotline_Adapter() );
 	}
 }, 20 );
 

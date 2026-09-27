@@ -67,6 +67,15 @@ final class BizCity_Bot_Turn_Claim {
 			self::skip( 'envelope_incomplete', $envelope );
 			return;
 		}
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-6 — account-level gate, before any binding/policy work:
+		// `replier_is_zalo_hub` (the Hub-side assistant answers this number, D-H7 one replier) or `ai_disabled`
+		// (the Hub turned this number's AI off — plan downgrade, D-L36/D-L43 — for EVERY provider). The customer
+		// message is already on its way into the CRM; only the PHP auto-reply is withheld.
+		$account_gate = self::account_gate( $account_id );
+		if ( '' !== $account_gate ) {
+			self::skip( $account_gate, $envelope );
+			return;
+		}
 		// [2026-09-24 Claude Sonnet 5] PHASE-0.60H — `$envelope['contact_id']` is NOT a CRM contact id: the
 		// listener fills it from BizCity_Identity_Hub (`identity_contacts.id`, class-universal-channel-listener.php
 		// ~L432), and for ZALO_PERSONAL it is always 0 (not a guest channel there). Requiring it > 0 meant this
@@ -84,7 +93,19 @@ final class BizCity_Bot_Turn_Claim {
 		}
 		$character_id = (int) ( $binding['character_id'] ?? 0 );
 		$mode         = (string) ( $binding['mode'] ?? '' );
-		if ( $character_id <= 0 || ! in_array( $mode, array( 'auto', 'hybrid' ), true ) ) {
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE R-GS-8 (gate 0) — AI on + no Guru chosen ⇒ the tenant default Guru.
+		// The one-time GS-2 normalisation runs first (legacy "no Guru" rows defaulted to mode=auto and were silent); when it changed
+		// rows the binding is re-read, so a number that was silent yesterday stays silent until its owner turns AI on.
+		if ( $character_id <= 0 && in_array( $mode, array( 'auto', 'hybrid' ), true ) && class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			if ( BizCity_Guru_Context_Resolver::normalize_legacy_bindings() > 0 ) {
+				$binding = BizCity_Channel_Binding::resolve( self::PLATFORM, $account_id );
+				$mode    = is_array( $binding ) ? (string) ( $binding['mode'] ?? '' ) : '';
+			}
+			if ( is_array( $binding ) && in_array( $mode, array( 'auto', 'hybrid' ), true ) ) {
+				$character_id = BizCity_Guru_Context_Resolver::answering_character_id( 0 );
+			}
+		}
+		if ( ! is_array( $binding ) || $character_id <= 0 || ! in_array( $mode, array( 'auto', 'hybrid' ), true ) ) {
 			// The commonest reason a customer gets no answer: the number is in manual mode, or no Guru is bound to it.
 			self::skip( $character_id <= 0 ? 'no_character' : 'mode_manual', $envelope, $thread, $binding );
 			return; // reuses existing binding fields — no separate "bot enabled" flag (doc §3.2).
@@ -168,7 +189,8 @@ final class BizCity_Bot_Turn_Claim {
 			'mode'             => $mode, // auto = send · hybrid = draft only (doc B-04)
 			'text'             => (string) ( $envelope['message_text_clean'] ?? $envelope['message'] ?? '' ),
 			'external_message_id' => (string) ( $envelope['message_id'] ?? '' ),
-			'history_limit'    => (int) $bot_settings['history_limit'],
+			// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 D1 — binding → Guru → 20, clamped 20–200.
+			'history_limit'    => BizCity_Bot_Config_Repo::resolve_history_limit( $bot_policy ),
 			'bypass_notebook'  => ! empty( $bot_settings['bypass_notebook'] ),
 			'context_source'   => (string) $bot_settings['context_source'],
 			'character_off'    => (array) $bot_settings['disabled_tools'],
@@ -195,7 +217,7 @@ final class BizCity_Bot_Turn_Claim {
 	 * yields every Zalo Cá nhân message to Bot Studio (D-H7), so a refusal here is, to the customer, plain silence —
 	 * and until now it left nothing behind. `reason_bucket` is one of: module_not_loaded · envelope_incomplete ·
 	 * no_binding · no_character · mode_manual · allowlist · office_hours · paused_manual_reply · group_reply_off ·
-	 * mention_required · daily_cap. No text, no raw UID or phone: the account is a short hash.
+	 * mention_required · daily_cap · replier_is_zalo_hub · ai_disabled (PHASE-0.80). No text, no raw UID or phone: the account is a short hash.
 	 *
 	 * @param array      $envelope Normalized envelope.
 	 * @param array|null $thread   thread_ref() result, when already computed.
@@ -214,6 +236,20 @@ final class BizCity_Bot_Turn_Claim {
 			'binding_id'    => is_array( $binding ) ? (int) ( $binding['id'] ?? 0 ) : 0,
 			'mode'          => is_array( $binding ) ? (string) ( $binding['mode'] ?? '' ) : '',
 		) );
+	}
+
+	/**
+	 * Why Bot Studio must not answer this account at all ('' = no account-level objection).
+	 * Answered by the channel plugin through `bizcity_bot_studio_account_gate` (Zalo Personal:
+	 * BizCity_Zalo_Account_Flags::filter_bot_gate) so core never depends on the plugin.
+	 * Public: the runner re-checks it before sending and the composer path refuses with it.
+	 */
+	public static function account_gate( string $account_id ): string {
+		if ( '' === $account_id || ! function_exists( 'apply_filters' ) ) {
+			return '';
+		}
+		$gate = apply_filters( 'bizcity_bot_studio_account_gate', '', self::PLATFORM, $account_id );
+		return is_string( $gate ) ? sanitize_key( $gate ) : '';
 	}
 
 	/** A workflow run was enqueued for the message we claimed → the workflow wins (0.60D §4.2). */

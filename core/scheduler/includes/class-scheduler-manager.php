@@ -654,6 +654,23 @@ class BizCity_Scheduler_Manager {
 	}
 
 	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — the events of ONE conversation and type (Bot Studio scheduled tasks). Scoped by
+	 * conversation_id in SQL, so a caller can never read another conversation's rows by guessing an id.
+	 *
+	 * @return array<int,array<string,mixed>> rows (ARRAY_A), soonest first, at most 100.
+	 */
+	public function get_events_by_conversation( int $conversation_id, string $event_type, string $status = 'active' ): array {
+		if ( $conversation_id <= 0 || ! $this->table_ready() ) {
+			return [];
+		}
+		global $wpdb;
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$this->table} WHERE conversation_id = %d AND event_type = %s AND status = %s ORDER BY start_at ASC LIMIT 100",
+			$conversation_id, $event_type, $status
+		), ARRAY_A ) ?: [];
+	}
+
+	/**
 	 * List events for a user within a date range.
 	 *
 	 * @param int    $user_id
@@ -932,6 +949,10 @@ class BizCity_Scheduler_Manager {
 			'broadcast_scheduled',    // Wave 6: broadcast campaign fire-time placeholder.
 			'crm_conversation_task',  // Inline task created from CRM inbox thread.
 			'qr_scan_followup',       // QR code scan entry point (campaign attribution).
+			// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C4.1 — customer birthday reminder (adapter in plugins/bizcity-twin-crm).
+			'contact_birthday',
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — a Bot Studio scheduled task (handler: core/channel-gateway/includes/bot/class-bot-schedule.php).
+			'bot_task',
 		];
 
 		$allowed_statuses = [ 'active', 'draft', 'done', 'failed', 'cancelled' ];

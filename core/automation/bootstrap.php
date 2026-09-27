@@ -90,7 +90,7 @@ require_once __DIR__ . '/includes/blocks/triggers/class-trigger-manual.php';
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-zalo.php';
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-fb-comment.php';
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-fb-message.php';      // BE-6.D
-require_once __DIR__ . '/includes/blocks/triggers/class-trigger-telegram.php';        // BE-6.D
+// [2026-09-27 Claude Sonnet 5] CORE-REDUCTION WP-12 D-33 — Telegram customer channel retired (one axis).
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-intent.php';// BE-6.E
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-turn-completed.php';// BE-7.A
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-tool-decided.php';  // BE-7.A
@@ -183,6 +183,12 @@ require_once __DIR__ . '/includes/class-automation-twinbrain-bridge.php';// BE-6
 require_once __DIR__ . '/includes/class-automation-default-reply.php';   // R-CH-UNI 1.2
 require_once __DIR__ . '/includes/class-automation-twin-event-tap.php';  // PG-S3 (Playground MPR pane)
 require_once __DIR__ . '/includes/class-automation-skill-bridge.php';    // [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W2 — skill_intent dispatcher
+// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R3 — core/skills is archived; Automation now owns the
+// .workflow.md recipe parser and the `/cmd` slash matcher (workflow tier). Class names are unchanged.
+if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+	BizCity_Safe_Loader::require_file( __DIR__ . '/includes/class-skill-recipe-parser.php', 'automation.recipe_parser' );
+	BizCity_Safe_Loader::require_file( __DIR__ . '/includes/class-skill-slash-matcher.php', 'automation.slash_matcher' );
+}
 require_once __DIR__ . '/includes/class-workflow-md-compiler.php';       // [2026-06-03 Johnny Chu] WF-AUTO W3 — .workflow.md round-trip compiler
 require_once __DIR__ . '/includes/class-automation-community.php';       // [2026-06-03 Johnny Chu] WF-AUTO W7 — Community gallery (GitHub raw fetch)
 

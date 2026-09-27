@@ -697,13 +697,16 @@ class BizCity_Webhook_Inspector {
 		if ( class_exists( 'BizCity_Knowledge_Database' ) ) {
 			$db = BizCity_Knowledge_Database::instance();
 			$rows = $db->get_characters( array( 'limit' => 200 ) );
+			// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE — mark the site default Guru (gate 0) so Bot Studio can badge it.
+			$default_id = (int) get_option( 'bizcity_bot_default_character_id', 0 );
 			foreach ( (array) $rows as $r ) {
 				$out[] = array(
-					'id'     => (int) $r->id,
-					'name'   => (string) $r->name,
-					'slug'   => isset( $r->slug ) ? (string) $r->slug : '',
-					'avatar' => isset( $r->avatar ) ? (string) $r->avatar : '',
-					'status' => isset( $r->status ) ? (string) $r->status : '',
+					'id'         => (int) $r->id,
+					'name'       => (string) $r->name,
+					'slug'       => isset( $r->slug ) ? (string) $r->slug : '',
+					'avatar'     => isset( $r->avatar ) ? (string) $r->avatar : '',
+					'status'     => isset( $r->status ) ? (string) $r->status : '',
+					'is_default' => $default_id > 0 && (int) $r->id === $default_id,
 				);
 			}
 		}

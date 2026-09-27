@@ -27,4 +27,9 @@ define( 'BIZCITY_ZALO_PERSONAL_VERSION', '1.1.0' ); // [2026-08-21 Johnny Chu] P
 define( 'BIZCITY_ZALO_PERSONAL_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'BIZCITY_ZALO_PERSONAL_URL',     plugin_dir_url( __FILE__ ) );
 
-require_once __DIR__ . '/bootstrap.php';
+// [2026-09-27] PHASE-0.80 doc 27 L-01 #4 — the entry file loads the bootstrap through the Safe Loader too, so a half-written bootstrap.php is a logged skip, not a fatal.
+if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+	BizCity_Safe_Loader::require_file( __DIR__ . '/bootstrap.php', 'zalo_personal.bootstrap' );
+} else {
+	require_once __DIR__ . '/bootstrap.php';
+}

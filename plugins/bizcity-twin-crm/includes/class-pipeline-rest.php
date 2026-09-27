@@ -6,6 +6,11 @@
  *   GET  /crm-pipeline/board              — L1 Pipeline đội (columns, KPIs, per-staff matrix)   customer-pipeline-board@1.0.0
  *   GET  /crm-pipeline/contacts/{id}      — stage detail for the Inbox toolbar / rail (steps, history, next step)
  *   POST /crm-contacts/{id}/stage         — change stage / tick steps / log an outcome        pipeline-stage-change@2.0.0
+ *   GET  /pipeline-board/{kind}           — definition-driven kind Kanban (columns from the JSON, GROUP BY numbers)   pipeline-kind-board@1.0.0
+ *   GET  /pipeline-dashboard/{kind}       — the same aggregate + outcomes / lost reasons / lead time / exceptions
+ *   GET  /pipeline-runs?kind=&stage=&…    — drill-down list of the runs behind a board cell (keyset paged)
+ *   POST /pipeline-runs/{id}/upgrade      — move a pinned run onto the current definition (refused unless harmless)
+ *   POST /pipelines/validate              — Builder dry-run: same validator as save, writes nothing
  *   GET  /crm-pipeline/segments           — L2 customer sets for playbooks (≤ 200 ids, by owner)
  *   GET  /crm-tasks/load                  — L2 open tasks due per staff per day (7 days)
  *   GET|PUT /crm-settings/pipeline        — stuck days, steps per stage, lost reasons (R-PIPE-8)
@@ -56,6 +61,9 @@ final class BizCity_CRM_Pipeline_REST {
 		register_rest_route( self::PIPELINE_NS, '/pipelines/(?P<kind>[a-z][a-z0-9_-]{0,31})', array(
 			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_definition' ), 'permission_callback' => $read,
 		) );
+		register_rest_route( self::PIPELINE_NS, '/pipelines/(?P<kind>[a-z][a-z0-9_-]{0,31})/usage', array(
+			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_definition_usage' ), 'permission_callback' => $manage,
+		) );
 		register_rest_route( self::PIPELINE_NS, '/pipelines/(?P<kind>[a-z][a-z0-9_-]{0,31})/export', array(
 			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'export_definition' ), 'permission_callback' => $manage,
 		) );
@@ -63,6 +71,25 @@ final class BizCity_CRM_Pipeline_REST {
 			array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'list_runs' ), 'permission_callback' => $read ),
 			array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'open_run' ), 'permission_callback' => $write ),
 		) );
+		// [2026-09-25 PHASE-0.63C GC-25/GC-22/GC-19/GC-20] definition-driven board + dashboard, run upgrade, Builder dry-run.
+		register_rest_route( self::PIPELINE_NS, '/pipeline-board/(?P<kind>[a-z][a-z0-9_-]{0,31})', array(
+			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_kind_board' ), 'permission_callback' => $read,
+			'args' => array(
+				'team_id' => array( 'type' => 'integer' ), 'owner_id' => array( 'type' => 'integer' ),
+				'range' => array( 'type' => 'string', 'default' => '30d', 'enum' => array( '7d', '30d', '90d' ) ),
+				'view' => array( 'type' => 'string', 'default' => 'stage', 'enum' => array( 'stage', 'staff' ) ),
+				'sample' => array( 'type' => 'integer', 'default' => 20 ),
+			),
+		) );
+		register_rest_route( self::PIPELINE_NS, '/pipeline-dashboard/(?P<kind>[a-z][a-z0-9_-]{0,31})', array(
+			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_kind_dashboard' ), 'permission_callback' => $read,
+			'args' => array(
+				'team_id' => array( 'type' => 'integer' ), 'owner_id' => array( 'type' => 'integer' ),
+				'range' => array( 'type' => 'string', 'default' => '30d', 'enum' => array( '7d', '30d', '90d' ) ),
+			),
+		) );
+		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/upgrade', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'upgrade_run' ), 'permission_callback' => $write ) );
+		register_rest_route( self::PIPELINE_NS, '/pipelines/validate', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'validate_definition' ), 'permission_callback' => $manage ) );
 		register_rest_route( self::PIPELINE_NS, '/pipeline-runs/(?P<id>\d+)/transition', array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( __CLASS__, 'transition_run' ), 'permission_callback' => $write ) );
 		// [2026-09-23 PHASE-0.69] Reschedule `appointment_at` — a moved/duplicated ca is a manual edit of
 		// one field, not a new stage transition (D69-4: no recurring bookings, only manual duplicate/edit).
@@ -92,7 +119,9 @@ final class BizCity_CRM_Pipeline_REST {
 		) );
 		register_rest_route( $ns, '/crm-pipeline/segments', array(
 			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_segment' ), 'permission_callback' => $use,
-			'args' => array( 'segment' => array( 'type' => 'string', 'enum' => self::SEGMENTS ), 'owner_id' => array( 'type' => 'integer' ), 'team_id' => array( 'type' => 'integer' ) ),
+			'args' => array( 'segment' => array( 'type' => 'string', 'enum' => self::SEGMENTS ), 'owner_id' => array( 'type' => 'integer' ), 'team_id' => array( 'type' => 'integer' ),
+				// [2026-09-25 PHASE-0.63C GC-25.9] `kind` (+ optional `stage`) = the customers behind that kind's stuck runs, same response shape.
+				'kind' => array( 'type' => 'string' ), 'stage' => array( 'type' => 'string' ) ),
 		) );
 		register_rest_route( $ns, '/crm-tasks/load', array(
 			'methods' => WP_REST_Server::READABLE, 'callback' => array( __CLASS__, 'get_task_load' ), 'permission_callback' => $use,
@@ -171,7 +200,9 @@ final class BizCity_CRM_Pipeline_REST {
 				'definition' => $definition,
 			);
 		}
-		return self::ok( array( 'items' => $items ) );
+		// [2026-09-25 PHASE-0.63C GC-24] The import-ready library is read-only reference data (never seeded): the Builder
+		// offers it as "Dùng mẫu này", and a lead loads it into the draft or pastes it into "Nhập JSON".
+		return self::ok( array( 'items' => $items, 'library' => BizCity_CRM_Pipeline_Registry::library() ) );
 	}
 
 	public static function runtime_status( WP_REST_Request $request ) {
@@ -213,6 +244,18 @@ final class BizCity_CRM_Pipeline_REST {
 	public static function list_runs( WP_REST_Request $request ) {
 		// [2026-09-21 08:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.63A WP-4 — enforce contact scope before returning pipeline runs.
 		$contact_id = (int) $request->get_param( 'contact_id' );
+		// [2026-09-25 PHASE-0.63C GC-22.2] `kind` without a contact = the drill-down behind a board/dashboard cell: same scope
+		// rules as the board, keyset-paged. With a contact the original per-contact behaviour is untouched.
+		$kind = sanitize_key( (string) $request->get_param( 'kind' ) );
+		if ( $contact_id <= 0 && '' !== $kind ) {
+			$scope = self::kind_scope( $request );
+			if ( $scope instanceof WP_REST_Response ) { return $scope; }
+			$list = BizCity_CRM_Pipeline_Aggregate_Service::list_runs( $kind, array_merge( $scope, array(
+				'stage' => sanitize_text_field( (string) $request->get_param( 'stage' ) ), 'state' => sanitize_key( (string) $request->get_param( 'state' ) ),
+				'cursor' => (int) $request->get_param( 'cursor' ), 'limit' => (int) $request->get_param( 'limit' ),
+			) ) );
+			return is_wp_error( $list ) ? self::error_from( $list ) : self::ok( $list );
+		}
 		if ( $contact_id <= 0 || ! BizCity_CRM_Customer_Pipeline::contact_in_scope( $contact_id, BizCity_CRM_Customer_Pipeline::b2_inbox_ids( (int) get_current_user_id() ) ) ) { return self::error( 'contact_not_in_scope', 'Không tìm thấy khách trong phạm vi của bạn.', 404, 'Chọn một contact trong Inbox của bạn.' ); }
 		return self::ok( array( 'items' => class_exists( 'BizCity_CRM_Pipeline_Run_Service' ) ? BizCity_CRM_Pipeline_Run_Service::runs_for_contact( $contact_id ) : array() ) );
 	}
@@ -352,6 +395,79 @@ final class BizCity_CRM_Pipeline_REST {
 		return self::ok( array( 'run_id' => (int) $run['id'], 'role' => $role, 'recipient_user_ids' => array_values( array_map( 'intval', (array) $recipients ) ), 'binding' => $status ) );
 	}
 
+	/**
+	 * Who may see what for the kind board / dashboard / drill-down — the SAME rules get_board() applies to the legacy
+	 * board: the actor's inboxes (null = unrestricted), plus an owner or team filter that staff policy must allow.
+	 *
+	 * @return array|WP_REST_Response Scope args for the aggregate service, or the denial response.
+	 */
+	private static function kind_scope( WP_REST_Request $req ) {
+		$actor = (int) get_current_user_id();
+		$owner = (int) $req->get_param( 'owner_id' );
+		$team  = (int) $req->get_param( 'team_id' );
+		if ( $owner > 0 && $owner !== $actor ) {
+			$decision = BizCity_CRM_Staff_Policy::can( $actor, 'contact.view_by_owner', $owner );
+			if ( ! $decision['ok'] ) { return BizCity_CRM_Staff_Policy::denied_response( $decision ); }
+		}
+		$owner_ids = null;
+		// `unassigned=1` = the "Chưa phân công" matrix row. `owner_id=0` means NO owner filter, so it cannot carry this meaning.
+		if ( in_array( (string) $req->get_param( 'unassigned' ), array( '1', 'true' ), true ) ) { $owner_ids = array( 0 ); }
+		elseif ( $owner > 0 ) { $owner_ids = array( $owner ); }
+		elseif ( $team > 0 ) { $owner_ids = self::team_user_ids( $actor, $team ); }
+		return array( 'actor_id' => $actor, 'inbox_ids' => BizCity_CRM_Customer_Pipeline::b2_inbox_ids( $actor ), 'owner_ids' => $owner_ids );
+	}
+
+	private static function range_days( WP_REST_Request $req ): int {
+		$range = sanitize_key( (string) $req->get_param( 'range' ) );
+		return '7d' === $range ? 7 : ( '90d' === $range ? 90 : 30 );
+	}
+
+	public static function get_kind_board( WP_REST_Request $request ) {
+		if ( ! class_exists( 'BizCity_CRM_Pipeline_Aggregate_Service' ) ) { return self::error( 'module_not_loaded', 'Bảng theo quy trình chưa sẵn sàng.', 503, 'Tải lại CRM rồi thử lại.' ); }
+		$scope = self::kind_scope( $request );
+		if ( $scope instanceof WP_REST_Response ) { return $scope; }
+		$payload = BizCity_CRM_Pipeline_Aggregate_Service::aggregate( sanitize_key( (string) $request['kind'] ), array_merge( $scope, array(
+			'range_days' => self::range_days( $request ), 'view' => 'staff' === $request->get_param( 'view' ) ? 'staff' : 'stage', 'sample' => (int) $request->get_param( 'sample' ),
+		) ) );
+		return is_wp_error( $payload ) ? self::error_from( $payload ) : self::ok( $payload );
+	}
+
+	public static function get_kind_dashboard( WP_REST_Request $request ) {
+		if ( ! class_exists( 'BizCity_CRM_Pipeline_Dashboard_Service' ) ) { return self::error( 'module_not_loaded', 'Dashboard quy trình chưa sẵn sàng.', 503, 'Tải lại CRM rồi thử lại.' ); }
+		$scope = self::kind_scope( $request );
+		if ( $scope instanceof WP_REST_Response ) { return $scope; }
+		$payload = BizCity_CRM_Pipeline_Dashboard_Service::dashboard( sanitize_key( (string) $request['kind'] ), array_merge( $scope, array( 'range_days' => self::range_days( $request ) ) ) );
+		return is_wp_error( $payload ) ? self::error_from( $payload ) : self::ok( $payload );
+	}
+
+	public static function upgrade_run( WP_REST_Request $request ) {
+		// [2026-09-25 PHASE-0.63C GC-20a] Only someone who may edit definitions can move a run onto a newer one.
+		if ( ! self::can_manage_pipeline() ) {
+			return self::error( 'forbidden', 'Chỉ người quản lý quy trình mới được nâng cấp phiên bản của pipeline đang chạy.', 403, 'Nhờ trưởng nhóm hoặc quản trị thực hiện.' );
+		}
+		$run = self::scoped_run( (int) $request['id'] );
+		if ( is_wp_error( $run ) ) { return self::error_from( $run ); }
+		$body = self::body( $request );
+		$body['actor_id'] = (int) get_current_user_id();
+		$result = BizCity_CRM_Pipeline_Run_Service::upgrade_definition( (int) $run['id'], $body );
+		return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( array( 'run' => $result ) );
+	}
+
+	public static function get_definition_usage( WP_REST_Request $request ) {
+		// [2026-09-25 PHASE-0.63C GC-19.7] Builder header: how many runs are still pinned to an older version of this definition.
+		if ( ! class_exists( 'BizCity_CRM_Pipeline_Aggregate_Service' ) ) { return self::error( 'module_not_loaded', 'Bảng theo quy trình chưa sẵn sàng.', 503, 'Tải lại CRM rồi thử lại.' ); }
+		$usage = BizCity_CRM_Pipeline_Aggregate_Service::version_usage( sanitize_key( (string) $request['kind'] ) );
+		return is_wp_error( $usage ) ? self::error_from( $usage ) : self::ok( $usage );
+	}
+
+	public static function validate_definition( WP_REST_Request $request ) {
+		// Builder live validation: judged exactly as save() would, nothing is written.
+		if ( ! class_exists( 'BizCity_CRM_Pipeline_Registry' ) ) { return self::error( 'module_not_loaded', 'Registry pipeline chưa sẵn sàng.', 503, 'Tải lại CRM rồi thử lại.' ); }
+		$body = self::body( $request );
+		$definition = isset( $body['definition'] ) && is_array( $body['definition'] ) ? $body['definition'] : $body;
+		return self::ok( BizCity_CRM_Pipeline_Registry::dry_run( $definition ) );
+	}
+
 	private static function scoped_run( int $run_id ) {
 		if ( $run_id <= 0 || ! class_exists( 'BizCity_CRM_Pipeline_Run_Service' ) ) {
 			return new WP_Error( 'run_not_found', 'Không tìm thấy pipeline đang chạy.', array( 'status' => 404, 'hint' => 'Tải lại pipeline rồi thử lại.', 'help_code' => 'pipeline_run_not_found' ) );
@@ -481,6 +597,24 @@ final class BizCity_CRM_Pipeline_REST {
 					$state = (string) ( $selected_run['stages'][ (string) $sub_step['key'] ]['state'] ?? 'ready' );
 					$run_steps[] = array( 'key' => (string) $sub_step['key'], 'label' => (string) ( $sub_step['label'] ?? $sub_step['key'] ), 'done' => 'done' === $state );
 				}
+				// [2026-09-25 PHASE-0.63C GC-20b] The sheet's "Việc cần làm ở bước … (gợi ý)" reads steps_by_stage[target]. It was only
+				// ever filled for the sales vocabulary, so it was empty for every registry kind. Fill it for every stage of the run:
+				// the stage's own sub-step labels, else the definition's ui.next_suggestions.
+				$steps_by_stage = array();
+				foreach ( $definition_stages as $stage ) {
+					if ( ! is_array( $stage ) || '' === (string) ( $stage['key'] ?? '' ) ) { continue; }
+					$labels = array();
+					foreach ( (array) ( $stage['sub_steps'] ?? array() ) as $sub ) {
+						if ( is_array( $sub ) && '' !== trim( (string) ( $sub['label'] ?? '' ) ) ) { $labels[] = (string) $sub['label']; }
+					}
+					if ( empty( $labels ) ) {
+						foreach ( (array) ( $stage['ui']['next_suggestions'] ?? array() ) as $suggestion ) {
+							if ( is_string( $suggestion ) && '' !== trim( $suggestion ) ) { $labels[] = $suggestion; }
+						}
+					}
+					$steps_by_stage[ (string) $stage['key'] ] = $labels;
+				}
+				$detail['steps_by_stage'] = $steps_by_stage;
 				$detail['pipeline_kind'] = $requested_kind;
 				$detail['pipeline_run_id'] = (int) ( $selected_run['id'] ?? 0 );
 				$detail['pipeline_run'] = $selected_run;
@@ -556,6 +690,15 @@ final class BizCity_CRM_Pipeline_REST {
 	// ── L2 planner ───────────────────────────────────────────────────────
 
 	public static function get_segment( WP_REST_Request $req ) {
+		// [2026-09-25 PHASE-0.63C GC-25.9] Planner opened from a kind board: segment = that kind's stuck runs, scoped like the board.
+		$kind = sanitize_key( (string) $req->get_param( 'kind' ) );
+		if ( '' !== $kind ) {
+			if ( ! class_exists( 'BizCity_CRM_Pipeline_Aggregate_Service' ) ) { return self::error( 'module_not_loaded', 'Bảng theo quy trình chưa sẵn sàng.', 503, 'Tải lại CRM rồi thử lại.' ); }
+			$scope = self::kind_scope( $req );
+			if ( $scope instanceof WP_REST_Response ) { return $scope; }
+			$result = BizCity_CRM_Pipeline_Aggregate_Service::stuck_segment( $kind, array_merge( $scope, array( 'stage' => sanitize_text_field( (string) $req->get_param( 'stage' ) ), 'cap' => self::SEGMENT_MAX ) ) );
+			return is_wp_error( $result ) ? self::error_from( $result ) : self::ok( array_merge( array( 'segment' => 'run_stuck', 'kind' => $kind, 'as_of' => current_time( 'c' ) ), $result ) );
+		}
 		$actor = (int) get_current_user_id();
 		$segment = sanitize_key( (string) $req->get_param( 'segment' ) );
 		if ( ! in_array( $segment, self::SEGMENTS, true ) ) { return self::error( 'invalid_segment', 'Tệp khách không hợp lệ.', 422 ); }
@@ -704,7 +847,14 @@ final class BizCity_CRM_Pipeline_REST {
 
 	private static function error_from( WP_Error $error ): WP_REST_Response {
 		$data = (array) $error->get_error_data();
-		return self::error( (string) $error->get_error_code(), $error->get_error_message(), (int) ( $data['status'] ?? 400 ), (string) ( $data['hint'] ?? '' ) );
+		$response = self::error( (string) $error->get_error_code(), $error->get_error_message(), (int) ( $data['status'] ?? 400 ), (string) ( $data['hint'] ?? '' ) );
+		// [2026-09-25 PHASE-0.63C] gate_blocked / evidence_required / upgrade_blocked say WHICH steps or fields are missing,
+		// and services already pick a specific help_code — both were dropped here, so a client could only show a generic error.
+		$payload = $response->get_data();
+		if ( isset( $data['missing'] ) && is_array( $data['missing'] ) ) { $payload['missing'] = array_values( array_map( 'strval', $data['missing'] ) ); }
+		if ( ! empty( $data['help_code'] ) ) { $payload['help_code'] = (string) $data['help_code']; }
+		$response->set_data( $payload );
+		return $response;
 	}
 
 	private static function error( string $code, string $message, int $status, string $hint = '' ): WP_REST_Response {

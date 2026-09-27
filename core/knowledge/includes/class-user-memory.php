@@ -893,8 +893,9 @@ class BizCity_User_Memory {
         }
 
         // Check for URL → crawl + remember
-        if ( class_exists( 'BizCity_Mode_Classifier' ) ) {
-            $url = BizCity_Mode_Classifier::instance()->extract_url( $message );
+        // [2026-09-25 Claude Opus 5.5] WP-11 C5 — URL extraction lives on the Intent Router (the Mode Classifier is an alias).
+        if ( class_exists( 'BizCity_Intent_Router' ) ) {
+            $url = BizCity_Intent_Router::instance()->extract_url( $message );
             if ( $url ) {
                 $this->remember_url( $user_id, $session_id, $url );
                 return;

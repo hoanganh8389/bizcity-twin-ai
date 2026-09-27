@@ -106,13 +106,7 @@ class BizCity_Gateway_Admin {
 				'status'      => class_exists( 'BizCity_Zalo_Bot_Database' ),
 				'admin_page'  => 'bizchat-zalobot',
 			],
-			'zalo'      => [
-				'label'       => 'Zalo BizCity',
-				'desc'        => 'Gửi tin nhắn qua tài khoản Zalo cá nhân',
-				'icon'        => '💬',
-				'status'      => function_exists( 'send_zalo_botbanhang' ) || function_exists( 'biz_send_message' ),
-				'admin_page'  => '',
-			],
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — 'zalo' (Zalo BizCity Hotline) card removed; channel retired (R-ONE-AXIS D-29).
 			'telegram'  => [
 				'label'       => 'Telegram',
 				'desc'        => 'Kết nối Telegram Bot API',

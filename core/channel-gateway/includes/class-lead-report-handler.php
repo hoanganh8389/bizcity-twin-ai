@@ -91,13 +91,9 @@ class BizCity_Lead_Report_Handler {
 			}
 		}
 
-		// Generate report text via legacy function (or inline if not loaded).
-		$report_text = '';
-		if ( function_exists( 'twf_handle_ai_json_report' ) ) {
-			$report_text = twf_handle_ai_json_report( $ai_data );
-		} else {
-			$report_text = self::generate_report( $ai_data );
-		}
+		// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R6 — the legacy twf_handle_ai_json_report() branch was archived
+		// with core/helper-legacy; the inline generator is the only path now (WooCommerce is checked above).
+		$report_text = self::generate_report( $ai_data );
 
 		if ( empty( $report_text ) ) {
 			$cron->note_event( 'lead_report_failed', [
@@ -115,7 +111,7 @@ class BizCity_Lead_Report_Handler {
 		self::write_status( $event_id, $meta, 'done' );
 	}
 
-	// ── Inline report generator (fallback when legacy_thongke.php not loaded) ──
+	// ── Inline report generator (the only generator since WP-12 R6) ──
 
 	private static function generate_report( array $ai_data ): string {
 		$type     = $ai_data['type'] ?? 'daily';
@@ -168,11 +164,9 @@ class BizCity_Lead_Report_Handler {
 		}
 	}
 
-	/** Minimal WC order stats query (delegates to legacy helper if available). */
+	/** Minimal WC order stats query. */
 	private static function get_stats( string $from, string $to ): array {
-		if ( function_exists( 'twf_get_order_stats_range' ) ) {
-			return twf_get_order_stats_range( $from, $to );
-		}
+		// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R6 — twf_get_order_stats_range() branch removed (archived).
 		global $wpdb;
 		$row = $wpdb->get_row( $wpdb->prepare(
 			"SELECT COUNT(*) AS cnt, COALESCE(SUM(pm.meta_value),0) AS total

@@ -327,6 +327,15 @@ class BizCity_Knowledge_Guru_Service {
 				array( 'status' => 409, 'channels' => $active )
 			);
 		}
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE R-GS-4 — the tenant default Guru (gate 0, `guru:0`) answers every number with AI on
+		// and no Guru chosen, and is what the Hub serves as guru:0; it cannot be deleted while it holds that role.
+		if ( (int) get_option( 'bizcity_bot_default_character_id', 0 ) === $id ) {
+			return new WP_Error(
+				'guru_is_default',
+				'This Guru is the site default Guru (gate 0). Make another Guru the default in Bot Studio before deleting it.',
+				array( 'status' => 409, 'hint' => 'Bot Studio → Agents → choose another Guru → "Set as default".', 'help_code' => 'guru_is_default' )
+			);
+		}
 
 		// Knowledge links go through the canonical attachment table (the same writer Bot Studio
 		// uses: BizCity_KG_Database::detach_guru), then the legacy character_id column.

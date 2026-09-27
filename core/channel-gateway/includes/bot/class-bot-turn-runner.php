@@ -47,6 +47,17 @@ final class BizCity_Bot_Turn_Runner {
 	const SWEEP_GRACE_SECONDS = 25;
 	/** How many times one turn is re-armed before it is given up as `cron_lost`. */
 	const MAX_RESCUES     = 2;
+	/**
+	 * [2026-09-25 Claude Sonnet 5] PHASE-0.60K D-K8 (phương án A) — loopback "kick". WP-Cron started a due turn 8–33s late (median 8s)
+	 * because a one-shot event only runs when a request reaches wp-cron.php AND no other cron run holds `doing_cron`. Scheduling a turn
+	 * now also fires one non-blocking, HMAC-signed POST at this site's own REST route; that request waits until the turn is due and
+	 * runs it. WP-Cron stays armed as the safety net, and the sweeper as the net under that.
+	 */
+	const KICK_NAMESPACE   = 'bizcity-channel/v1';
+	const KICK_ROUTE       = '/bot/turn/kick';
+	const KICK_MAX_WAIT    = 30;  // seconds a kick may hold a PHP worker waiting for the debounce; a longer delay is left to cron.
+	const KICK_MAX_WAITERS = 5;   // concurrent kicks (waiting or running) per site; beyond it the cron path serves the turn.
+	const KICK_SIG_TTL     = 120; // seconds a signed kick stays valid.
 	const ZALO_REPLY_MAX_CHARS = 1800;
 
 	/** @var callable|null test seam: fn(object $character, array $messages, array $claim): array {success,message,error} */
@@ -57,6 +68,18 @@ final class BizCity_Bot_Turn_Runner {
 	public static $scheduler = null;
 	/** @var callable|null test seam: fn(array $request): array — replaces BizCity_CRM_Outbound_Dispatcher::dispatch() so send() itself is testable. */
 	public static $dispatcher = null;
+	/** @var callable|null test seam: fn(array $payload): mixed — replaces the loopback HTTP POST; return false = the send failed. */
+	public static $kicker = null;
+	/** @var callable|null test seam: fn(float $seconds): void — replaces the waiter's sleep. */
+	public static $sleeper = null;
+	/** @var callable|null test seam: fn(): float — replaces microtime(true) inside the kick waiter and arm_claim(). */
+	public static $clock = null;
+	/** @var callable|null test seam: fn(string $key): bool — replaces the atomic "who runs this turn" guard (true = you run it). */
+	public static $run_guard = null;
+	/** What the last schedule() did about the loopback kick: sent | error | off | too_long | seam. Read into the `bot_turn_scheduled` event. */
+	private static $last_kick = '';
+	/** True only while a kick request is running a turn: human_delay() paces the reply in cron requests, and a kick is one too. */
+	private static $in_kick = false;
 	/**
 	 * [2026-09-25 Claude Sonnet 5] PHASE-0.60K §15 — the turn currently holding the thread lock, and how far it got. A turn
 	 * killed by a PHP fatal / max_execution_time never reaches its `finally`, so the lock stayed (composer "AI reply" then
@@ -107,7 +130,7 @@ final class BizCity_Bot_Turn_Runner {
 		'trace_id', 'conversation_id', 'contact_id', 'message_id', 'character_id', 'mode', 'trigger', 'channel', 'chat_kind',
 		'account_ref', 'delay_seconds', 'pending', 'parks', 'ran', 'ok', 'state', 'source', 'stage', 'kind', 'attempt',
 		'latency_ms', 'reply_chars', 'tool_steps', 'purpose', 'outcome', 'code', 'reason_bucket', 'retryable', 'replayed',
-		'delivery_mode', 'system_source', 'responder_kind', 'fallback', 'binding_id', 'prep_ms', 'plan_ms', 'context_ms', 'pre_send_ms', 'planner',
+		'delivery_mode', 'system_source', 'responder_kind', 'fallback', 'binding_id', 'prep_ms', 'plan_ms', 'context_ms', 'pre_send_ms', 'planner', 'via', 'kick', 'goal_mode', 'goal_ms', 'injected',
 	);
 
 	public static function init(): void {
@@ -116,6 +139,7 @@ final class BizCity_Bot_Turn_Runner {
 		add_action( 'bizcity_crm_message_delivery_updated', array( __CLASS__, 'on_delivery_updated' ), 10, 1 );
 		add_action( self::CRON_HOOK, array( __CLASS__, 'on_run_turn_cron' ), 10, 1 );
 		add_action( self::SWEEP_HOOK, array( __CLASS__, 'sweep_overdue' ), 10, 0 );
+		add_action( 'rest_api_init', array( __CLASS__, 'register_kick_route' ) );
 		add_action( 'init', array( __CLASS__, 'register_sweeper_job' ), 20 );
 	}
 
@@ -183,9 +207,10 @@ final class BizCity_Bot_Turn_Runner {
 				$out['gave_up']++;
 				continue;
 			}
+			$claim = self::arm_claim( $claim, 1 );
 			set_transient( self::claim_key( $contact_id ), $claim, $debounce + 120 ); // keep the claim alive for the re-armed run
 			BizCity_Bot_Turn_Claim::mark_active( $contact_id, 'waiting', array( 'conversation_id' => (int) $claim['conversation_id'], 'pending' => (int) ( $claim['pending_messages'] ?? 1 ) ) );
-			$queued = self::schedule( $contact_id, 1 );
+			$queued = self::schedule( $contact_id, 1, $claim );
 			self::lifecycle( 'bot_turn_scheduled', array(
 				'trace_id'        => $trace_id,
 				'conversation_id' => (int) $claim['conversation_id'],
@@ -193,11 +218,13 @@ final class BizCity_Bot_Turn_Runner {
 				'ok'              => $queued,
 				'delay_seconds'   => 1,
 				'source'          => 'sweeper',
+				'kick'            => self::$last_kick,
 				'attempt'         => $claim['rescues'],
 				'reason_bucket'   => $queued ? '' : 'schedule_rejected',
 			) );
 			$out['rescued']++;
 		}
+		self::purge_run_tokens();
 		return $out;
 	}
 
@@ -370,9 +397,10 @@ final class BizCity_Bot_Turn_Runner {
 		} elseif ( ! empty( $existing['cap_warned'] ) ) {
 			$claim['cap_warned'] = true;
 		}
+		$claim = self::arm_claim( $claim, $debounce );
 		set_transient( self::claim_key( $contact_id ), $claim, $debounce + 120 );
 		BizCity_Bot_Turn_Claim::mark_active( $contact_id, 'waiting', array( 'conversation_id' => $conversation_id, 'pending' => $claim['pending_messages'] ) );
-		$queued = self::schedule( $contact_id, $debounce );
+		$queued = self::schedule( $contact_id, $debounce, $claim );
 		self::lifecycle( 'bot_turn_scheduled', array(
 			'trace_id'        => (string) ( $claim['trace_id'] ?? '' ),
 			'conversation_id' => $conversation_id,
@@ -381,6 +409,7 @@ final class BizCity_Bot_Turn_Runner {
 			'delay_seconds'   => $debounce,
 			'pending'         => (int) $claim['pending_messages'],
 			'parks'           => (int) $claim['parks'],
+			'kick'            => self::$last_kick,
 			'reason_bucket'   => $queued ? '' : 'schedule_rejected',
 		) );
 		if ( ! $queued ) {
@@ -388,10 +417,16 @@ final class BizCity_Bot_Turn_Runner {
 		}
 	}
 
-	/** @return bool false when WP-Cron refused the event — the caller must say so, not assume the turn is queued. */
-	private static function schedule( int $contact_id, int $delay ): bool {
+	/**
+	 * @param array $claim The armed claim (see arm_claim()); without its `kick_gen` no loopback kick is sent.
+	 * @return bool false when neither WP-Cron nor the loopback kick took the turn — the caller must say so, not assume it is queued.
+	 */
+	private static function schedule( int $contact_id, int $delay, array $claim = array() ): bool {
+		self::$last_kick = '';
 		if ( is_callable( self::$scheduler ) ) {
-			return false !== call_user_func( self::$scheduler, $contact_id, $delay ); // a seam that returns nothing = accepted.
+			$accepted        = false !== call_user_func( self::$scheduler, $contact_id, $delay ); // a seam that returns nothing = accepted.
+			self::$last_kick = self::kick( $contact_id, $delay, $claim );
+			return $accepted || 'sent' === self::$last_kick;
 		}
 		// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-CLI-ASYNC-ISOLATION — a diagnostics run must never enqueue or
 		// execute a production bot turn (it would call the LLM and send a real Zalo message to a real customer).
@@ -400,7 +435,10 @@ final class BizCity_Bot_Turn_Runner {
 		}
 		self::report_overdue_turns();
 		wp_clear_scheduled_hook( self::CRON_HOOK, array( $contact_id ) );
-		return true === wp_schedule_single_event( time() + $delay, self::CRON_HOOK, array( $contact_id ) );
+		$accepted         = true === wp_schedule_single_event( time() + $delay, self::CRON_HOOK, array( $contact_id ) );
+		// A kick also rescues a turn WP could not write into the cron list (`could_not_set`): the turn is queued if EITHER path took it.
+		self::$last_kick = self::kick( $contact_id, $delay, $claim );
+		return $accepted || 'sent' === self::$last_kick;
 	}
 
 	/** A scheduled turn this late means WP-Cron is not running on this site. */
@@ -437,11 +475,231 @@ final class BizCity_Bot_Turn_Runner {
 		}
 	}
 
+	/* ── loopback kick (PHASE-0.60K D-K8, phương án A) ─────────────────── */
+
+	private static function now(): float {
+		return is_callable( self::$clock ) ? (float) call_user_func( self::$clock ) : microtime( true );
+	}
+
+	private static function nap( float $seconds ): void {
+		if ( is_callable( self::$sleeper ) ) {
+			call_user_func( self::$sleeper, $seconds );
+			return;
+		}
+		usleep( (int) round( $seconds * 1000000 ) );
+	}
+
+	/**
+	 * Stamp a claim with WHEN it is due and WHICH arming it is. A debounce re-arm, a park and a sweeper rescue each call this, so a
+	 * newer arming always has a newer `kick_gen`: an older waiting kick sees the mismatch and leaves, and the run-guard is per arming.
+	 *
+	 * @return array The claim with `due_at` (epoch seconds) and `kick_gen`.
+	 */
+	private static function arm_claim( array $claim, int $delay ): array {
+		$claim['due_at']   = (int) floor( self::now() ) + max( 0, $delay );
+		$claim['kick_gen'] = substr( md5( uniqid( '', true ) ), 0, 12 );
+		return $claim;
+	}
+
+	private static function kick_key(): string {
+		return hash_hmac( 'sha256', 'bizcity-bot-turn-kick', function_exists( 'wp_salt' ) ? (string) wp_salt( 'auth' ) : 'bizcity-test-salt' );
+	}
+
+	/** @param array<string,mixed> $p c=contact g=gen d=due t=signed-at b=blog */
+	private static function kick_sig( array $p ): string {
+		return hash_hmac( 'sha256', implode( '|', array( (int) ( $p['c'] ?? 0 ), (string) ( $p['g'] ?? '' ), (int) ( $p['d'] ?? 0 ), (int) ( $p['t'] ?? 0 ), (int) ( $p['b'] ?? 0 ) ) ), self::kick_key() );
+	}
+
+	/** @return array<string,mixed> */
+	private static function kick_payload( int $contact_id, string $gen, int $due ): array {
+		$payload = array( 'c' => $contact_id, 'g' => $gen, 'd' => $due, 't' => (int) floor( self::now() ), 'b' => (int) self::blog() );
+		$payload['s'] = self::kick_sig( $payload );
+		return $payload;
+	}
+
+	/** Public for tests: is this a kick THIS site signed, recently, for THIS blog? */
+	public static function verify_kick( array $p, $now = 0 ): bool {
+		foreach ( array( 'c', 'g', 'd', 't', 'b', 's' ) as $field ) {
+			if ( ! isset( $p[ $field ] ) || ! is_scalar( $p[ $field ] ) || '' === (string) $p[ $field ] ) {
+				return false;
+			}
+		}
+		$now = (int) $now > 0 ? (int) $now : (int) floor( self::now() );
+		if ( abs( $now - (int) $p['t'] ) > self::KICK_SIG_TTL || (int) $p['b'] !== (int) self::blog() ) {
+			return false;
+		}
+		return hash_equals( self::kick_sig( $p ), (string) $p['s'] );
+	}
+
+	/**
+	 * Fire-and-forget: one non-blocking loopback POST (the same trick `spawn_cron()` uses: connect, do not wait).
+	 *
+	 * @return string sent | error | off | too_long
+	 */
+	private static function kick( int $contact_id, int $delay, array $claim ): string {
+		$gen = (string) ( $claim['kick_gen'] ?? '' );
+		if ( '' === $gen || $contact_id <= 0 ) {
+			return 'off';
+		}
+		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) || empty( BizCity_Bot_Config_Repo::get_tuning()['loopback_kick'] ) ) {
+			return 'off'; // the operator's kill switch.
+		}
+		if ( $delay > self::KICK_MAX_WAIT ) {
+			return 'too_long'; // a kick would hold a PHP worker for longer than is sane; cron serves it.
+		}
+		$payload = self::kick_payload( $contact_id, $gen, (int) ( $claim['due_at'] ?? 0 ) );
+		if ( is_callable( self::$kicker ) ) {
+			return false === call_user_func( self::$kicker, $payload ) ? 'error' : 'sent';
+		}
+		if ( ! function_exists( 'wp_remote_post' ) || ! function_exists( 'rest_url' ) ) {
+			return 'off';
+		}
+		$response = wp_remote_post( rest_url( self::KICK_NAMESPACE . self::KICK_ROUTE ), array(
+			'timeout'   => 0.01,
+			'blocking'  => false,
+			'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
+			'body'      => $payload,
+		) );
+		return ( function_exists( 'is_wp_error' ) && is_wp_error( $response ) ) ? 'error' : 'sent';
+	}
+
+	public static function register_kick_route(): void {
+		register_rest_route( self::KICK_NAMESPACE, self::KICK_ROUTE, array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'rest_kick' ),
+			'permission_callback' => array( __CLASS__, 'kick_permission' ),
+		) );
+	}
+
+	/** Authentication IS the signature: this route has no user, only a proof that this very site asked for the kick. */
+	public static function kick_permission( $request ) {
+		$params = is_object( $request ) && method_exists( $request, 'get_body_params' ) ? (array) $request->get_body_params() : array();
+		if ( empty( $params ) && is_object( $request ) && method_exists( $request, 'get_params' ) ) {
+			$params = (array) $request->get_params();
+		}
+		if ( self::verify_kick( $params ) ) {
+			return true;
+		}
+		return new WP_Error( 'bot_kick_forbidden', 'Forbidden.', array( 'status' => 403 ) );
+	}
+
+	public static function rest_kick( $request ) {
+		$params = is_object( $request ) && method_exists( $request, 'get_body_params' ) ? (array) $request->get_body_params() : array();
+		if ( empty( $params ) && is_object( $request ) && method_exists( $request, 'get_params' ) ) {
+			$params = (array) $request->get_params();
+		}
+		$out = self::on_kick( $params );
+		return new WP_REST_Response( array( 'status' => (string) $out['status'] ), 200 );
+	}
+
+	/**
+	 * The kick worker: wait until the armed turn is due, then run it exactly as the WP-Cron hook would.
+	 *
+	 * Leaves without doing anything when: the claim is gone or re-armed (`superseded` — a newer message started its own kick), the
+	 * site already has KICK_MAX_WAITERS kicks in flight (`busy`), or the wait would exceed KICK_MAX_WAIT (`timeout`). In every one
+	 * of those the cron event / sweeper still owns the turn.
+	 *
+	 * @param array<string,mixed> $p A payload that already passed verify_kick().
+	 * @return array{status:string}
+	 */
+	public static function on_kick( array $p ): array {
+		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
+			return array( 'status' => 'isolated' ); // R-CLI-ASYNC-ISOLATION
+		}
+		$contact_id = (int) ( $p['c'] ?? 0 );
+		$gen        = (string) ( $p['g'] ?? '' );
+		if ( $contact_id <= 0 || '' === $gen ) {
+			return array( 'status' => 'ignored' );
+		}
+		$max_waiters = (int) ( function_exists( 'apply_filters' ) ? apply_filters( 'bizcity_bot_kick_max_waiters', self::KICK_MAX_WAITERS ) : self::KICK_MAX_WAITERS );
+		if ( self::kick_waiters( 1 ) > max( 1, $max_waiters ) ) {
+			self::kick_waiters( -1 );
+			return array( 'status' => 'busy' );
+		}
+		try {
+			if ( function_exists( 'ignore_user_abort' ) ) { ignore_user_abort( true ); }
+			if ( function_exists( 'set_time_limit' ) ) { @set_time_limit( self::KICK_MAX_WAIT + 20 ); }
+			$deadline = self::now() + self::KICK_MAX_WAIT;
+			while ( true ) {
+				$claim = get_transient( self::claim_key( $contact_id ) );
+				if ( ! is_array( $claim ) || (string) ( $claim['kick_gen'] ?? '' ) !== $gen ) {
+					return array( 'status' => 'superseded' );
+				}
+				$left = (float) ( $claim['due_at'] ?? 0 ) - self::now();
+				if ( $left <= 0 ) {
+					break;
+				}
+				if ( self::now() >= $deadline ) {
+					return array( 'status' => 'timeout' );
+				}
+				self::nap( min( 0.5, $left ) );
+			}
+			// About to run it: retire the WP-Cron event so it does not fire a second time against an empty claim.
+			if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
+				wp_clear_scheduled_hook( self::CRON_HOOK, array( $contact_id ) );
+			}
+			self::$in_kick = true;
+			self::on_run_turn_cron( $contact_id, 'kick' );
+			return array( 'status' => 'ran' );
+		} finally {
+			self::$in_kick = false;
+			self::kick_waiters( -1 );
+		}
+	}
+
+	/** Soft (non-atomic) count of kicks in flight on this site: it only has to stop a stampede, not be exact. */
+	private static function kick_waiters( int $delta ): int {
+		$key   = 'bzbot_kick_n_' . self::blog();
+		$count = max( 0, (int) get_transient( $key ) + $delta );
+		set_transient( $key, $count, self::KICK_MAX_WAIT + 300 );
+		return $count;
+	}
+
+	/**
+	 * Which of the two triggers (WP-Cron, the kick) runs THIS arming. `INSERT IGNORE` on the unique option name is the same primitive
+	 * WordPress core uses for its upgrade lock: exactly one caller gets `1` row. A claim from before the kick existed (no `kick_gen`)
+	 * has only one trigger, so it just runs. A database error runs the turn: a doubled run is recoverable (the dispatcher key is stable
+	 * per message), a silent customer is not.
+	 */
+	private static function acquire_run( int $contact_id, array $claim ): bool {
+		$gen = (string) ( $claim['kick_gen'] ?? '' );
+		if ( '' === $gen ) {
+			return true;
+		}
+		$key = 'bzbot_run_' . self::blog() . '_' . $contact_id . '_' . $gen;
+		if ( is_callable( self::$run_guard ) ) {
+			return (bool) call_user_func( self::$run_guard, $key );
+		}
+		global $wpdb;
+		if ( isset( $wpdb ) && is_object( $wpdb ) && isset( $wpdb->options ) && method_exists( $wpdb, 'prepare' ) && method_exists( $wpdb, 'query' ) ) {
+			$got = $wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO `{$wpdb->options}` (`option_name`, `option_value`, `autoload`) VALUES (%s, %s, 'no')", $key, (string) time() ) );
+			return false === $got || (int) $got > 0;
+		}
+		if ( get_transient( $key ) ) {
+			return false;
+		}
+		set_transient( $key, 1, 600 );
+		return true;
+	}
+
+	/** The run-guard rows are one per arming and never read again; the sweeper (every minute) drops the ones older than an hour. */
+	private static function purge_run_tokens(): void {
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! isset( $wpdb->options ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'query' ) || ! method_exists( $wpdb, 'esc_like' ) ) {
+			return;
+		}
+		$wpdb->query( $wpdb->prepare( "DELETE FROM `{$wpdb->options}` WHERE `option_name` LIKE %s AND CAST(`option_value` AS UNSIGNED) < %d", $wpdb->esc_like( 'bzbot_run_' ) . '%', time() - 3600 ) );
+	}
+
 	/**
 	 * Cron fire: re-check "hội thoại rảnh" at fire time, not just claim time —
 	 * a human may have jumped in during the debounce window (invariant 2).
 	 */
-	public static function on_run_turn_cron( $contact_id ): void {
+	/**
+	 * @param mixed  $contact_id
+	 * @param string $via 'cron' (WP-Cron fired the hook) | 'kick' (the loopback request got there first).
+	 */
+	public static function on_run_turn_cron( $contact_id, $via = 'cron' ): void {
 		// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-CLI-ASYNC-ISOLATION — a diagnostics run must never enqueue or
 		// execute a production bot turn (it would call the LLM and send a real Zalo message to a real customer).
 		if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
@@ -468,13 +726,19 @@ final class BizCity_Bot_Turn_Runner {
 				return;
 			}
 			$tuning = BizCity_Bot_Config_Repo::get_tuning();
+			$claim = self::arm_claim( $claim, max( 2, (int) $tuning['debounce_seconds'] ) );
 			set_transient( self::claim_key( $contact_id ), $claim, (int) $tuning['debounce_seconds'] + 120 );
 			BizCity_Bot_Turn_Claim::mark_active( $contact_id, 'parked', array( 'conversation_id' => (int) $claim['conversation_id'], 'parks' => $claim['parks'] ) );
-			$requeued = self::schedule( $contact_id, max( 2, (int) $tuning['debounce_seconds'] ) );
+			$requeued = self::schedule( $contact_id, max( 2, (int) $tuning['debounce_seconds'] ), $claim );
 			self::lifecycle( 'bot_turn_cron_started', array( 'trace_id' => $trace_id, 'conversation_id' => (int) $claim['conversation_id'], 'contact_id' => $contact_id, 'ran' => false, 'parks' => (int) $claim['parks'], 'reason_bucket' => 'thread_busy' ) );
 			if ( ! $requeued ) {
 				self::lifecycle( 'bot_turn_failed', array( 'trace_id' => $trace_id, 'conversation_id' => (int) $claim['conversation_id'], 'stage' => 'cron', 'reason_bucket' => 'schedule_rejected' ) );
 			}
+			return;
+		}
+		// Cron and the kick both aim at the same due time. Exactly one of them may consume this arming; the loser leaves quietly
+		// (it must not clear the winner's active row or emit a misleading `ran:false`).
+		if ( ! self::acquire_run( $contact_id, $claim ) ) {
 			return;
 		}
 		delete_transient( self::claim_key( $contact_id ) );
@@ -484,12 +748,17 @@ final class BizCity_Bot_Turn_Runner {
 			self::lifecycle( 'bot_turn_cron_started', array( 'trace_id' => $trace_id, 'conversation_id' => (int) $claim['conversation_id'], 'contact_id' => $contact_id, 'ran' => false, 'reason_bucket' => 'conditions_changed' ) );
 			return; // dropped, not sent — e.g. a human replied or office hours started mid-wait.
 		}
-		self::lifecycle( 'bot_turn_cron_started', array( 'trace_id' => $trace_id, 'conversation_id' => (int) $claim['conversation_id'], 'contact_id' => $contact_id, 'ran' => true, 'parks' => (int) ( $claim['parks'] ?? 0 ) ) );
+		self::lifecycle( 'bot_turn_cron_started', array( 'trace_id' => $trace_id, 'conversation_id' => (int) $claim['conversation_id'], 'contact_id' => $contact_id, 'ran' => true, 'parks' => (int) ( $claim['parks'] ?? 0 ), 'via' => 'kick' === $via ? 'kick' : 'cron' ) );
 		self::run_turn( $claim );
 	}
 
 	private static function may_still_send( array $claim ): bool {
 		if ( ! class_exists( 'BizCity_Channel_Binding' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+			return false;
+		}
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-6 (D-L43) — the number may have moved to zalo-hub or lost its AI
+		// (plan downgrade) between claim and send (debounce/park window): re-ask the account gate at fire time.
+		if ( method_exists( 'BizCity_Bot_Turn_Claim', 'account_gate' ) && '' !== BizCity_Bot_Turn_Claim::account_gate( (string) $claim['account_id'] ) ) {
 			return false;
 		}
 		$binding = BizCity_Channel_Binding::resolve( BizCity_Bot_Turn_Claim::PLATFORM, (string) $claim['account_id'] );
@@ -627,6 +896,18 @@ final class BizCity_Bot_Turn_Runner {
 					if ( $confirm !== '' ) {
 						$extra_system[] = $confirm;
 					}
+				}
+			}
+
+			// [2026-09-25 Claude Sonnet 5] PHASE-0.60K §15.7 C1 — Goal Loop pre_turn: the canonical runtime, called for a private,
+			// automatic, sending turn only. Mode `observe` records evidence without showing the brief to the model; `on` adds it to the
+			// system context. Never throws (fail-open) and never changes the reply in `off`/`observe`.
+			$goal_begin = array( 'state' => 'skip', 'reason_bucket' => 'runtime_unavailable', 'mode' => 0, 'goal_ms' => 0, 'brief' => '', 'opts' => array() );
+			if ( class_exists( 'BizCity_Bot_Goal_Loop' ) ) {
+				$goal_begin = BizCity_Bot_Goal_Loop::begin( $claim, $tuning );
+				$goal_block = BizCity_Bot_Goal_Loop::prompt_block( $goal_begin );
+				if ( '' !== $goal_block ) {
+					$extra_system[] = $goal_block;
 				}
 			}
 
@@ -832,10 +1113,26 @@ final class BizCity_Bot_Turn_Runner {
 			$latency_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
 			self::attach_trace( (int) ( $sent['message_id'] ?? 0 ), $trace_id, $claim, $trace_steps, $latency_ms );
 			self::emit_event( 'guru_turn_completed', array( 'trace_id' => $trace_id, 'character_id' => (int) $claim['character_id'], 'channel' => 'zalo_personal', 'engine' => 'bot', 'mode' => 'auto', 'trigger' => $trigger, 'actor_user_id' => $actor, 'latency_ms' => $latency_ms, 'reply_len' => mb_strlen( $reply ), 'message_id' => (int) ( $sent['message_id'] ?? 0 ), 'history' => $built['meta'] ) );
-			// PHASE-0.60K §15.2/§15.3 Slice C — Goal Loop is NOT wired into Bot Studio yet (its post_turn needs the
-			// canonical TwinBrain runtime + a resolved identity_uuid/session). Until it is, say SKIP with the real
-			// reason on every turn — never a PASS this code did not earn.
-			self::lifecycle( 'goal_loop_post_turn', array( 'trace_id' => $trace_id, 'conversation_id' => $conversation_id, 'state' => 'skip', 'reason_bucket' => 'goal_loop_not_wired' ) );
+			// PHASE-0.60K §15.7 C1 — Goal Loop post_turn, AFTER the reply reached the bridge. `pass` only when the canonical runtime
+			// persisted the progress event; every other outcome is `skip`/`fail` with a bucket. The reply is already delivered: nothing
+			// here may throw into the outer catch (it would send FALLBACK_TEXT as a second message).
+			$goal_end = array( 'state' => 'skip', 'reason_bucket' => 'runtime_unavailable', 'mode' => 0, 'goal_ms' => 0, 'injected' => false );
+			try {
+				if ( class_exists( 'BizCity_Bot_Goal_Loop' ) ) {
+					$goal_end = BizCity_Bot_Goal_Loop::finish( $claim, $reply, $goal_begin );
+				}
+			} catch ( \Throwable $goal_error ) {
+				$goal_end = array( 'state' => 'fail', 'reason_bucket' => 'runtime_error', 'mode' => (int) ( $goal_begin['mode'] ?? 0 ), 'goal_ms' => 0, 'injected' => false );
+			}
+			self::lifecycle( 'goal_loop_post_turn', array(
+				'trace_id'        => $trace_id,
+				'conversation_id' => $conversation_id,
+				'state'           => (string) $goal_end['state'],
+				'reason_bucket'   => (string) $goal_end['reason_bucket'],
+				'goal_mode'       => (int) $goal_end['mode'],
+				'goal_ms'         => (int) $goal_end['goal_ms'],
+				'injected'        => (bool) $goal_end['injected'],
+			) );
 			// [2026-09-23 03:50 PM Claude Fable 5.1] PHASE-0.60D Q-D2 — explicit "after bot replied" mark for automation (the dispatcher's outgoing row also fires bizcity_crm_message_inserted).
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60G G2 — the reply is already delivered here. A throwing
 			// listener must not reach the outer catch, which would send FALLBACK_TEXT as a second message.
@@ -957,6 +1254,14 @@ final class BizCity_Bot_Turn_Runner {
 		if ( '' === $account_id ) {
 			return 'inbox_not_bound';
 		}
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-6 — the composer "AI reply"/"Gợi ý" buttons follow the same account gate:
+		// a zalo-hub number is answered by the Hub-side assistant, a number with AI switched off gets no PHP AI (D-L43).
+		if ( method_exists( 'BizCity_Bot_Turn_Claim', 'account_gate' ) ) {
+			$account_gate = BizCity_Bot_Turn_Claim::account_gate( $account_id );
+			if ( '' !== $account_gate ) {
+				return $account_gate;
+			}
+		}
 		$ref = method_exists( 'BizCity_CRM_Repository', 'get_conversation_thread_ref' )
 			? BizCity_CRM_Repository::get_conversation_thread_ref( $conversation_id )
 			: array( 'contact_id' => (int) ( $conversation['contact_id'] ?? 0 ), 'source_id' => (string) ( $conversation['source_id'] ?? '' ) );
@@ -967,6 +1272,11 @@ final class BizCity_Bot_Turn_Runner {
 		}
 		$binding = BizCity_Channel_Binding::resolve( BizCity_Bot_Turn_Claim::PLATFORM, $account_id );
 		$character_id = is_array( $binding ) ? (int) ( $binding['character_id'] ?? 0 ) : 0;
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE R-GS-4 — a staff member explicitly pressed "AI reply" on a bound number
+		// with no Guru chosen: answer with the tenant default Guru instead of refusing (the button is the consent, not `mode`).
+		if ( $character_id <= 0 && is_array( $binding ) && class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			$character_id = BizCity_Guru_Context_Resolver::answering_character_id( 0 );
+		}
 		if ( $character_id <= 0 ) {
 			return 'bot_not_bound';
 		}
@@ -1013,7 +1323,8 @@ final class BizCity_Bot_Turn_Runner {
 			'text'                => $text,
 			// A fresh id per click: the dispatcher's idempotency key must not collapse two deliberate requests.
 			'external_message_id' => 'composer:' . $request_id,
-			'history_limit'       => (int) $settings['history_limit'],
+			// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 D1 — same resolution as a webhook turn (binding → Guru → 20, 20–200).
+			'history_limit'       => BizCity_Bot_Config_Repo::resolve_history_limit( $bot_policy ),
 			'bypass_notebook'     => ! empty( $settings['bypass_notebook'] ),
 			'context_source'      => (string) $settings['context_source'],
 			'character_off'       => (array) $settings['disabled_tools'],
@@ -1439,8 +1750,8 @@ final class BizCity_Bot_Turn_Runner {
 	}
 
 	private static function human_delay( array $tuning ): void {
-		if ( ! function_exists( 'wp_doing_cron' ) || ! wp_doing_cron() ) {
-			return; // never sleep inside a REST/test request.
+		if ( ! self::$in_kick && ( ! function_exists( 'wp_doing_cron' ) || ! wp_doing_cron() ) ) {
+			return; // never sleep inside a REST/test request (a kick is the one REST request that IS a worker).
 		}
 		$min = max( 0, (int) $tuning['send_delay_min_ms'] );
 		$max = max( $min, (int) $tuning['send_delay_max_ms'] );

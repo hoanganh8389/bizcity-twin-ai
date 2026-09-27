@@ -220,6 +220,17 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		}
 		$emit( 'Loader - Route đọc hợp nhất bot-studio/accounts + sessions + identity đã đăng ký', false !== $routes_ok, $routes_detail );
 
+		// [2026-09-25 Claude Sonnet 5] PHASE-0.60K D-K8 — the loopback kick route that starts a due turn without waiting for WP-Cron.
+		// Read-only: inspects the route table and the tuning value, never sends a kick (R-CLI-ASYNC-ISOLATION). Absent route = the
+		// kick would 404 and every turn silently falls back to WP-Cron's 8–33s lag.
+		$kick_route_ok = null;
+		if ( function_exists( 'rest_get_server' ) ) {
+			$kick_route_ok = isset( rest_get_server()->get_routes()['/bizcity-channel/v1/bot/turn/kick'] );
+		}
+		$kick_on = class_exists( 'BizCity_Bot_Config_Repo', false ) ? ! empty( BizCity_Bot_Config_Repo::get_tuning()['loopback_kick'] ) : null;
+		$emit( 'Runtime - Route loopback kick bizcity-channel/v1/bot/turn/kick đã đăng ký (D-K8: bỏ độ trễ WP-Cron)', $kick_route_ok,
+			null === $kick_route_ok ? 'SKIP — rest_get_server() không khả dụng ở ngữ cảnh này.' : ( $kick_route_ok ? 'Đã đăng ký; tuning loopback_kick = ' . ( $kick_on ? 'BẬT' : 'TẮT (chỉ dùng WP-Cron)' ) . '. Hiệu quả thật (host có cho site gọi lại chính nó không) xem ở self-check: dòng "Loopback kick: ai khởi động lượt".' : 'CHƯA đăng ký: kick sẽ 404 và mọi lượt rơi về WP-Cron.' ) );
+
 		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K §15.2 — where the lifecycle evidence is WRITTEN. The stage list, the
 		// delivery hook and the single dispatch path are checked by the lifecycle-contract step further down; this one
 		// covers the part that step cannot see: without a registered log contract BizCity_Channel_File_Logger drops every
@@ -303,13 +314,63 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		}
 		$emit( 'Runtime - Lifecycle evidence Bot Studio: claimed→scheduled→cron→llm→dispatch→zalo_delivery (+failed có reason_bucket)', $life_ok, $life_detail );
 
-		// Goal Loop is NOT wired into Bot Studio yet (§15.3 Slice C). The turn runner says `skip / goal_loop_not_wired` on
-		// every turn; this step says the same at probe level so a green probe is never read as "Goal Loop works".
-		$goal_wired = strpos( $turn_runner_src, 'BizCity_TwinBrain_Goal_Loop_Runtime' ) !== false;
-		$emit( 'Runtime - Goal Loop post_turn của lượt Bot Studio (§15.3 Slice C)', null,
-			$goal_wired
-				? 'SKIP — runner đã nhắc BizCity_TwinBrain_Goal_Loop_Runtime nhưng probe chưa có bước kiểm PASS; không tự coi là PASS.'
-				: 'SKIP — chưa nối: runner báo goal_loop_post_turn state=skip reason=goal_loop_not_wired ở mọi lượt. Chỉ nối sau khi outbound có bằng chứng runtime (§15.4).' );
+		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1–K8 — the parity modules must be loaded AND hooked where they must be. Static: no event is emitted,
+		// no provider is called, nothing is sent. The hook facts are read here (has_action), the decision is the pure parity_contract().
+		$k_facts = array(
+			'mentions'      => class_exists( 'BizCity_Bot_Mentions', false ),
+			'vision'        => class_exists( 'BizCity_Bot_Vision', false ),
+			'research'      => class_exists( 'BizCity_Bot_Research_Client', false ),
+			'documents'     => class_exists( 'BizCity_Bot_Documents', false ) && class_exists( 'BizCity_Bot_Document_Schema', false ),
+			'media_jobs'    => class_exists( 'BizCity_Bot_Media_Jobs', false ),
+			'schedule'      => class_exists( 'BizCity_Bot_Schedule', false ),
+			'group_guard'   => class_exists( 'BizCity_Bot_Group_Guard', false ),
+			'guard_prio'    => class_exists( 'BizCity_Bot_Group_Guard', false ) ? has_action( 'bizcity_channel_normalized', array( 'BizCity_Bot_Group_Guard', 'on_normalized' ) ) : false,
+			'schedule_hook' => class_exists( 'BizCity_Bot_Schedule', false ) ? has_action( 'bizcity_scheduler_reminder_fire', array( 'BizCity_Bot_Schedule', 'on_fire' ) ) : false,
+			'kick_hook'     => class_exists( 'BizCity_Bot_Group_Guard', false ) ? has_action( 'bizcity_bot_flood_kick', array( 'BizCity_Bot_Group_Guard', 'on_kick_due' ) ) : false,
+			'jobs_hook'     => class_exists( 'BizCity_Bot_Media_Jobs', false ) ? has_action( 'bizcity_bot_media_job', array( 'BizCity_Bot_Media_Jobs', 'on_cron' ) ) : false,
+			'zip'           => class_exists( 'ZipArchive' ),
+			'fonts'         => is_readable( $root . 'core/channel-gateway/assets/fonts/NotoSans-Regular.ttf' ) && is_readable( $root . 'core/channel-gateway/assets/fonts/NotoSans-Bold.ttf' ) && is_readable( $root . 'core/channel-gateway/lib/tfpdf/tfpdf.php' ),
+		);
+		$k_missing = self::parity_contract( $k_facts );
+		$k_ok      = empty( $k_missing );
+		$emit( 'Loader - K1–K8 parity: tag, vision, tra cứu, tài liệu, job nhạc/video, lịch hẹn, chống spam đã nạp và móc đúng hook/ưu tiên', $k_ok,
+			$k_ok ? 'PASS (hợp đồng, chưa phải bằng chứng runtime) — 8 module nạp; guard đếm ở bizcity_channel_normalized @-5; lịch nghe bizcity_scheduler_reminder_fire; job nghe bizcity_bot_media_job; ZipArchive + font Noto có.' : 'Thiếu: ' . implode( '; ', $k_missing ) . '.' );
+
+		// Async media jobs: a job nobody has touched for 15 minutes means WP-Cron is not firing it — the customer was promised a file.
+		$jobs_ok     = null;
+		$jobs_detail = 'SKIP — BizCity_Bot_Media_Jobs chưa nạp.';
+		if ( class_exists( 'BizCity_Bot_Media_Jobs', false ) ) {
+			$h           = BizCity_Bot_Media_Jobs::health();
+			$jobs_ok     = 0 === (int) $h['overdue'];
+			$jobs_detail = $jobs_ok ? sprintf( 'PASS — %d job đang lưu, %d đang chạy, không job nào quá hạn.', (int) $h['total'], (int) $h['active'] ) : sprintf( 'FAIL — %d job nhạc/video quá 15 phút không ai chạm: WP-Cron không bắn sự kiện bizcity_bot_media_job nên khách chưa nhận file đã hứa.', (int) $h['overdue'] );
+		}
+		$emit( 'Runtime - Job nhạc/video không kẹt (mỗi job được chạm trong 15 phút)', $jobs_ok, $jobs_detail );
+
+		// The three bridge actions added in 0.41.0 (read receipts + group admins). Read-only capability read (cached 5 min), never runs an action.
+		$b_ok     = null;
+		$b_detail = 'SKIP — không đọc được GET /wp/actions (bridge < 0.40.0, chưa cấu hình, hoặc managed chưa proxy).';
+		if ( class_exists( 'BizCity_Bot_Zalo_Actions', false ) ) {
+			$caps = BizCity_Bot_Zalo_Actions::supported_actions();
+			if ( is_array( $caps ) ) {
+				$b_missing = array_values( array_diff( array( 'mark_seen', 'configure_receipts', 'get_group_admins' ), $caps ) );
+				$b_ok      = empty( $b_missing );
+				$b_detail  = $b_ok ? 'PASS — sidecar quảng bá mark_seen · configure_receipts · get_group_admins (0.41.0). Chưa tính là đã chạy thật trên Zalo.' : 'FAIL — sidecar đang chạy thiếu: ' . implode( ', ', $b_missing ) . '. Báo đã nhận/đã xem và chống spam nhóm không hoạt động cho tới khi build + deploy zca-bridge 0.41.0.';
+			}
+		}
+		$emit( 'Runtime - zca-bridge 0.41.0 quảng bá báo đã nhận/đã xem + đọc admin nhóm', $b_ok, $b_detail );
+
+		// [2026-09-25 Claude Sonnet 5] PHASE-0.60K §15.7 C1 — Goal Loop is wired through BizCity_Bot_Goal_Loop (pre_turn before the
+		// context, post_turn after delivery). This step checks the WIRING and the mode only; it never calls the runtime (that would
+		// write Goal events — R-CLI-ASYNC-ISOLATION). A real PASS is `goal_loop_post_turn state=pass` in the self-check, not here.
+		$goal_wired = class_exists( 'BizCity_Bot_Goal_Loop', false ) && strpos( $turn_runner_src, 'BizCity_Bot_Goal_Loop::begin' ) !== false && strpos( $turn_runner_src, 'BizCity_Bot_Goal_Loop::finish' ) !== false;
+		$goal_mode  = class_exists( 'BizCity_Bot_Config_Repo', false ) ? (int) ( BizCity_Bot_Config_Repo::get_tuning()['goal_loop_mode'] ?? 0 ) : 0;
+		$goal_rt    = class_exists( 'BizCity_TwinBrain_Goal_Loop_Runtime', false );
+		$emit( 'Runtime - Goal Loop của lượt Bot Studio đã nối vào canonical TwinBrain (§15.7 C1)', $goal_wired ? ( $goal_rt ? true : null ) : false,
+			! $goal_wired
+				? 'CHƯA nối: runner không gọi BizCity_Bot_Goal_Loop::begin/finish hoặc class-bot-goal-loop.php chưa nạp.'
+				: ( $goal_rt
+					? 'Đã nối; tuning goal_loop_mode = ' . ( 2 === $goal_mode ? '2 (BẬT — brief vào ngữ cảnh)' : ( 1 === $goal_mode ? '1 (QUAN SÁT — ghi bằng chứng, chưa đưa vào câu trả lời)' : '0 (TẮT — mỗi lượt báo skip/goal_loop_disabled)' ) ) . '. PASS thật = self-check thấy goal_loop_post_turn state=pass; probe không gọi runtime.'
+					: 'SKIP — đã nối nhưng BizCity_TwinBrain_Goal_Loop_Runtime chưa nạp trên site này (mọi lượt sẽ báo skip/runtime_unavailable).' ) );
 
 		// [2026-09-24 0.60I P0] the secrets table (per-Guru media keys) must be registered in the Schema Registry AND exist.
 		$secrets_ok = null;
@@ -321,7 +382,7 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		}
 		$emit( 'Runtime - Bảng khóa Guru bizcity_bot_secrets tồn tại (khóa TTS/STT/nhạc/Apify)', $secrets_ok, $secrets_detail );
 
-		$pass = $disk_ok && $loader_ok && $hook_priority_ok && $office_hours_ok && $negative_ok && $tools_ok && $provider_ok && $pure_ok && false !== $schema_ok && false !== $secrets_ok && false !== $contacts_ok && false !== $routes_ok && $g2_ok && $cron_ok && false !== $life_ok;
+		$pass = $disk_ok && $loader_ok && $hook_priority_ok && $office_hours_ok && $negative_ok && $tools_ok && $provider_ok && $pure_ok && false !== $schema_ok && false !== $secrets_ok && false !== $contacts_ok && false !== $routes_ok && $g2_ok && $cron_ok && false !== $life_ok && $k_ok && false !== $jobs_ok && false !== $b_ok;
 		return array(
 			'status'   => $pass ? 'pass' : 'fail',
 			'summary'  => $pass ? 'Bot Studio W1–W8: file, loader, hook priority, giờ trực, lưới đỡ, registry công cụ, nguồn AI, parser/ngữ cảnh và schema đều PASS.' : 'Bot Studio chưa sẵn sàng — xem các bước fail ở trên.',
@@ -361,6 +422,42 @@ final class BizCity_Probe_Bot_Studio implements BizCity_Diagnostics_Probe {
 		if ( strpos( $runner_src, 'self::dispatch_with_evidence(' ) === false ) { $missing[] = 'source:dispatch_with_evidence'; }
 		// …and it must be the ONLY caller: the one real call (`::dispatch( $request )`, comments say `dispatch()`) lives inside it.
 		if ( substr_count( $runner_src, 'BizCity_CRM_Outbound_Dispatcher::dispatch( $' ) > 1 ) { $missing[] = 'source:dispatch() gọi trần ngoài dispatch_with_evidence'; }
+		return $missing;
+	}
+
+	/**
+	 * Pure decision behind the K1–K8 probe step. Public for BotStudioProbeLifecycleTest.
+	 *
+	 * @param array<string,mixed> $f mentions, vision, research, documents, media_jobs, schedule, group_guard (bool);
+	 *                               guard_prio (int|false), schedule_hook, kick_hook, jobs_hook (int|false); zip, fonts (bool)
+	 * @return string[] what is missing; empty = the contract holds
+	 */
+	public static function parity_contract( array $f ): array {
+		$missing = array();
+		foreach ( array( 'mentions' => 'K1 class-bot-mentions', 'vision' => 'K2 class-bot-vision', 'research' => 'K5 class-bot-research-client', 'documents' => 'K4 documents/*', 'media_jobs' => 'K3 class-bot-media-jobs', 'schedule' => 'K6 class-bot-schedule', 'group_guard' => 'K7 class-bot-group-guard' ) as $k => $label ) {
+			if ( empty( $f[ $k ] ) ) {
+				$missing[] = 'module:' . $label;
+			}
+		}
+		// The guard must count BEFORE Bot Studio's claim (priority 0), or it would not see messages the bot then takes.
+		if ( ! empty( $f['group_guard'] ) && -5 !== ( $f['guard_prio'] ?? false ) ) {
+			$missing[] = 'hook:bizcity_channel_normalized phải ở ưu tiên -5 (hiện ' . var_export( $f['guard_prio'] ?? false, true ) . ')';
+		}
+		if ( ! empty( $f['group_guard'] ) && false === ( $f['kick_hook'] ?? false ) ) {
+			$missing[] = 'hook:bizcity_bot_flood_kick (lệnh kick đã lên lịch sẽ không bao giờ chạy)';
+		}
+		if ( ! empty( $f['schedule'] ) && false === ( $f['schedule_hook'] ?? false ) ) {
+			$missing[] = 'hook:bizcity_scheduler_reminder_fire (lịch hẹn không bao giờ bắn)';
+		}
+		if ( ! empty( $f['media_jobs'] ) && false === ( $f['jobs_hook'] ?? false ) ) {
+			$missing[] = 'hook:bizcity_bot_media_job (job nhạc/video xếp hàng nhưng không bao giờ chạy)';
+		}
+		if ( empty( $f['zip'] ) ) {
+			$missing[] = 'php:ZipArchive (không tạo được DOCX/XLSX)';
+		}
+		if ( empty( $f['fonts'] ) ) {
+			$missing[] = 'file:font Noto Sans / tFPDF (không tạo được PDF tiếng Việt)';
+		}
 		return $missing;
 	}
 

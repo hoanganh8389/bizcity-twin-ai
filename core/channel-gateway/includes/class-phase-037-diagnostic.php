@@ -304,9 +304,9 @@ class BizCity_Channel_Phase_037_Diagnostic {
 			'T-P0.37.1.2.1' => array( 'zalo-bot registered in hub',      'zalo-bot' ),
 			'T-P0.37.1.2.2' => array( 'zalo-bot-assign registered',       'zalo-bot-assign' ),
 			'T-P0.37.1.2.3' => array( 'zalo-bots (ZB admin) registered',  'zalo-bots' ),
-			'T-P0.37.1.2.4' => array( 'zalo-legacy guides registered',    'zalo-legacy-guide' ),
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R10 — T-P0.37.1.2.4 (zalo-legacy guides) and T-P0.37.1.2.6
+			// (zalo-hotline) retired: those subpages were removed in R8 with the Hotline channel (R-ONE-AXIS D-29).
 			'T-P0.37.1.2.5' => array( 'facebook-page registered in hub',  'facebook-page' ),
-			'T-P0.37.1.2.6' => array( 'zalo-hotline registered in hub',   'zalo-hotline' ),
 		) as $tid => $pair ) {
 			$present = in_array( $pair[1], $reg_slugs, true );
 			$out[]   = array(
@@ -421,8 +421,8 @@ class BizCity_Channel_Phase_037_Diagnostic {
 		);
 		foreach ( array(
 			'T-P0.37.3.3.1' => array( 'Email/SMTP adapter',  'BizCity_Email_SMTP_Adapter' ),
-			'T-P0.37.3.3.2' => array( 'Zalo Hotline adapter','BizCity_Zalo_Hotline_Adapter' ),
-			'T-P0.37.3.3.3' => array( 'Telegram adapter',    'BizCity_Telegram_Adapter' ),
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — T-P0.37.3.3.2 (Zalo Hotline adapter) retired with the channel (R-ONE-AXIS D-29).
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R9 — T-P0.37.3.3.3 (Telegram admin-bot adapter) retired (R-ONE-AXIS D-30).
 			'T-P0.37.3.3.4' => array( 'WebChat adapter',     'BizCity_WebChat_Adapter' ),
 			'T-P0.37.3.3.5' => array( 'AdminChat adapter',   'BizCity_AdminChat_Adapter' ),
 		) as $tid => $pair ) {

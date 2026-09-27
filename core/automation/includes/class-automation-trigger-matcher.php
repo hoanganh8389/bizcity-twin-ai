@@ -270,6 +270,12 @@ final class BizCity_Automation_Trigger_Matcher {
 			return;
 		}
 
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — every Zalo Cá nhân message is answered by Bot Studio
+		// (BizCity_Bot_Turn_Claim → filters → BizCity_Bot_Turn_Runner → Twin event stream), never by the Zalo Bot
+		// admin surfaces below: no "Sếp, gửi ảnh để làm gì?" media stash/ack, no Default_Reply, no match ACK that
+		// leaks internal workflow names. Operator workflows still run — Bot Studio yields to them (0.60D S3.3).
+		$bot_studio_owned = self::is_bot_studio_platform( $platform );
+
 		// ─── BE-7.C — Resume rule (priority over keyword/fallback) ───────
 		// Multi-turn slot: nếu chat_id có pending_state với workflow_id thì
 		// CHỈ chạy đúng workflow đó (resume), bỏ qua keyword + fallback.
@@ -287,7 +293,7 @@ final class BizCity_Automation_Trigger_Matcher {
 			) : array();
 
 			// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — image-first appends into a shared batch instead of overwriting the previous image.
-			if ( $has_media && $text_trim === '' && (int) ( $pending['workflow_id'] ?? 0 ) <= 0 ) {
+			if ( $has_media && $text_trim === '' && (int) ( $pending['workflow_id'] ?? 0 ) <= 0 && ! $bot_studio_owned ) {
 				if ( empty( $pending ) ) {
 					BizCity_Automation_Pending_State::set( $chat_id, array(
 						'intent'      => 'awaiting_media_purpose',
@@ -298,7 +304,7 @@ final class BizCity_Automation_Trigger_Matcher {
 				BizCity_Automation_Pending_State::append_attachment( $chat_id, $media_attachment );
 				$pending = BizCity_Automation_Pending_State::get( $chat_id );
 				if ( count( (array) ( $pending['attachments'] ?? array() ) ) <= 1 ) {
-					self::send_media_ack( $chat_id );
+					self::send_media_ack( $chat_id, $platform, (string) ( $payload['chat_kind'] ?? 'private' ) );
 				}
 				BizCity_Automation_Matcher_Trace::note( 'media_stash', array(
 					'platform'  => $platform,
@@ -354,7 +360,7 @@ final class BizCity_Automation_Trigger_Matcher {
 				$pending['attachment_url'] ?? '',
 				$pending['workflow_id']    ?? 0,
 			) ) );
-			if ( $has_media && $text_trim === '' && $pending_is_empty ) {
+			if ( $has_media && $text_trim === '' && $pending_is_empty && ! $bot_studio_owned ) {
 				// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — fallback legacy branch also appends instead of storing a single attachment_url.
 				BizCity_Automation_Pending_State::set( $chat_id, array(
 					'intent'      => 'awaiting_media_purpose',
@@ -363,7 +369,7 @@ final class BizCity_Automation_Trigger_Matcher {
 				) );
 				BizCity_Automation_Pending_State::append_attachment( $chat_id, $media_attachment );
 				$pending = BizCity_Automation_Pending_State::get( $chat_id );
-				self::send_media_ack( $chat_id );
+				self::send_media_ack( $chat_id, $platform, (string) ( $payload['chat_kind'] ?? 'private' ) );
 				BizCity_Automation_Matcher_Trace::note( 'media_stash', array(
 					'platform'  => $platform,
 					'chat_id'   => $chat_id,
@@ -737,6 +743,19 @@ final class BizCity_Automation_Trigger_Matcher {
 			// chạy TwinBrain MPR Think trực tiếp + send qua channel sender.
 			// Filter cho phép site tắt nếu muốn im lặng.
 			// [2026-08-14 Johnny Chu] R-CH-UNI — the canonical matcher owns no-match Zalo Bot replies.
+			// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Zalo Cá nhân never gets the TwinBrain Default_Reply: Bot
+			// Studio owns the turn. When Bot Studio does not answer (binding manual, allowlist, office hours, pause)
+			// that silence is the operator's configured choice — staff answer from the Inbox.
+			if ( self::is_bot_studio_platform( $platform ) ) {
+				BizCity_Automation_Matcher_Trace::note( 'owned_by_bot_studio', array(
+					'platform'     => $platform,
+					'chat_id'      => $chat_id,
+					'text'         => $text,
+					'trigger_type' => $trigger_type,
+					'detail'       => 'no workflow matched — Bot Studio owns the reply, Default_Reply skipped (D-H7)',
+				) );
+				return;
+			}
 			$default_reply_enabled = apply_filters( 'bizcity_automation_default_reply_enabled', true, $run_payload );
 			if ( $default_reply_enabled ) {
 				if ( class_exists( 'BizCity_Automation_Default_Reply' ) ) {
@@ -833,7 +852,7 @@ final class BizCity_Automation_Trigger_Matcher {
 
 		// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — acknowledge image/file receipt at the raw webhook boundary, even when Pending State or a later matcher hook is unavailable.
 		if ( $media_url !== '' && trim( $text ) === '' ) {
-			self::send_media_ack( $chat_id );
+			self::send_media_ack( $chat_id, $platform, (string) ( $envelope['chat_kind'] ?? ( ! empty( $envelope['raw']['is_group'] ) ? 'group' : 'private' ) ) );
 		}
 
 		// UCL platform codes: ZALO_BOT / FB_MESS / FB_FEED / WEBCHAT / TELEGRAM
@@ -884,10 +903,42 @@ final class BizCity_Automation_Trigger_Matcher {
 		$this->on_channel_message( $adapted );
 	}
 
-	private static function send_media_ack( $chat_id ): void {
+	/**
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — Zalo Cá nhân belongs to Bot Studio, not to the Zalo Bot admin
+	 * surfaces in this matcher. Public for tests and for any caller that has to make the same call.
+	 */
+	public static function is_bot_studio_platform( string $platform ): bool {
+		return 'ZALO_PERSONAL' === strtoupper( $platform );
+	}
+
+	/**
+	 * The media acknowledgement is a Zalo Bot (Zone 2 admin) phrase — it calls the reader "Sếp" and offers admin
+	 * actions. Only a private Zalo Bot chat may receive it.
+	 *
+	 * [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — it used to fire for every platform. On Zalo Cá nhân the group
+	 * envelope's chat_id is built from the SENDER uid (compose_chat_id), so every photo posted in a group sent this
+	 * admin text into that member's PRIVATE chat: 146 sends in one morning on blog 1258, 138 of them to group members.
+	 */
+	public static function media_ack_allowed( string $platform, string $chat_kind ): bool {
+		$platform = strtoupper( $platform );
+		if ( ! in_array( $platform, array( 'ZALO_BOT', 'ZALO' ), true ) ) { // 'ZALO' = legacy Zalo Bot code (see trigger_type mapping).
+			return false;
+		}
+		return 'group' !== strtolower( $chat_kind );
+	}
+
+	private static function send_media_ack( $chat_id, string $platform = '', string $chat_kind = '' ): void {
 		// [2026-08-02 Johnny Chu] HOTFIX-SKILL-ROUTING — webhook adapters can
 		// hand over numeric/provider values; normalize before strict comparisons.
 		$chat_id = is_scalar( $chat_id ) ? (string) $chat_id : '';
+		if ( ! self::media_ack_allowed( $platform, $chat_kind ) ) {
+			BizCity_Automation_Matcher_Trace::note( 'media_ack_suppressed', array(
+				'platform' => $platform,
+				'chat_id'  => $chat_id,
+				'detail'   => 'media ack is Zalo Bot private-chat only (D-H7) chat_kind=' . $chat_kind,
+			) );
+			return;
+		}
 		if ( $chat_id === '' || isset( self::$media_ack_sent[ $chat_id ] ) || ! function_exists( 'bizcity_channel_send' ) ) {
 			return;
 		}
@@ -975,7 +1026,7 @@ final class BizCity_Automation_Trigger_Matcher {
 		$mid     = (string) ( $message['message_id'] ?? '' );
 		// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — acknowledge media at the raw intake boundary before CRM or legacy listeners can branch.
 		if ( $media_url !== '' && trim( $text ) === '' ) {
-			self::send_media_ack( $chat_id );
+			self::send_media_ack( $chat_id, 'ZALO_BOT', $chat_kind );
 		}
 
 		$adapted = array(
@@ -2551,6 +2602,9 @@ final class BizCity_Automation_Trigger_Matcher {
 		$chat_id  = (string) ( $run_payload['chat_id'] ?? '' );
 		$platform = (string) ( $run_payload['platform'] ?? '' );
 		if ( $chat_id === '' || empty( $matched_wfs ) ) { return; }
+		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — "✓ Đã nhận yêu cầu · <workflow name>" is a Zalo Bot operator
+		// receipt; on Zalo Cá nhân it would show a customer the site's internal workflow names.
+		if ( self::is_bot_studio_platform( $platform ) ) { return; }
 
 		// Skip FE Chạy thử — panel đã hiển thị "✓ Capture" tại chỗ.
 		if ( ! empty( $run_payload['_test'] ) || ! empty( $run_payload['_dry_run'] ) ) { return; }

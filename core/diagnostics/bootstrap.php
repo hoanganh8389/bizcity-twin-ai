@@ -207,13 +207,16 @@ bizcity_diagnostics_require_probe( 'class-probe-webchat-sql-lifecycle.php' );
 // [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — verify message-owned conversation/session parity before retirement.
 bizcity_diagnostics_require_probe( 'class-probe-webchat-conversation-message-unify.php' );
 // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-SPEC-FILESTORE — verify session working-brief filestore ownership and platform isolation.
-bizcity_diagnostics_require_probe( 'class-probe-webchat-session-memory-spec-filestore.php' );
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1b — retired with modules/webchat (archived); file renamed *_deleted.php (R-ORPHAN-FILE).
+// bizcity_diagnostics_require_probe( 'class-probe-webchat-session-memory-spec-filestore.php' );
 // [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — verify complete session CRUD/state parity and no session-table SQL.
 bizcity_diagnostics_require_probe( 'class-probe-webchat-session-filestore.php' );
 // [2026-08-29 Johnny Chu] PHASE-1.30-DDV — focused parity evidence for legacy bizcity_webchat_tools replacement by canonical BizCity_Tool_Registry.
-bizcity_diagnostics_require_probe( 'class-probe-webchat-tool-registry-parity.php' );
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1b — retired with modules/webchat (archived); file renamed *_deleted.php (R-ORPHAN-FILE).
+// bizcity_diagnostics_require_probe( 'class-probe-webchat-tool-registry-parity.php' );
 // [2026-08-25 Johnny Chu] PHASE-1.29-WEBCHAT-SURFACE — verify moved extension shortcodes and REST surface without chat writes.
-bizcity_diagnostics_require_probe( 'class-probe-webchat-surface.php' );
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1b — retired with modules/webchat (archived); file renamed *_deleted.php (R-ORPHAN-FILE).
+// bizcity_diagnostics_require_probe( 'class-probe-webchat-surface.php' );
 // [2026-08-26 Johnny Chu] PHASE-1.30-DDV — verify legacy-table install, SQL exit, approval and uninstall gates without destructive mutation.
 bizcity_diagnostics_require_probe( 'class-probe-legacy-table-lifecycle.php' );
 // [2026-08-28 Johnny Chu] PHASE-1.30-DDV — verify every Group A/B installer is blocked before CREATE TABLE or dbDelta.

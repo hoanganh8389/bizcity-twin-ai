@@ -1272,6 +1272,11 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error( [ 'message' => 'Invalid character ID' ] );
         }
 
+        // [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE R-GS-4 — the default Guru (gate 0) cannot be deleted while it is the default.
+        if ( (int) get_option( 'bizcity_bot_default_character_id', 0 ) === $id ) {
+            wp_send_json_error( [ 'message' => 'This Guru is the site default Guru. Make another Guru the default in Bot Studio before deleting it.', 'code' => 'guru_is_default' ] );
+        }
+
         $db = BizCity_Knowledge_Database::instance();
         $db->delete_character( $id );
 

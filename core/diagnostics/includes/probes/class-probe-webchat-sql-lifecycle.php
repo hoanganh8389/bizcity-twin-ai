@@ -93,15 +93,13 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 			);
 		}
 
-		$manifest_path = defined( 'BIZCITY_TWIN_AI_DIR' )
-			? BIZCITY_TWIN_AI_DIR . 'modules/webchat/module.json'
-			: dirname( __DIR__, 4 ) . '/modules/webchat/module.json';
-		$manifest = is_readable( $manifest_path ) ? json_decode( (string) file_get_contents( $manifest_path ), true ) : null;
-		$manifest_policy = is_array( $manifest ) && is_array( $manifest['db_table_lifecycles'] ?? null )
-			? $manifest['db_table_lifecycles']
-			: array();
+		// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1b — modules/webchat (and its module.json lifecycle map) is
+		// archived; the lifecycle map now lives only in the store owner (core/conversation). Compare the runtime policy
+		// of every store table with the expected map instead of a manifest on disk.
 		$expected_policy = array(
 			'bizcity_webchat_messages'   => 'core_active',
+			'bizcity_webchat_sources'    => 'core_active',
+			'bizcity_webchat_notes'      => 'retired',
 			'bizcity_webchat_sessions'   => 'quarantine',
 			'bizcity_webchat_conversations' => 'quarantine',
 			'bizcity_webchat_projects'   => 'retired',
@@ -109,11 +107,15 @@ final class BizCity_Probe_WebChat_SQL_Lifecycle implements BizCity_Diagnostics_P
 			'bizcity_webchat_task_steps' => 'retired',
 			'bizcity_memory_session'     => 'retired',
 		);
-		$manifest_policy_ok = $manifest_policy === $expected_policy;
+		$runtime_policy = array();
+		foreach ( array_keys( $expected_policy ) as $bare ) {
+			$runtime_policy[ $bare ] = BizCity_WebChat_Database::table_policy( $bare );
+		}
+		$manifest_policy_ok = $runtime_policy === $expected_policy;
 		$add_step(
-			'Disk - manifest/runtime lifecycle parity',
+			'Runtime - store lifecycle map',
 			$manifest_policy_ok,
-			$manifest_policy_ok ? 'module.json lifecycle map matches the runtime quarantine policy.' : 'module.json lifecycle map does not match the expected policy.'
+			$manifest_policy_ok ? 'core/conversation store lifecycle map matches the expected policy.' : 'core/conversation store lifecycle map differs from the expected policy: ' . wp_json_encode( $runtime_policy )
 		);
 
 		$core_message = BizCity_WebChat_Database::table_policy( 'bizcity_webchat_messages' ) === 'core_active';

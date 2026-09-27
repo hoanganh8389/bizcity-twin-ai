@@ -112,6 +112,20 @@ class BizCity_CRM_REST_Controller {
 				'sync_token'  => array( 'type' => 'string' ),
 				// [PHASE-0.54 R-INBOX-PIPE-8] filter by resolved pipeline stage; 'stuck' is a pseudo-stage.
 				'stage'       => array( 'type' => 'string' ),
+				// [2026-09-25 PHASE-0.63C GC-21] contact role (catalog key or 'none' = unassigned role) and open pipeline kind.
+				'role'        => array( 'type' => 'string' ),
+				'pipeline_kind' => array( 'type' => 'string' ),
+			),
+		) );
+		// [2026-09-26 PHASE-0.63C GC-21.4] Per-role thread counts for the Inbox "Vai:" chips.
+		register_rest_route( $ns, '/conversations/role-counts', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_conversation_role_counts' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+			'args'                => array(
+				'inbox_id'    => array( 'type' => 'integer' ),
+				'status'      => array( 'type' => 'string', 'enum' => array( 'open', 'pending', 'resolved', 'snoozed' ) ),
+				'thread_kind' => array( 'type' => 'string', 'enum' => array( 'group', 'personal' ) ),
 			),
 		) );
 		register_rest_route( $ns, '/conversations/export', array(
@@ -6043,6 +6057,43 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	/**
+	 * [2026-09-25 PHASE-0.63C GC-21] The role / pipeline-kind list filters, sanitised once for the list and the CSV export.
+	 * Unknown values become '' (= no filter) rather than an error: a stale chip must not blank the whole inbox.
+	 *
+	 * @return array{role:string,pipeline_kind:string}
+	 */
+	private static function role_kind_filters( WP_REST_Request $req ): array {
+		$roles = class_exists( 'BizCity_CRM_Contact_Roles' ) ? array_keys( BizCity_CRM_Contact_Roles::CATALOG ) : array();
+		$roles[] = 'none';
+		$role = sanitize_key( (string) $req->get_param( 'role' ) );
+		$kind = sanitize_key( (string) $req->get_param( 'pipeline_kind' ) );
+		return array(
+			'role'          => in_array( $role, $roles, true ) ? $role : '',
+			'pipeline_kind' => preg_match( '/^[a-z][a-z0-9_-]{0,31}$/', $kind ) ? $kind : '',
+		);
+	}
+
+	/** [2026-09-26 PHASE-0.63C GC-21.4] `GET /conversations/role-counts` — counts per contact role inside the caller's inbox scope. */
+	public static function get_conversation_role_counts( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			if ( ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_conversations() ) ) {
+				return array( 'total' => 0, 'none' => 0 );
+			}
+			$status = (string) $req->get_param( 'status' );
+			$args   = array(
+				'inbox_id'    => (int) $req->get_param( 'inbox_id' ),
+				'status'      => in_array( $status, array( 'open', 'pending', 'resolved', 'snoozed' ), true ) ? $status : '',
+				'thread_kind' => in_array( (string) $req->get_param( 'thread_kind' ), array( 'group', 'personal' ), true ) ? (string) $req->get_param( 'thread_kind' ) : '',
+			);
+			if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+				$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
+				if ( is_array( $allowed ) ) { $args['inbox_ids'] = $allowed; }
+			}
+			return BizCity_CRM_Repository::count_conversations_by_role( $args );
+		} );
+	}
+
 	public static function get_conversations( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			// [2026-09-22 12:15 AM OpenAI GPT-5.6 Luna] HOTFIX — avoid repeated SQL exceptions during partial CRM schema/bootstrap states.
@@ -6060,6 +6111,7 @@ class BizCity_CRM_REST_Controller {
 				'limit'       => (int) ( $req->get_param( 'limit' ) ?: 50 ),
 				'before_id'   => (int) $req->get_param( 'before_id' ),
 			);
+			$args = array_merge( $args, self::role_kind_filters( $req ) ); // [2026-09-25 PHASE-0.63C GC-21]
 			$scope_user_id = (int) $req->get_param( 'scope_user_id' );
 			if ( $scope_user_id > 0 ) {
 				// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — enforce the selected B2 principal's server-resolved account scope before listing conversations.
@@ -6184,6 +6236,7 @@ class BizCity_CRM_REST_Controller {
 			'q'           => (string) $req->get_param( 'q' ),
 			'unassigned'  => $req->get_param( 'unassigned' ),
 		);
+		$args = array_merge( $args, self::role_kind_filters( $req ) ); // [2026-09-25 PHASE-0.63C GC-21] CSV export follows the same filters as the list
 		$scope_user_id = (int) ( $args['scope_user_id'] ?? 0 );
 		unset( $args['scope_user_id'] );
 		if ( $scope_user_id > 0 ) {

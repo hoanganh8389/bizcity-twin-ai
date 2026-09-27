@@ -83,9 +83,11 @@ final class BizCity_Diagnostics_Table_Registry {
 			// Tables moved to deprecated_tables() for auto-drop.
 
 			// ── core/intent ───────────────────────────────────────────────
-			[ 'name' => 'bizcity_intent_conversations', 'owner' => 'core/intent',  'group' => 'intent', 'critical' => true ],
-			[ 'name' => 'bizcity_intent_turns',         'owner' => 'core/intent',  'group' => 'intent', 'critical' => true ],
-			[ 'name' => 'bizcity_intent_todos',         'owner' => 'core/intent',  'group' => 'intent' ],
+			// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — R-INTENT-MIN state cohort: no longer critical, not provisioned;
+			// writes refused by BizCity_Legacy_Table_Policy (draining), reads kept until the §0.2.27 drop gates.
+			[ 'name' => 'bizcity_intent_conversations', 'owner' => 'core/intent',  'group' => 'intent', 'lifecycle' => 'quarantine', 'sql_status' => 'read_only', 'replacement_status' => 'active', 'orphan_gate' => 'TwinBrain goal loop replaces focus/open loops; prove zero-growth and COUNT(*) review, then owner approval before DROP.' ],
+			[ 'name' => 'bizcity_intent_turns',         'owner' => 'core/intent',  'group' => 'intent', 'lifecycle' => 'quarantine', 'sql_status' => 'read_only', 'replacement_status' => 'active', 'orphan_gate' => 'CRM / Context Bank own conversation history; prove zero-growth and owner approval before DROP.' ],
+			[ 'name' => 'bizcity_intent_todos',         'owner' => 'core/intent',  'group' => 'intent', 'lifecycle' => 'quarantine', 'sql_status' => 'read_only', 'replacement_status' => 'none', 'orphan_gate' => 'Writers retired with the pipeline (D-25); prove zero-growth and owner approval before DROP.' ],
 			// [2026-06-10 Johnny Chu] HOTFIX — bizcity_intent_traces: orphan, no installer, no code references → removed.
 			// [2026-06-10 Johnny Chu] HOTFIX — bizcity_intent_tasks:  orphan, no installer, no code references → removed.
 			[ 'name' => 'bizcity_intent_classify_cache','owner' => 'core/intent',  'group' => 'intent' ],
@@ -93,8 +95,8 @@ final class BizCity_Diagnostics_Table_Registry {
 			[ 'name' => 'bizcity_tool_registry',        'owner' => 'core/intent',  'group' => 'intent', 'class' => 'BizCity_Intent_Tool_Index' ],
 			// [2026-06-10 Johnny Chu] HOTFIX — name was bizcity_intent_logger (wrong); BizCity_Intent_Logger uses bizcity_intent_logs.
 			// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — align inventory with the intent memory installers.
-			[ 'name' => 'bizcity_memory_rolling',       'owner' => 'core/intent',  'group' => 'memory', 'class' => 'BizCity_Rolling_Memory', 'lifecycle' => 'retired', 'sql_status' => 'dead', 'replacement_status' => 'active', 'orphan_gate' => 'Verify rolling-memory filestore/Context Bank parity and COUNT(*)=0 before DROP.' ],
-			[ 'name' => 'bizcity_memory_episodic',      'owner' => 'core/intent',  'group' => 'memory', 'class' => 'BizCity_Episodic_Memory', 'lifecycle' => 'retired', 'sql_status' => 'dead', 'replacement_status' => 'active', 'orphan_gate' => 'Verify episodic-memory filestore/Context Bank parity and COUNT(*)=0 before DROP.' ],
+			[ 'name' => 'bizcity_memory_rolling',       'owner' => 'core/memory',  'group' => 'memory', 'class' => 'BizCity_Rolling_Memory', 'lifecycle' => 'retired', 'sql_status' => 'dead', 'replacement_status' => 'active', 'orphan_gate' => 'Verify rolling-memory filestore/Context Bank parity and COUNT(*)=0 before DROP.' ],
+			[ 'name' => 'bizcity_memory_episodic',      'owner' => 'core/memory',  'group' => 'memory', 'class' => 'BizCity_Episodic_Memory', 'lifecycle' => 'retired', 'sql_status' => 'dead', 'replacement_status' => 'active', 'orphan_gate' => 'Verify episodic-memory filestore/Context Bank parity and COUNT(*)=0 before DROP.' ],
 
 			// ── core/twin-core ────────────────────────────────────────────
 			// [2026-07-29 Johnny Chu] PHASE-1.21-C — register the three active Twin state tables.
@@ -346,6 +348,12 @@ final class BizCity_Diagnostics_Table_Registry {
 			// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-1.30-WEBCHAT-CONVERSATION-UNIFY — deprecate the duplicate conversation header before message-owned migration.
 			[ 'name' => 'bizcity_webchat_conversations', 'reason' => 'QUARANTINE ONLY — conversation/session metadata is now served by canonical webchat_messages marker rows.', 'quarantine_only' => true, 'lifecycle' => 'quarantine', 'sql_status' => 'active', 'replacement_status' => 'verified', 'orphan_gate' => 'Retain rows until zero-growth, zero-row, approval and G5 gates; no production DROP.' ],
 			[ 'name' => 'bizcity_webchat_tasks',         'reason' => 'QUARANTINE ONLY — WebChat task projection is write-frozen pending Goal/Event Stream replacement.', 'quarantine_only' => true, 'orphan_gate' => 'Prove Goal/Event Stream task replacement and zero active task readers before DROP.' ],
+			// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — R-INTENT-MIN intent state cohort (PHASE-1.30 §0.2.27); draining by default, never auto-dropped.
+			[ 'name' => 'bizcity_intent_conversations',  'reason' => 'QUARANTINE ONLY — intent no longer stores conversations (D-26); twin-core/twinbrain read the TwinBrain goal loop; writers retired (C3a).', 'quarantine_only' => true, 'lifecycle' => 'quarantine', 'sql_status' => 'read_only', 'replacement_status' => 'active', 'orphan_gate' => 'Zero-growth window, COUNT(*) review and owner approval before DROP.' ],
+			[ 'name' => 'bizcity_intent_turns',          'reason' => 'QUARANTINE ONLY — turn history belongs to CRM / Context Bank; Engine writer retired (C3a).', 'quarantine_only' => true, 'lifecycle' => 'quarantine', 'sql_status' => 'read_only', 'replacement_status' => 'active', 'orphan_gate' => 'Zero-growth window, COUNT(*) review and owner approval before DROP.' ],
+			[ 'name' => 'bizcity_intent_todos',          'reason' => 'QUARANTINE ONLY — pipeline todos retired with the skill pipeline (D-25).', 'quarantine_only' => true, 'lifecycle' => 'quarantine', 'sql_status' => 'read_only', 'replacement_status' => 'none', 'orphan_gate' => 'Zero-growth window, COUNT(*) review and owner approval before DROP.' ],
+			[ 'name' => 'bizcity_intent_evidence',       'reason' => 'QUARANTINE ONLY — pipeline evidence writer retired (C3a); twin-core kg_search no longer joins it (C3b).', 'quarantine_only' => true, 'lifecycle' => 'quarantine', 'sql_status' => 'read_only', 'replacement_status' => 'none', 'orphan_gate' => 'Only the `wp bizcity kg xref-entity` CLI still LEFT JOINs it; zero-growth and owner approval before DROP.' ],
+			[ 'name' => 'bizcity_pipeline_oneshot',      'reason' => 'QUARANTINE ONLY — One_Shot writer retired with path C (C2/C3a).', 'quarantine_only' => true, 'lifecycle' => 'quarantine', 'sql_status' => 'read_only', 'replacement_status' => 'none', 'orphan_gate' => 'Zero-growth window, COUNT(*) review and owner approval before DROP.' ],
 			[ 'name' => 'bizcity_webchat_task_steps',    'reason' => 'QUARANTINE ONLY — WebChat task-step projection is write-frozen pending timeline replacement.', 'quarantine_only' => true, 'orphan_gate' => 'Prove task-step timeline replacement and zero active readers before DROP.' ],
 			[ 'name' => 'bizcity_kling_effects',         'reason' => 'Only nonce slug ref; no installer + no wpdb query' ],
 			[ 'name' => 'bizcity_twin_identity',         'reason' => 'PHASE-1.21-C — no active consumer; removed from Twin State Schema' ],

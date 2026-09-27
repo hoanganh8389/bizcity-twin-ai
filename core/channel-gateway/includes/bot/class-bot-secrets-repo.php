@@ -141,22 +141,22 @@ final class BizCity_Bot_Secrets_Repo {
 	/** Multi-key fields (EB-6): append, de-duplicated, order preserved, never replace. */
 	public static function add_key( int $character_id, string $field, string $plain_key, int $updated_by ) {
 		if ( ! self::is_multi( $field ) ) {
-			return new WP_Error( 'invalid_param', 'Trường này không hỗ trợ nhiều khóa.', array( 'status' => 422, 'help_code' => 'bot_secret_not_multi' ) );
+			return new WP_Error( 'invalid_param', 'This field does not support multiple keys.', array( 'status' => 422, 'help_code' => 'bot_secret_not_multi' ) );
 		}
 		$plain_key = trim( $plain_key );
 		if ( '' === $plain_key ) {
-			return new WP_Error( 'invalid_param', 'Khóa không được để trống.', array( 'status' => 422, 'help_code' => 'bot_secret_empty' ) );
+			return new WP_Error( 'invalid_param', 'The key must not be empty.', array( 'status' => 422, 'help_code' => 'bot_secret_empty' ) );
 		}
 		$keys = self::get_keys( $character_id, $field );
 		if ( in_array( $plain_key, $keys, true ) ) {
 			return self::masked_keys( $character_id, $field ); // EB-6.2: de-dup silently, already present.
 		}
 		if ( count( $keys ) >= self::MAX_KEYS_PER_FIELD ) {
-			return new WP_Error( 'invalid_param', 'Đã đạt số khóa tối đa cho phép.', array( 'status' => 422, 'help_code' => 'bot_secret_max_keys' ) );
+			return new WP_Error( 'invalid_param', 'The maximum number of keys has been reached.', array( 'status' => 422, 'help_code' => 'bot_secret_max_keys' ) );
 		}
 		$keys[] = $plain_key;
 		if ( ! self::write_keys( $character_id, $field, $keys, $updated_by ) ) {
-			return new WP_Error( 'save_failed', 'Không lưu được khóa.', array( 'status' => 500, 'help_code' => 'bot_secret_save_failed' ) );
+			return new WP_Error( 'save_failed', 'The key could not be saved.', array( 'status' => 500, 'help_code' => 'bot_secret_save_failed' ) );
 		}
 		return self::masked_keys( $character_id, $field );
 	}

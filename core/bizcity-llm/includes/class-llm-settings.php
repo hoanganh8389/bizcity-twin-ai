@@ -643,7 +643,13 @@ class BizCity_LLM_Settings {
                 'key_preview' => substr( $body['api_key'], 0, 12 ) . '…',
             ] );
         } else {
-            wp_send_json_error( $body['message'] ?? $body['error'] ?? sprintf( __( 'HTTP %d — Registration failed.', 'bizcity-twin-ai' ), $code ) );
+            // [2026-09-27 Claude Opus 5.5] PHASE-0.80 doc 26 OB-0 — the Hub now answers 410 register_key_disabled (the public route minted keys
+            // for anyone who knew an owner's email). Show its hint so the admin knows where to get a key instead of a bare failure.
+            $message = (string) ( $body['message'] ?? $body['error'] ?? sprintf( __( 'HTTP %d — Registration failed.', 'bizcity-twin-ai' ), $code ) );
+            if ( ! empty( $body['hint'] ) ) {
+                $message .= ' ' . (string) $body['hint'];
+            }
+            wp_send_json_error( $message );
         }
     }
 

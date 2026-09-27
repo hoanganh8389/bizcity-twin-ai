@@ -391,6 +391,15 @@ final class BizCity_Probe_TwinBrain_HIL implements BizCity_Diagnostics_Probe {
 		return $passed;
 	}
 
+	// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — run() records optional extensions as SKIP through this helper.
+	private function skip( $ctx, array &$steps, string $label, string $detail ): void {
+		$row = array( 'label' => $label, 'status' => 'skip', 'detail' => $detail );
+		$steps[] = $row;
+		if ( is_object( $ctx ) && method_exists( $ctx, 'emit_step' ) ) {
+			$ctx->emit_step( $row );
+		}
+	}
+
 	public function cleanup(): void {}
 }
 

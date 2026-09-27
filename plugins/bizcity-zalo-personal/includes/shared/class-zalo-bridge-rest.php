@@ -55,6 +55,26 @@ class BizCity_Zalo_Bridge_REST {
 			'permission_callback' => '__return_true', // Bearer verified in handler.
 		) );
 
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 D-ZA-2 — the Hub pulls this site's zalo-hub config_bundle for a cell that reconciles; same per-account Bearer as /session-event.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/hub-config-pull', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'handle_hub_config_pull' ),
+			'permission_callback' => '__return_true', // Bearer verified in handler.
+		) );
+
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-4 — Hub → site Guru Context API (bizcity-guru-context/1.0): profile
+		// (instruction) and turn context (prompt) of the Guru answering ONE number; per-account Bearer, same boundary as /session-event.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/guru-profile', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'handle_guru_profile' ),
+			'permission_callback' => '__return_true', // Bearer verified in handler.
+		) );
+		register_rest_route( self::NS, '/' . self::PREFIX . '/guru-context', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'handle_guru_context' ),
+			'permission_callback' => '__return_true', // Bearer verified in handler.
+		) );
+
 		// [2026-08-23 Johnny Chu] PHASE-0.39E — independent monitor alert ingress; no CRM/bridge write.
 		register_rest_route( self::NS, '/' . self::PREFIX . '/health-alert', array(
 			'methods'              => 'POST',
@@ -139,6 +159,37 @@ class BizCity_Zalo_Bridge_REST {
 			'permission_callback' => array( __CLASS__, 'can_manage' ),
 		) );
 
+		// [2026-09-25 Claude Sonnet 5] Channel Gateway "Trợ lý & số Zalo" → tab "Thành viên WP": members of THIS
+		// blog with the Zalo Personal numbers each one owns. Same owner boundary as CRM's `crm-phones` (the
+		// `*_for_owner` methods below); only the actor differs — a site administrator here, `can_manage()`.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/members', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'handle_list_members' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
+		register_rest_route( self::NS, '/' . self::PREFIX . '/members/(?P<user_id>\d+)/accounts', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'handle_member_create_account' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
+		register_rest_route( self::NS, '/' . self::PREFIX . '/members/(?P<user_id>\d+)/accounts/(?P<id>[^/]+)', array(
+			array(
+				'methods'             => 'PATCH',
+				'callback'            => array( __CLASS__, 'handle_member_update_account' ),
+				'permission_callback' => array( __CLASS__, 'can_manage' ),
+			),
+			array(
+				'methods'             => 'DELETE',
+				'callback'            => array( __CLASS__, 'handle_member_delete_account' ),
+				'permission_callback' => array( __CLASS__, 'can_manage' ),
+			),
+		) );
+		register_rest_route( self::NS, '/' . self::PREFIX . '/members/(?P<user_id>\d+)/accounts/(?P<id>[^/]+)/transfer', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'handle_member_transfer_account' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
+
 		// Personal QR initiate.
 		register_rest_route( self::NS, '/' . self::PREFIX . '/accounts/(?P<id>[^/]+)/qr', array(
 			'methods'             => 'POST',
@@ -151,6 +202,19 @@ class BizCity_Zalo_Bridge_REST {
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'handle_reset_qr' ),
 			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
+
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3 (D-L36/D-L43) — owner keeps/stops AI per number inside the plan pool.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/accounts/(?P<id>[^/]+)/ai-enabled', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'handle_set_ai_enabled' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
+
+		// [2026-09-26] PHASE-0.80 Lane C 4a-8 — zalo-hub config sync: last result (GET) and "Đồng bộ lại toàn bộ" (POST).
+		register_rest_route( self::NS, '/' . self::PREFIX . '/hub-config', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'handle_hub_config_status' ), 'permission_callback' => array( __CLASS__, 'can_manage' ) ),
+			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'handle_hub_config_sync' ), 'permission_callback' => array( __CLASS__, 'can_manage' ) ),
 		) );
 
 		// Personal QR poll status.
@@ -246,6 +310,10 @@ class BizCity_Zalo_Bridge_REST {
 				'inbound_attempt',
 				'Zalo Personal inbound received.',
 				array(
+					// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H7 — R-CH-10 drops a channel record with no exact account
+					// scope, so inbound_attempt / inbound_failed / inbound_accepted were never written. The bridge account
+					// id is already the scope of every bizcity_zalo_message_received row in the same file.
+					'account_id'        => sanitize_text_field( (string) ( $probe_body['account_id'] ?? '' ) ),
 					'kind'              => sanitize_key( (string) ( $probe_body['kind'] ?? 'personal' ) ),
 					'account_id_hash'   => substr( hash( 'sha256', (string) ( $probe_body['account_id'] ?? '' ) ), 0, 16 ),
 					'provider_id_hash'  => substr( hash( 'sha256', (string) ( $probe_body['message_id'] ?? '' ) ), 0, 16 ),
@@ -276,6 +344,20 @@ class BizCity_Zalo_Bridge_REST {
 		if ( is_array( $body ) && $trace_id !== '' ) {
 			$body['trace_id'] = $trace_id;
 		}
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-5/4a-6 (D-L43) — every authenticated relay states this account's provider
+		// (cell events carry provider=zalo_hub) and, via X-BizCity-Account-AI: off, that its AI is off. Recorded BEFORE the emitter runs,
+		// so Bot Studio's claim in this same request already sees it. zca payloads (no `event`) keep the historical path below.
+		if ( is_array( $body ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			BizCity_Zalo_Account_Flags::observe_inbound( $account_id, $body, (string) $request->get_header( BizCity_Zalo_Account_Flags::AI_HEADER ) );
+		}
+		$hub_event = is_array( $body ) ? sanitize_key( (string) ( $body['event'] ?? '' ) ) : '';
+		if ( '' !== $hub_event && 'inbound_forward' !== $hub_event && class_exists( 'BizCity_Zalo_Hub_Events' ) ) {
+			$handled = BizCity_Zalo_Hub_Events::handle( $hub_event, $body );
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+				BizCity_Channel_File_Logger::write( $probe_channel, BizCity_Channel_File_Logger::LEVEL_INFO, 'hub_event', 'Zalo Hub event processed.', array( 'account_id' => $account_id, 'event' => $hub_event, 'status' => (int) $handled['status'], 'trace_id' => $trace_id, 'request_id' => sanitize_text_field( (string) $request->get_header( 'x-bizcity-request-id' ) ) ) );
+			}
+			return new WP_REST_Response( $handled['body'], (int) $handled['status'] );
+		}
 		if ( ! is_array( $body ) || empty( $body['from_user_id'] ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'error' => 'invalid_payload' ), 400 );
 		}
@@ -290,7 +372,7 @@ class BizCity_Zalo_Bridge_REST {
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — only a zero result is retryable; -1 means intentional self/unbound drop.
 		if ( 0 === $msg_id ) {
 			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
-				BizCity_Channel_File_Logger::write( $probe_channel, BizCity_Channel_File_Logger::LEVEL_ERROR, 'inbound_failed', 'Zalo channel CRM ingest failed.', array( 'reason' => 'crm_ingest_failed' ) );
+				BizCity_Channel_File_Logger::write( $probe_channel, BizCity_Channel_File_Logger::LEVEL_ERROR, 'inbound_failed', 'Zalo channel CRM ingest failed.', array( 'reason' => 'crm_ingest_failed', 'account_id' => $account_id, 'trace_id' => $trace_id, 'thread_kind' => sanitize_key( (string) ( $body['thread_kind'] ?? '' ) ), 'provider_id_hash' => substr( hash( 'sha256', (string) ( $body['message_id'] ?? '' ) ), 0, 16 ), 'text_bytes' => strlen( (string) ( $body['message_text'] ?? '' ) ) ) );
 			}
 			return new WP_REST_Response( array(
 				'ok'        => false,
@@ -306,7 +388,7 @@ class BizCity_Zalo_Bridge_REST {
 			BizCity_Zalo_Hook_Log::record_inbound( $body, (int) $msg_id );
 		}
 		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
-			BizCity_Channel_File_Logger::write( $probe_channel, BizCity_Channel_File_Logger::LEVEL_INFO, 'inbound_accepted', 'Zalo channel inbound processed.', array( 'crm_message_id' => $msg_id > 0 ? (int) $msg_id : 0, 'ignored' => $msg_id < 0 ) );
+			BizCity_Channel_File_Logger::write( $probe_channel, BizCity_Channel_File_Logger::LEVEL_INFO, 'inbound_accepted', 'Zalo channel inbound processed.', array( 'account_id' => $account_id, 'trace_id' => $trace_id, 'crm_message_id' => $msg_id > 0 ? (int) $msg_id : 0, 'ignored' => $msg_id < 0 ) );
 		}
 
 		return new WP_REST_Response( array( 'ok' => true, 'accepted' => $msg_id > 0, 'ignored' => $msg_id < 0, 'crm_message_id' => $msg_id > 0 ? $msg_id : 0 ) );
@@ -455,7 +537,30 @@ class BizCity_Zalo_Bridge_REST {
 			'bridge_url'  => (string) get_option( BizCity_Zalo_Bridge_Client::OPTION_URL, '' ),
 			// Token: return masked value for security (never expose real token).
 			'bridge_token_set' => 'custom_bridge' === $mode && get_option( BizCity_Zalo_Bridge_Client::OPTION_TOKEN, '' ) !== '',
-		) );
+			// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-2 (T-13) — provider for NEW numbers only; existing numbers keep theirs.
+		) + self::provider_choice( $capability ) );
+	}
+
+	/**
+	 * Which assistant a NEW number may get (T-13, 4a-4/4a-9) — one answer for Bot Studio › Thành viên and CRM › Thêm SĐT.
+	 * zalo_hub is offered only when the Hub says this exact key may use it (P-5). `default_provider` is the stored site default
+	 * as-is (the Settings screen edits it); a UI pre-selects zalo_hub only when BOTH say so, as ZaloPersonalMembers.jsx does.
+	 *
+	 * @param array|null $capability `BizCity_Zalo_Personal_Hub_Client::capability()` result, or null to read it now (managed mode only).
+	 * @return array{default_provider:string,zalo_hub_allowed:bool,zalo_hub_reason:string}
+	 */
+	public static function provider_choice( $capability = null ): array {
+		if ( null === $capability && 'managed_1api' === BizCity_Zalo_Bridge_Client::instance()->get_mode() && class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
+			$capability = BizCity_Zalo_Personal_Hub_Client::instance()->capability();
+		}
+		$hub = is_array( $capability ) && isset( $capability['capability']['providers']['zalo_hub'] ) && is_array( $capability['capability']['providers']['zalo_hub'] ) ? $capability['capability']['providers']['zalo_hub'] : array();
+		$allowed = ! empty( $hub['allowed'] );
+		$default = class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::default_provider() : 'zca';
+		return array(
+			'default_provider' => $default,
+			'zalo_hub_allowed' => $allowed,
+			'zalo_hub_reason'  => $allowed ? '' : sanitize_key( (string) ( $hub['reason'] ?? ( is_array( $capability ) && empty( $capability['success'] ) ? 'hub_unavailable' : 'feature_not_enabled' ) ) ),
+		);
 	}
 
 	public static function handle_save_settings( WP_REST_Request $request ): WP_REST_Response {
@@ -481,6 +586,24 @@ class BizCity_Zalo_Bridge_REST {
 			update_option( BizCity_Zalo_Bridge_Client::OPTION_TOKEN, $token, false );
 		}
 		update_option( BizCity_Zalo_Bridge_Client::OPTION_MODE, $mode, false );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-2/4a-9 (P-5) — zalo_hub may only become the default when the Hub says this key may use it.
+		if ( isset( $body['default_provider'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			$wanted = BizCity_Zalo_Account_Flags::normalize_provider( (string) $body['default_provider'] );
+			if ( BizCity_Zalo_Account_Flags::PROVIDER_ZALO_HUB === $wanted ) {
+				$cap = 'managed_1api' === $mode && class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ? BizCity_Zalo_Personal_Hub_Client::instance()->capability() : array();
+				if ( empty( $cap['capability']['providers']['zalo_hub']['allowed'] ) ) {
+					return new WP_REST_Response( array(
+						'ok'        => false,
+						'code'      => 'zalo_hub_not_enabled',
+						'message'   => 'Gói hiện tại của website chưa dùng được zalo-hub.',
+						'hint'      => 'Giữ zca làm mặc định; zalo-hub mở khi BizCity bật cho API key này.',
+						'help_code' => 'zalo_hub_not_enabled',
+						'reason'    => (string) ( $cap['capability']['providers']['zalo_hub']['reason'] ?? '' ),
+					), 200 );
+				}
+			}
+			update_option( BizCity_Zalo_Account_Flags::DEFAULT_PROVIDER_OPTION, $wanted, false );
+		}
 		// Reset the singleton so it picks up new options.
 		// Re-create instance via reflection is impractical in PHP 7.4 without exposing constructor.
 		// Simpler: store in cache cleared transient.
@@ -594,7 +717,12 @@ class BizCity_Zalo_Bridge_REST {
 		}
 		$client = BizCity_Zalo_Bridge_Client::instance();
 		self::trace_create_step( 'hub_request', array( 'kind' => $kind ) );
-		$result = $client->create_account( array( 'label' => $label, 'type' => $kind ) );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-2 — optional `provider` (zca|zalo_hub) per new number; absent = site default (T-13). The Hub enforces the plan (P-5).
+		$create_data = array( 'label' => $label, 'type' => $kind );
+		if ( 'personal' === $kind && isset( $body['provider'] ) && is_string( $body['provider'] ) && '' !== $body['provider'] ) {
+			$create_data['provider'] = sanitize_key( $body['provider'] );
+		}
+		$result = $client->create_account( $create_data );
 		self::trace_create_step( 'hub_response', array(
 			'ok'   => ! empty( $result['success'] ) || ! empty( $result['ok'] ),
 			'code' => sanitize_key( (string) ( $result['code'] ?? $result['error'] ?? '' ) ),
@@ -739,7 +867,19 @@ class BizCity_Zalo_Bridge_REST {
 		self::trace_create_step( 'channel_grant_bound', array( 'relation' => 'primary' ) );
 		self::trace_create_step( 'create_complete', array( 'local_id' => (int) $local_id, 'inbox_id' => (int) $inbox_id ) );
 
-		return new WP_REST_Response( array( 'ok' => true, 'id' => $bridge_id, 'crm_inbox_id' => $inbox_id, 'owner_user_id' => $owner_user_id ), 200 );
+		$created = array( 'ok' => true, 'id' => $bridge_id, 'crm_inbox_id' => $inbox_id, 'owner_user_id' => $owner_user_id );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3 — additive: which provider really serves the number, and a fallback note when the site default could not be used.
+		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			$created['provider'] = BizCity_Zalo_Account_Flags::provider( $bridge_id );
+		}
+		if ( isset( $result['provider_fallback'] ) && is_array( $result['provider_fallback'] ) ) {
+			$created['provider_fallback'] = $result['provider_fallback'];
+		}
+		// [2026-09-26] PHASE-0.80 Lane C 4a-8 — a new zalo-hub number must not answer with an empty persona: sync soon (WP-Cron; the 5-minute tick is the backstop).
+		if ( class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) && isset( $created['provider'] ) && 'zalo_hub' === $created['provider'] ) {
+			BizCity_Zalo_Hub_Config_Sync::schedule( 2 );
+		}
+		return new WP_REST_Response( $created, 200 );
 	}
 
 	/** PHASE-0.50 UID-02 — R-ERROR-UX envelope when a user already owns the site's allowed number of Zalo Personal accounts. */
@@ -772,6 +912,21 @@ class BizCity_Zalo_Bridge_REST {
 		$client = BizCity_Zalo_Bridge_Client::instance();
 		$result = $client->delete_account( $id );
 		$ok = empty( $result['_degraded'] ) && ! empty( $result['success'] );
+		// [2026-09-27 Claude Sonnet 5] Same fix as `delete_account_for_owner()` (the CRM "Gỡ số" path) — this is the
+		// SEPARATE "Kênh của tôi" admin delete, which had the identical bug: the Hub saying `account_not_owned`
+		// (deleted server-side / API key no longer matches) made this call fail forever, so a stuck number could
+		// never be gỡ'd here even though the goal — no live session at the Hub — was already true.
+		$already_gone = false;
+		if ( ! $ok && class_exists( 'BizCity_Zalo_Session_Errors' ) ) {
+			$bucket = BizCity_Zalo_Session_Errors::bucket_for( (string) ( $result['reason_bucket'] ?? '' ) );
+			if ( '' === $bucket ) {
+				$bucket = BizCity_Zalo_Session_Errors::bucket_for( (string) ( $result['code'] ?? '' ) );
+			}
+			if ( 'account_not_owned' === $bucket ) {
+				$ok = true;
+				$already_gone = true;
+			}
+		}
 		if ( $ok && class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
 			$local = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $id );
 			if ( ! $local ) {
@@ -784,7 +939,459 @@ class BizCity_Zalo_Bridge_REST {
 				BizCity_Zalo_Mapping_Repo::update_account_status( (int) $local['id'], BizCity_Zalo_Duplicate_Guard::STATUS_REVOKED );
 			}
 		}
-		return new WP_REST_Response( array( 'ok' => $ok, 'success' => $ok ) );
+		return new WP_REST_Response( array( 'ok' => $ok, 'success' => $ok, 'already_gone' => $already_gone ) );
+	}
+
+	// ── Members of this blog + the Zalo Personal numbers each one owns ────
+
+	/** Statuses that mean the number is gone; hidden from the member view (CRM history is kept). */
+	private const MEMBER_DEAD_STATUSES = array( 'revoked', 'orphaned', 'deleted' );
+
+	private static function member_error( string $code, string $message, string $hint = '', int $status = 400 ): WP_REST_Response {
+		return new WP_REST_Response( array(
+			'ok'        => false,
+			'code'      => $code,
+			'message'   => $message,
+			'hint'      => $hint,
+			'help_code' => 404 === $status ? 'not_found' : 'invalid_param_generic',
+		), $status );
+	}
+
+	/** A user counts as a member only when they belong to the CURRENT blog (multisite-safe). */
+	/**
+	 * User ids of this blog with a manager-level role (administrator, editor, shop_manager) plus multisite super admins
+	 * that belong to the blog. Never empty: `[0]` matches nobody, because an empty `include` means "no restriction".
+	 *
+	 * @return int[]
+	 */
+	private static function manager_user_ids(): array {
+		$ids = get_users( array(
+			'blog_id'  => (int) get_current_blog_id(),
+			'role__in' => array( 'administrator', 'editor', 'shop_manager' ),
+			'fields'   => 'ID',
+			'number'   => 500,
+		) );
+		$ids = array_map( 'intval', (array) $ids );
+		if ( function_exists( 'get_super_admins' ) && function_exists( 'is_multisite' ) && is_multisite() ) {
+			foreach ( (array) get_super_admins() as $login ) {
+				$user = get_user_by( 'login', (string) $login );
+				if ( $user && self::is_blog_member( (int) $user->ID ) ) {
+					$ids[] = (int) $user->ID;
+				}
+			}
+		}
+		$ids = array_values( array_unique( array_filter( $ids ) ) );
+		return $ids ? $ids : array( 0 );
+	}
+
+	private static function is_blog_member( int $user_id ): bool {
+		if ( $user_id <= 0 || ! get_userdata( $user_id ) ) {
+			return false;
+		}
+		return ! function_exists( 'is_user_member_of_blog' ) || is_user_member_of_blog( $user_id, (int) get_current_blog_id() );
+	}
+
+	/** Client-safe number row: no raw provider identifiers (zalo_uid stays server-side). */
+	private static function member_account_row( array $account ): array {
+		$row = array(
+			'id'           => (string) ( $account['bridge_account_id'] ?? '' ),
+			'label'        => (string) ( $account['label'] ?? '' ),
+			'status'       => sanitize_key( (string) ( $account['status'] ?? '' ) ),
+			'crm_inbox_id' => (int) ( $account['crm_inbox_id'] ?? 0 ),
+			'updated_at'   => (string) ( $account['updated_at'] ?? '' ),
+		);
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3 — additive: badge zca/zalo-hub and whether the number still has AI (over_limit).
+		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) && '' !== $row['id'] ) {
+			$flags = BizCity_Zalo_Account_Flags::get( $row['id'] );
+			$row['provider']   = $flags['provider'];
+			$row['ai_enabled'] = $flags['ai_enabled'];
+			$row['over_limit'] = ! $flags['ai_enabled'];
+		}
+		return $row;
+	}
+
+	/** GET /zalo-bridge/hub-config — last zalo-hub config sync (counts and codes only, never persona text). */
+	public static function handle_hub_config_status(): WP_REST_Response {
+		return new WP_REST_Response( array( 'ok' => true, 'sync' => BizCity_Zalo_Hub_Config_Sync::status() ), 200 );
+	}
+
+	/**
+	 * POST /zalo-bridge/hub-config-pull {account_id, have_version} — Hub → site (D-ZA-2). Auth = the per-account callback
+	 * token of one zalo-hub number of this site (the Hub never holds WP credentials); a wrong token reveals nothing.
+	 * Returns the same bundle the push would send, or `unchanged` when the cell already has this version.
+	 */
+	public static function handle_hub_config_pull( WP_REST_Request $request ): WP_REST_Response {
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$bridge_id = sanitize_text_field( (string) ( $body['account_id'] ?? '' ) );
+		$stored_token = $bridge_id !== '' ? BizCity_Zalo_Bridge_Client::instance()->expected_inbound_token( $bridge_id ) : '';
+		$header = (string) $request->get_header( 'authorization' );
+		$bearer = stripos( $header, 'Bearer ' ) === 0 ? trim( substr( $header, 7 ) ) : '';
+		if ( $stored_token === '' || $bearer === '' || ! hash_equals( $stored_token, $bearer ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'unauthorized' ), 401 );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'config_sync_unavailable' ), 503 );
+		}
+		$result = BizCity_Zalo_Hub_Config_Sync::pull( max( 0, (int) ( $body['have_version'] ?? 0 ) ) );
+		return new WP_REST_Response( $result, $result['ok'] ? 200 : 409 );
+	}
+
+	/* ================================================================
+	 *  R-GURU-SOURCE GS-4 — Guru Context API, site side (Hub → site)
+	 * ================================================================ */
+
+	/**
+	 * Shared gate of guru-profile / guru-context: per-account callback token (a wrong token reveals nothing), then the Guru that
+	 * ANSWERS this number (bound Guru, else the default Guru = gate 0). Least privilege (R-GP-3): the caller may only read that one
+	 * Guru, addressed as `guru:0` or `guru:<id>`; any other ref is 404 so a cell can never enumerate the site's Gurus.
+	 *
+	 * @return array{ok:bool,response?:WP_REST_Response,bridge_id?:string,character_id?:int}
+	 */
+	private static function guru_gate( WP_REST_Request $request, string $bridge_id, string $ref ): array {
+		$stored_token = $bridge_id !== '' ? BizCity_Zalo_Bridge_Client::instance()->expected_inbound_token( $bridge_id ) : '';
+		$header = (string) $request->get_header( 'authorization' );
+		$bearer = stripos( $header, 'Bearer ' ) === 0 ? trim( substr( $header, 7 ) ) : '';
+		if ( $stored_token === '' || $bearer === '' || ! hash_equals( $stored_token, $bearer ) ) {
+			return array( 'ok' => false, 'response' => new WP_REST_Response( array( 'ok' => false, 'code' => 'unauthorized', 'message' => 'Unauthorized.' ), 401 ) );
+		}
+		if ( ! class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			return array( 'ok' => false, 'response' => new WP_REST_Response( array( 'ok' => false, 'code' => 'site_guru_unsupported', 'message' => 'Guru context resolver is not loaded on this site.', 'hint' => 'Update bizcity-twin-ai (channel gateway) to the R-GURU-SOURCE release.', 'help_code' => 'site_guru_unsupported' ), 503 ) );
+		}
+		$binding = class_exists( 'BizCity_Channel_Binding' ) ? BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $bridge_id ) : null;
+		$bound   = is_array( $binding ) ? (int) ( $binding['character_id'] ?? 0 ) : 0;
+		$answering = BizCity_Guru_Context_Resolver::answering_character_id( $bound );
+		$default   = BizCity_Guru_Context_Resolver::default_character_id( false );
+		// `auto` = "the Guru answering this number" (Hub console R8 does not know which one); still exactly one Guru, never a list.
+		$allowed   = $answering > 0 && ( 'auto' === $ref || $ref === 'guru:' . $answering || ( BizCity_Guru_Context_Resolver::DEFAULT_REF === $ref && $answering === $default ) );
+		if ( ! $allowed ) {
+			return array( 'ok' => false, 'response' => new WP_REST_Response( array( 'ok' => false, 'code' => 'guru_not_found', 'message' => 'This Guru does not answer this number.', 'hint' => 'Use the agent_ref of the latest config_bundle, or guru:0.', 'help_code' => 'guru_not_found' ), 404 ) );
+		}
+		return array( 'ok' => true, 'bridge_id' => $bridge_id, 'character_id' => $answering );
+	}
+
+	/** Contract envelope minus internal fields. */
+	private static function guru_public( array $profile ): array {
+		unset( $profile['_character_id'] );
+		return $profile;
+	}
+
+	/** GET /zalo-bridge/guru-profile?account_id=&ref= — instruction + scope + compose (no turn data). ETag / If-None-Match ⇒ 304. */
+	public static function handle_guru_profile( WP_REST_Request $request ): WP_REST_Response {
+		$bridge_id = sanitize_text_field( (string) $request->get_param( 'account_id' ) );
+		$ref       = sanitize_text_field( (string) $request->get_param( 'ref' ) );
+		$gate = self::guru_gate( $request, $bridge_id, $ref );
+		if ( ! $gate['ok'] ) {
+			return $gate['response'];
+		}
+		$profile = self::guru_public( BizCity_Guru_Context_Resolver::profile( (int) $gate['character_id'] ) );
+		$etag = (string) $profile['guru']['etag'];
+		if ( $etag !== '' && trim( (string) $request->get_header( 'if_none_match' ), " \"" ) === $etag ) {
+			$r = new WP_REST_Response( null, 304 );
+			$r->header( 'ETag', '"' . $etag . '"' );
+			return $r;
+		}
+		$r = new WP_REST_Response( $profile, 200 );
+		$r->header( 'ETag', '"' . $etag . '"' );
+		return $r;
+	}
+
+	/**
+	 * POST /zalo-bridge/guru-context {account_id, ref, thread_id, query, include_instruction, max_blocks, max_chars} — the turn's `prompt`
+	 * (customer block, scope-allowed knowledge). The customer text travels in the body only, never in a URL. Read-only.
+	 */
+	public static function handle_guru_context( WP_REST_Request $request ): WP_REST_Response {
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$bridge_id = sanitize_text_field( (string) ( $body['account_id'] ?? '' ) );
+		$ref       = sanitize_text_field( (string) ( $body['ref'] ?? '' ) );
+		$gate = self::guru_gate( $request, $bridge_id, $ref );
+		if ( ! $gate['ok'] ) {
+			return $gate['response'];
+		}
+		$cid        = (int) $gate['character_id'];
+		$thread_id  = sanitize_text_field( (string) ( $body['thread_id'] ?? '' ) );
+		$contact_id = self::crm_contact_for( $bridge_id, $thread_id );
+		$prompt = BizCity_Guru_Context_Resolver::context( $cid, array(
+			'contact_id' => $contact_id,
+			'query'      => mb_substr( (string) ( $body['query'] ?? '' ), 0, 2000 ),
+			'max_blocks' => (int) ( $body['max_blocks'] ?? 0 ) ?: null,
+			'max_chars'  => (int) ( $body['max_chars'] ?? 0 ) ?: null,
+		) );
+		$profile = self::guru_public( BizCity_Guru_Context_Resolver::profile( $cid ) );
+		$out = array(
+			'contract'     => $profile['contract'],
+			'guru'         => $profile['guru'],
+			'prompt'       => $prompt,
+			'scope'        => $profile['scope'],
+			'compose'      => $profile['compose'],
+			'generated_at' => gmdate( 'c' ),
+		);
+		if ( ! empty( $body['include_instruction'] ) ) {
+			$out['instruction'] = $profile['instruction'];
+		}
+		return new WP_REST_Response( $out, 200 );
+	}
+
+	/** CRM contact of a Zalo thread of this number (read-only) — the customer block of the prompt needs it. 0 when unknown. */
+	private static function crm_contact_for( string $bridge_id, string $thread_id ): int {
+		if ( '' === $thread_id || ! class_exists( 'BizCity_CRM_Repository' ) || ! method_exists( 'BizCity_CRM_Repository', 'get_inbox_by_ref' ) || ! method_exists( 'BizCity_CRM_Repository', 'find_contact_id_by_source' ) ) {
+			return 0;
+		}
+		$code  = class_exists( 'BizCity_Bot_Turn_Claim' ) && defined( 'BizCity_Bot_Turn_Claim::CODE' ) ? (string) constant( 'BizCity_Bot_Turn_Claim::CODE' ) : 'zalo_personal';
+		$inbox = BizCity_CRM_Repository::get_inbox_by_ref( $code, $bridge_id );
+		return is_array( $inbox ) ? (int) BizCity_CRM_Repository::find_contact_id_by_source( (int) ( $inbox['id'] ?? 0 ), $thread_id ) : 0;
+	}
+
+	/** POST /zalo-bridge/hub-config — "Đồng bộ lại toàn bộ": send now even if nothing changed. */
+	public static function handle_hub_config_sync(): WP_REST_Response {
+		$result = BizCity_Zalo_Hub_Config_Sync::run( true );
+		return new WP_REST_Response( array( 'ok' => (bool) $result['ok'], 'code' => (string) $result['code'], 'message' => (string) $result['message'], 'sync' => BizCity_Zalo_Hub_Config_Sync::status() ), 200 );
+	}
+
+	/**
+	 * POST /zalo-bridge/accounts/{id}/ai-enabled {enabled} — the site owner decides which numbers keep AI inside the
+	 * plan's account pool (D-L36/D-L43). Managed mode only; the Hub enforces the pool (`account_limit_reached`).
+	 */
+	public static function handle_set_ai_enabled( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3.
+		$id = sanitize_text_field( (string) $request->get_param( 'id' ) );
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		if ( '' === $id || ! array_key_exists( 'enabled', $body ) ) {
+			return new WP_REST_Response( self::with_error_contract( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Thiếu mã tài khoản hoặc trường enabled.', 'hint' => 'Gửi {"enabled": true|false}.', 'help_code' => 'invalid_param_generic' ) ), 400 );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) || ! BizCity_Zalo_Personal_Hub_Client::instance()->is_ready_fast() ) {
+			return new WP_REST_Response( self::with_error_contract( array( 'ok' => false, '_degraded' => true, 'code' => 'managed_client_missing', 'message' => 'Chỉ số Zalo qua BizCity 1API mới có công tắc AI theo gói.', 'hint' => 'Kiểm tra API key BizCity của website.', 'help_code' => 'api_key_missing' ) ), 200 );
+		}
+		$result = BizCity_Zalo_Personal_Hub_Client::instance()->set_ai_enabled( $id, (bool) $body['enabled'] );
+		if ( empty( $result['success'] ) ) {
+			$payload = array(
+				'ok'        => false,
+				'code'      => (string) ( $result['code'] ?? 'bridge_unavailable' ),
+				'message'   => (string) ( $result['message'] ?? 'Không đổi được trạng thái AI của số này.' ),
+				'hint'      => (string) ( $result['hint'] ?? 'Thử lại sau.' ),
+				'help_code' => (string) ( $result['help_code'] ?? 'zalo_bridge_unreachable' ),
+			);
+			foreach ( array( 'account_limit', 'ai_enabled_accounts', 'reason_bucket' ) as $field ) {
+				if ( array_key_exists( $field, $result ) ) { $payload[ $field ] = $result[ $field ]; }
+			}
+			$status = (int) ( $result['http_code'] ?? 200 );
+			return new WP_REST_Response( self::with_error_contract( $payload ), $status >= 400 && $status < 500 ? $status : 200 );
+		}
+		return new WP_REST_Response( array(
+			'ok'         => true,
+			'id'         => $id,
+			'ai_enabled' => BizCity_Zalo_Account_Flags::ai_enabled( $id ),
+			'provider'   => BizCity_Zalo_Account_Flags::provider( $id ),
+			'capability' => isset( $result['capability'] ) && is_array( $result['capability'] ) ? $result['capability'] : null,
+		), 200 );
+	}
+
+	/**
+	 * GET /zalo-bridge/members — WordPress users of THIS blog (`blog_id`), each with the Zalo Personal
+	 * numbers they own and their quota. `role` = '' (default: every role but subscriber, matching CRM's
+	 * "assignable" rule), 'all', or one role slug.
+	 */
+	public static function handle_list_members( WP_REST_Request $request ): WP_REST_Response {
+		$page     = max( 1, absint( $request->get_param( 'page' ) ?: 1 ) );
+		$per_page = max( 1, min( 50, absint( $request->get_param( 'per_page' ) ?: 20 ) ) );
+		$q        = trim( sanitize_text_field( (string) $request->get_param( 'q' ) ) );
+		$role     = sanitize_key( (string) $request->get_param( 'role' ) );
+		$wp_roles = function_exists( 'wp_roles' ) ? wp_roles()->get_names() : array();
+
+		$args = array(
+			'blog_id'     => (int) get_current_blog_id(),
+			'number'      => $per_page,
+			'paged'       => $page,
+			'orderby'     => 'display_name',
+			'order'       => 'ASC',
+			'count_total' => true,
+		);
+		if ( '' !== $q ) {
+			$args['search']         = '*' . $q . '*';
+			$args['search_columns'] = array( 'user_login', 'user_email', 'display_name' );
+		}
+		if ( 'all' === $role ) {
+			// No role filter.
+		} elseif ( 'managers' === $role ) {
+			// [2026-09-27 Claude Sonnet 5] "Thêm số Zalo" owner picker — manager level and above only: administrator, editor, shop_manager
+			// (+ multisite super admins that are members of this blog). Resolved to an `include` id list so search + pagination keep working.
+			$args['include'] = self::manager_user_ids();
+		} elseif ( '' !== $role && isset( $wp_roles[ $role ] ) ) {
+			$args['role'] = $role;
+		} else {
+			$args['role__not_in'] = array( 'subscriber' );
+		}
+
+		$query     = new WP_User_Query( $args );
+		$has_repo  = class_exists( 'BizCity_Zalo_Mapping_Repo' );
+		$has_grant = class_exists( 'BizCity_Channel_User_Grant' ) && method_exists( 'BizCity_Channel_User_Grant', 'personal_quota_status' );
+		$members   = array();
+		foreach ( (array) $query->get_results() as $user ) {
+			$user_id  = (int) $user->ID;
+			$accounts = array();
+			if ( $has_repo ) {
+				foreach ( BizCity_Zalo_Mapping_Repo::list_personal_accounts_for_owner( $user_id ) as $account ) {
+					if ( in_array( (string) ( $account['status'] ?? '' ), self::MEMBER_DEAD_STATUSES, true ) ) {
+						continue;
+					}
+					$accounts[] = self::member_account_row( $account );
+				}
+			}
+			$quota_status = $has_grant ? BizCity_Channel_User_Grant::personal_quota_status( $user_id ) : array();
+			$role_labels  = array();
+			foreach ( (array) $user->roles as $slug ) {
+				$role_labels[] = isset( $wp_roles[ $slug ] ) ? translate_user_role( $wp_roles[ $slug ] ) : (string) $slug;
+			}
+			$members[] = array(
+				'user_id'      => $user_id,
+				'display_name' => sanitize_text_field( (string) $user->display_name ),
+				'email'        => sanitize_email( (string) $user->user_email ),
+				'avatar_url'   => (string) get_avatar_url( $user_id, array( 'size' => 64 ) ),
+				'roles'        => $role_labels,
+				'accounts'     => $accounts,
+				'quota'        => array(
+					'limit'     => (int) ( $quota_status['quota'] ?? 0 ),
+					'used'      => (int) ( $quota_status['owned'] ?? 0 ),
+					'reached'   => ! empty( $quota_status['reached'] ),
+				),
+			);
+		}
+
+		$role_options = array();
+		foreach ( $wp_roles as $slug => $name ) {
+			$role_options[] = array( 'slug' => (string) $slug, 'label' => translate_user_role( $name ) );
+		}
+
+		return new WP_REST_Response( array(
+			'ok'       => true,
+			'blog_id'  => (int) get_current_blog_id(),
+			'actor_id' => (int) get_current_user_id(),
+			'members'  => $members,
+			'total'    => (int) $query->get_total(),
+			'page'     => $page,
+			'per_page' => $per_page,
+			'roles'    => $role_options,
+		), 200 );
+	}
+
+	/** POST /zalo-bridge/members/{user_id}/accounts — add a Zalo Personal number owned by that member (QR follows in the UI). */
+	public static function handle_member_create_account( WP_REST_Request $request ) {
+		$owner_id = (int) $request->get_param( 'user_id' );
+		if ( ! self::is_blog_member( $owner_id ) ) {
+			return self::member_error( 'invalid_param', 'Thành viên không thuộc website này.', 'Chọn một thành viên trong danh sách của website.' );
+		}
+		$body  = $request->get_json_params();
+		$label = trim( sanitize_text_field( (string) ( is_array( $body ) ? ( $body['label'] ?? '' ) : '' ) ) );
+		if ( '' === $label ) {
+			return self::member_error( 'invalid_param', 'Nhập nhãn cho số Zalo.', 'Ví dụ: "Nick CSKH chính".' );
+		}
+		$actor_id = (int) get_current_user_id();
+		// `true` = personal only; the 4th arg marks "an administrator adds it for someone else" (grant audit).
+		return self::create_account_for_owner( $request, $owner_id, true, $owner_id !== $actor_id, $actor_id );
+	}
+
+	/**
+	 * Resolve `{user_id}` + `{id}` (bridge account id) to a number that member really owns — never trusts the
+	 * URL pair alone, so an id from another member's row cannot be edited through this member's path.
+	 *
+	 * @return array{owner_id:int,account:array}|WP_REST_Response
+	 */
+	private static function resolve_member_account( WP_REST_Request $request ) {
+		$owner_id = (int) $request->get_param( 'user_id' );
+		$id       = (string) $request->get_param( 'id' );
+		$account  = ( $owner_id > 0 && '' !== $id && class_exists( 'BizCity_Zalo_Mapping_Repo' ) )
+			? BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $id )
+			: null;
+		if ( ! is_array( $account ) || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_id ) {
+			return self::member_error( 'not_found', 'Không tìm thấy số Zalo này của thành viên.', 'Tải lại danh sách rồi thử lại.', 404 );
+		}
+		return array( 'owner_id' => $owner_id, 'account' => $account );
+	}
+
+	/** PATCH /zalo-bridge/members/{user_id}/accounts/{id} — rename the number (account row + CRM inbox name). */
+	public static function handle_member_update_account( WP_REST_Request $request ) {
+		$resolved = self::resolve_member_account( $request );
+		if ( $resolved instanceof WP_REST_Response ) {
+			return $resolved;
+		}
+		$account = $resolved['account'];
+		$body    = $request->get_json_params();
+		$label   = mb_substr( trim( sanitize_text_field( (string) ( is_array( $body ) ? ( $body['label'] ?? '' ) : '' ) ) ), 0, 190 );
+		if ( '' === $label ) {
+			return self::member_error( 'invalid_param', 'Nhập tên hiển thị.' );
+		}
+		BizCity_Zalo_Mapping_Repo::save_account( array(
+			'kind'              => 'personal',
+			'owner_user_id'     => $resolved['owner_id'],
+			'label'             => $label,
+			'bridge_account_id' => (string) ( $account['bridge_account_id'] ?? '' ),
+			'zalo_uid'          => (string) ( $account['zalo_uid'] ?? '' ),
+			'zalo_oa_id'        => (string) ( $account['zalo_oa_id'] ?? '' ),
+			'crm_inbox_id'      => (int) ( $account['crm_inbox_id'] ?? 0 ),
+			'status'            => (string) ( $account['status'] ?? 'pending_qr' ),
+		) );
+		// The CRM rail renders the inbox name, which is only synced with the label at creation time.
+		$inbox_id = (int) ( $account['crm_inbox_id'] ?? 0 );
+		if ( $inbox_id > 0 && class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			global $wpdb;
+			$wpdb->update( BizCity_CRM_DB_Installer_V2::tbl_inboxes(), array( 'name' => 'Zalo Cá nhân — ' . $label ), array( 'id' => $inbox_id ) );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'id' => (string) ( $account['bridge_account_id'] ?? '' ), 'label' => $label ), 200 );
+	}
+
+	/**
+	 * DELETE /zalo-bridge/members/{user_id}/accounts/{id} — "Gỡ số": Hub session torn down, status `revoked`,
+	 * CRM inbox + conversations kept (same as CRM `mode=disconnect`). The number cannot be QR-relogged after this.
+	 */
+	public static function handle_member_delete_account( WP_REST_Request $request ) {
+		$resolved = self::resolve_member_account( $request );
+		if ( $resolved instanceof WP_REST_Response ) {
+			return $resolved;
+		}
+		return self::delete_account_for_owner( $resolved['account'], $resolved['owner_id'], true );
+	}
+
+	/** POST /zalo-bridge/members/{user_id}/accounts/{id}/transfer — hand the number to another member of this blog. */
+	public static function handle_member_transfer_account( WP_REST_Request $request ) {
+		$resolved = self::resolve_member_account( $request );
+		if ( $resolved instanceof WP_REST_Response ) {
+			return $resolved;
+		}
+		$account = $resolved['account'];
+		$body    = $request->get_json_params();
+		$to_id   = max( 0, (int) ( is_array( $body ) ? ( $body['to_user_id'] ?? 0 ) : 0 ) );
+		if ( $to_id <= 0 || $to_id === $resolved['owner_id'] || ! self::is_blog_member( $to_id ) ) {
+			return self::member_error( 'invalid_param', 'Chọn thành viên nhận hợp lệ.', 'Chọn một thành viên khác của website này.' );
+		}
+		if ( ! class_exists( 'BizCity_Channel_User_Grant' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'module_not_loaded', 'message' => 'Channel Gateway chưa sẵn sàng.', 'hint' => 'Tải lại trang rồi thử lại.', 'help_code' => 'module_not_loaded' ), 503 );
+		}
+		// Grant first, mapping second (same order as CRM `transfer_phone_owner`): the mapping must never say
+		// "owned by B" while the grant layer used by /gpt/ and Context Bank still says "A".
+		$grant = BizCity_Channel_User_Grant::reassign_owner(
+			'zalo_personal', (string) ( $account['bridge_account_id'] ?? '' ), $to_id, (int) get_current_user_id(), true,
+			array( 'source' => 'gateway_member_transfer' )
+		);
+		if ( empty( $grant['ok'] ) ) {
+			$reason = sanitize_key( (string) ( $grant['reason'] ?? 'grant_write_failed' ) );
+			if ( 'personal_account_quota_reached' === $reason ) {
+				return new WP_REST_Response( self::personal_quota_payload( (int) ( $grant['quota'] ?? 0 ) ), 200 );
+			}
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'transfer_failed', 'message' => 'Không chuyển được quyền sở hữu SĐT.', 'hint' => 'Thử lại sau ít phút.', 'help_code' => 'transfer_failed', 'reason' => $reason ), 200 );
+		}
+		BizCity_Zalo_Mapping_Repo::save_account( array(
+			'kind'              => 'personal',
+			'owner_user_id'     => $to_id,
+			'label'             => (string) ( $account['label'] ?? '' ),
+			'bridge_account_id' => (string) ( $account['bridge_account_id'] ?? '' ),
+			'zalo_uid'          => (string) ( $account['zalo_uid'] ?? '' ),
+			'zalo_oa_id'        => (string) ( $account['zalo_oa_id'] ?? '' ),
+			'crm_inbox_id'      => (int) ( $account['crm_inbox_id'] ?? 0 ),
+			'status'            => (string) ( $account['status'] ?? 'pending_qr' ),
+		) );
+		return new WP_REST_Response( array( 'ok' => true, 'id' => (string) ( $account['bridge_account_id'] ?? '' ), 'from_user_id' => $resolved['owner_id'], 'to_user_id' => $to_id ), 200 );
 	}
 
 	/**
@@ -811,11 +1418,24 @@ class BizCity_Zalo_Bridge_REST {
 		}
 		$result = BizCity_Zalo_Bridge_Client::instance()->delete_account( $id );
 		$ok = empty( $result['_degraded'] ) && ! empty( $result['success'] );
+		// [2026-09-27 Claude Sonnet 5] The Hub no longer knows this account (deleted server-side / API key changed → `account_not_owned`): the goal of
+		// "gỡ số" — no live session at the Hub — is already true, so it must NOT fail. Before this, such a number could never be removed from the site.
+		$already_gone = false;
+		if ( ! $ok && class_exists( 'BizCity_Zalo_Session_Errors' ) ) {
+			$bucket = BizCity_Zalo_Session_Errors::bucket_for( (string) ( $result['reason_bucket'] ?? '' ) );
+			if ( '' === $bucket ) {
+				$bucket = BizCity_Zalo_Session_Errors::bucket_for( (string) ( $result['code'] ?? '' ) );
+			}
+			if ( 'account_not_owned' === $bucket ) {
+				$ok = true;
+				$already_gone = true;
+			}
+		}
 		if ( $ok && class_exists( 'BizCity_Zalo_Mapping_Repo' ) && ! empty( $account['id'] ) ) {
 			// [2026-09-18] R-ZP-DUP DUP-11 — deleted ⇒ 'revoked' (history kept, no QR offer, not a twin).
 			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $account['id'], BizCity_Zalo_Duplicate_Guard::STATUS_REVOKED );
 		}
-		return new WP_REST_Response( array( 'ok' => $ok, 'success' => $ok, 'code' => $ok ? '' : (string) ( $result['code'] ?? 'zalo_bridge_unreachable' ), 'message' => $ok ? '' : (string) ( $result['message'] ?? 'Chưa ngắt được tài khoản Zalo.' ), 'hint' => $ok ? '' : (string) ( $result['hint'] ?? 'Kiểm tra trạng thái managed bridge rồi thử lại.' ), 'help_code' => $ok ? '' : (string) ( $result['help_code'] ?? 'zalo_bridge_unreachable' ) ), 200 );
+		return new WP_REST_Response( array( 'ok' => $ok, 'success' => $ok, 'already_gone' => $already_gone, 'code' => $ok ? '' : (string) ( $result['code'] ?? 'zalo_bridge_unreachable' ), 'message' => $ok ? '' : (string) ( $result['message'] ?? 'Chưa ngắt được tài khoản Zalo.' ), 'hint' => $ok ? '' : (string) ( $result['hint'] ?? 'Kiểm tra trạng thái managed bridge rồi thử lại.' ), 'help_code' => $ok ? '' : (string) ( $result['help_code'] ?? 'zalo_bridge_unreachable' ) ), 200 );
 	}
 
 	/**
@@ -1435,7 +2055,9 @@ class BizCity_Zalo_Bridge_REST {
 				self::mark_moved_away( $id );
 				return new WP_REST_Response( array( 'ok' => false, 'status' => 'logged_out', 'qr_status' => 'logged_out', 'can_relogin' => true, 'reason_bucket' => 'managed_account_other_site', 'bound_site_host' => sanitize_text_field( (string) ( $result['bound_site_host'] ?? '' ) ), 'message' => 'Tài khoản Zalo đang nhận tin tại website khác.', 'hint' => 'Đăng nhập lại QR tại đây để chuyển tài khoản về website này.', 'readiness' => self::readiness_envelope( $account, array( 'status' => 'logged_out' ), $client ) ), 200 );
 			}
-			return new WP_REST_Response( array_merge( array( 'ok' => false ), $result, self::readiness_envelope( $account, $result, $client ) ), 200 );
+			// [2026-09-27 Claude Sonnet 5] The envelope was merged at the TOP level here but nested under `readiness` on success, so a failed status (e.g. `account_not_owned`) left every consumer (CRM ping) reading an empty `readiness` and printing unknown/down with no reason.
+				$envelope = self::readiness_envelope( $account, $result, $client );
+				return new WP_REST_Response( array_merge( array( 'ok' => false ), $result, $envelope, array( 'readiness' => $envelope ) ), 200 );
 		}
 		if ( ! empty( $result['rebound'] ) ) {
 			self::adopt_rebound_account( $id, $owner_user_id );
@@ -1472,8 +2094,20 @@ class BizCity_Zalo_Bridge_REST {
 		if ( null !== $session_live && ! $session_live && 'connected' === $db_status ) {
 			$session_status = 'session_disconnected';
 		}
+		// [2026-09-27 Claude Sonnet 5] Which branch this number runs on — recorded at creation (Account_Flags), so it can be told apart on screen.
+		$provider = class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::provider( (string) ( $account['bridge_account_id'] ?? '' ) ) : 'zca';
+		// [2026-09-27 Claude Opus 5.5] PHASE-0.80 doc 26 UX-1 — a zalo-hub number's "bridge" is its cell, not the zca sidecar that $client->health() probes.
+		if ( 'zalo_hub' === $provider && class_exists( 'BizCity_Zalo_Connection_Status' ) ) {
+			$backend = BizCity_Zalo_Connection_Status::account_backend( (string) ( $account['bridge_account_id'] ?? '' ) );
+			if ( null !== $backend ) {
+				$health_ok = $backend['ok'];
+				$health = array( 'code' => $backend['code'], '_degraded' => ! $backend['ok'] );
+			}
+		}
 		return array(
 			'readiness_version' => '1.0.0',
+			'provider' => $provider,
+			'provider_label' => 'zalo_hub' === $provider ? 'zalo-hub (BizCity Hub)' : 'zca-bridge (legacy)',
 			'checked_at' => gmdate( 'c' ),
 			'account_mapping' => array(
 				'status' => ! empty( $account['bridge_account_id'] ) && (int) ( $account['owner_user_id'] ?? 0 ) > 0 ? 'mapped' : 'missing',

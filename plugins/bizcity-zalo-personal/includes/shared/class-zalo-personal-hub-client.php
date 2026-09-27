@@ -72,13 +72,43 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		$channel = isset( $config['channels']['zalo_personal'] ) && is_array( $config['channels']['zalo_personal'] )
 			? $config['channels']['zalo_personal']
 			: array( 'allowed' => false, 'account_limit' => 0, 'accounts_used' => 0, 'accounts_remaining' => 0, 'source' => 'missing' );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3 (D-L43) — over_limit_accounts[] is the Hub's full list of AI-off numbers.
+		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			BizCity_Zalo_Account_Flags::observe_capability( $channel );
+		}
 		return array( 'success' => true, 'capability' => $channel, 'master_level' => (string) ( $config['master_level'] ?? 'free' ) );
 	}
 
 	/** List only accounts assigned to this exact API key at the Hub. */
 	public function list_accounts(): array {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — account list is key-scoped by Branch 19.
-		return $this->get( '/zalo-personal-bridge/accounts' );
+		$result = $this->get( '/zalo-personal-bridge/accounts' );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-2/4a-3 — each Hub row says its provider and whether its AI is on.
+		if ( ! empty( $result['success'] ) && isset( $result['accounts'] ) && is_array( $result['accounts'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			BizCity_Zalo_Account_Flags::observe_accounts( $result['accounts'], 'hub_list' );
+		}
+		return $result;
+	}
+
+	/**
+	 * Owner choice (D-L36/D-L43): keep or stop AI on one number inside the plan's pool.
+	 * Hub route `PUT|POST zalo-personal-bridge/accounts/{id}/ai-enabled`; the Hub refuses
+	 * `account_limit_reached` when switching on would exceed the pool.
+	 */
+	public function set_ai_enabled( string $account_id, bool $enabled ): array {
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3.
+		$result = $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/ai-enabled', array( 'enabled' => $enabled ) );
+		if ( ! empty( $result['success'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			$account = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : array();
+			BizCity_Zalo_Account_Flags::record( $account_id, array_filter( array(
+				'provider'   => $account['provider'] ?? null,
+				'ai_enabled' => array_key_exists( 'ai_enabled', $account ) ? (bool) $account['ai_enabled'] : $enabled,
+			), static function ( $v ) { return null !== $v; } ), 'owner_switch' );
+			if ( isset( $result['capability'] ) && is_array( $result['capability'] ) ) {
+				BizCity_Zalo_Account_Flags::observe_capability( $result['capability'] );
+			}
+		}
+		return $result;
 	}
 
 	/** Create a managed Personal account and retain only its encrypted callback credential locally. */
@@ -89,7 +119,30 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		// [2026-08-23 Johnny Chu] R-GW-8 — preserve standalone B2 installation identity through Managed provisioning.
 		$data['client_instance_id'] = $this->client_instance_id();
 		$data['tenant_key'] = $this->tenant_key();
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-2 (T-13) — provider per NEW number: explicit choice, else the site default; `zca` keeps the historical request body.
+		$explicit = is_string( $data['provider'] ?? null ) && '' !== trim( (string) $data['provider'] );
+		$provider = class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::requested_provider( $data['provider'] ?? '' ) : 'zca';
+		if ( 'zca' === $provider ) {
+			unset( $data['provider'] );
+		} else {
+			$data['provider'] = $provider;
+		}
 		$result = $this->post( '/zalo-personal-bridge/accounts', $data );
+		// A site DEFAULT of zalo_hub must never block creating a number: when the Hub refuses zalo-hub for this key
+		// (not in pilot / no cell / cells full) nothing was created, so fall back to zca once and say so. An explicit choice is honoured as is.
+		if ( ! $explicit && 'zca' !== $provider && empty( $result['success'] ) && in_array( (string) ( $result['code'] ?? '' ), array( 'zalo_hub_not_enabled', 'cell_capacity_full', 'zalo_hub_unavailable' ), true ) ) {
+			$refused = (string) $result['code'];
+			unset( $data['provider'] );
+			$provider = 'zca';
+			$result = $this->post( '/zalo-personal-bridge/accounts', $data );
+			$result['provider_fallback'] = array( 'requested' => 'zalo_hub', 'used' => 'zca', 'reason' => $refused );
+		}
+		if ( ! empty( $result['success'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			$created = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : array();
+			if ( isset( $created['id'] ) ) {
+				BizCity_Zalo_Account_Flags::record( (string) $created['id'], array( 'provider' => (string) ( $created['provider'] ?? $result['provider'] ?? $provider ), 'ai_enabled' => true ), 'create' );
+			}
+		}
 		$account = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : array();
 		$account_id = (string) ( $account['id'] ?? '' );
 		$callback_token = (string) ( $result['callback_token'] ?? '' );
@@ -131,6 +184,9 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		$result = $this->delete( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) );
 		if ( ! empty( $result['success'] ) ) {
 			$this->delete_callback_token( $account_id );
+			if ( class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+				BizCity_Zalo_Account_Flags::forget( $account_id );
+			}
 		}
 		return $result;
 	}
@@ -191,6 +247,17 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	public function get_group_members( string $account_id, string $group_id ): array {
 		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — route managed roster reads through Hub Branch 19 instead of degrading locally.
 		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/group-members?group_id=' . rawurlencode( $group_id ) );
+	}
+
+	/**
+	 * PHASE-0.80 doc 28 T-5 — ask the Hub whether the copy a zalo-hub cell would serve THIS number right now
+	 * matches this site's own live Guru etag (T-3). Read-only, no site round trip on the Hub side (see T-4).
+	 *
+	 * @return array{ok?:bool,in_sync?:bool,hub_etag?:string,checked_at?:?string,code?:string}
+	 */
+	public function guru_sync_check( string $account_id, string $ref, string $expected_etag ): array {
+		$query = http_build_query( array( 'account_id' => $account_id, 'expected_etag' => $expected_etag ), '', '&', PHP_QUERY_RFC3986 );
+		return $this->get( '/zalo-hub/guru/' . rawurlencode( $ref ) . '/sync-check?' . $query );
 	}
 
 	/** Read the provider group label for an exact key-owned account. */

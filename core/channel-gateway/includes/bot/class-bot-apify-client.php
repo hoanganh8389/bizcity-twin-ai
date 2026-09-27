@@ -48,27 +48,27 @@ final class BizCity_Bot_Apify_Client {
 		// isn't loaded, and it keeps these branches unit-testable without needing Config/Secrets
 		// Repo (and therefore $wpdb) present at all.
 		if ( $character_id <= 0 ) {
-			return new WP_Error( 'invalid_param', 'Thiếu character_id.', array( 'status' => 422, 'help_code' => 'bot_apify_character_required' ) );
+			return new WP_Error( 'invalid_param', 'character_id is missing.', array( 'status' => 422, 'help_code' => 'bot_apify_character_required' ) );
 		}
 		$actor_field = self::PLATFORM_ACTOR_FIELD[ $platform ] ?? '';
 		if ( '' === $actor_field ) {
-			return new WP_Error( 'invalid_param', 'Nền tảng không hỗ trợ: ' . $platform . '.', array( 'status' => 422, 'help_code' => 'bot_apify_platform_unknown' ) );
+			return new WP_Error( 'invalid_param', 'Unsupported platform: ' . $platform . '.', array( 'status' => 422, 'help_code' => 'bot_apify_platform_unknown' ) );
 		}
 		if ( ! preg_match( '#^https?://#i', $url ) ) {
-			return new WP_Error( 'invalid_param', 'URL không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_apify_url_invalid' ) );
+			return new WP_Error( 'invalid_param', 'Invalid URL.', array( 'status' => 422, 'help_code' => 'bot_apify_url_invalid' ) );
 		}
 		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-			return new WP_Error( 'module_not_loaded', 'Bot Studio chưa sẵn sàng.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
+			return new WP_Error( 'module_not_loaded', 'Bot Studio is not ready.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
 
 		$media_cfg = BizCity_Bot_Config_Repo::get( $character_id )['media']['apify'] ?? array();
 		$actor_id  = trim( (string) ( $media_cfg[ $actor_field ] ?? '' ) );
 		if ( '' === $actor_id ) {
-			return new WP_Error( 'bot_apify_actor_missing', 'Chưa cấu hình Actor ID cho ' . $platform . '.', array( 'status' => 422, 'help_code' => 'bot_apify_actor_missing' ) );
+			return new WP_Error( 'bot_apify_actor_missing', 'No Actor ID configured for ' . $platform . '.', array( 'status' => 422, 'help_code' => 'bot_apify_actor_missing' ) );
 		}
 		$token = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'apify_token' );
 		if ( '' === $token ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có Apify token.', array( 'status' => 422, 'help_code' => 'bot_apify_token_missing' ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No Apify token.', array( 'status' => 422, 'help_code' => 'bot_apify_token_missing' ) );
 		}
 
 		$endpoint = 'https://api.apify.com/v2/acts/' . rawurlencode( $actor_id )
@@ -76,7 +76,7 @@ final class BizCity_Bot_Apify_Client {
 			. '&timeout=' . self::RUN_TIMEOUT_SECONDS;
 
 		if ( ! function_exists( 'wp_remote_post' ) ) {
-			return new WP_Error( 'module_not_loaded', 'HTTP client chưa sẵn sàng.', array( 'status' => 503, 'help_code' => 'bot_apify_http_missing' ) );
+			return new WP_Error( 'module_not_loaded', 'HTTP client is not ready.', array( 'status' => 503, 'help_code' => 'bot_apify_http_missing' ) );
 		}
 		$response = wp_remote_post( $endpoint, array(
 			'timeout' => self::HTTP_TIMEOUT_SECONDS,
@@ -93,13 +93,13 @@ final class BizCity_Bot_Apify_Client {
 			$message = is_array( $decoded ) ? (string) ( $decoded['error']['message'] ?? '' ) : '';
 			return new WP_Error(
 				in_array( $status, array( 401, 403 ), true ) ? 'bot_provider_key_missing' : 'provider_error',
-				'' !== $message ? $message : ( 'Apify trả lỗi HTTP ' . $status . '.' ),
+				'' !== $message ? $message : ( 'Apify returned HTTP error ' . $status . '.' ),
 				array( 'status' => 502, 'http_status' => $status, 'help_code' => 'bot_apify_provider_error' )
 			);
 		}
 		$items = json_decode( $raw, true );
 		if ( ! is_array( $items ) ) {
-			return new WP_Error( 'provider_error', 'Apify trả phản hồi không hợp lệ (không phải mảng dataset item).', array( 'status' => 502, 'help_code' => 'bot_apify_invalid_response' ) );
+			return new WP_Error( 'provider_error', 'Apify returned an invalid response (not an array of dataset items).', array( 'status' => 502, 'help_code' => 'bot_apify_invalid_response' ) );
 		}
 		return array(
 			'ok'             => true,

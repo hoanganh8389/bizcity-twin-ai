@@ -1,0 +1,734 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.1.0",
+  "kind": "sales_deal",
+  "label": "Bán hàng",
+  "ui": {
+    "color": "#4f46e5",
+    "icon": "cil-cart",
+    "category": "sales",
+    "lost_reasons": [
+      "Giá cao",
+      "Đã mua nơi khác",
+      "Chưa có nhu cầu",
+      "Sai đối tượng",
+      "Khác"
+    ]
+  },
+  "subject": "contact",
+  "clock": "calendar:office",
+  "lock_version": true,
+  "pause_when": [
+    "flag(waiting_customer)"
+  ],
+  "roles": {
+    "sale": {
+      "label": "Nhân viên kinh doanh",
+      "resolve": {
+        "relation": "assignee_of_stage"
+      }
+    },
+    "owner": {
+      "label": "Người phụ trách khách",
+      "resolve": {
+        "relation": "owner_of_run"
+      }
+    },
+    "lead": {
+      "label": "Trưởng nhóm kinh doanh",
+      "resolve": {
+        "relation": "team_lead_of_assignee"
+      }
+    },
+    "finance": {
+      "label": "Kế toán",
+      "resolve": {
+        "relation": "assignee_of_stage"
+      }
+    },
+    "cskh": {
+      "label": "Chăm sóc khách hàng",
+      "resolve": {
+        "relation": "assignee_of_stage"
+      }
+    }
+  },
+  "calendars": {
+    "office": [
+      {
+        "dow": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "from": "08:00",
+        "to": "17:30"
+      },
+      {
+        "dow": [
+          6
+        ],
+        "from": "08:00",
+        "to": "12:00"
+      }
+    ]
+  },
+  "tools": [
+    "stage",
+    "ops",
+    "orders",
+    "documents",
+    "notes",
+    "activity"
+  ],
+  "stages": [
+    {
+      "key": "target",
+      "label": "Khách mục tiêu",
+      "role": "sale",
+      "sub_steps": [
+        {
+          "key": "t_greet",
+          "label": "Chào khách, giới thiệu bản thân và thương hiệu",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "t_need",
+          "label": "Hỏi nhu cầu và thời điểm cần",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "t_source",
+          "label": "Ghi nguồn khách (kênh, chiến dịch, người giới thiệu)",
+          "mode": "status_only",
+          "role": "sale"
+        }
+      ],
+      "sla": {
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+1d",
+          "on_miss": [
+            {
+              "at": "-20%",
+              "do": "flag(at_risk)"
+            },
+            {
+              "at": "0",
+              "do": "notify(role:sale)"
+            }
+          ]
+        }
+      },
+      "ui": {
+        "color": "#94a3b8",
+        "hint": "Khách mới, chưa nói chuyện",
+        "stuck_after": "+3d",
+        "note_placeholder": "Nguồn khách, nhu cầu ban đầu…"
+      }
+    },
+    {
+      "key": "contacted",
+      "label": "Đã liên hệ",
+      "role": "sale",
+      "sub_steps": [
+        {
+          "key": "c_need",
+          "label": "Xác định nhu cầu chính",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "c_budget",
+          "label": "Hỏi ngân sách và người quyết định",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "c_appoint",
+          "label": "Hẹn thời điểm tư vấn / gọi",
+          "mode": "status_only",
+          "role": "sale"
+        }
+      ],
+      "sla": {
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+3d",
+          "on_miss": [
+            {
+              "at": "-20%",
+              "do": "flag(at_risk)"
+            },
+            {
+              "at": "0",
+              "do": "notify(role:sale)"
+            },
+            {
+              "at": "+1d",
+              "do": "escalate(role:lead)"
+            }
+          ]
+        }
+      },
+      "ui": {
+        "color": "#0ea5e9",
+        "hint": "Đã trao đổi, cần làm rõ nhu cầu",
+        "stuck_after": "+3d",
+        "reminder": {
+          "title_from": "first_sub_step",
+          "default_offset": "+1d"
+        }
+      }
+    },
+    {
+      "key": "consult",
+      "label": "Đang tư vấn",
+      "role": "sale",
+      "sub_steps": [
+        {
+          "key": "cs_catalog",
+          "label": "Gửi thông tin / catalog đúng nhu cầu",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "cs_faq",
+          "label": "Trả lời thắc mắc của khách",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "cs_demo",
+          "label": "Demo / gửi mẫu dùng thử (nếu có)",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "cs_fit",
+          "label": "Chốt phương án phù hợp",
+          "mode": "status_only",
+          "role": "sale"
+        }
+      ],
+      "sla": {
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+3d",
+          "on_miss": [
+            {
+              "at": "-20%",
+              "do": "flag(at_risk)"
+            },
+            {
+              "at": "0",
+              "do": "notify(role:sale)"
+            },
+            {
+              "at": "+1d",
+              "do": "escalate(role:lead)"
+            }
+          ]
+        }
+      },
+      "requires": {
+        "fields": [
+          "need_summary"
+        ]
+      },
+      "ui": {
+        "color": "#8b5cf6",
+        "hint": "Đang tư vấn giải pháp",
+        "stuck_after": "+3d",
+        "reminder": {
+          "title_from": "first_sub_step",
+          "default_offset": "+1d"
+        }
+      }
+    },
+    {
+      "key": "quote",
+      "label": "Đã báo giá",
+      "role": "sale",
+      "sub_steps": [
+        {
+          "key": "q_send",
+          "label": "Lập và gửi báo giá",
+          "mode": "task",
+          "role": "sale",
+          "requires": {
+            "evidence": [
+              "file"
+            ],
+            "min_count": 1
+          }
+        },
+        {
+          "key": "q_follow",
+          "label": "Gọi lại chốt trong 48h",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "q_objection",
+          "label": "Xử lý băn khoăn (giá, giao hàng, bảo hành)",
+          "mode": "status_only",
+          "role": "sale"
+        }
+      ],
+      "sla": {
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+5d",
+          "on_miss": [
+            {
+              "at": "-20%",
+              "do": "flag(at_risk)"
+            },
+            {
+              "at": "0",
+              "do": "notify(role:sale)"
+            },
+            {
+              "at": "+1d",
+              "do": "escalate(role:lead)"
+            }
+          ]
+        }
+      },
+      "requires": {
+        "fields": [
+          "quote_value"
+        ]
+      },
+      "ui": {
+        "color": "#f59e0b",
+        "hint": "Khách đã nhận báo giá, chờ phản hồi",
+        "stuck_after": "+3d",
+        "reminder": {
+          "title_from": "first_sub_step",
+          "default_offset": "+1d"
+        },
+        "note_placeholder": "Khách đồng ý combo 3 tháng, hẹn chuyển khoản tối nay…"
+      }
+    },
+    {
+      "key": "closing",
+      "label": "Chốt đơn",
+      "role": "sale",
+      "return_to": "quote",
+      "sub_steps": [
+        {
+          "key": "cl_confirm",
+          "label": "Xác nhận đơn (số lượng, giá, địa chỉ giao)",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "cl_payment",
+          "label": "Nhận đặt cọc / thanh toán",
+          "mode": "task",
+          "role": "finance",
+          "requires": {
+            "evidence": [
+              "file"
+            ],
+            "min_count": 1
+          }
+        },
+        {
+          "key": "cl_order",
+          "label": "Tạo đơn hàng trên hệ thống",
+          "mode": "task",
+          "role": "sale"
+        }
+      ],
+      "sla": {
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+2d",
+          "on_miss": [
+            {
+              "at": "0",
+              "do": "notify(role:sale)"
+            },
+            {
+              "at": "+1d",
+              "do": "escalate(role:lead)"
+            }
+          ]
+        }
+      },
+      "requires": {
+        "fields": [
+          "order_value"
+        ]
+      },
+      "ui": {
+        "color": "#f97316",
+        "hint": "Khách đồng ý, đang chốt đơn và thanh toán",
+        "stuck_after": "+2d"
+      }
+    },
+    {
+      "key": "won",
+      "label": "Đã mua · giao hàng",
+      "role": "sale",
+      "sub_steps": [
+        {
+          "key": "w_ship",
+          "label": "Theo dõi giao hàng",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "w_receive",
+          "label": "Xác nhận khách đã nhận hàng",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "w_invoice",
+          "label": "Xuất hoá đơn / chứng từ",
+          "mode": "task",
+          "role": "finance"
+        }
+      ],
+      "requires": {
+        "fields": [
+          "delivered_at"
+        ]
+      },
+      "ui": {
+        "color": "#16a34a",
+        "hint": "Đã mua, theo dõi giao hàng"
+      }
+    },
+    {
+      "key": "aftercare",
+      "label": "Chăm sóc sau bán",
+      "role": "cskh",
+      "sub_steps": [
+        {
+          "key": "ac_d3",
+          "label": "Hỏi trải nghiệm D+3, xin feedback",
+          "mode": "status_only",
+          "role": "cskh"
+        },
+        {
+          "key": "ac_review",
+          "label": "Xin đánh giá / giới thiệu khách mới",
+          "mode": "status_only",
+          "role": "cskh"
+        },
+        {
+          "key": "ac_cycle",
+          "label": "Đặt lịch nhắc mua lại theo chu kỳ",
+          "mode": "status_only",
+          "role": "cskh"
+        }
+      ],
+      "sla": {
+        "finish_within": {
+          "from": "stage_started",
+          "within": "+7d",
+          "on_miss": [
+            {
+              "at": "0",
+              "do": "notify(role:cskh)"
+            }
+          ]
+        }
+      },
+      "ui": {
+        "color": "#0d9488",
+        "hint": "Chăm sóc sau bán, xin đánh giá"
+      },
+      "terminal": true,
+      "outcome": "won"
+    },
+    {
+      "key": "repeat",
+      "label": "Mua lại",
+      "role": "sale",
+      "terminal": true,
+      "sub_steps": [
+        {
+          "key": "r_offer",
+          "label": "Gửi ưu đãi khách cũ",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "r_reorder",
+          "label": "Tạo đơn mua lại",
+          "mode": "task",
+          "role": "sale"
+        }
+      ],
+      "ui": {
+        "color": "#0f766e",
+        "hint": "Khách quay lại mua tiếp"
+      },
+      "outcome": "won"
+    },
+    {
+      "key": "lost",
+      "label": "Không mua",
+      "role": "sale",
+      "terminal": true,
+      "sub_steps": [
+        {
+          "key": "l_reason",
+          "label": "Ghi lý do không mua",
+          "mode": "status_only",
+          "role": "sale"
+        },
+        {
+          "key": "l_recall",
+          "label": "Hẹn liên hệ lại sau 90 ngày",
+          "mode": "status_only",
+          "role": "sale"
+        }
+      ],
+      "requires": {
+        "fields": [
+          "lost_reason"
+        ]
+      },
+      "ui": {
+        "color": "#64748b",
+        "hint": "Không mua — ghi rõ lý do để lần sau chăm lại"
+      },
+      "outcome": "lost"
+    }
+  ],
+  "gates": [
+    {
+      "stage": "closing",
+      "requires": {
+        "all_of": [
+          "quote"
+        ]
+      }
+    },
+    {
+      "stage": "won",
+      "requires": {
+        "all_of": [
+          "cl_confirm"
+        ]
+      }
+    },
+    {
+      "stage": "aftercare",
+      "requires": {
+        "all_of": [
+          "won"
+        ]
+      }
+    },
+    {
+      "stage": "repeat",
+      "requires": {
+        "any_of": [
+          "won",
+          "aftercare"
+        ]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "id": "first_reply",
+      "layer": "wait",
+      "anchor": "run_created",
+      "offset": "+2h",
+      "target": "first_outbound",
+      "on_miss": [
+        {
+          "at": "0",
+          "do": "notify(role:sale)"
+        },
+        {
+          "at": "+2h",
+          "do": "escalate(role:lead)"
+        }
+      ]
+    },
+    {
+      "id": "quote_followup",
+      "layer": "wait",
+      "anchor": "stage_started(quote)",
+      "offset": "+2d",
+      "target": "stage_done(q_follow)",
+      "on_miss": [
+        {
+          "at": "0",
+          "do": "notify(role:sale)"
+        },
+        {
+          "at": "+1d",
+          "do": "notify(role:lead)"
+        }
+      ]
+    },
+    {
+      "id": "promised_delivery",
+      "layer": "step",
+      "anchor": "field:promised_delivery_at",
+      "offset": "+0d",
+      "target": "stage_done(won)",
+      "clock": "24x7",
+      "on_miss": [
+        {
+          "at": "-1d",
+          "do": "flag(at_risk) + notify(role:sale)"
+        },
+        {
+          "at": "0",
+          "do": "escalate(role:lead)"
+        }
+      ]
+    },
+    {
+      "id": "aftercare_d3",
+      "layer": "step",
+      "anchor": "stage_started(aftercare)",
+      "offset": "+3d",
+      "target": "stage_done(ac_d3)",
+      "clock": "24x7",
+      "on_miss": [
+        {
+          "at": "0",
+          "do": "notify(role:cskh)"
+        }
+      ]
+    }
+  ],
+  "process_sla": {
+    "id": "sales_cycle",
+    "layer": "process",
+    "anchor": "run_created",
+    "offset": "+30d",
+    "target": "stage_in([won, aftercare, repeat, lost])",
+    "clock": "24x7",
+    "on_miss": [
+      {
+        "at": "-20%",
+        "do": "notify(role:sale)"
+      },
+      {
+        "at": "0",
+        "do": "notify(role:lead)"
+      }
+    ]
+  },
+  "exceptions": [
+    {
+      "key": "price_approval",
+      "label": "Cần duyệt giá / chiết khấu vượt quyền",
+      "raised_from": [
+        "quote",
+        "closing"
+      ],
+      "handler_role": "lead",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+2h",
+          "target": "exception_ack",
+          "on_miss": [
+            {
+              "at": "0",
+              "do": "escalate(role:lead)"
+            }
+          ]
+        },
+        {
+          "id": "resolve",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+1d",
+          "target": "exception_resolved",
+          "on_miss": [
+            {
+              "at": "0",
+              "do": "escalate(role:lead)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "payment_late",
+      "label": "Khách chậm thanh toán",
+      "raised_from": [
+        "closing",
+        "won"
+      ],
+      "handler_role": "finance",
+      "blocks_stage": false,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+1d",
+          "target": "exception_ack",
+          "on_miss": [
+            {
+              "at": "0",
+              "do": "notify(role:lead)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "complaint",
+      "label": "Khách khiếu nại",
+      "raised_from": [
+        "won",
+        "aftercare"
+      ],
+      "handler_role": "cskh",
+      "blocks_stage": true,
+      "sla": [
+        {
+          "id": "ack",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+2h",
+          "target": "exception_ack",
+          "on_miss": [
+            {
+              "at": "0",
+              "do": "escalate(role:lead)"
+            }
+          ]
+        },
+        {
+          "id": "resolve",
+          "layer": "exception",
+          "anchor": "exception_raised",
+          "offset": "+2d",
+          "target": "exception_resolved",
+          "on_miss": [
+            {
+              "at": "0",
+              "do": "escalate(role:lead)"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

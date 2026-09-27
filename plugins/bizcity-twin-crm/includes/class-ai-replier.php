@@ -163,6 +163,28 @@ class BizCity_CRM_AI_Replier {
 			throw new \RuntimeException( 'no_user_message' );
 		}
 
+		// [2026-09-27] PHASE-0.80 doc 27 L-06 — an inbox that cannot deliver (Facebook Page without a token) gets no LLM turn.
+		// Checked before the reply claim so a re-authorised Page can still answer the same inbound later.
+		if ( empty( $opts['draft_only'] ) && ( ! isset( $opts['dispatch'] ) || (bool) $opts['dispatch'] ) ) {
+			$preflight = self::preflight_send( $inbox );
+			if ( ! $preflight['ok'] ) {
+				self::log( sprintf( '↳ skip AI reply for conv#%d: send_unavailable (%s) — no LLM call', $conv_id, $preflight['error'] ) );
+				return array(
+					'message_id'   => 0,
+					'trace_uuid'   => $trace_uuid,
+					'reply'        => '',
+					'sources'      => array(),
+					'steps'        => array(),
+					'dispatch'     => array( 'sent' => false, 'platform' => (string) ( $inbox['channel_type'] ?? '' ), 'error' => $preflight['error'], 'skipped' => true ),
+					'notebook_id'  => $notebook_id,
+					'character_id' => $character_id ?: null,
+					'latency_ms'   => self::ms_since( $t0 ),
+					'skipped'      => true,
+					'reason'       => 'send_unavailable',
+				);
+			}
+		}
+
 		// [2026-09-19 02:40 PM Johnny Chu] PHASE-0.59-CRM-AI-ASSISTANT-RELEVANCE-RELIABILITY — a bound astrology Guru/notebook must not hijack an ordinary CRM customer-care turn. Keep explicit astrology prompts available for a later product decision, but make the default CRM path neutral: no notebook RAG and no character system prompt from the bound Guru.
 		$crm_relevance_guard = self::is_crm_customer_channel( $platform_type_hint )
 			&& ! self::is_explicit_astro_prompt( $prompt );
@@ -1084,6 +1106,31 @@ class BizCity_CRM_AI_Replier {
 	 *
 	 * @return array{sent:bool, platform:string, error:string, mid?:string, chunks?:int, sent_chunks?:int}
 	 */
+	/**
+	 * Ask the channel adapter whether a reply could leave this inbox at all (no network). Fail-open: an adapter without
+	 * the probe, or any error while probing, never blocks a reply.
+	 *
+	 * @return array{ok:bool,error:string}
+	 */
+	private static function preflight_send( array $inbox ): array {
+		$code = (string) ( $inbox['channel_type'] ?? '' );
+		if ( $code === '' || ! class_exists( 'BizCity_CRM_Channel_Registry' ) ) {
+			return array( 'ok' => true, 'error' => '' );
+		}
+		try {
+			$adapter = BizCity_CRM_Channel_Registry::get( $code );
+			if ( $adapter && method_exists( $adapter, 'preflight_send' ) ) {
+				$r = $adapter->preflight_send( $inbox );
+				if ( is_array( $r ) && array_key_exists( 'ok', $r ) ) {
+					return array( 'ok' => (bool) $r['ok'], 'error' => (string) ( $r['error'] ?? '' ) );
+				}
+			}
+		} catch ( \Throwable $e ) {
+			self::log( 'preflight_send probe failed (ignored): ' . $e->getMessage() );
+		}
+		return array( 'ok' => true, 'error' => '' );
+	}
+
 	private static function dispatch_via_adapter( array $conv, string $content, int $chunk_max_override = 0, string $trace_uuid = '' ): array {
 		$inbox = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
 		$code  = $inbox ? (string) $inbox['channel_type'] : '';

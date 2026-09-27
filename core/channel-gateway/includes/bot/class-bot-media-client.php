@@ -46,7 +46,7 @@ final class BizCity_Bot_Media_Client {
 	 */
 	public static function test( int $character_id, string $kind, array $body ) {
 		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-			return new WP_Error( 'module_not_loaded', 'Bot Studio chưa sẵn sàng.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
+			return new WP_Error( 'module_not_loaded', 'Bot Studio is not ready.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
 		$media = BizCity_Bot_Config_Repo::get( $character_id )['media'];
 		switch ( $kind ) {
@@ -65,7 +65,7 @@ final class BizCity_Bot_Media_Client {
 			case 'tavily':
 				return self::test_tavily( $character_id, $body );
 			default:
-				return new WP_Error( 'invalid_param', 'Loại test không hợp lệ.', array( 'status' => 422, 'help_code' => 'bot_media_test_kind' ) );
+				return new WP_Error( 'invalid_param', 'Invalid test type.', array( 'status' => 422, 'help_code' => 'bot_media_test_kind' ) );
 		}
 	}
 
@@ -85,19 +85,19 @@ final class BizCity_Bot_Media_Client {
 		$voice    = trim( (string) ( $cfg['voice'] ?? '' ) );
 		$keys = BizCity_Bot_Secrets_Repo::get_keys( $character_id, 'tts_api_keys' );
 		if ( empty( $keys ) ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key cho TTS.', array( 'status' => 422, 'help_code' => 'bot_media_tts_key_missing' ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No API key for TTS.', array( 'status' => 422, 'help_code' => 'bot_media_tts_key_missing' ) );
 		}
 		if ( 'vbee' === $provider ) {
-			return new WP_Error( 'not_implemented', 'Vbee dùng API bất đồng bộ (submit rồi poll) — Test thật cho nhà cung cấp này chưa được triển khai. Cấu hình vẫn được lưu.', array( 'status' => 501, 'help_code' => 'bot_media_tts_provider_unsupported' ) );
+			return new WP_Error( 'not_implemented', 'Vbee uses an asynchronous API (submit, then poll); a real test for this provider is not implemented yet. The configuration is still saved.', array( 'status' => 501, 'help_code' => 'bot_media_tts_provider_unsupported' ) );
 		}
 		if ( ! in_array( $provider, array( 'google_ai_studio', 'openai_compatible', 'elevenlabs' ), true ) ) {
-			return new WP_Error( 'not_implemented', 'Nhà cung cấp TTS này chưa hỗ trợ Test thật.', array( 'status' => 501, 'help_code' => 'bot_media_tts_provider_unsupported' ) );
+			return new WP_Error( 'not_implemented', 'This TTS provider does not support a real test yet.', array( 'status' => 501, 'help_code' => 'bot_media_tts_provider_unsupported' ) );
 		}
 		if ( in_array( $provider, array( 'google_ai_studio', 'openai_compatible' ), true ) && '' === $model ) {
-			return new WP_Error( 'invalid_param', 'Chưa cấu hình Model cho TTS.', array( 'status' => 422, 'help_code' => 'bot_media_tts_model_required' ) );
+			return new WP_Error( 'invalid_param', 'No model configured for TTS.', array( 'status' => 422, 'help_code' => 'bot_media_tts_model_required' ) );
 		}
 		if ( 'elevenlabs' === $provider && '' === $voice ) {
-			return new WP_Error( 'invalid_param', 'Chưa cấu hình Giọng (voice_id) cho ElevenLabs.', array( 'status' => 422, 'help_code' => 'bot_media_tts_voice_required' ) );
+			return new WP_Error( 'invalid_param', 'No voice (voice_id) configured for ElevenLabs.', array( 'status' => 422, 'help_code' => 'bot_media_tts_voice_required' ) );
 		}
 		$text = trim( (string) ( $body['text'] ?? '' ) );
 		$text = '' !== $text ? mb_substr( $text, 0, 400 ) : 'Xin chào, đây là một tin nhắn thử giọng nói.';
@@ -131,7 +131,7 @@ final class BizCity_Bot_Media_Client {
 			}
 			self::log_key_rotation( $character_id, 'tts_api_keys', $index, count( $keys ) );
 		}
-		return $last_error ?? new WP_Error( 'provider_error', 'Không gọi được TTS.', array( 'status' => 502, 'help_code' => 'bot_media_tts_failed' ) );
+		return $last_error ?? new WP_Error( 'provider_error', 'The TTS call failed.', array( 'status' => 502, 'help_code' => 'bot_media_tts_failed' ) );
 	}
 
 	/* ── TTS for a live bot turn (PHASE-0.60H D-H3, option A) ─────────────────────────────────────────────────── */
@@ -176,11 +176,11 @@ final class BizCity_Bot_Media_Client {
 	 */
 	public static function synthesize( int $character_id, string $text ) {
 		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-			return new WP_Error( 'module_not_loaded', 'Bot Studio chưa sẵn sàng.', array( 'status' => 503 ) );
+			return new WP_Error( 'module_not_loaded', 'Bot Studio is not ready.', array( 'status' => 503 ) );
 		}
 		$text = trim( $text );
 		if ( '' === $text ) {
-			return new WP_Error( 'invalid_param', 'Không có nội dung để đọc.', array( 'status' => 422 ) );
+			return new WP_Error( 'invalid_param', 'There is no text to read aloud.', array( 'status' => 422 ) );
 		}
 		$cfg    = BizCity_Bot_Config_Repo::get( $character_id )['media']['tts'];
 		$reason = self::tts_turn_support( $cfg );
@@ -189,7 +189,7 @@ final class BizCity_Bot_Media_Client {
 		}
 		$keys = BizCity_Bot_Secrets_Repo::get_keys( $character_id, 'tts_api_keys' );
 		if ( empty( $keys ) ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key cho TTS.', array( 'status' => 422 ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No API key for TTS.', array( 'status' => 422 ) );
 		}
 		if ( 'openai_compatible' === (string) $cfg['provider'] && '' === trim( (string) ( $cfg['format'] ?? '' ) ) ) {
 			$cfg['format'] = 'mp3';
@@ -203,7 +203,7 @@ final class BizCity_Bot_Media_Client {
 		}
 		$binary = base64_decode( (string) ( $result['audio_base64'] ?? '' ), true );
 		if ( ! is_string( $binary ) || '' === $binary ) {
-			return new WP_Error( 'provider_error', 'Nhà cung cấp TTS trả về âm thanh rỗng.', array( 'status' => 502 ) );
+			return new WP_Error( 'provider_error', 'The TTS provider returned empty audio.', array( 'status' => 502 ) );
 		}
 		return array( 'ok' => true, 'binary' => $binary, 'mime_type' => 'audio/mpeg', 'bytes' => strlen( $binary ) );
 	}
@@ -271,14 +271,14 @@ final class BizCity_Bot_Media_Client {
 		$audio_b64  = $data['candidates'][0]['content']['parts'][0]['inlineData']['data'] ?? '';
 		$mime       = $data['candidates'][0]['content']['parts'][0]['inlineData']['mimeType'] ?? 'audio/L16;rate=24000';
 		if ( '' === $audio_b64 ) {
-			return new WP_Error( 'provider_error', 'Gemini không trả về audio.', array( 'status' => 502, 'help_code' => 'bot_media_tts_empty_audio' ) );
+			return new WP_Error( 'provider_error', 'Gemini returned no audio.', array( 'status' => 502, 'help_code' => 'bot_media_tts_empty_audio' ) );
 		}
 		return array( 'ok' => true, 'audio_base64' => $audio_b64, 'mime_type' => $mime, 'bytes' => (int) ( strlen( $audio_b64 ) * 3 / 4 ) );
 	}
 
 	private static function call_openai_tts( string $base_url, string $model, string $voice, string $format, string $text, string $key ) {
 		if ( '' === $base_url ) {
-			return new WP_Error( 'invalid_param', 'Chưa cấu hình Base URL cho TTS (OpenAI-compatible).', array( 'status' => 422, 'help_code' => 'bot_media_tts_base_url_required' ) );
+			return new WP_Error( 'invalid_param', 'No Base URL configured for TTS (OpenAI-compatible).', array( 'status' => 422, 'help_code' => 'bot_media_tts_base_url_required' ) );
 		}
 		$url = rtrim( $base_url, '/' ) . '/audio/speech';
 		$response = self::post_json( $url, array(
@@ -296,7 +296,7 @@ final class BizCity_Bot_Media_Client {
 	/** ElevenLabs `POST /v1/text-to-speech/{voice_id}` — synchronous, documented, stable contract. */
 	private static function call_elevenlabs_tts( string $voice_id, string $model_id, string $output_format, string $text, string $key ) {
 		if ( '' === $voice_id ) {
-			return new WP_Error( 'invalid_param', 'Chưa cấu hình Giọng (voice_id) cho ElevenLabs.', array( 'status' => 422, 'help_code' => 'bot_media_tts_voice_required' ) );
+			return new WP_Error( 'invalid_param', 'No voice (voice_id) configured for ElevenLabs.', array( 'status' => 422, 'help_code' => 'bot_media_tts_voice_required' ) );
 		}
 		$url = 'https://api.elevenlabs.io/v1/text-to-speech/' . rawurlencode( $voice_id ) . '?output_format=' . rawurlencode( $output_format );
 		$response = self::post_json( $url, array(
@@ -314,20 +314,20 @@ final class BizCity_Bot_Media_Client {
 
 	private static function test_stt( int $character_id, array $cfg, array $body ) {
 		if ( empty( $cfg['enabled'] ) ) {
-			return new WP_Error( 'invalid_param', 'STT đang tắt cho trợ lý này.', array( 'status' => 422, 'help_code' => 'bot_media_stt_disabled' ) );
+			return new WP_Error( 'invalid_param', 'STT is turned off for this assistant.', array( 'status' => 422, 'help_code' => 'bot_media_stt_disabled' ) );
 		}
 		$base_url = trim( (string) ( $cfg['base_url'] ?? '' ) );
 		$model    = trim( (string) ( $cfg['model'] ?? '' ) );
 		if ( '' === $base_url || '' === $model ) {
-			return new WP_Error( 'invalid_param', 'Chưa cấu hình Base URL/Model cho STT.', array( 'status' => 422, 'help_code' => 'bot_media_stt_config_required' ) );
+			return new WP_Error( 'invalid_param', 'No Base URL/Model configured for STT.', array( 'status' => 422, 'help_code' => 'bot_media_stt_config_required' ) );
 		}
 		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'stt_api_key' );
 		if ( '' === $key ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key cho STT.', array( 'status' => 422, 'help_code' => 'bot_media_stt_key_missing' ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No API key for STT.', array( 'status' => 422, 'help_code' => 'bot_media_stt_key_missing' ) );
 		}
 		$file_path = (string) ( $body['file_path'] ?? '' );
 		if ( '' === $file_path || ! is_readable( $file_path ) ) {
-			return new WP_Error( 'invalid_param', 'Thiếu bản ghi âm test.', array( 'status' => 422, 'help_code' => 'bot_media_stt_file_missing' ) );
+			return new WP_Error( 'invalid_param', 'The test recording is missing.', array( 'status' => 422, 'help_code' => 'bot_media_stt_file_missing' ) );
 		}
 		$boundary = wp_generate_password( 24, false );
 		$body_raw = self::build_multipart( $boundary, array( 'model' => $model ), array( 'file' => $file_path ) );
@@ -352,15 +352,15 @@ final class BizCity_Bot_Media_Client {
 		if ( empty( $body['confirm_cost'] ) ) {
 			// EB-3.1: this call costs real money — the FE must have shown the warning and the
 			// caller must explicitly confirm, or this refuses before spending anything.
-			return new WP_Error( 'confirm_required', 'Cần xác nhận trước khi tạo nhạc thật (tốn phí).', array( 'status' => 422, 'help_code' => 'bot_media_music_confirm_required' ) );
+			return new WP_Error( 'confirm_required', 'Confirmation is required before generating real music (it costs money).', array( 'status' => 422, 'help_code' => 'bot_media_music_confirm_required' ) );
 		}
 		$model = trim( (string) ( $cfg['model'] ?? '' ) );
 		if ( '' === $model ) {
-			return new WP_Error( 'invalid_param', 'Chưa cấu hình Model cho Tạo nhạc.', array( 'status' => 422, 'help_code' => 'bot_media_music_model_required' ) );
+			return new WP_Error( 'invalid_param', 'No model configured for music generation.', array( 'status' => 422, 'help_code' => 'bot_media_music_model_required' ) );
 		}
 		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'music_api_key' );
 		if ( '' === $key ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key cho Tạo nhạc.', array( 'status' => 422, 'help_code' => 'bot_media_music_key_missing' ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No API key for music generation.', array( 'status' => 422, 'help_code' => 'bot_media_music_key_missing' ) );
 		}
 		$prompt = trim( (string) ( $body['prompt'] ?? '' ) ) ?: 'Nhạc nền nhẹ nhàng, vui tươi cho một cửa hàng thời trang.';
 		$response = self::post_json(
@@ -379,7 +379,7 @@ final class BizCity_Bot_Media_Client {
 		$audio_b64  = $data['choices'][0]['message']['audio']['data'] ?? '';
 		$format     = (string) ( $cfg['format'] ?? 'mp3' );
 		if ( '' === $audio_b64 ) {
-			return new WP_Error( 'provider_error', 'Nhà cung cấp không trả về audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
+			return new WP_Error( 'provider_error', 'The provider returned no audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
 		}
 		return array( 'ok' => true, 'audio_base64' => $audio_b64, 'mime_type' => 'audio/' . $format );
 	}
@@ -396,15 +396,15 @@ final class BizCity_Bot_Media_Client {
 		$cfg   = (array) ( BizCity_Bot_Config_Repo::get( $character_id )['media']['music'] ?? array() );
 		$model = trim( (string) ( $cfg['model'] ?? '' ) );
 		if ( '' === $model ) {
-			return new WP_Error( 'invalid_param', 'Chưa cấu hình Model cho Tạo nhạc.', array( 'status' => 422, 'help_code' => 'bot_media_music_model_required' ) );
+			return new WP_Error( 'invalid_param', 'No model configured for music generation.', array( 'status' => 422, 'help_code' => 'bot_media_music_model_required' ) );
 		}
 		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'music_api_key' );
 		if ( '' === $key ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key cho Tạo nhạc.', array( 'status' => 422, 'help_code' => 'bot_media_music_key_missing' ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No API key for music generation.', array( 'status' => 422, 'help_code' => 'bot_media_music_key_missing' ) );
 		}
 		$prompt = trim( $prompt );
 		if ( '' === $prompt ) {
-			return new WP_Error( 'invalid_param', 'Thiếu mô tả bài nhạc.', array( 'status' => 422, 'help_code' => 'bot_media_music_prompt_required' ) );
+			return new WP_Error( 'invalid_param', 'The music description is missing.', array( 'status' => 422, 'help_code' => 'bot_media_music_prompt_required' ) );
 		}
 		$response = self::post_json(
 			'https://openrouter.ai/api/v1/chat/completions',
@@ -418,16 +418,16 @@ final class BizCity_Bot_Media_Client {
 		}
 		$b64 = (string) ( $response['data']['choices'][0]['message']['audio']['data'] ?? '' );
 		if ( '' === $b64 ) {
-			return new WP_Error( 'provider_error', 'Nhà cung cấp không trả về audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
+			return new WP_Error( 'provider_error', 'The provider returned no audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
 		}
 		$binary = base64_decode( $b64, true );
 		if ( false === $binary || '' === $binary ) {
-			return new WP_Error( 'provider_error', 'Audio nhà cung cấp trả về không giải mã được.', array( 'status' => 502, 'help_code' => 'bot_media_music_bad_audio' ) );
+			return new WP_Error( 'provider_error', 'The audio returned by the provider could not be decoded.', array( 'status' => 502, 'help_code' => 'bot_media_music_bad_audio' ) );
 		}
 		$ext = (string) ( $cfg['format'] ?? 'mp3' );
 		if ( ! in_array( $ext, array( 'mp3', 'wav' ), true ) ) {
 			// flac is a valid provider format but not one the outbound MIME list (K0-4) accepts: refuse it here rather than pay for a file that cannot be sent.
-			return new WP_Error( 'invalid_param', 'Định dạng nhạc chỉ nhận mp3 hoặc wav để gửi được qua Zalo.', array( 'status' => 422, 'help_code' => 'bot_media_music_format_unsupported' ) );
+			return new WP_Error( 'invalid_param', 'Music format must be mp3 or wav so it can be sent through Zalo.', array( 'status' => 422, 'help_code' => 'bot_media_music_format_unsupported' ) );
 		}
 		return array( 'ok' => true, 'binary' => $binary, 'mime' => 'wav' === $ext ? 'audio/wav' : 'audio/mpeg', 'ext' => $ext );
 	}
@@ -441,15 +441,15 @@ final class BizCity_Bot_Media_Client {
 	 */
 	private static function test_apify( int $character_id, array $body ) {
 		if ( ! class_exists( 'BizCity_Bot_Apify_Client' ) ) {
-			return new WP_Error( 'module_not_loaded', 'Bot Studio chưa sẵn sàng.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
+			return new WP_Error( 'module_not_loaded', 'Bot Studio is not ready.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
 		$platform = sanitize_key( (string) ( $body['platform'] ?? '' ) );
 		$url      = trim( (string) ( $body['url'] ?? '' ) );
 		if ( '' === $platform || ! isset( BizCity_Bot_Apify_Client::PLATFORM_ACTOR_FIELD[ $platform ] ) ) {
-			return new WP_Error( 'invalid_param', 'Chọn nền tảng (facebook/tiktok/youtube/shopee) để test.', array( 'status' => 422, 'help_code' => 'bot_media_apify_platform_required' ) );
+			return new WP_Error( 'invalid_param', 'Choose a platform (facebook/tiktok/youtube/shopee) to test.', array( 'status' => 422, 'help_code' => 'bot_media_apify_platform_required' ) );
 		}
 		if ( '' === $url ) {
-			return new WP_Error( 'invalid_param', 'Nhập URL công khai để test Actor.', array( 'status' => 422, 'help_code' => 'bot_media_apify_url_required' ) );
+			return new WP_Error( 'invalid_param', 'Enter a public URL to test the Actor.', array( 'status' => 422, 'help_code' => 'bot_media_apify_url_required' ) );
 		}
 		return BizCity_Bot_Apify_Client::scrape( $character_id, $platform, $url );
 	}
@@ -466,14 +466,14 @@ final class BizCity_Bot_Media_Client {
 	 */
 	private static function test_video( array $cfg, array $body ) {
 		if ( empty( $body['confirm_cost'] ) ) {
-			return new WP_Error( 'confirm_required', 'Cần xác nhận trước khi tạo video thật (tốn phí, có thể mất vài phút).', array( 'status' => 422, 'help_code' => 'bot_media_video_confirm_required' ) );
+			return new WP_Error( 'confirm_required', 'Confirmation is required before generating a real video (it costs money and can take several minutes).', array( 'status' => 422, 'help_code' => 'bot_media_video_confirm_required' ) );
 		}
 		if ( ! class_exists( 'BizCity_Video_Client' ) ) {
-			return new WP_Error( 'module_not_loaded', 'Video_Client (bizcity-llm) chưa nạp.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
+			return new WP_Error( 'module_not_loaded', 'Video_Client (bizcity-llm) is not loaded.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
 		$client = BizCity_Video_Client::instance();
 		if ( ! $client->is_ready() ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key BizCity 1API cho video — cấu hình ở Cài đặt BizCity LLM (site-level, không phải theo Guru).', array( 'status' => 422, 'help_code' => 'bot_media_video_key_missing' ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No BizCity 1API key for video. Set it in BizCity LLM settings (site level, not per Guru).', array( 'status' => 422, 'help_code' => 'bot_media_video_key_missing' ) );
 		}
 		$prompt  = trim( (string) ( $body['prompt'] ?? '' ) ) ?: 'Một đoạn clip ngắn giới thiệu sản phẩm, ánh sáng tự nhiên.';
 		$options = array(
@@ -487,7 +487,7 @@ final class BizCity_Bot_Media_Client {
 		}
 		$result = $client->submit( $prompt, $options );
 		if ( empty( $result['success'] ) ) {
-			return new WP_Error( 'provider_error', (string) ( $result['error'] ?? 'Không gửi được tác vụ video.' ), array( 'status' => 502, 'help_code' => 'bot_media_video_failed' ) );
+			return new WP_Error( 'provider_error', (string) ( $result['error'] ?? 'The video job could not be submitted.' ), array( 'status' => 502, 'help_code' => 'bot_media_video_failed' ) );
 		}
 		return array(
 			'ok'      => true,
@@ -509,14 +509,14 @@ final class BizCity_Bot_Media_Client {
 	 */
 	private static function test_image( array $cfg, array $body ) {
 		if ( empty( $body['confirm_cost'] ) ) {
-			return new WP_Error( 'confirm_required', 'Cần xác nhận trước khi tạo ảnh thật (tốn phí).', array( 'status' => 422, 'help_code' => 'bot_media_image_confirm_required' ) );
+			return new WP_Error( 'confirm_required', 'Confirmation is required before generating a real image (it costs money).', array( 'status' => 422, 'help_code' => 'bot_media_image_confirm_required' ) );
 		}
 		if ( ! class_exists( 'BizCity_LLM_Client' ) || ! method_exists( 'BizCity_LLM_Client', 'generate_image' ) ) {
-			return new WP_Error( 'module_not_loaded', 'LLM client (bizcity-llm) chưa nạp.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
+			return new WP_Error( 'module_not_loaded', 'LLM client (bizcity-llm) is not loaded.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
 		$client = BizCity_LLM_Client::instance();
 		if ( method_exists( $client, 'is_ready' ) && ! $client->is_ready() ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có API key BizCity 1API — cấu hình ở Cài đặt BizCity LLM (site-level, không phải theo Guru).', array( 'status' => 422, 'help_code' => 'bot_media_image_key_missing' ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No BizCity 1API key. Set it in BizCity LLM settings (site level, not per Guru).', array( 'status' => 422, 'help_code' => 'bot_media_image_key_missing' ) );
 		}
 		$prompt  = trim( (string) ( $body['prompt'] ?? '' ) ) ?: 'Một chiếc cốc cà phê gốm màu trắng trên bàn gỗ, ánh sáng tự nhiên.';
 		$options = array( 'size' => (string) ( $cfg['size'] ?? '1024x1024' ) );
@@ -526,7 +526,7 @@ final class BizCity_Bot_Media_Client {
 		}
 		$result = $client->generate_image( $prompt, $options );
 		if ( empty( $result['success'] ) ) {
-			return new WP_Error( 'provider_error', (string) ( $result['error'] ?? 'Không tạo được ảnh.' ), array( 'status' => 502, 'help_code' => 'bot_media_image_failed' ) );
+			return new WP_Error( 'provider_error', (string) ( $result['error'] ?? 'The image could not be generated.' ), array( 'status' => 502, 'help_code' => 'bot_media_image_failed' ) );
 		}
 		return array(
 			'ok'        => true,
@@ -551,7 +551,7 @@ final class BizCity_Bot_Media_Client {
 	private static function test_tavily( int $character_id, array $body ) {
 		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'tavily_api_key' );
 		if ( '' === $key ) {
-			return new WP_Error( 'bot_provider_key_missing', 'Chưa có Tavily API key.', array( 'status' => 422, 'help_code' => 'bot_media_tavily_key_missing' ) );
+			return new WP_Error( 'bot_provider_key_missing', 'No Tavily API key.', array( 'status' => 422, 'help_code' => 'bot_media_tavily_key_missing' ) );
 		}
 		$query = trim( (string) ( $body['query'] ?? '' ) ) ?: 'thời tiết Hà Nội hôm nay';
 		$response = self::post_json( 'https://api.tavily.com/search', array(
@@ -617,7 +617,7 @@ final class BizCity_Bot_Media_Client {
 
 	private static function dispatch( string $url, array $args, bool $raw_response ) {
 		if ( ! function_exists( 'wp_remote_request' ) ) {
-			return new WP_Error( 'module_not_loaded', 'HTTP client chưa sẵn sàng.', array( 'status' => 503, 'help_code' => 'bot_media_http_missing' ) );
+			return new WP_Error( 'module_not_loaded', 'HTTP client is not ready.', array( 'status' => 503, 'help_code' => 'bot_media_http_missing' ) );
 		}
 		$response = wp_remote_request( $url, $args );
 		if ( is_wp_error( $response ) ) {
@@ -630,7 +630,7 @@ final class BizCity_Bot_Media_Client {
 			$message = is_array( $decoded ) ? (string) ( $decoded['error']['message'] ?? $decoded['message'] ?? '' ) : '';
 			return new WP_Error(
 				in_array( $status, self::AUTH_FAILURE_CODES, true ) ? 'bot_provider_key_missing' : 'provider_error',
-				'' !== $message ? $message : ( 'Nhà cung cấp trả lỗi HTTP ' . $status . '.' ),
+				'' !== $message ? $message : ( 'The provider returned HTTP error ' . $status . '.' ),
 				array( 'status' => 502, 'http_status' => $status, 'help_code' => 'bot_media_provider_error' )
 			);
 		}
@@ -639,7 +639,7 @@ final class BizCity_Bot_Media_Client {
 		}
 		$decoded = json_decode( $raw, true );
 		if ( ! is_array( $decoded ) ) {
-			return new WP_Error( 'provider_error', 'Phản hồi không hợp lệ từ nhà cung cấp.', array( 'status' => 502, 'help_code' => 'bot_media_invalid_response' ) );
+			return new WP_Error( 'provider_error', 'Invalid response from the provider.', array( 'status' => 502, 'help_code' => 'bot_media_invalid_response' ) );
 		}
 		return array( 'data' => $decoded );
 	}

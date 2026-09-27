@@ -186,6 +186,12 @@ final class BizCity_CRM_Staff_REST {
 			'callback'            => array( __CLASS__, 'ping_phone' ),
 			'permission_callback' => array( __CLASS__, 'can_use_crm' ),
 		) );
+		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 D-CRM-HEALTHCHECK — combined connection + bot-config + reply checklist.
+		register_rest_route( $ns, '/crm-phones/(?P<inbox_id>\d+)/health-check', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'health_check_phone' ),
+			'permission_callback' => array( __CLASS__, 'can_use_crm' ),
+		) );
 		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N2 (E4-03/G3) — create a Zalo Personal
 		// number for an explicit owner, QR right after. `owner_user_id` in the body is a selector;
 		// server re-derives authority (self = anyone assignable, someone else = administrator only, D2).
@@ -194,10 +200,24 @@ final class BizCity_CRM_Staff_REST {
 			'callback'            => array( __CLASS__, 'create_phone_for_owner' ),
 			'permission_callback' => array( __CLASS__, 'can_use_crm' ),
 		) );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-4 — which assistant a new number may get (zca / zalo-hub), same answer as Bot Studio › Thành viên.
+		register_rest_route( $ns, '/crm-phones/providers', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'phone_providers' ),
+			'permission_callback' => array( __CLASS__, 'can_use_crm' ),
+		) );
 		// PHASE-0.48F T3-03 — transfer one phone without suspending its owner (R-ZP-OWNER).
 		register_rest_route( $ns, '/crm-phones/(?P<inbox_id>\d+)/transfer-owner', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'transfer_phone_owner' ),
+			'permission_callback' => array( __CLASS__, 'can_use_crm' ),
+		) );
+		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 owner decision — claiming an ALREADY-CONNECTED duplicate number
+		// (the "Thêm SĐT" duplicate-phone block) no longer transfers on a bare click; it only stages the intent
+		// here, `phone_qr_status()` commits it once a real QR scan connects. See `claim_phone_intent()` docblock.
+		register_rest_route( $ns, '/crm-phones/(?P<inbox_id>\d+)/claim-intent', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'claim_phone_intent' ),
 			'permission_callback' => array( __CLASS__, 'can_use_crm' ),
 		) );
 		// PHASE-0.53 N5 (S6/G6) — re-provision an `account_not_owned` phone, adopting the same inbox.
@@ -1026,6 +1046,17 @@ final class BizCity_CRM_Staff_REST {
 		return BizCity_Zalo_Bridge_REST::create_account_for_owner( $req, $owner_user_id, true, $owner_user_id !== $actor_id, $actor_id );
 	}
 
+	/**
+	 * GET /crm-phones/providers — PHASE-0.80 Lane C 4a-4. Read-only: the provider choice lives in the Zalo module
+	 * (`BizCity_Zalo_Bridge_REST::provider_choice`, the Hub decides P-5); an old module simply offers zca.
+	 */
+	public static function phone_providers( WP_REST_Request $req ) {
+		$choice = class_exists( 'BizCity_Zalo_Bridge_REST' ) && method_exists( 'BizCity_Zalo_Bridge_REST', 'provider_choice' )
+			? BizCity_Zalo_Bridge_REST::provider_choice()
+			: array( 'default_provider' => 'zca', 'zalo_hub_allowed' => false, 'zalo_hub_reason' => 'module_not_loaded' );
+		return new WP_REST_Response( array( 'ok' => true ) + $choice, 200 );
+	}
+
 	public static function start_phone_qr( WP_REST_Request $req ) {
 		$actor_id = get_current_user_id();
 		$resolved = self::resolve_authorized_phone( $actor_id, (int) $req['inbox_id'], 'phone.qr' );
@@ -1052,15 +1083,34 @@ final class BizCity_CRM_Staff_REST {
 
 	public static function phone_qr_status( WP_REST_Request $req ) {
 		$actor_id = get_current_user_id();
+		$inbox_id = (int) $req['inbox_id'];
 		// Reading status is bounded by the same `phone.qr` rank/team rule as
 		// starting/resetting it — there is no separate lower-bar "just look" action;
 		// an agent already passes for their own phone via SELF_MIN_RANK.
-		$resolved = self::resolve_authorized_phone( $actor_id, (int) $req['inbox_id'], 'phone.qr' );
+		$resolved = self::resolve_authorized_phone( $actor_id, $inbox_id, 'phone.qr' );
 		if ( $resolved instanceof WP_REST_Response ) { return $resolved; }
 		if ( ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'module_not_loaded', 'message' => 'Module Zalo Personal chưa sẵn sàng.', 'hint' => '', 'help_code' => 'module_not_loaded' ), 503 );
 		}
-		return BizCity_Zalo_Bridge_REST::qr_status_for_owner( $resolved['account'], $resolved['owner_user_id'], true );
+		$response = BizCity_Zalo_Bridge_REST::qr_status_for_owner( $resolved['account'], $resolved['owner_user_id'], true );
+		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 — the ONLY place a `claim_phone_intent()` staged reassignment
+		// ever commits: a real QR connect, detected here on the next poll after it happens. No scan reaching
+		// `status === 'connected'` ⇒ the claim (if any) is simply never consumed and quietly expires.
+		$data = $response->get_data();
+		if ( is_array( $data ) && 'connected' === (string) ( $data['status'] ?? '' ) ) {
+			$claim = self::consume_phone_claim( $inbox_id );
+			if ( $claim ) {
+				$commit = self::apply_phone_transfer( $resolved['account'], (int) $claim['from_user_id'], (int) $claim['to_user_id'], (int) $claim['actor_id'], (bool) $claim['move_open_conversations'] );
+				$data['claim_committed']  = ! empty( $commit['ok'] );
+				$data['claim_to_user_id'] = (int) $claim['to_user_id'];
+				if ( empty( $commit['ok'] ) ) {
+					// The connect itself still succeeded — only surface why the ownership part didn't land.
+					$data['claim_error'] = $commit;
+				}
+			}
+			return new WP_REST_Response( $data, 200 );
+		}
+		return $response;
 	}
 
 	public static function ping_phone( WP_REST_Request $req ) {
@@ -1083,23 +1133,208 @@ final class BizCity_CRM_Staff_REST {
 		$conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
 		$last = $wpdb->get_var( $wpdb->prepare( "SELECT MAX(m.created_at) FROM {$messages} m INNER JOIN {$conv} c ON c.id = m.conversation_id WHERE c.inbox_id = %d AND m.message_type = 'incoming'", $inbox_id ) );
 		if ( $last ) { $last_inbound = $last; }
+		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 — say WHICH branch this number runs on (zalo-hub vs legacy zca-bridge) and WHY it is down, in the site's
+		// own error catalog terms (BizCity_Zalo_Session_Errors). Before: a bare "down" + "unknown" layers, no branch, no cause.
+		$account        = is_array( $resolved['account'] ?? null ) ? $resolved['account'] : array();
+		$provider       = (string) ( $readiness['provider'] ?? ( class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::provider( (string) ( $account['bridge_account_id'] ?? '' ) ) : 'zca' ) );
+		$is_hub         = 'zalo_hub' === $provider;
+		$provider_label = $is_hub ? 'zalo-hub (BizCity Hub)' : 'zca-bridge (legacy)';
+		$bridge_label   = $is_hub ? 'BizCity Hub → máy chủ zalo-hub' : 'Máy chủ zca-bridge';
 		$session_status = (string) ( $readiness['session_status'] ?? ( $status['status'] ?? 'unknown' ) );
-		$bridge_status = (string) ( $readiness['bridge_health']['status'] ?? 'unknown' );
-		$signal = 'down';
-		if ( in_array( $session_status, array( 'connected', 'ready' ), true ) && 'healthy' === $bridge_status ) {
+		$bridge_status  = (string) ( $readiness['bridge_health']['status'] ?? 'unknown' );
+		$bridge_code    = (string) ( $readiness['bridge_health']['code'] ?? '' );
+		$has_catalog    = class_exists( 'BizCity_Zalo_Session_Errors' );
+		$bucket         = '';
+		if ( $has_catalog && is_array( $status ) && empty( $status['ok'] ) ) {
+			$bucket = BizCity_Zalo_Session_Errors::bucket_for( (string) ( $status['reason_bucket'] ?? '' ) );
+			if ( '' === $bucket ) { $bucket = BizCity_Zalo_Session_Errors::bucket_for( (string) ( $status['code'] ?? '' ) ); }
+		}
+		$entry          = ( $has_catalog && '' !== $bucket ) ? BizCity_Zalo_Session_Errors::ERRORS[ $bucket ] : null;
+		$state_meta     = ( $has_catalog && isset( BizCity_Zalo_Session_Errors::STATES[ $session_status ] ) ) ? BizCity_Zalo_Session_Errors::STATES[ $session_status ] : null;
+		$session_ok     = in_array( $session_status, array( 'connected', 'ready' ), true );
+		$bridge_ok      = 'healthy' === $bridge_status;
+		$account_gone   = 'account_not_owned' === $bucket;
+		$signal         = 'down';
+		if ( $session_ok && $bridge_ok && ! $account_gone ) {
 			$signal = ( microtime( true ) - $started ) < 0.5 ? 'good' : 'fair';
-		} elseif ( 'degraded' === $bridge_status || 'connected' === $session_status ) { $signal = 'weak'; }
+		} elseif ( ! $account_gone && ( 'degraded' === $bridge_status || $session_ok ) ) { $signal = 'weak'; }
+
+		// Verdict = the first cause that explains "not fine". `action` is a BizCity_Zalo_Session_Errors::ACTIONS key the UI maps to a button.
+		$verdict = array( 'code' => 'ok', 'source' => '', 'message' => 'Kết nối hoạt động bình thường.', 'hint' => '', 'action' => 'none' );
+		if ( $entry ) {
+			$verdict = array( 'code' => $bucket, 'source' => (string) $entry['source'], 'message' => (string) ( $status['message'] ?? $entry['message'] ), 'hint' => (string) ( $status['hint'] ?? $entry['hint'] ), 'action' => (string) $entry['action'] );
+		} elseif ( ! $bridge_ok ) {
+			$verdict = array( 'code' => 'bridge_' . ( '' !== $bridge_status ? $bridge_status : 'unknown' ), 'source' => $is_hub ? 'hub' : 'zca', 'message' => $bridge_label . ' không phản hồi hoặc đang lỗi' . ( '' !== $bridge_code ? ' (mã: ' . $bridge_code . ')' : '' ) . '.', 'hint' => 'Đợi khoảng 30 giây rồi kiểm tra lại. Nếu lặp lại, báo quản trị viên kiểm tra ' . ( $is_hub ? 'Router Hub và cell zalo-hub.' : 'zca-bridge.' ), 'action' => 'contact_admin' );
+		} elseif ( ! $session_ok ) {
+			$verdict = array( 'code' => 'session_' . $session_status, 'source' => 'session', 'message' => 'Phiên Zalo chưa sống: ' . ( $state_meta ? $state_meta['label'] . ' — ' . $state_meta['meaning'] : $session_status ), 'hint' => 'Đăng nhập lại bằng mã QR để nhận tin trở lại.', 'action' => 'relogin_qr' );
+		}
+		$action_label = ( $has_catalog && isset( BizCity_Zalo_Session_Errors::ACTIONS[ $verdict['action'] ] ) ) ? BizCity_Zalo_Session_Errors::ACTIONS[ $verdict['action'] ] : '';
+
 		return new WP_REST_Response( array(
 			'ok' => true,
+			'provider' => $provider,
+			'provider_label' => $provider_label,
 			'layers' => array(
-				array( 'key' => 'gateway', 'ok' => true, 'latency_ms' => (int) round( ( microtime( true ) - $started ) * 1000 ), 'status' => 'reachable', 'at' => gmdate( 'c' ) ),
-				array( 'key' => 'hub', 'ok' => 'healthy' === $bridge_status, 'status' => $bridge_status, 'reason_bucket' => (string) ( $readiness['bridge_health']['code'] ?? '' ) ),
-				array( 'key' => 'session', 'ok' => in_array( $session_status, array( 'connected', 'ready' ), true ), 'status' => $session_status ),
-				array( 'key' => 'last_inbound', 'ok' => true, 'status' => $last_inbound, 'at' => $last_inbound ),
+				array( 'key' => 'gateway', 'label' => 'Website này (CRM)', 'ok' => true, 'latency_ms' => (int) round( ( microtime( true ) - $started ) * 1000 ), 'status' => 'reachable', 'detail' => 'Website phản hồi bình thường.', 'at' => gmdate( 'c' ) ),
+				array( 'key' => 'account', 'label' => 'Tài khoản trên máy chủ Zalo (' . $provider_label . ')', 'ok' => ! $account_gone, 'status' => $account_gone ? 'not_owned' : 'mapped', 'detail' => $account_gone ? 'Máy chủ không còn nhận tài khoản này (đã bị xoá hoặc đổi API key).' : 'Tài khoản còn thuộc API key của website.' ),
+				array( 'key' => 'hub', 'label' => $bridge_label, 'ok' => $bridge_ok, 'status' => $bridge_status, 'reason_bucket' => $bridge_code, 'detail' => $bridge_ok ? 'Máy chủ đang phản hồi.' : ( 'unknown' === $bridge_status ? 'Chưa đọc được trạng thái máy chủ.' : 'Máy chủ lỗi hoặc không phản hồi.' ) ),
+				array( 'key' => 'session', 'label' => 'Phiên đăng nhập Zalo', 'ok' => $session_ok, 'status' => $session_status, 'status_label' => $state_meta ? (string) $state_meta['label'] : '', 'detail' => $state_meta ? (string) $state_meta['meaning'] : '' ),
+				array( 'key' => 'last_inbound', 'label' => 'Tin nhắn đến gần nhất', 'ok' => true, 'status' => $last_inbound, 'detail' => $last_inbound ? 'Nhận lúc ' . $last_inbound : 'Chưa nhận tin nào qua số này.', 'at' => $last_inbound ),
 			),
 			'signal' => $signal,
+			'verdict' => $verdict + array( 'action_label' => $action_label ),
 			'checked_at' => gmdate( 'c' ),
 		), 200 );
+	}
+
+	/**
+	 * GET /crm-phones/{inbox_id}/health-check — [2026-09-27 Claude Sonnet 5] PHASE-0.80 D-CRM-HEALTHCHECK.
+	 * One combined "is this number actually going to work end to end" checklist for the per-phone "⋯" menu:
+	 * both a guide (what each step means) and a live check (pass/warn/fail), with an inline action to fix
+	 * the step right there in the sheet where that is possible.
+	 *
+	 *   1. connection — reuses ping_phone()'s own verdict/layers (session, bridge, account ownership).
+	 *   2. bot_enabled — is a Guru bound to this number and set to auto/hybrid (Channel Gateway's `inspector/
+	 *      bindings`, the SAME single source "Bot trả lời…" edits — R-GURU-SOURCE, one config for zca+zalo-hub).
+	 *   3. guru_instruction — does the Guru that would actually answer (gate-0 default fallback included,
+	 *      `BizCity_Guru_Context_Resolver::answering_character_id()`) have real instruction content.
+	 *   4. replied — informational only (nothing here can force a real customer to message in): the last
+	 *      time a bot/agent_bot message actually went out on this inbox, or "never yet".
+	 */
+	public static function health_check_phone( WP_REST_Request $req ) {
+		$actor_id = get_current_user_id();
+		$inbox_id = (int) $req['inbox_id'];
+		$resolved = self::resolve_authorized_phone( $actor_id, $inbox_id, 'phone.qr' );
+		if ( $resolved instanceof WP_REST_Response ) { return $resolved; }
+		$account = is_array( $resolved['account'] ?? null ) ? $resolved['account'] : array();
+		$bridge_account_id = (string) ( $account['bridge_account_id'] ?? '' );
+
+		// Step 1 — connection. Reuse ping_phone() as-is (same rate limit, same verdict logic) rather than
+		// duplicating it; a rate-limited ping here just means "kiểm tra lại sau vài giây", not a real failure.
+		$ping = self::ping_phone( $req )->get_data();
+		if ( is_array( $ping ) && true === ( $ping['ok'] ?? null ) ) {
+			$verdict = (array) ( $ping['verdict'] ?? array() );
+			$connection_step = array(
+				'key' => 'connection', 'title' => 'Kết nối Zalo',
+				'status' => 'ok' === ( $verdict['code'] ?? '' ) ? 'ok' : ( 'contact_admin' === ( $verdict['action'] ?? '' ) ? 'error' : 'warn' ),
+				'summary' => (string) ( $verdict['message'] ?? '' ),
+				'guide' => 'Phiên Zalo phải sống thì tin khách mới về được CRM và bot mới trả lời được. Xem chi tiết từng lớp (website, tài khoản, máy chủ, phiên) ở mục "Tín hiệu kết nối".',
+				'provider' => (string) ( $ping['provider'] ?? '' ), 'provider_label' => (string) ( $ping['provider_label'] ?? '' ), 'layers' => $ping['layers'] ?? array(),
+				'action' => (string) ( $verdict['action'] ?? 'none' ), 'action_label' => (string) ( $verdict['action_label'] ?? '' ),
+			);
+		} else {
+			$connection_step = array(
+				'key' => 'connection', 'title' => 'Kết nối Zalo', 'status' => 'unknown',
+				'summary' => (string) ( $ping['message'] ?? 'Chưa kiểm tra được ngay lúc này.' ),
+				'guide' => 'Bấm "Kiểm tra lại" sau vài giây.', 'action' => 'none', 'action_label' => '',
+			);
+		}
+
+		// Step 2 — is a Guru bound to this number and switched on (Channel Gateway's ONE binding store).
+		$character_id = 0;
+		if ( class_exists( 'BizCity_Channel_Binding' ) ) {
+			$binding = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $bridge_account_id );
+			$mode = (string) ( $binding['mode'] ?? 'manual' );
+			$auto_reply = $binding ? ! ( array_key_exists( 'auto_reply', (array) $binding ) && '0' === (string) $binding['auto_reply'] ) : false;
+			$bot_on = null !== $binding && in_array( $mode, array( 'auto', 'hybrid' ), true ) && $auto_reply;
+			$character_id = (int) ( $binding['character_id'] ?? 0 );
+			$mode_label = 'hybrid' === $mode ? 'chỉ gợi ý cho nhân viên' : ( 'auto' === $mode ? 'tự động trả lời' : 'tắt' );
+			$bot_step = array(
+				'key' => 'bot_enabled', 'title' => 'Bot Studio đã bật trả lời',
+				'status' => $bot_on ? 'ok' : 'warn',
+				'summary' => null === $binding ? 'Chưa cấu hình bot cho số này.' : ( $bot_on ? 'Đang bật · ' . $mode_label : 'Đang tắt · nhân viên tự trả lời.' ),
+				'guide' => 'Chọn Guru trả lời và chế độ (tự động / chỉ gợi ý / tắt) ở "Bot trả lời…" — một cấu hình dùng chung cho cả zca và zalo-hub.',
+				'action' => 'open_bot_sheet', 'action_label' => 'Mở Bot trả lời…',
+			);
+		} else {
+			$bot_step = array( 'key' => 'bot_enabled', 'title' => 'Bot Studio đã bật trả lời', 'status' => 'warn', 'summary' => 'Channel Gateway chưa sẵn sàng.', 'guide' => '', 'action' => 'none', 'action_label' => '' );
+		}
+
+		// Step 3 — the Guru that would actually answer (gate-0 default fallback included) has real instruction content.
+		if ( class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			$answering_id = BizCity_Guru_Context_Resolver::answering_character_id( $character_id );
+			if ( $answering_id > 0 ) {
+				$profile = BizCity_Guru_Context_Resolver::profile( $answering_id );
+				$instruction = trim( (string) BizCity_Guru_Context_Resolver::instruction_text( $profile ) );
+				$guru_name = trim( (string) ( $profile['guru']['name'] ?? '' ) );
+				if ( '' === $guru_name ) { $guru_name = 'Guru #' . $answering_id; }
+				$guru_step = array(
+					'key' => 'guru_instruction', 'title' => 'Guru đã có nội dung hướng dẫn',
+					'status' => '' !== $instruction ? 'ok' : 'warn',
+					'summary' => '' !== $instruction ? 'Guru "' . $guru_name . '" đã có hướng dẫn (' . strlen( $instruction ) . ' ký tự).' : 'Guru "' . $guru_name . '" chưa có nội dung hướng dẫn — bot sẽ trả lời chung chung.',
+					'guide' => 'Nội dung hướng dẫn (system prompt) quyết định bot trả lời đúng giọng, đúng thông tin của bạn hay không. Sửa ở "Bot trả lời…" → chọn Guru này.',
+					'guru_id' => $answering_id, 'guru_name' => $guru_name,
+					'action' => 'open_bot_sheet', 'action_label' => 'Mở Bot trả lời…',
+				);
+			} else {
+				$guru_step = array( 'key' => 'guru_instruction', 'title' => 'Guru đã có nội dung hướng dẫn', 'status' => 'warn', 'summary' => 'Chưa có Guru nào để kiểm tra — chọn Guru ở bước "Bot Studio đã bật trả lời" trước.', 'guide' => '', 'action' => 'none', 'action_label' => '' );
+			}
+		} else {
+			$guru_step = array( 'key' => 'guru_instruction', 'title' => 'Guru đã có nội dung hướng dẫn', 'status' => 'warn', 'summary' => 'Chưa đọc được cấu hình Guru.', 'guide' => '', 'action' => 'none', 'action_label' => '' );
+		}
+
+		// Step 4 — informational: has a bot/agent_bot message ever actually gone out on this inbox, and was
+		// the LAST one a real answer or one of zalo-hub's own fixed apology sentences (PHASE-0.80 doc 28 T-2 —
+		// `class-zalo-hub-events.php` now stores `ai_metadata.reply_kind` on every zalo-hub bot_reply; a zca
+		// reply has no such field at all, that path has no equivalent fallback marker yet, treated as unknown).
+		global $wpdb;
+		$messages = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$last_row = $wpdb->get_row( $wpdb->prepare( "SELECT m.created_at, m.ai_metadata FROM {$messages} m INNER JOIN {$conv} c ON c.id = m.conversation_id WHERE c.inbox_id = %d AND m.sender_type IN ('bot','agent_bot') ORDER BY m.created_at DESC LIMIT 1", $inbox_id ), ARRAY_A );
+		$last_reply = $last_row['created_at'] ?? null;
+		$reply_kind = '';
+		if ( $last_row && ! empty( $last_row['ai_metadata'] ) ) {
+			$meta = json_decode( (string) $last_row['ai_metadata'], true );
+			$reply_kind = is_array( $meta ) ? sanitize_key( (string) ( $meta['reply_kind'] ?? '' ) ) : '';
+		}
+		$fallback_labels = array(
+			'fallback_router_empty' => 'Router LLM trả về rỗng 2 lần liên tiếp (cell tự xin lỗi, không phải Guru trả lời)',
+			'fallback_step_limit'   => 'Bot hết bước xử lý mà chưa gom đủ để trả lời (cell tự xin lỗi, không phải Guru trả lời)',
+		);
+		if ( ! $last_reply ) {
+			$replied_step = array( 'key' => 'replied', 'title' => 'Đã từng trả lời khách thành công', 'status' => 'info', 'summary' => 'Chưa có lần nào.', 'guide' => 'Bước này không tự kiểm tra được — hãy nhờ một số điện thoại khác nhắn Zalo tới số này rồi bấm "Kiểm tra lại" để xác nhận bot có trả lời thật hay không.', 'action' => 'none', 'action_label' => '' );
+		} elseif ( isset( $fallback_labels[ $reply_kind ] ) ) {
+			$replied_step = array( 'key' => 'replied', 'title' => 'Đã từng trả lời khách thành công', 'status' => 'warn', 'summary' => 'Lần gần nhất (' . $last_reply . ') KHÔNG phải câu trả lời thật — ' . $fallback_labels[ $reply_kind ] . '.', 'guide' => 'Đây là câu dự phòng cố định, không phải nội dung Guru soạn. Xem chi tiết checklist khắc phục ở tài liệu 28 (Guru config trace).', 'action' => 'none', 'action_label' => '' );
+		} else {
+			$replied_step = array( 'key' => 'replied', 'title' => 'Đã từng trả lời khách thành công', 'status' => 'ok', 'summary' => 'Lần gần nhất: ' . $last_reply . ( 'agent' === $reply_kind ? ' — trả lời thật.' : '' ), 'guide' => 'Bước này không tự kiểm tra được hoàn toàn — hãy thỉnh thoảng nhờ một số khác nhắn thử để chắc chắn.', 'action' => 'none', 'action_label' => '' );
+		}
+
+		// Step 5 — PHASE-0.80 doc 28 T-5 (uses T-3 site etag + T-4 Hub sync-check): for a zalo-hub number, has the
+		// cell's copy actually caught up with what Bot Studio has saved? A zca number never had this split (its
+		// PHP reads the Guru directly, no Hub in the loop) — say so plainly instead of silently skipping (same
+		// zca/zalo-hub transparency principle as the "công cụ hành động" fix earlier this phase).
+		$provider = class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::provider( $bridge_account_id ) : '';
+		if ( 'zalo_hub' !== $provider ) {
+			$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'info', 'summary' => 'Không áp dụng — số này chạy zca (đọc cấu hình trực tiếp tại site, không qua Hub).', 'guide' => '', 'action' => 'none', 'action_label' => '' );
+		} elseif ( ! isset( $answering_id ) || $answering_id <= 0 || ! class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
+			$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'warn', 'summary' => 'Chưa có Guru để kiểm tra.', 'guide' => 'Chọn Guru ở bước "Bot Studio đã bật trả lời" trước.', 'action' => 'none', 'action_label' => '' );
+		} else {
+			$site_etag = (string) ( $profile['guru']['etag'] ?? '' );
+			$ref       = (string) ( $profile['guru']['ref'] ?? ( 'guru:' . $answering_id ) );
+			$sync      = BizCity_Zalo_Personal_Hub_Client::instance()->guru_sync_check( $bridge_account_id, $ref, $site_etag );
+			if ( empty( $sync['ok'] ) ) {
+				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'unknown', 'summary' => 'Chưa hỏi được BizCity Hub ngay lúc này.', 'guide' => 'Bấm "Kiểm tra lại" sau vài giây.', 'action' => 'none', 'action_label' => '' );
+			} elseif ( 'never_pulled' === ( $sync['code'] ?? '' ) ) {
+				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'info', 'summary' => 'Máy chủ trả lời chưa từng lấy Guru này (chưa có khách nào nhắn tới, hoặc đã hơn 5 phút không dùng).', 'guide' => 'Bình thường với số ít hoạt động. Nhờ một số khác nhắn thử để xác nhận.', 'action' => 'none', 'action_label' => '' );
+			} elseif ( ! empty( $sync['in_sync'] ) ) {
+				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'ok', 'summary' => 'Máy chủ trả lời đang dùng đúng bản Guru mới nhất.', 'guide' => '', 'action' => 'none', 'action_label' => '' );
+			} else {
+				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'warn', 'summary' => 'Guru vừa được sửa nhưng máy chủ trả lời có thể còn dùng bản cũ (tự đồng bộ trong tối đa 5 phút).', 'guide' => 'Đợi vài phút rồi bấm "Kiểm tra lại". Nếu vẫn cảnh báo sau 5 phút, nhờ một số khác nhắn thử để buộc lấy lại cấu hình mới.', 'action' => 'none', 'action_label' => '' );
+			}
+		}
+
+		$steps = array( $connection_step, $bot_step, $guru_step, $replied_step, $sync_step );
+		$overall = 'ok';
+		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 doc 28 T-5 — `replied_step` can now be 'warn' too (the last
+		// reply was one of zalo-hub's own fixed apologies, not the Guru) — a real, worth-surfacing symptom,
+		// unlike its old purely-informational ok/info-only range. Still capped at 'warn': we only SAW a
+		// symptom here, never enough on its own to call it a hard 'error'.
+		foreach ( $steps as $s ) {
+			if ( 'error' === $s['status'] ) { $overall = 'error'; break; }
+			if ( 'warn' === $s['status'] && 'error' !== $overall ) { $overall = 'warn'; }
+			if ( 'unknown' === $s['status'] && 'ok' === $overall ) { $overall = 'warn'; }
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'steps' => $steps, 'overall' => $overall, 'checked_at' => gmdate( 'c' ) ), 200 );
 	}
 
 	/**
@@ -1467,13 +1702,29 @@ final class BizCity_CRM_Staff_REST {
 		if ( ! $to_decision['ok'] ) { return BizCity_CRM_Staff_Policy::denied_response( $to_decision ); }
 
 		$account = $resolved['account'];
+		$result = self::apply_phone_transfer( $account, $from_user_id, $to_user_id, $actor_id, rest_sanitize_boolean( $req->get_param( 'move_open_conversations' ) ) );
+		if ( empty( $result['ok'] ) ) {
+			return new WP_REST_Response( array( 'ok' => false ) + $result, 200 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'inbox_id' => $inbox_id, 'from_user_id' => $from_user_id, 'to_user_id' => $to_user_id, 'conversations_moved' => $result['conversations_moved'] ), 200 );
+	}
+
+	/**
+	 * The actual reassignment — channel grant + mapping row + optional open-conversation move + audit log.
+	 * Factored out of `transfer_phone_owner()` (2026-09-27) so `claim_phone_intent()` /
+	 * `phone_qr_status()` below can run the exact same write, just at a different MOMENT (only after a
+	 * real QR connect, never on a bare click — see `claim_phone_intent()`'s docblock).
+	 *
+	 * @return array{ok:bool, code?:string, message?:string, hint?:string, help_code?:string, conversations_moved?:int}
+	 */
+	private static function apply_phone_transfer( array $account, int $from_user_id, int $to_user_id, int $actor_id, bool $move_open_conversations ): array {
 		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.53 N2 (G4) — move the channel-gateway grant
 		// BEFORE the mapping row, and abort on failure: `Staff_Policy` already authorized both sides
 		// above, so this can only fail on quota or a data problem, and the mapping must never say
 		// "owned by B" while the grant layer (used by /gpt/ and Context Bank) still says "A".
 		if ( 'personal' === (string) ( $account['kind'] ?? '' ) ) {
 			if ( ! class_exists( 'BizCity_Channel_User_Grant' ) ) {
-				return new WP_REST_Response( array( 'ok' => false, 'code' => 'module_not_loaded', 'message' => 'Channel Gateway chưa sẵn sàng.', 'hint' => 'Bật Channel Gateway rồi thử lại.', 'help_code' => 'module_not_loaded' ), 503 );
+				return array( 'ok' => false, 'code' => 'module_not_loaded', 'message' => 'Channel Gateway chưa sẵn sàng.', 'hint' => 'Bật Channel Gateway rồi thử lại.', 'help_code' => 'module_not_loaded' );
 			}
 			$grant_result = BizCity_Channel_User_Grant::reassign_owner(
 				'zalo_personal', (string) ( $account['bridge_account_id'] ?? '' ), $to_user_id, $actor_id, true,
@@ -1483,9 +1734,9 @@ final class BizCity_CRM_Staff_REST {
 				$reason = sanitize_key( (string) ( $grant_result['reason'] ?? 'grant_write_failed' ) );
 				if ( 'personal_account_quota_reached' === $reason ) {
 					$quota = (int) ( $grant_result['quota'] ?? 0 );
-					return new WP_REST_Response( array( 'ok' => false, 'code' => $reason, 'message' => $quota > 0 ? sprintf( 'Người nhận đã dùng hết %d SĐT Zalo Cá nhân được phép.', $quota ) : 'Người nhận đã dùng hết số SĐT Zalo Cá nhân được phép.', 'hint' => 'Gỡ một SĐT của người nhận hoặc chọn người khác.', 'help_code' => $reason, 'quota' => $quota ), 200 );
+					return array( 'ok' => false, 'code' => $reason, 'message' => $quota > 0 ? sprintf( 'Người nhận đã dùng hết %d SĐT Zalo Cá nhân được phép.', $quota ) : 'Người nhận đã dùng hết số SĐT Zalo Cá nhân được phép.', 'hint' => 'Gỡ một SĐT của người nhận hoặc chọn người khác.', 'help_code' => $reason, 'quota' => $quota );
 				}
-				return new WP_REST_Response( array( 'ok' => false, 'code' => 'transfer_failed', 'message' => 'Không chuyển được quyền sở hữu SĐT.', 'hint' => 'Thử lại sau ít phút.', 'help_code' => 'transfer_failed', 'reason' => $reason ), 200 );
+				return array( 'ok' => false, 'code' => 'transfer_failed', 'message' => 'Không chuyển được quyền sở hữu SĐT.', 'hint' => 'Thử lại sau ít phút.', 'help_code' => 'transfer_failed', 'reason' => $reason );
 			}
 		}
 		BizCity_Zalo_Mapping_Repo::save_account( array(
@@ -1500,8 +1751,9 @@ final class BizCity_CRM_Staff_REST {
 		) );
 
 		// Open conversations follow the phone only when requested; default keeps current assignees.
+		$inbox_id = (int) ( $account['crm_inbox_id'] ?? 0 );
 		$conversations_moved = 0;
-		if ( rest_sanitize_boolean( $req->get_param( 'move_open_conversations' ) ) && class_exists( 'BizCity_CRM_Repository' ) ) {
+		if ( $move_open_conversations && class_exists( 'BizCity_CRM_Repository' ) ) {
 			foreach ( (array) BizCity_CRM_Repository::list_conversations( array( 'inbox_id' => $inbox_id, 'assignee_id' => $from_user_id, 'status' => 'open', 'limit' => 200 ) ) as $conv ) {
 				$conv_id = (int) ( $conv['id'] ?? 0 );
 				if ( $conv_id > 0 && BizCity_CRM_Repository::set_conversation_assignee( $conv_id, $to_user_id, $actor_id, array( 'reason' => 'phone_transferred' ) ) ) {
@@ -1512,7 +1764,80 @@ final class BizCity_CRM_Staff_REST {
 		if ( class_exists( 'BizCity_CRM_Audit_Log' ) ) {
 			BizCity_CRM_Audit_Log::log( 'crm_phone', $inbox_id, 'updated', array( 'owner_user_id' => $from_user_id ), array( 'owner_user_id' => $to_user_id, 'conversations_moved' => $conversations_moved ), array( 'user_id' => $actor_id ) );
 		}
-		return new WP_REST_Response( array( 'ok' => true, 'inbox_id' => $inbox_id, 'from_user_id' => $from_user_id, 'to_user_id' => $to_user_id, 'conversations_moved' => $conversations_moved ), 200 );
+		return array( 'ok' => true, 'conversations_moved' => $conversations_moved );
+	}
+
+	/** 15 minutes — long enough to cover a QR refresh/retry, short enough that a forgotten claim just expires. */
+	const PHONE_CLAIM_TTL = 900;
+
+	private static function phone_claim_key( int $inbox_id ): string {
+		return 'bizcity_crm_phone_claim_' . get_current_blog_id() . '_' . $inbox_id;
+	}
+
+	private static function store_phone_claim( int $inbox_id, array $claim ): void {
+		set_transient( self::phone_claim_key( $inbox_id ), $claim, self::PHONE_CLAIM_TTL );
+	}
+
+	/** Reads and clears in one step — a claim commits at most once, whatever the poll returns after. */
+	private static function consume_phone_claim( int $inbox_id ): ?array {
+		$key = self::phone_claim_key( $inbox_id );
+		$claim = get_transient( $key );
+		if ( ! is_array( $claim ) ) { return null; }
+		delete_transient( $key );
+		return $claim;
+	}
+
+	/**
+	 * POST /crm-phones/{inbox_id}/claim-intent — [2026-09-27 Claude Sonnet 5] PHASE-0.80 owner decision
+	 * (D-CRM-CLAIM): reached from the "Thêm SĐT" duplicate-phone block (`duplicate_phone` / R-ZP-DUP) —
+	 * the number already exists and is connected under someone else. Before this, "Chuyển số đó cho X"
+	 * reassigned the CRM manager on a bare click, with NO proof X (or whoever clicked) actually holds
+	 * the phone — a Supervisor could silently take a colleague's connected number. Now a click here only
+	 * STAGES the intended new owner; `phone_qr_status()` below commits the SAME write `transfer_phone_owner()`
+	 * always did (`apply_phone_transfer()`), but ONLY once a real QR scan connects this exact account. No
+	 * scan ⇒ no change — the claim simply expires. Mirrors the Router Hub's existing `stage_rebind()` /
+	 * `commit_rebind()` for a QR login moving an account between two different WEBSITES; this brings the
+	 * same rule to moving an account between two STAFF of the same site.
+	 *
+	 * Authorization is unchanged from `transfer_phone_owner()`: `phone.assign` on both the current owner
+	 * (via `resolve_authorized_phone()`) and the intended one — this route only changes WHEN the write
+	 * lands, never WHO may request it.
+	 */
+	public static function claim_phone_intent( WP_REST_Request $req ) {
+		$actor_id = get_current_user_id();
+		$inbox_id = (int) $req['inbox_id'];
+		$to_user_id = max( 0, (int) $req->get_param( 'to_user_id' ) ) ?: $actor_id;
+		$resolved = self::resolve_authorized_phone( $actor_id, $inbox_id, 'phone.assign' );
+		if ( $resolved instanceof WP_REST_Response ) { return $resolved; }
+		$from_user_id = (int) $resolved['owner_user_id'];
+		if ( $to_user_id === $from_user_id ) {
+			// Already theirs — nothing to claim; this is a plain relogin, not a transfer.
+			return new WP_REST_Response( array( 'ok' => true, 'claim_needed' => false ), 200 );
+		}
+		if ( ! BizCity_CRM_Staff_Policy::is_assignable_user( $to_user_id ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Chọn người nhận SĐT hợp lệ.', 'hint' => 'Chọn một nhân viên khác người đang phụ trách.', 'help_code' => 'invalid_param_generic' ), 400 );
+		}
+		if ( 'suspended' === get_user_meta( $to_user_id, self::META_STATUS, true ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Nhân viên nhận đang ngưng hoạt động.', 'hint' => 'Kích hoạt lại hoặc chọn người khác.', 'help_code' => 'invalid_param_generic' ), 400 );
+		}
+		$to_decision = BizCity_CRM_Staff_Policy::can( $actor_id, 'phone.assign', $to_user_id );
+		if ( ! $to_decision['ok'] ) { return BizCity_CRM_Staff_Policy::denied_response( $to_decision ); }
+		// Fail fast on quota now — before the person even starts scanning a QR that could never actually commit.
+		if ( 'personal' === (string) ( $resolved['account']['kind'] ?? '' ) && class_exists( 'BizCity_Channel_User_Grant' ) && method_exists( 'BizCity_Channel_User_Grant', 'personal_quota_status' ) ) {
+			$quota_status = BizCity_Channel_User_Grant::personal_quota_status( $to_user_id );
+			if ( ! empty( $quota_status['reached'] ) ) {
+				$quota = (int) ( $quota_status['quota'] ?? 0 );
+				return new WP_REST_Response( array( 'ok' => false, 'code' => 'personal_account_quota_reached', 'message' => $quota > 0 ? sprintf( 'Người nhận đã dùng hết %d SĐT Zalo Cá nhân được phép.', $quota ) : 'Người nhận đã dùng hết số SĐT Zalo Cá nhân được phép.', 'hint' => 'Gỡ một SĐT của người nhận hoặc chọn người khác.', 'help_code' => 'personal_account_quota_reached', 'quota' => $quota ), 200 );
+			}
+		}
+		self::store_phone_claim( $inbox_id, array(
+			'from_user_id'            => $from_user_id,
+			'to_user_id'              => $to_user_id,
+			'actor_id'                => $actor_id,
+			'move_open_conversations' => rest_sanitize_boolean( $req->get_param( 'move_open_conversations' ) ),
+			'requested_at'            => time(),
+		) );
+		return new WP_REST_Response( array( 'ok' => true, 'claim_needed' => true, 'to_user_id' => $to_user_id ), 200 );
 	}
 
 	// ── PATCH /crm-phones/{inbox_id} ─────────────────────────────────────

@@ -50,7 +50,6 @@ final class BizCity_Automation_Block_Registry {
 		$this->register( new BizCity_Automation_Trigger_Zalo() );
 		$this->register( new BizCity_Automation_Trigger_FB_Comment() );
 		$this->register( new BizCity_Automation_Trigger_FB_Message() );        // BE-6.D
-		$this->register( new BizCity_Automation_Trigger_Telegram() );          // BE-6.D
 		$this->register( new BizCity_Automation_Trigger_TwinBrain_Intent() );  // BE-6.E
 		$this->register( new BizCity_Automation_Trigger_TwinBrain_Turn_Completed() ); // BE-7.A
 		$this->register( new BizCity_Automation_Trigger_TwinBrain_Tool_Decided() );   // BE-7.A

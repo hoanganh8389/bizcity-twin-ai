@@ -701,6 +701,12 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		BizCity_CRM_CSAT_Survey::register();
 		add_filter( 'bizcity_intent_monitor_tabs', array( 'BizCity_CRM_CSAT_Survey', 'register_intent_monitor_tab' ), 10, 1 );
 
+		// [2026-09-27 Claude Opus 5.5] PHASE-0.80 doc 26 OB-3 — CRM team leaders see the Zalo connection report in /crm/ (read + re-check;
+		// mutating fixes such as re-sync still need a site admin because they go through zalo-bridge/* can_manage routes).
+		add_filter( 'bizcity_zalo_connection_can_view', static function ( $can ) {
+			return (bool) $can || current_user_can( BizCity_CRM_Capabilities::CAP_MANAGE_TEAMS );
+		} );
+
 		// PHASE 0.35 M-CRM.M2 — hourly overdue-invoice scanner.
 		BizCity_CRM_Invoice_Cron::register();
 

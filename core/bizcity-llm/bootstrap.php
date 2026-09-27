@@ -139,6 +139,7 @@ require_once BIZCITY_LLM_DIR . '/includes/class-llm-client.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-search-client.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-usage-log.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-settings.php';
+require_once BIZCITY_LLM_DIR . '/includes/class-llm-connect-flow.php'; // [2026-09-27] PHASE-0.80 doc 26 OB-5 — "Kết nối BizCity" one-click (site side)
 require_once BIZCITY_LLM_DIR . '/includes/class-smart-gateway.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-google-hub.php';
 // [2026-06-10 Johnny Chu] USAGE-ROLLUP-SPEC Phase 3 — same-origin proxy for /account/* analytics
@@ -158,6 +159,7 @@ add_action( 'plugins_loaded', function () {
     BizCity_LLM_Client::instance();
     BizCity_Search_Client::instance();
     BizCity_LLM_Settings::instance();
+    BizCity_LLM_Connect_Flow::init(); // [2026-09-27] PHASE-0.80 doc 26 OB-5
     // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — initialize per-blog usage JSONL logger + queue legacy SQL cleanup.
     BizCity_LLM_Usage_File_Log::maybe_install();
 }, 1 );

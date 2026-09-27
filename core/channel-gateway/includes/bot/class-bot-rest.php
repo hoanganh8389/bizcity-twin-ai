@@ -41,13 +41,28 @@ final class BizCity_Bot_REST {
 	}
 
 	public static function can_or_error() {
-		return self::can() ? true : self::err( 'permission_denied', 'Bạn không có quyền cấu hình trợ lý.', 403, 'Cần quyền quản trị site (manage_options).', 'bot_capability_required' );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-1 (G-0 0-C1, security) — a permission_callback must return true|false|WP_Error.
+		// It used to return a WP_REST_Response, which WordPress core treats as "allowed" (only false/null/WP_Error deny), so anonymous
+		// callers could reach bot/* (e.g. PUT bot/tuning). Same R-ERROR-UX fields, now as a WP_Error the REST server really enforces.
+		if ( self::can() ) {
+			return true;
+		}
+		$logged_in = function_exists( 'is_user_logged_in' ) && is_user_logged_in();
+		return new WP_Error( 'permission_denied', 'You do not have permission to configure the assistant.', array(
+			'status'    => $logged_in ? 403 : 401,
+			'hint'      => 'Site administrator permission (manage_options) is required.',
+			'help_code' => 'bot_capability_required',
+		) );
 	}
 
 	public static function register_routes(): void {
 		register_rest_route( self::NAMESPACE_V1, '/bot/runtime/(?P<character_id>\d+)', array(
 			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_runtime' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
 			array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_save_runtime' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
+		) );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE R-GS-4 — "Set as default Guru" (gate 0) from Bot Studio → Agents.
+		register_rest_route( self::NAMESPACE_V1, '/bot/default-guru', array(
+			'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_set_default_guru' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 		) );
 		register_rest_route( self::NAMESPACE_V1, '/bot/runtime/(?P<character_id>\d+)/test', array(
 			'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_test_runtime' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
@@ -58,7 +73,10 @@ final class BizCity_Bot_REST {
 		) );
 		register_rest_route( self::NAMESPACE_V1, '/bot/tools', array(
 			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_tools' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
-			'args' => array( 'character_id' => array( 'type' => 'integer', 'default' => 0 ) ),
+			// [2026-09-27 Claude Sonnet 5] PHASE-0.80 — account_id optional: the ONE number the caller has in
+			// scope (CRM's "Bot trả lời…" sheet), so zca-only rows can say plainly when it is zalo-hub instead
+			// of always pointing at the site's own zca-bridge sidecar.
+			'args' => array( 'character_id' => array( 'type' => 'integer', 'default' => 0 ), 'account_id' => array( 'type' => 'string', 'default' => '' ) ),
 		) );
 		register_rest_route( self::NAMESPACE_V1, '/bot/provider', array(
 			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_provider' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
@@ -120,7 +138,60 @@ final class BizCity_Bot_REST {
 		}
 		$data = BizCity_Bot_Config_Repo::get( $character_id );
 		$data['provider'] = class_exists( 'BizCity_Bot_Provider' ) ? BizCity_Bot_Provider::site_status() : null;
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-3 — the EFFECTIVE scope of this Guru (defaults filled in) and whether it is the
+		// site default Guru (gate 0), so the sheet shows exactly what every reply path (zca PHP and zalo-hub cells) will use.
+		if ( class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			$data['scope']           = BizCity_Guru_Context_Resolver::scope( $character_id );
+			$data['is_default_guru'] = BizCity_Guru_Context_Resolver::default_character_id( false ) === $character_id;
+			// [2026-09-27 Claude Sonnet 5] PHASE-0.80 doc 28 T-3 — the exact version the site would serve a cell
+			// asking `GET zalo-hub/guru/{ref}` right now (R8 console does the same read Hub-side). The "Kiểm tra
+			// trạng thái" sheet (T-5) and, when `account_id` is passed, this same route (T-7 below) compare this
+			// against what the cell actually last pulled (T-4).
+			$profile = BizCity_Guru_Context_Resolver::profile( $character_id );
+			$data['guru_etag']    = (string) ( $profile['guru']['etag'] ?? '' );
+			$data['guru_version'] = (string) ( $profile['guru']['version'] ?? '' );
+			// [2026-09-27 Claude Sonnet 5] PHASE-0.80 doc 28 T-7 — an optional `account_id` turns this same read
+			// into "for THIS number, has the answering server caught up with what I'm about to/just saved" —
+			// the quick-edit Guru sheet calls this right after Lưu so the check never leaves the dialog. zca
+			// never had this split (no Hub in its reply path); say so instead of silently omitting `sync`.
+			$account_id = sanitize_text_field( (string) $req->get_param( 'account_id' ) );
+			if ( '' !== $account_id && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+				$provider = BizCity_Zalo_Account_Flags::provider( $account_id );
+				if ( 'zalo_hub' === $provider && class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
+					$ref  = (string) ( $profile['guru']['ref'] ?? ( 'guru:' . $character_id ) );
+					$sync = BizCity_Zalo_Personal_Hub_Client::instance()->guru_sync_check( $account_id, $ref, $data['guru_etag'] );
+					$data['sync'] = array(
+						'not_applicable' => false,
+						'checked'        => ! empty( $sync['ok'] ),
+						'in_sync'        => ! empty( $sync['in_sync'] ),
+						'hub_etag'       => (string) ( $sync['hub_etag'] ?? '' ),
+						'checked_at'     => $sync['checked_at'] ?? null,
+						'code'           => (string) ( $sync['code'] ?? '' ),
+					);
+				} elseif ( '' !== $provider ) {
+					$data['sync'] = array( 'not_applicable' => true, 'checked' => false );
+				}
+			}
+		}
 		return self::ok( $data );
+	}
+
+	/** PUT /bot/default-guru {character_id} — the site default Guru (gate 0, `guru:0` on the wire). */
+	public static function rest_set_default_guru( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			return self::not_loaded();
+		}
+		$body = $req->get_json_params();
+		$character_id = (int) ( is_array( $body ) ? ( $body['character_id'] ?? 0 ) : 0 );
+		$unknown = self::unknown_character( $character_id );
+		if ( $unknown ) {
+			return $unknown;
+		}
+		$result = BizCity_Guru_Context_Resolver::set_default( $character_id );
+		if ( is_wp_error( $result ) ) {
+			return self::err_from( $result );
+		}
+		return self::ok( array( 'default_character_id' => $character_id ) );
 	}
 
 	public static function rest_save_runtime( WP_REST_Request $req ) {
@@ -149,7 +220,7 @@ final class BizCity_Bot_REST {
 		}
 		$character = BizCity_Knowledge_Database::instance()->get_character( $character_id );
 		if ( ! $character ) {
-			return self::err( 'not_found', 'Character không tồn tại.', 404, 'Chọn lại Guru rồi thử lại.', 'bot_character_missing' );
+			return self::err( 'not_found', 'Character does not exist.', 404, 'Select the Guru again and retry.', 'bot_character_missing' );
 		}
 		$test_message = array(
 			array( 'role' => 'system', 'content' => (string) ( $character->system_prompt ?? '' ) ),
@@ -159,10 +230,10 @@ final class BizCity_Bot_REST {
 		try {
 			$result = BizCity_LLM_Client::instance()->chat_with_character( $character, $test_message );
 		} catch ( \Throwable $e ) {
-			return self::err( 'provider_error', 'Không gọi được nguồn AI.', 502, 'Kiểm tra API key và chế độ nguồn AI ở Cài đặt BizCity LLM.', 'bot_provider_error' );
+			return self::err( 'provider_error', 'The AI source call failed.', 502, 'Check the API key and AI source mode in BizCity LLM settings.', 'bot_provider_error' );
 		}
 		if ( empty( $result['success'] ) ) {
-			return self::err( 'provider_error', (string) ( $result['error'] ?? 'Nguồn AI không phản hồi.' ), 502, 'Kiểm tra API key và chế độ nguồn AI ở Cài đặt BizCity LLM.', 'bot_provider_error' );
+			return self::err( 'provider_error', (string) ( $result['error'] ?? 'The AI source did not respond.' ), 502, 'Check the API key and AI source mode in BizCity LLM settings.', 'bot_provider_error' );
 		}
 		return self::ok( array(
 			'reply'      => (string) ( $result['message'] ?? '' ),
@@ -220,8 +291,9 @@ final class BizCity_Bot_REST {
 			return self::not_loaded();
 		}
 		$character_id = (int) $req->get_param( 'character_id' );
+		$account_id   = sanitize_text_field( (string) $req->get_param( 'account_id' ) );
 		$character    = $character_id > 0 && class_exists( 'BizCity_Knowledge_Database' ) ? BizCity_Knowledge_Database::instance()->get_character( $character_id ) : null;
-		$rows         = BizCity_Bot_Tool_Registry::rows( $character );
+		$rows         = BizCity_Bot_Tool_Registry::rows( $character, $account_id );
 		$disabled     = $character_id > 0 && class_exists( 'BizCity_Bot_Config_Repo' ) ? BizCity_Bot_Config_Repo::get( $character_id )['disabled_tools'] : array();
 		$optional_on  = $character_id > 0 && class_exists( 'BizCity_Bot_Config_Repo' ) ? BizCity_Bot_Config_Repo::get( $character_id )['enabled_optional_tools'] : array();
 		return self::ok( array(
@@ -279,11 +351,11 @@ final class BizCity_Bot_REST {
 		$conversation_id = (int) $req->get_param( 'conversation_id' );
 		$limit           = max( 1, min( 200, (int) $req->get_param( 'limit' ) ) );
 		if ( $conversation_id <= 0 ) {
-			return self::err( 'invalid_param', 'Thiếu conversation_id.', 422, 'Chọn một hội thoại trong Inbox rồi thử lại.', 'bot_preview_conversation_required' );
+			return self::err( 'invalid_param', 'conversation_id is missing.', 422, 'Select a conversation in the Inbox and retry.', 'bot_preview_conversation_required' );
 		}
 		$conversation = BizCity_CRM_Repository::get_conversation( $conversation_id );
 		if ( ! is_array( $conversation ) ) {
-			return self::err( 'not_found', 'Hội thoại không tồn tại trên site này.', 404, 'Kiểm tra lại ID hội thoại.', 'bot_preview_not_found' );
+			return self::err( 'not_found', 'This conversation does not exist on this site.', 404, 'Check the conversation ID.', 'bot_preview_not_found' );
 		}
 		$contact_id = (int) ( $conversation['contact_id'] ?? 0 );
 		return self::ok( array(
@@ -308,7 +380,7 @@ final class BizCity_Bot_REST {
 		}
 		$binding = BizCity_Channel_Binding::find( (int) $req['binding_id'] );
 		if ( ! $binding ) {
-			return self::err( 'not_found', 'Kênh không tồn tại.', 404, 'Chọn lại kênh Zalo rồi thử lại.', 'bot_binding_missing' );
+			return self::err( 'not_found', 'Channel does not exist.', 404, 'Select the Zalo channel again and retry.', 'bot_binding_missing' );
 		}
 		return self::ok( self::policy_defaults_merged( $binding['policy_json'] ?? '' ) );
 	}
@@ -320,7 +392,7 @@ final class BizCity_Bot_REST {
 		$binding_id = (int) $req['binding_id'];
 		$binding    = BizCity_Channel_Binding::find( $binding_id );
 		if ( ! $binding ) {
-			return self::err( 'not_found', 'Kênh không tồn tại.', 404, 'Chọn lại kênh Zalo rồi thử lại.', 'bot_binding_missing' );
+			return self::err( 'not_found', 'Channel does not exist.', 404, 'Select the Zalo channel again and retry.', 'bot_binding_missing' );
 		}
 		$body = $req->get_json_params();
 		$body = is_array( $body ) ? $body : array();
@@ -329,13 +401,13 @@ final class BizCity_Bot_REST {
 		if ( array_key_exists( 'allowlist_mode', $body ) ) {
 			$mode = sanitize_key( (string) $body['allowlist_mode'] );
 			if ( ! in_array( $mode, self::ALLOWLIST_MODES, true ) ) {
-				return self::err( 'invalid_param', 'Chế độ allowlist không hợp lệ.', 422, 'Chọn all, contacts_only hoặc list.', 'bot_policy_allowlist_mode' );
+				return self::err( 'invalid_param', 'Invalid allowlist mode.', 422, 'Choose all, contacts_only or list.', 'bot_policy_allowlist_mode' );
 			}
 			$policy['allowlist_mode'] = $mode;
 		}
 		if ( array_key_exists( 'allowlist_uids', $body ) ) {
 			if ( ! is_array( $body['allowlist_uids'] ) ) {
-				return self::err( 'invalid_param', 'allowlist_uids phải là danh sách.', 422, 'Gửi một mảng UID dạng chuỗi.', 'bot_policy_allowlist_uids_shape' );
+				return self::err( 'invalid_param', 'allowlist_uids must be a list.', 422, 'Send an array of UID strings.', 'bot_policy_allowlist_uids_shape' );
 			}
 			$policy['allowlist_uids'] = self::sanitize_uid_list( $body['allowlist_uids'] );
 		}
@@ -369,14 +441,14 @@ final class BizCity_Bot_REST {
 			$policy['antispam_auto_kick'] = (bool) $body['antispam_auto_kick'];
 		}
 		if ( ! empty( $policy['antispam_auto_kick'] ) && '' === trim( (string) ( $policy['owner_uid'] ?? '' ) ) ) {
-			return self::err( 'invalid_param', 'Tự động kick cần UID chủ tài khoản.', 422, 'Nhập UID chủ tài khoản ở khối "Chủ tài khoản" trước, rồi bật tự động kick.', 'bot_policy_auto_kick_needs_owner' );
+			return self::err( 'invalid_param', 'Auto-kick needs the account owner UID.', 422, 'Enter the account owner UID in the "Account owner" block first, then enable auto-kick.', 'bot_policy_auto_kick_needs_owner' );
 		}
 		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — default OFF: receipts touch Zalo, so opt-in per number.
 		$sync_receipts = false;
 		if ( array_key_exists( 'read_receipts', $body ) ) {
 			$mode = sanitize_key( (string) $body['read_receipts'] );
 			if ( ! in_array( $mode, self::READ_RECEIPTS, true ) ) {
-				return self::err( 'invalid_param', 'Chế độ báo đã nhận/đã xem không hợp lệ.', 422, 'Chọn off, delivered hoặc delivered_seen.', 'bot_policy_read_receipts' );
+				return self::err( 'invalid_param', 'Invalid delivered/seen receipt mode.', 422, 'Choose off, delivered or delivered_seen.', 'bot_policy_read_receipts' );
 			}
 			$policy['read_receipts'] = $mode;
 			$sync_receipts           = true;
@@ -385,16 +457,29 @@ final class BizCity_Bot_REST {
 		if ( array_key_exists( 'auto_tag_back', $body ) ) {
 			$policy['auto_tag_back'] = (bool) $body['auto_tag_back'];
 		}
+		// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 D1 (Q-2) — reloaded messages per turn for THIS Zalo account, 20–200.
+		// null / '' clears it, which puts the default of 20 back.
+		if ( array_key_exists( 'history_limit', $body ) ) {
+			if ( null === $body['history_limit'] || '' === $body['history_limit'] ) {
+				$policy['history_limit'] = null;
+			} else {
+				$limit = is_numeric( $body['history_limit'] ) ? (int) $body['history_limit'] : 0;
+				if ( $limit < BizCity_Bot_Config_Repo::TURN_HISTORY_MIN || $limit > BizCity_Bot_Config_Repo::TURN_HISTORY_MAX ) {
+					return self::err( 'invalid_param', 'The number of reloaded messages must be between 20 and 200.', 422, 'Enter a number from 20 to 200, or leave it empty to use the default of 20.', 'bot_policy_history_limit_range' );
+				}
+				$policy['history_limit'] = $limit;
+			}
+		}
 		if ( array_key_exists( 'react_icon', $body ) ) {
 			$icon = sanitize_key( (string) $body['react_icon'] );
 			if ( ! in_array( $icon, self::REACT_ICONS, true ) ) {
-				return self::err( 'invalid_param', 'Biểu tượng cảm xúc không hợp lệ.', 422, 'Chọn một trong: ' . implode( ', ', self::REACT_ICONS ) . '.', 'bot_policy_react_icon' );
+				return self::err( 'invalid_param', 'Invalid reaction emoji.', 422, 'Choose one of: ' . implode( ', ', self::REACT_ICONS ) . '.', 'bot_policy_react_icon' );
 			}
 			$policy['react_icon'] = $icon;
 		}
 
 		if ( ! BizCity_Channel_Binding::save_policy( $binding_id, $policy ) ) {
-			return self::err( 'save_failed', 'Không lưu được cấu hình.', 500, 'Thử lại; nếu vẫn lỗi hãy kiểm tra log.', 'bot_policy_save_failed' );
+			return self::err( 'save_failed', 'The configuration could not be saved.', 500, 'Retry; if it still fails, check the log.', 'bot_policy_save_failed' );
 		}
 		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — the bridge sends "đã nhận" itself, so it must be told the switch. A failure
 		// (old sidecar, session down) does NOT undo the saved policy but is returned, so the screen can say "not applied yet".
@@ -440,6 +525,11 @@ final class BizCity_Bot_REST {
 			'read_receipts'    => isset( $decoded['read_receipts'] ) && in_array( $decoded['read_receipts'], self::READ_RECEIPTS, true ) ? (string) $decoded['read_receipts'] : 'off',
 			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — default ON: key absent = tag back (a new feature, no stored value to honour).
 			'auto_tag_back'    => ! isset( $decoded['auto_tag_back'] ) || (bool) $decoded['auto_tag_back'],
+			// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 D1 — null = not set on this account, the default of 20 applies. Out-of-range stored values read as null.
+			'history_limit'  => isset( $decoded['history_limit'] ) && is_numeric( $decoded['history_limit'] )
+				&& (int) $decoded['history_limit'] >= BizCity_Bot_Config_Repo::TURN_HISTORY_MIN
+				&& (int) $decoded['history_limit'] <= BizCity_Bot_Config_Repo::TURN_HISTORY_MAX
+				? (int) $decoded['history_limit'] : null,
 			'react_icon'     => isset( $decoded['react_icon'] ) && in_array( $decoded['react_icon'], self::REACT_ICONS, true ) ? (string) $decoded['react_icon'] : 'heart',
 		);
 	}
@@ -508,7 +598,7 @@ final class BizCity_Bot_REST {
 		$field        = sanitize_key( (string) ( $body['field'] ?? '' ) );
 		$value        = (string) ( $body['value'] ?? '' );
 		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) ) {
-			return self::err( 'invalid_param', 'Trường khóa không hợp lệ.', 422, 'field phải là một trong: ' . implode( ', ', array_keys( BizCity_Bot_Secrets_Repo::FIELDS ) ) . '.', 'bot_secret_field_unknown' );
+			return self::err( 'invalid_param', 'Invalid key field.', 422, 'field must be one of: ' . implode( ', ', array_keys( BizCity_Bot_Secrets_Repo::FIELDS ) ) . '.', 'bot_secret_field_unknown' );
 		}
 		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
 		if ( BizCity_Bot_Secrets_Repo::is_multi( $field ) ) {
@@ -519,10 +609,10 @@ final class BizCity_Bot_REST {
 			return self::ok( array( 'field' => $field, 'masked_keys' => $result ) );
 		}
 		if ( '' === trim( $value ) ) {
-			return self::err( 'invalid_param', 'Khóa không được để trống.', 422, '', 'bot_secret_empty' );
+			return self::err( 'invalid_param', 'The key must not be empty.', 422, '', 'bot_secret_empty' );
 		}
 		if ( ! BizCity_Bot_Secrets_Repo::set_value( $character_id, $field, $value, $user_id ) ) {
-			return self::err( 'save_failed', 'Không lưu được khóa.', 500, '', 'bot_secret_save_failed' );
+			return self::err( 'save_failed', 'The key could not be saved.', 500, '', 'bot_secret_save_failed' );
 		}
 		return self::ok( array( 'field' => $field, 'masked_keys' => BizCity_Bot_Secrets_Repo::masked_keys( $character_id, $field ) ) );
 	}
@@ -536,11 +626,11 @@ final class BizCity_Bot_REST {
 		$index        = (int) $req['index'];
 		$field        = sanitize_key( (string) $req->get_param( 'field' ) );
 		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) || ! BizCity_Bot_Secrets_Repo::is_multi( $field ) ) {
-			return self::err( 'invalid_param', 'Trường khóa không hợp lệ hoặc không hỗ trợ xoá từng khóa.', 422, '', 'bot_secret_field_unknown' );
+			return self::err( 'invalid_param', 'Invalid key field, or the field does not support deleting single keys.', 422, '', 'bot_secret_field_unknown' );
 		}
 		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
 		if ( ! BizCity_Bot_Secrets_Repo::remove_key( $character_id, $field, $index, $user_id ) ) {
-			return self::err( 'not_found', 'Không tìm thấy khóa ở vị trí này.', 404, '', 'bot_secret_index_missing' );
+			return self::err( 'not_found', 'No key found at this position.', 404, '', 'bot_secret_index_missing' );
 		}
 		return self::ok( array( 'field' => $field, 'masked_keys' => BizCity_Bot_Secrets_Repo::masked_keys( $character_id, $field ) ) );
 	}
@@ -553,7 +643,7 @@ final class BizCity_Bot_REST {
 		$character_id = (int) $req['character_id'];
 		$field        = sanitize_key( (string) $req->get_param( 'field' ) );
 		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) ) {
-			return self::err( 'invalid_param', 'Trường khóa không hợp lệ.', 422, '', 'bot_secret_field_unknown' );
+			return self::err( 'invalid_param', 'Invalid key field.', 422, '', 'bot_secret_field_unknown' );
 		}
 		BizCity_Bot_Secrets_Repo::clear( $character_id, $field );
 		return self::ok( array( 'field' => $field, 'masked_keys' => array() ) );
@@ -623,19 +713,23 @@ final class BizCity_Bot_REST {
 		if ( $character_id > 0 && BizCity_Knowledge_Database::instance()->get_character( $character_id ) ) {
 			return null;
 		}
-		return self::err( 'character_not_found', 'Không tìm thấy trợ lý (Guru) này.', 404, 'Chọn một Guru còn tồn tại trong danh sách Guru của kênh.', 'bot_studio_character_not_found' );
+		return self::err( 'character_not_found', 'Assistant (Guru) not found.', 404, 'Select a Guru that still exists in the channel Guru list.', 'bot_studio_character_not_found' );
 	}
 
 	private static function not_loaded(): WP_REST_Response {
-		return self::err( 'module_not_loaded', 'Bot Studio chưa sẵn sàng.', 503, 'Kiểm tra bootstrap core/channel-gateway đã nạp includes/bot/.', 'module_not_loaded' );
+		return self::err( 'module_not_loaded', 'Bot Studio is not ready.', 503, 'Check that the core/channel-gateway bootstrap loaded includes/bot/.', 'module_not_loaded' );
 	}
 
 	private static function err( string $code, string $message, int $status = 400, string $hint = '', string $help_code = '' ): WP_REST_Response {
+		// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 B1b (R-ERROR-UX, Q-5) — English text, real HTTP status kept; `success` and
+		// `_degraded` (5xx only) match the Guru routes' payload. `ok` stays for the existing Bot Studio front-end.
 		return new WP_REST_Response( array(
 			'ok'        => false,
+			'success'   => false,
+			'_degraded' => $status >= 500,
 			'code'      => $code,
 			'message'   => $message,
-			'hint'      => $hint !== '' ? $hint : 'Thử lại; nếu vẫn lỗi hãy liên hệ quản trị viên.',
+			'hint'      => $hint !== '' ? $hint : 'Retry; if it still fails, contact the site administrator.',
 			'help_code' => $help_code !== '' ? $help_code : 'bot_' . $code,
 		), $status );
 	}

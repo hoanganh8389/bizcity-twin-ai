@@ -100,14 +100,15 @@ class BizCity_Workflow_MD_Compiler {
 	 */
 	public function md_to_workflow( string $md ) {
 		// [2026-06-03 Johnny Chu] WF-AUTO W3 — md → workflow payload.
-		if ( ! class_exists( 'BizCity_Skill_Manager' ) || ! class_exists( 'BizCity_Skill_Recipe_Parser' ) ) {
-			return new WP_Error( 'parser_missing', 'BizCity_Skill_Manager / Recipe_Parser chưa load.' );
+		// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R3 — core/skills is archived: the recipe parser now ships
+		// with Automation and front-matter is parsed locally (same YAML subset as BizCity_Skill_Manager).
+		if ( ! class_exists( 'BizCity_Skill_Recipe_Parser' ) ) {
+			return new WP_Error( 'parser_missing', 'BizCity_Skill_Recipe_Parser chưa load.' );
 		}
 
-		$mgr    = BizCity_Skill_Manager::instance();
 		$parser = BizCity_Skill_Recipe_Parser::instance();
 
-		$parsed = $mgr->parse_frontmatter( $md );
+		$parsed = $this->parse_frontmatter( $md );
 		$fm     = isset( $parsed['frontmatter'] ) && is_array( $parsed['frontmatter'] ) ? $parsed['frontmatter'] : array();
 		$body   = isset( $parsed['content'] ) ? (string) $parsed['content'] : '';
 
@@ -310,6 +311,73 @@ class BizCity_Workflow_MD_Compiler {
 	/* ================================================================
 	 *  Internal — parsing helpers
 	 * ================================================================ */
+
+	/**
+	 * Parse YAML front-matter from a Markdown string.
+	 *
+	 * [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R3 — copied from BizCity_Skill_Manager::parse_frontmatter()
+	 * (core/skills is archived). Same YAML subset: inline [a,b] lists, multi-line "- item" lists, true/false, numbers.
+	 *
+	 * @return array{frontmatter: array, content: string}
+	 */
+	private function parse_frontmatter( string $raw ): array {
+		$fm      = array();
+		$content = $raw;
+
+		if ( preg_match( '/\A---\s*\n(.*?)\n---\s*\n(.*)\z/s', $raw, $m ) ) {
+			$content     = $m[2];
+			$lines       = explode( "\n", $m[1] );
+			$current_key = null;
+
+			foreach ( $lines as $line ) {
+				$trimmed = rtrim( $line );
+				if ( $trimmed === '' || $trimmed[0] === '#' ) {
+					continue;
+				}
+
+				// Multi-line list item: "  - value" or "* value"
+				if ( preg_match( '/^\s+[-*]\s+(.*)$/', $trimmed, $li ) ) {
+					if ( $current_key !== null ) {
+						$item = trim( $li[1], '"\' ' );
+						if ( $item !== '' ) {
+							if ( ! is_array( $fm[ $current_key ] ) ) {
+								$fm[ $current_key ] = array();
+							}
+							$fm[ $current_key ][] = $item;
+						}
+					}
+					continue;
+				}
+
+				// Key: value line
+				if ( preg_match( '/^(\w[\w_-]*)\s*:\s*(.*)$/', $trimmed, $kv ) ) {
+					$key         = $kv[1];
+					$val         = trim( $kv[2] );
+					$current_key = $key;
+
+					if ( $val === '' ) {
+						$fm[ $key ] = array();
+					} elseif ( preg_match( '/^\[(.+)\]$/', $val, $arr ) ) {
+						$fm[ $key ] = array_map( function ( $v ) {
+							return trim( trim( $v ), '"\'' );
+						}, explode( ',', $arr[1] ) );
+					} elseif ( $val === '[]' ) {
+						$fm[ $key ] = array();
+					} elseif ( $val === 'true' ) {
+						$fm[ $key ] = true;
+					} elseif ( $val === 'false' ) {
+						$fm[ $key ] = false;
+					} elseif ( is_numeric( $val ) ) {
+						$fm[ $key ] = $val + 0;
+					} else {
+						$fm[ $key ] = trim( $val, '"\'' );
+					}
+				}
+			}
+		}
+
+		return array( 'frontmatter' => $fm, 'content' => $content );
+	}
 
 	/**
 	 * Parse `## Layout` section into id → {x,y}.

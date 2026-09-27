@@ -101,19 +101,22 @@ class BizCity_TwinSearch_Persona_Provider extends BizCity_Persona_Tool_Provider 
 	/* ─────────────── R-PP-7 — Citation resolver ─────────────── */
 
 	public function resolve_citation( int $source_id ): array {
-		global $wpdb;
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT id, title, source_url, content_md FROM {$wpdb->prefix}bizcity_kg_sources WHERE id=%d",
-			$source_id
-		), ARRAY_A );
-		if ( ! $row ) {
-			return [ 'id' => $source_id, 'title' => '', 'body' => '', 'url' => '' ];
+		// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 E1 (G-08, D-19) — the body read belongs to the KG owner. This method used to
+		// SELECT `source_url` and `content_md` from `bizcity_kg_sources`; that table has neither column (it has `origin_url` and
+		// `content_text`, and file-primary moves the text into passage shards), so the query failed and every citation came back empty.
+		$empty = [ 'id' => $source_id, 'title' => '', 'body' => '', 'url' => '' ];
+		if ( ! class_exists( 'BizCity_KG' ) || ! method_exists( 'BizCity_KG', 'get_source_body' ) ) {
+			return $empty;
+		}
+		$src = BizCity_KG::get_source_body( $source_id );
+		if ( is_wp_error( $src ) ) {
+			return $empty;
 		}
 		return [
-			'id'    => (int) $row['id'],
-			'title' => (string) $row['title'],
-			'url'   => (string) $row['source_url'],
-			'body'  => (string) $row['content_md'],
+			'id'    => (int) $src['id'],
+			'title' => (string) $src['title'],
+			'url'   => (string) $src['url'],
+			'body'  => (string) $src['body'],
 		];
 	}
 

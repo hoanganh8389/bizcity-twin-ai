@@ -35,7 +35,11 @@ final class BizCity_CRM_Pipeline_Registry {
 	const META_VERSIONS   = '_versions';
 	const MAX_VERSIONS    = 3;
 	const CONTRACT        = 'pipeline-definition';
-	const CONTRACT_VER    = '1.0.0';
+	// [2026-09-25 PHASE-0.63C GC-23] 1.1.0 is additive over 1.0.0 (stage.outcome, stage.ui, sub_step.ui, sub_step.return_to,
+	// root ui). `validate()` accepts both so a definition already stored at 1.0.0 keeps loading; `save()` always writes 1.1.0.
+	const CONTRACT_VER    = '1.1.0';
+	const CONTRACT_VERSIONS = array( '1.0.0', '1.1.0' );
+	const OUTCOMES        = array( 'won', 'lost', 'closed' );
 
 	/** Anchors whose moment lies in the future, and therefore may carry a negative offset (0.63 §2.1). */
 	const FUTURE_ANCHORS = array( 'appointment_at' );
@@ -266,7 +270,8 @@ final class BizCity_CRM_Pipeline_Registry {
 			return new WP_Error( 'pipeline_kind_invalid', 'Mã pipeline không hợp lệ.' );
 		}
 
-		$definition['kind'] = $kind;
+		$definition['kind']    = $kind;
+		$definition['version'] = self::CONTRACT_VER;
 		$valid = self::validate( $definition );
 		if ( true !== $valid ) {
 			return $valid;
@@ -378,6 +383,57 @@ final class BizCity_CRM_Pipeline_Registry {
 		return is_array( $definition ) ? $definition : null;
 	}
 
+	/**
+	 * Import-ready library (PHASE-0.63C GC-24): full definitions a lead may load into the Builder or paste into
+	 * "Nhập JSON". Deliberately a SEPARATE directory from BUNDLED_PENDING_SPLIT_DIR — that one is what gets seeded
+	 * into every site at activation (and is frozen by D63C-1), this one is read-only reference data and never seeds.
+	 */
+	const LIBRARY_DIR = 'templates/pipeline-library';
+
+	/** @return array<int,array{name:string,label:string,stages:int,sub_steps:int,definition:array}> */
+	public static function library(): array {
+		if ( ! defined( 'BIZCITY_CRM_DIR' ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( (array) glob( BIZCITY_CRM_DIR . '/' . self::LIBRARY_DIR . '/*.json' ) as $path ) {
+			$definition = self::decode( (string) file_get_contents( $path ) );
+			if ( ! is_array( $definition ) || empty( $definition['stages'] ) ) {
+				continue;
+			}
+			$subs = 0;
+			foreach ( (array) $definition['stages'] as $stage ) {
+				$subs += is_array( $stage ) ? count( (array) ( $stage['sub_steps'] ?? array() ) ) : 0;
+			}
+			$out[] = array(
+				'name'       => basename( (string) $path, '.json' ),
+				'label'      => (string) ( $definition['label'] ?? basename( (string) $path, '.json' ) ),
+				'stages'     => count( (array) $definition['stages'] ),
+				'sub_steps'  => $subs,
+				'definition' => $definition,
+			);
+		}
+		usort( $out, static function ( $a, $b ) { return strcmp( $a['name'], $b['name'] ); } );
+		return $out;
+	}
+
+	/**
+	 * Validate WITHOUT writing (Builder live validation). Same rules and same normalisation as save(): the draft is
+	 * judged as the 1.1.0 document it would be stored as.
+	 *
+	 * @return array{valid:bool,reasons:string[]}
+	 */
+	public static function dry_run( array $definition ): array {
+		$definition['version'] = self::CONTRACT_VER;
+		$result = self::validate( $definition );
+		if ( true === $result ) {
+			return array( 'valid' => true, 'reasons' => array() );
+		}
+		$data    = $result->get_error_data();
+		$reasons = is_array( $data ) && isset( $data['reasons'] ) ? array_map( 'strval', (array) $data['reasons'] ) : array( $result->get_error_message() );
+		return array( 'valid' => false, 'reasons' => array_slice( $reasons, 0, 50 ) );
+	}
+
 	/** @return string[] Template names shipped with the plugin. */
 	public static function templates(): array {
 		if ( ! defined( 'BIZCITY_CRM_DIR' ) ) {
@@ -434,9 +490,13 @@ final class BizCity_CRM_Pipeline_Registry {
 		if ( self::CONTRACT !== ( $definition['contract'] ?? '' ) ) {
 			$reasons[] = 'contract must be "' . self::CONTRACT . '"';
 		}
-		if ( self::CONTRACT_VER !== ( $definition['version'] ?? '' ) ) {
-			$reasons[] = 'version must be "' . self::CONTRACT_VER . '"';
+		$declared_version = (string) ( $definition['version'] ?? '' );
+		if ( ! in_array( $declared_version, self::CONTRACT_VERSIONS, true ) ) {
+			$reasons[] = 'version must be one of "' . implode( '", "', self::CONTRACT_VERSIONS ) . '"';
 		}
+		// A document that declares 1.0.0 may not use anything 1.1.0 added — otherwise 1.0.0 would mean two shapes.
+		$v11 = '1.1.0' === $declared_version;
+		self::check_ui( $definition['ui'] ?? null, 'root', 'root', $v11, $reasons );
 
 		$kind = (string) ( $definition['kind'] ?? '' );
 		if ( ! preg_match( '/^[a-z][a-z0-9_]{1,31}$/', $kind ) ) {
@@ -500,8 +560,9 @@ final class BizCity_CRM_Pipeline_Registry {
 			$stages    = array();
 		}
 
-		$stage_keys = array();
-		$step_keys  = array();
+		$stage_keys  = array();
+		$step_keys   = array();
+		$sub_returns = array();
 		foreach ( $stages as $index => $stage ) {
 			if ( ! is_array( $stage ) ) {
 				$reasons[] = 'stage #' . (int) $index . ' is not an object';
@@ -516,6 +577,12 @@ final class BizCity_CRM_Pipeline_Registry {
 				$reasons[] = 'stage key "' . $key . '" appears twice';
 				continue;
 			}
+			// [2026-09-25 PHASE-0.63C] A stage key must not equal the key of a sub-step listed under an EARLIER stage
+			// either: both live in the same run map (custom_json.stages[key]), so the two would share one state slot.
+			if ( isset( $step_keys[ $key ] ) ) {
+				$reasons[] = 'step key "' . $key . '" appears twice';
+				continue;
+			}
 			$stage_keys[ $key ] = true;
 			$step_keys[ $key ]  = true;
 
@@ -525,6 +592,16 @@ final class BizCity_CRM_Pipeline_Registry {
 			self::check_role( $stage['role'] ?? null, $roles, 'stage "' . $key . '"', $reasons );
 			self::check_requires( $stage['requires'] ?? null, 'stage "' . $key . '"', $reasons );
 			self::check_stage_sla( $stage['sla'] ?? null, $calendars, $roles, 'stage "' . $key . '"', $reasons );
+			self::check_ui( $stage['ui'] ?? null, 'stage', 'stage "' . $key . '"', $v11, $reasons );
+			if ( isset( $stage['outcome'] ) ) {
+				if ( ! $v11 ) {
+					$reasons[] = 'stage "' . $key . '" uses outcome, which needs version 1.1.0';
+				} elseif ( ! in_array( $stage['outcome'], self::OUTCOMES, true ) ) {
+					$reasons[] = 'stage "' . $key . '" has unknown outcome "' . (string) $stage['outcome'] . '"';
+				} elseif ( empty( $stage['terminal'] ) ) {
+					$reasons[] = 'stage "' . $key . '" declares an outcome but is not terminal';
+				}
+			}
 
 			foreach ( (array) ( $stage['sub_steps'] ?? array() ) as $sub_index => $sub ) {
 				$label = 'sub-step #' . (int) $sub_index . ' of stage "' . $key . '"';
@@ -552,6 +629,13 @@ final class BizCity_CRM_Pipeline_Registry {
 				self::check_role( $sub['role'] ?? null, $roles, $label, $reasons );
 				self::check_requires( $sub['requires'] ?? null, $label, $reasons );
 				self::check_stage_sla( $sub['sla'] ?? null, $calendars, $roles, $label, $reasons );
+				self::check_ui( $sub['ui'] ?? null, 'sub_step', $label, $v11, $reasons );
+				if ( isset( $sub['return_to'] ) ) {
+					$sub_returns[] = array( 'label' => $label, 'to' => (string) $sub['return_to'] );
+					if ( ! $v11 ) {
+						$reasons[] = $label . ' uses return_to, which needs version 1.1.0';
+					}
+				}
 			}
 		}
 
@@ -561,6 +645,13 @@ final class BizCity_CRM_Pipeline_Registry {
 			}
 			if ( ! isset( $stage_keys[ (string) $stage['return_to'] ] ) ) {
 				$reasons[] = 'stage "' . (string) ( $stage['key'] ?? '?' ) . '" returns to unknown step "' . (string) $stage['return_to'] . '"';
+			}
+		}
+
+		// A sub-step may return to any step of the run (a sibling sub-step or a stage) — checked once every key is known.
+		foreach ( $sub_returns as $return ) {
+			if ( ! isset( $step_keys[ $return['to'] ] ) ) {
+				$reasons[] = $return['label'] . ' returns to unknown step "' . $return['to'] . '"';
 			}
 		}
 
@@ -703,6 +794,81 @@ final class BizCity_CRM_Pipeline_Registry {
 			}
 			if ( isset( $service['required_skill'] ) && ! in_array( (string) $service['required_skill'], $skills, true ) ) {
 				$reasons[] = $label . ' requires skill "' . (string) $service['required_skill'] . '" which catalogs.skills does not declare';
+			}
+		}
+	}
+
+	/**
+	 * `ui` blocks (1.1.0) — presentation/suggestion hints only. Nothing here changes what the server enforces,
+	 * so the checks only keep values well-formed enough for a renderer to trust.
+	 *
+	 * @param string $scope 'root' | 'stage' | 'sub_step'
+	 */
+	private static function check_ui( $ui, string $scope, string $label, bool $v11, array &$reasons ): void {
+		if ( null === $ui ) {
+			return;
+		}
+		if ( ! $v11 ) {
+			$reasons[] = $label . ' uses ui, which needs version 1.1.0';
+			return;
+		}
+		if ( ! is_array( $ui ) ) {
+			$reasons[] = $label . ' ui must be an object';
+			return;
+		}
+		$allowed = array(
+			'root'     => array( 'color', 'icon', 'category', 'lost_reasons' ),
+			'stage'    => array( 'color', 'icon', 'hint', 'stuck_after', 'reminder', 'next_suggestions', 'note_placeholder' ),
+			'sub_step' => array( 'hint' ),
+		);
+		foreach ( array_keys( $ui ) as $key ) {
+			if ( ! in_array( $key, $allowed[ $scope ], true ) ) {
+				$reasons[] = $label . ' ui has unknown key "' . (string) $key . '"';
+			}
+		}
+		if ( isset( $ui['color'] ) && ! preg_match( '/^#[0-9a-fA-F]{6}$/', (string) $ui['color'] ) ) {
+			$reasons[] = $label . ' ui.color must be a #rrggbb hex';
+		}
+		if ( isset( $ui['icon'] ) && ! preg_match( '/^[a-z][a-z0-9-]{0,63}$/', (string) $ui['icon'] ) ) {
+			$reasons[] = $label . ' ui.icon is not a valid icon name';
+		}
+		foreach ( array( 'hint', 'note_placeholder' ) as $text_key ) {
+			if ( isset( $ui[ $text_key ] ) && ( ! is_string( $ui[ $text_key ] ) || mb_strlen( $ui[ $text_key ] ) > 190 ) ) {
+				$reasons[] = $label . ' ui.' . $text_key . ' must be a string of at most 190 characters';
+			}
+		}
+		if ( isset( $ui['category'] ) && ! in_array( $ui['category'], array( 'sales', 'purchase', 'request', 'production', 'service', 'other' ), true ) ) {
+			$reasons[] = $label . ' ui.category "' . (string) $ui['category'] . '" is not a known category';
+		}
+		if ( isset( $ui['stuck_after'] ) && ! preg_match( '/^\+?[0-9]{1,5}(m|h|d|w)$/', (string) $ui['stuck_after'] ) ) {
+			$reasons[] = $label . ' ui.stuck_after must be a positive duration such as "+3d"';
+		}
+		if ( isset( $ui['reminder'] ) ) {
+			$reminder = $ui['reminder'];
+			if ( ! is_array( $reminder ) ) {
+				$reasons[] = $label . ' ui.reminder must be an object';
+			} else {
+				if ( isset( $reminder['title_from'] ) && ! in_array( $reminder['title_from'], array( 'first_sub_step', 'label' ), true ) ) {
+					$reasons[] = $label . ' ui.reminder.title_from must be first_sub_step or label';
+				}
+				if ( isset( $reminder['default_offset'] ) && ! preg_match( '/^\+?[0-9]{1,5}(m|h|d|w)$/', (string) $reminder['default_offset'] ) ) {
+					$reasons[] = $label . ' ui.reminder.default_offset must be a positive duration';
+				}
+			}
+		}
+		foreach ( array( 'next_suggestions' => 12, 'lost_reasons' => 12 ) as $list_key => $max ) {
+			if ( ! isset( $ui[ $list_key ] ) ) {
+				continue;
+			}
+			if ( ! is_array( $ui[ $list_key ] ) || count( $ui[ $list_key ] ) > $max ) {
+				$reasons[] = $label . ' ui.' . $list_key . ' must be a list of at most ' . $max . ' strings';
+				continue;
+			}
+			foreach ( $ui[ $list_key ] as $item ) {
+				if ( ! is_string( $item ) || '' === trim( $item ) || mb_strlen( $item ) > 120 ) {
+					$reasons[] = $label . ' ui.' . $list_key . ' has an empty or over-long entry';
+					break;
+				}
 			}
 		}
 	}

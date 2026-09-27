@@ -10,6 +10,8 @@
  * Because WooCommerce order creation requires the full AI-parsed order data
  * (products, customer, payment), the raw user input is stored in metadata at
  * intent time; AI re-parses at execution time (same as legacy behavior).
+ * Since CORE-REDUCTION WP-12 R6 (2026-09-26) the parse goes through the LLM
+ * gateway (parse_order_ai()); the legacy twf_* delegate is archived.
  *
  * Metadata contract (core/diagnostics/changelog/core.scheduler.json v3.3.0):
  *   - woo_order_user_input  (string) — raw message text for AI to re-parse
@@ -79,34 +81,23 @@ class BizCity_Woo_Order_Handler {
 		$cron->note_event( 'woo_order_create_attempt', [ 'event_id' => $event_id ] );
 		self::write_status( $event_id, $meta, 'creating' );
 
-		// Delegate to legacy function if available (it handles AI parse + WC ops).
-		if ( function_exists( 'twf_handle_create_order_ai_flow' ) ) {
-			$synthetic_message = [ 'text' => $user_input ];
-			twf_handle_create_order_ai_flow( $synthetic_message, $chat_id );
-
-			// Legacy function sends its own reply; mark as created.
-			$cron->note_event( 'woo_order_create_ok', [ 'event_id' => $event_id ] );
-			self::write_status( $event_id, $meta, 'created' );
-			return;
-		}
-
-		// Fallback: parse via legacy AI helper if not loaded inline.
-		$api_key = get_option( 'twf_openai_api_key' );
-		if ( ! $api_key || ! function_exists( 'twf_parse_order_info_ai' ) ) {
+		// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R6 — the legacy delegate twf_handle_create_order_ai_flow() and the
+		// parser twf_parse_order_info_ai() (direct OpenAI key twf_openai_api_key, an R-GW violation) were archived with
+		// core/helper-legacy, which left this event type a dead end. The order text is now parsed through the LLM gateway.
+		$ai_data = self::parse_order_ai( $user_input );
+		if ( is_wp_error( $ai_data ) ) {
 			$cron->note_event( 'woo_order_create_failed', [
 				'event_id' => $event_id,
-				'reason'   => 'invalid_param',
-				'error'    => 'AI parser not available (legacy_orders.php not loaded)',
+				'reason'   => 'provider_error',
+				'error'    => $ai_data->get_error_code(),
 			] );
 			self::write_status( $event_id, $meta, 'failed',
-				[ 'woo_order_error' => 'twf_parse_order_info_ai() not available' ] );
+				[ 'woo_order_error' => $ai_data->get_error_code() ] );
 			if ( $chat_id ) {
-				bizcity_channel_send( $chat_id, '❌ Không thể tạo đơn: thiếu bộ xử lý AI.' );
+				bizcity_channel_send( $chat_id, '❌ Không thể tạo đơn: AI chưa đọc được nội dung đơn (' . $ai_data->get_error_code() . '). Vui lòng tạo đơn trong CRM.' );
 			}
 			return;
 		}
-
-		$ai_data = twf_parse_order_info_ai( $api_key, $user_input );
 		if ( empty( $ai_data['products'] ) ) {
 			$cron->note_event( 'woo_order_create_failed', [
 				'event_id' => $event_id,
@@ -177,6 +168,72 @@ class BizCity_Woo_Order_Handler {
 			$link = get_home_url() . '/pos-screen-print/?order_id=' . $order_id;
 			bizcity_channel_send( $chat_id, "✅ Đã tạo đơn hàng #{$order_id}\n👉 {$link}" );
 		}
+	}
+
+	// ── AI order parser (through the LLM gateway, R-GW) ────────────────
+
+	/** @var callable|null Test seam: replaces BizCity_LLM_Client::chat() (messages, options) => array. */
+	public static $llm = null;
+
+	/**
+	 * Parse free-text order input into the order array the creator below consumes.
+	 *
+	 * [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R6 — replaces the archived twf_parse_order_info_ai(); same prompt
+	 * shape and output keys (customer, products[identity, qty, price], payment_method, shipping_cost, discount,
+	 * coupon_code, order_note). An empty `products` list is returned as-is (the caller reports it).
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function parse_order_ai( string $user_input ) {
+		$prompt = "Phân tích đoạn văn sau ra dữ liệu đơn hàng WooCommerce. Trả về đúng một JSON theo mẫu:\n"
+			. "{\n"
+			. "  \"customer\": { \"name\": \"Tên khách hàng\", \"phone\": \"SĐT khách\", \"email\": \"Email (nếu có)\", \"address\": \"Địa chỉ giao\" },\n"
+			. "  \"products\": [ { \"identity\": \"Tên hoặc mã sản phẩm\", \"qty\": 1, \"price\": null } ],\n"
+			. "  \"payment_method\": \"chuyển khoản hoặc COD\",\n"
+			. "  \"shipping_cost\": 0,\n"
+			. "  \"discount\": 0,\n"
+			. "  \"coupon_code\": \"\",\n"
+			. "  \"order_note\": \"\"\n"
+			. "}\n"
+			. "Quy ước: 1 suất / 1 set = qty 1; '30k' = 30000. Không bịa sản phẩm không có trong đoạn văn.\n"
+			. "ĐOẠN ĐẦU VÀO:\n-----\n" . $user_input . "\n-----\nChỉ trả lời một JSON duy nhất.";
+
+		$messages = array( array( 'role' => 'user', 'content' => $prompt ) );
+		$opts     = array( 'purpose' => 'woo_order_parse', 'temperature' => 0, 'max_tokens' => 800, 'timeout' => 30 );
+
+		if ( is_callable( self::$llm ) ) {
+			$res = call_user_func( self::$llm, $messages, $opts );
+		} elseif ( class_exists( 'BizCity_LLM_Client' ) ) {
+			try {
+				$res = BizCity_LLM_Client::instance()->chat( $messages, $opts );
+			} catch ( \Throwable $e ) {
+				return new WP_Error( 'llm_exception', $e->getMessage() );
+			}
+		} else {
+			return new WP_Error( 'llm_unavailable', 'BizCity_LLM_Client is not loaded.' );
+		}
+
+		if ( ! is_array( $res ) || empty( $res['success'] ) ) {
+			$code = is_array( $res ) && ! empty( $res['error'] ) ? sanitize_key( (string) $res['error'] ) : 'llm_failed';
+			return new WP_Error( $code !== '' ? $code : 'llm_failed', 'LLM gateway call failed.' );
+		}
+
+		$json = trim( (string) ( $res['message'] ?? '' ) );
+		$json = trim( preg_replace( '/^```(?:json)?|```$/m', '', $json ) );
+		if ( ( $pos = strpos( $json, '{' ) ) !== false ) {
+			$json = substr( $json, $pos );
+		}
+		if ( ( $pos = strrpos( $json, '}' ) ) !== false ) {
+			$json = substr( $json, 0, $pos + 1 );
+		}
+		$data = json_decode( $json, true );
+		if ( ! is_array( $data ) ) {
+			return new WP_Error( 'parse_failed', 'LLM reply is not JSON.' );
+		}
+
+		$data['products'] = isset( $data['products'] ) && is_array( $data['products'] ) ? array_values( array_filter( $data['products'], 'is_array' ) ) : array();
+		$data['customer'] = isset( $data['customer'] ) && is_array( $data['customer'] ) ? $data['customer'] : array();
+		return $data;
 	}
 
 	// ── Helpers ────────────────────────────────────────────────────────

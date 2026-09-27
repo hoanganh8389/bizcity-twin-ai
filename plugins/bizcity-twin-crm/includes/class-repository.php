@@ -1241,6 +1241,24 @@ class BizCity_CRM_Repository {
 		if ( isset( $args['thread_kind'] ) && in_array( (string) $args['thread_kind'], array( 'group', 'personal' ), true ) ) {
 			$where[] = 'group' === (string) $args['thread_kind'] ? "ci.source_id LIKE 'group:%'" : "ci.source_id NOT LIKE 'group:%'";
 		}
+		// [2026-09-25 PHASE-0.63C GC-21] Filter by the contact's ROLE (a `role:<slug>` entry in contacts.tags_json — the same
+		// namespace Contact_Roles writes) and by the pipeline KIND the contact currently has an open run in. Both are
+		// pushed into SQL: the stage filter has to over-fetch and trim in PHP, these do not. 'none' = "Chưa phân vai".
+		if ( ! empty( $args['role'] ) ) {
+			$role = (string) $args['role'];
+			if ( 'none' === $role ) {
+				$where[]  = '(ct.tags_json IS NULL OR ct.tags_json NOT LIKE %s)';
+				$params[] = '%"role:%';
+			} elseif ( preg_match( '/^[a-z][a-z0-9_-]{0,31}$/', $role ) ) {
+				$where[]  = 'ct.tags_json LIKE %s';
+				$params[] = '%' . $wpdb->esc_like( '"role:' . $role . '"' ) . '%';
+			}
+		}
+		if ( ! empty( $args['pipeline_kind'] ) && preg_match( '/^[a-z][a-z0-9_-]{0,31}$/', (string) $args['pipeline_kind'] ) ) {
+			// idx_contact_kind (contact_id, pipeline_kind) backs this probe.
+			$where[]  = 'EXISTS ( SELECT 1 FROM ' . BizCity_CRM_DB_Installer_V2::tbl_crm_opportunities() . " po WHERE po.contact_id = ct.id AND po.pipeline_kind = %s AND po.status = 'open' AND po.deleted_at IS NULL )";
+			$params[] = (string) $args['pipeline_kind'];
+		}
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-2 §4.2 — Bot Studio Sessions projection filters.
 		// `conversations.account_id`/`character_id` already exist on the row (set at ingest time);
 		// this just exposes them as filter predicates alongside the ones already here.
@@ -2305,6 +2323,47 @@ class BizCity_CRM_Repository {
 		$prepared = $params ? $wpdb->prepare( $sql, $params ) : $sql;
 		$row      = $wpdb->get_row( $prepared, ARRAY_A );
 		return md5( (string) wp_json_encode( array( is_array( $row ) ? array_values( $row ) : array(), $args ) ) );
+	}
+
+	/**
+	 * Conversation counts per contact role, for the Inbox "Vai:" chips (PHASE-0.63C GC-21.4) — so a lead sees how many
+	 * threads are still "Chưa phân vai" without clicking through. One statement, the SAME WHERE the list uses
+	 * (build_conversation_where), minus the role filter itself, so a chip's number is what its click will list.
+	 * A thread of a contact with two roles counts under both; `total` counts each thread once.
+	 *
+	 * @param array $args Same filter args as list_conversations() (status, inbox_ids, thread_kind, …); `role` is ignored.
+	 * @return array<string,int> `total`, `none` and one key per catalog role.
+	 */
+	public static function count_conversations_by_role( array $args ): array {
+		global $wpdb;
+		$args  = array_diff_key( $args, array_flip( array( 'role', 'limit', 'before_id' ) ) );
+		$roles = class_exists( 'BizCity_CRM_Contact_Roles' ) ? array_keys( BizCity_CRM_Contact_Roles::CATALOG ) : array();
+		$selects = array( 'COUNT(*) AS total', 'COALESCE(SUM(ct.tags_json IS NULL OR ct.tags_json NOT LIKE %s), 0) AS none' );
+		$sel_p   = array( '%"role:%' );
+		foreach ( $roles as $slug ) {
+			$selects[] = 'COALESCE(SUM(ct.tags_json LIKE %s), 0) AS r_' . preg_replace( '/[^a-z0-9_]/', '_', $slug );
+			$sel_p[]   = '%' . $wpdb->esc_like( '"role:' . $slug . '"' ) . '%';
+		}
+		list( $where, $params ) = self::build_conversation_where( $args );
+		$tbl_conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$tbl_ct   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$tbl_msg  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+		$sql = 'SELECT ' . implode( ', ', $selects ) . "
+				FROM {$tbl_conv} c
+				LEFT JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+				LEFT JOIN {$tbl_ibx} i ON i.id = c.inbox_id
+				LEFT JOIN {$tbl_ct} ct ON ct.id = ci.contact_id
+				LEFT JOIN {$tbl_msg} m ON m.id = c.last_message_id
+				WHERE " . implode( ' AND ', $where );
+		$row = $wpdb->get_row( $wpdb->prepare( $sql, array_merge( $sel_p, $params ) ), ARRAY_A );
+		$row = is_array( $row ) ? $row : array();
+		$out = array( 'total' => (int) ( $row['total'] ?? 0 ), 'none' => (int) ( $row['none'] ?? 0 ) );
+		foreach ( $roles as $slug ) {
+			$out[ $slug ] = (int) ( $row[ 'r_' . preg_replace( '/[^a-z0-9_]/', '_', $slug ) ] ?? 0 );
+		}
+		return $out;
 	}
 
 	/**

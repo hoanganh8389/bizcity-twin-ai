@@ -71,11 +71,20 @@ final class BizCity_Bot_Zalo_Actions {
 		);
 	}
 
-	/** Catalog rows for BizCity_Bot_Tool_Registry::rows(); status from the bridge capability list. */
-	public static function catalog_rows(): array {
+	/**
+	 * Catalog rows for BizCity_Bot_Tool_Registry::rows(); status from the bridge capability list.
+	 *
+	 * @param string $account_id [2026-09-27 Claude Sonnet 5] PHASE-0.80 — optional bridge_account_id of the
+	 *   ONE number this catalog is being shown for (e.g. CRM's "Bot trả lời…" sheet, which always has exactly
+	 *   one number in scope). When given, `check()` can tell a zca account from a zalo-hub one and say so
+	 *   plainly instead of always blaming the site's own zca-bridge sidecar. Empty = Guru-level catalog with
+	 *   no single number in view (e.g. the Gateway's multi-account Zalo Cá nhân panel) — every hint below then
+	 *   says its scope explicitly instead of implying it applies to every number.
+	 */
+	public static function catalog_rows( string $account_id = '' ): array {
 		$out = array();
 		foreach ( self::tools() as $id => $def ) {
-			list( $status, $hint ) = self::check( $id );
+			list( $status, $hint ) = self::check( $id, $account_id );
 			$who   = $def['owner'] ? 'chỉ chủ tài khoản (owner UID)' : 'mọi người bot đang phục vụ';
 			$where = 'group' === $def['scope'] ? 'chỉ trong nhóm' : 'chat riêng và nhóm';
 			$out[] = array(
@@ -92,8 +101,12 @@ final class BizCity_Bot_Zalo_Actions {
 		return $out;
 	}
 
-	/** @return array{0:string,1:string} [status, hint] */
-	public static function check( string $tool_id ): array {
+	/**
+	 * @param string $account_id see catalog_rows() docblock — when known, lets this tell a zca account from
+	 *   a zalo-hub one instead of always speaking as if the site's local zca-bridge is the only backend.
+	 * @return array{0:string,1:string} [status, hint]
+	 */
+	public static function check( string $tool_id, string $account_id = '' ): array {
 		$tools = self::tools();
 		if ( ! isset( $tools[ $tool_id ] ) ) {
 			return array( BizCity_Bot_Tool_Registry::STATUS_UNCONFIGURED, 'Công cụ không có trong danh mục.' );
@@ -103,12 +116,23 @@ final class BizCity_Bot_Zalo_Actions {
 				? array( BizCity_Bot_Tool_Registry::STATUS_AVAILABLE, 'Chỉ có trong nhóm. Đọc danh sách thành viên qua route group-members đã có.' )
 				: array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, 'Bridge Zalo Personal chưa nạp.' );
 		}
+		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 — these tools only ever call the site's OWN zca-bridge
+		// (run() below: BizCity_Zalo_Bridge_Client::instance()->run_action(), the local zca sidecar). A
+		// zalo-hub-provider number's turns never reach this PHP class at all (the CELL answers those — see
+		// class-guru-context-resolver.php's header). So for a zalo-hub number this is not "chưa cấu hình" /
+		// "cần build sidecar" (nothing is missing or broken) — it genuinely does not exist for that provider
+		// yet. Say that plainly instead of pointing at a zca fix that would not do anything.
+		$provider = '' !== $account_id && class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::provider( $account_id ) : '';
+		if ( 'zalo_hub' === $provider ) {
+			return array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, 'Số này đang chạy zalo-hub — nhóm công cụ hành động Zalo (kick, bổ nhiệm, bình chọn, đổi tên nhóm…) hiện CHƯA phát triển cho zalo-hub, chỉ có ở zca-bridge (legacy). Không phải do thiếu cấu hình hay cần build lại — cần làm thêm mã cho zalo-hub trước.' );
+		}
+		$scope_suffix = '' === $account_id ? ' (chỉ áp dụng cho số chạy zca-bridge; xem đúng theo từng số ở "Bot trả lời…").' : '';
 		$caps = self::supported_actions();
 		if ( null === $caps ) {
-			return array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, 'Không đọc được danh sách hành động từ zca-bridge (bridge < 0.40.0, chưa cấu hình, hoặc chế độ managed chưa hỗ trợ). Cần build + deploy lại sidecar 0.40.0.' );
+			return array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, 'Không đọc được danh sách hành động từ zca-bridge (bridge < 0.40.0, chưa cấu hình, hoặc chế độ managed chưa hỗ trợ). Cần build + deploy lại sidecar 0.40.0.' . $scope_suffix );
 		}
 		if ( ! in_array( $tools[ $tool_id ]['action'], $caps, true ) ) {
-			return array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, 'Sidecar đang chạy chưa hỗ trợ hành động "' . $tools[ $tool_id ]['action'] . '" — cần bản zca-bridge mới hơn.' );
+			return array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, 'Sidecar đang chạy chưa hỗ trợ hành động "' . $tools[ $tool_id ]['action'] . '" — cần bản zca-bridge mới hơn.' . $scope_suffix );
 		}
 		$hint = $tools[ $tool_id ]['owner']
 			? 'Chỉ chạy khi người nhắn trùng UID chủ tài khoản đã cấu hình ở chính sách số (để trống = khóa).'

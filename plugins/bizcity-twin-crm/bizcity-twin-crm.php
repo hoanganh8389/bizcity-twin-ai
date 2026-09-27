@@ -43,7 +43,7 @@ if ( ! defined( 'BIZCITY_CRM_FILE' ) )       { define( 'BIZCITY_CRM_FILE', __FIL
 if ( ! defined( 'BIZCITY_CRM_DIR' ) )        { define( 'BIZCITY_CRM_DIR', __DIR__ ); }
 if ( ! defined( 'BIZCITY_CRM_URL' ) )        { define( 'BIZCITY_CRM_URL', plugins_url( '', __FILE__ ) ); }
 if ( ! defined( 'BIZCITY_CRM_REST_NS' ) )    { define( 'BIZCITY_CRM_REST_NS', 'bizcity-crm/v1' ); }
-if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.37.0' ); } // [2026-09-23] PHASE-0.71 F71-13 — bizcity_crm_documents.message_id (was 1.36.0: PHASE-0.60B contacts.birthday + birthday_md)
+if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.38.0' ); } // [2026-09-25] PHASE-0.63C GC-25.1 — opportunities.stage_entered_at (was 1.37.0: [2026-09-23] PHASE-0.71 F71-13 — bizcity_crm_documents.message_id (was 1.36.0: PHASE-0.60B contacts.birthday + birthday_md)
 
 require_once __DIR__ . '/bootstrap.php';
 

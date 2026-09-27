@@ -99,6 +99,25 @@ class BizCity_Intent_Database {
         return $this->table_todos;
     }
 
+    /**
+     * [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b (R-INTENT-MIN R-IM-4, PHASE-1.30 §0.2.27) — the intent
+     * state tables (conversations, turns, todos) are in the draining cohort: writes and installs are refused,
+     * reads of existing rows stay available until the drop gates close. Fail-closed when the policy is absent.
+     *
+     * @param string $table     Physical table name.
+     * @param string $operation read|write
+     * @return bool
+     */
+    private function state_sql_allowed( $table, $operation ) {
+        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::allow_sql( $table, $operation ) ) {
+            return false;
+        }
+        if ( 'read' === $operation && function_exists( 'bizcity_table_exists' ) ) {
+            return (bool) bizcity_table_exists( $table );
+        }
+        return true;
+    }
+
     const PROMPT_LOGS_RETENTION_HOOK  = 'bizcity_intent_prompt_logs_retention';
     const PROMPT_LOGS_RETENTION_DAYS  = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep prompt telemetry for one week.
     const PROMPT_LOGS_RETENTION_BATCH = 500;
@@ -140,6 +159,16 @@ class BizCity_Intent_Database {
     public function maybe_create_tables() {
         $option_key = 'bizcity_intent_db_version';
         $current    = get_option( $option_key, '0' );
+
+        // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — conversations / turns / todos are no longer
+        // provisioned or migrated (draining cohort). [2026-09-25 Claude Opus 5.5] WP-11 C5 — the classify cache is retired
+        // too, so nothing is provisioned here; the version is only stamped once so the block is not re-run every request.
+        if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || BizCity_Legacy_Table_Policy::install_blocked( $this->table_conversations ) ) {
+            if ( version_compare( $current, BIZCITY_INTENT_VERSION, '<' ) ) {
+                update_option( $option_key, BIZCITY_INTENT_VERSION );
+            }
+            return;
+        }
 
         if ( version_compare( $current, BIZCITY_INTENT_VERSION, '>=' ) ) {
             // On multisite, the version option may exist while the physical table is absent
@@ -376,10 +405,7 @@ class BizCity_Intent_Database {
             $this->wpdb->query( "ALTER TABLE {$this->table_conversations} ADD COLUMN session_memory_spec LONGTEXT DEFAULT NULL AFTER context_snapshot" );
         }
 
-        // ── Classification Cache table ──
-        if ( class_exists( 'BizCity_Intent_Classify_Cache' ) ) {
-            BizCity_Intent_Classify_Cache::instance()->maybe_create_table();
-        }
+        // [2026-09-25 Claude Opus 5.5] WP-11 C5 — the SQL classification cache (bizcity_intent_classify_cache) is retired.
 
         // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — pipeline SQL log
         // provisioning retired; evidence is written to JSONL only.
@@ -398,6 +424,7 @@ class BizCity_Intent_Database {
      * @return string|false conversation_id or false
      */
     public function insert_conversation( array $data ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'write' ) ) { return false; }
         $conversation_id = $data['conversation_id'] ?? $this->generate_conversation_id();
 
         $inserted = $this->wpdb->insert( $this->table_conversations, [
@@ -427,6 +454,7 @@ class BizCity_Intent_Database {
      * @return object|null
      */
     public function get_conversation( $conversation_id ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'read' ) ) { return null; }
         return $this->wpdb->get_row( $this->wpdb->prepare(
             "SELECT * FROM {$this->table_conversations} WHERE conversation_id = %s",
             $conversation_id
@@ -442,6 +470,7 @@ class BizCity_Intent_Database {
      * @return object|null
      */
     public function find_active_conversation( $user_id, $channel = 'webchat', $session_id = '' ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'read' ) ) { return null; }
         $where_parts = [ "status IN ('ACTIVE', 'WAITING_USER')" ];
         $params      = [];
 
@@ -479,6 +508,7 @@ class BizCity_Intent_Database {
      * @return bool
      */
     public function update_conversation( $conversation_id, array $data ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'write' ) ) { return false; }
         $update = [];
         $format = [];
 
@@ -526,6 +556,7 @@ class BizCity_Intent_Database {
      * Expire stale conversations (> 30 min inactive).
      */
     public function expire_stale() {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'write' ) ) { return; }
         // Safety guard: skip if table doesn't exist yet on this blog (multisite shard).
         // Cached qua `bizcity_known_tables`.
         if ( function_exists( 'bizcity_table_exists' ) ) {
@@ -556,6 +587,7 @@ class BizCity_Intent_Database {
      * @return object|null
      */
     public function find_expired_conversation( $user_id, $channel, $session_id ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'read' ) ) { return null; }
         $where = "status IN ('EXPIRED','CLOSED') AND goal != '' AND last_activity_at > DATE_SUB(NOW(), INTERVAL 2 HOUR)";
         $params = [];
 
@@ -591,6 +623,7 @@ class BizCity_Intent_Database {
      * @return object|null
      */
     public function find_recently_completed_conversation( $user_id, $channel, $session_id ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'read' ) ) { return null; }
         $where  = "status = 'COMPLETED' AND goal != '' AND completed_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE)";
         $params = [];
 
@@ -624,6 +657,7 @@ class BizCity_Intent_Database {
      * @return int|false Turn ID or false.
      */
     public function insert_turn( array $data ) {
+        if ( ! $this->state_sql_allowed( $this->table_turns, 'write' ) ) { return false; }
         $inserted = $this->wpdb->insert( $this->table_turns, [
             'conversation_id' => $data['conversation_id'] ?? '',
             'turn_index'      => intval( $data['turn_index'] ?? 0 ),
@@ -647,6 +681,7 @@ class BizCity_Intent_Database {
      * @return array
      */
     public function get_turns( $conversation_id, $limit = 50 ) {
+        if ( ! $this->state_sql_allowed( $this->table_turns, 'read' ) ) { return []; }
         return $this->wpdb->get_results( $this->wpdb->prepare(
             "SELECT * FROM {$this->table_turns}
              WHERE conversation_id = %s
@@ -664,6 +699,7 @@ class BizCity_Intent_Database {
      * @return int
      */
     public function count_turns( $conversation_id ) {
+        if ( ! $this->state_sql_allowed( $this->table_turns, 'read' ) ) { return 0; }
         return (int) $this->wpdb->get_var( $this->wpdb->prepare(
             "SELECT COUNT(*) FROM {$this->table_turns} WHERE conversation_id = %s",
             $conversation_id
@@ -684,6 +720,7 @@ class BizCity_Intent_Database {
      * @return array
      */
     public function get_conversations_for_user( $user_id, $channel = '', $session_id = '', $limit = 30, $project_id = null ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'read' ) ) { return []; }
         $where_parts = [];
         $params      = [];
 
@@ -731,6 +768,7 @@ class BizCity_Intent_Database {
      * @return string
      */
     public function get_first_user_message( $conversation_id ) {
+        if ( ! $this->state_sql_allowed( $this->table_turns, 'read' ) ) { return ''; }
         $content = $this->wpdb->get_var( $this->wpdb->prepare(
             "SELECT content FROM {$this->table_turns}
              WHERE conversation_id = %s AND role = 'user'
@@ -749,6 +787,7 @@ class BizCity_Intent_Database {
      * @return bool
      */
     public function update_conversation_project( $conversation_id, $project_id ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'write' ) ) { return false; }
         return (bool) $this->wpdb->update(
             $this->table_conversations,
             [ 'project_id' => $project_id ],
@@ -767,6 +806,7 @@ class BizCity_Intent_Database {
      * @return int Number of rows affected.
      */
     public function close_all_for_user( $user_id, $channel = '', $session_id = '' ) {
+        if ( ! $this->state_sql_allowed( $this->table_conversations, 'write' ) ) { return 0; }
         $where_parts = [ "status IN ('ACTIVE','WAITING_USER')" ];
         $params      = [];
 

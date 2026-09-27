@@ -28,7 +28,8 @@ final class BizCity_CRM_Contact_Roles {
 	 * pipeline kinds usually fit that role; nothing here restricts what a lead may open.
 	 */
 	const CATALOG = array(
-		'customer'  => array( 'label' => 'Khách hàng',   'kinds' => array( 'service' ) ),
+		// [2026-09-25 PHASE-0.63C GC-17] sales_deal first: a customer is first of all someone we sell to (D63C-2 = A, alongside the legacy sales rail).
+		'customer'  => array( 'label' => 'Khách hàng',   'kinds' => array( 'sales_deal', 'service' ) ),
 		'supplier'  => array( 'label' => 'Nhà cung cấp', 'kinds' => array( 'purchase' ) ),
 		'colleague' => array( 'label' => 'Đồng nghiệp',  'kinds' => array( 'request' ) ),
 		'workshop'  => array( 'label' => 'Xưởng / sản xuất', 'kinds' => array( 'production' ) ),

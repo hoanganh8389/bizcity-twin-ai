@@ -1260,8 +1260,53 @@ class BizCity_CRM_DB_Installer_V2 {
 		// [2026-09-23] PHASE-0.71 F71-13 / 0.63C GC-9 — bizcity_crm_documents.message_id, the
 		// back-pointer a pipeline-linked document needs to its source Zalo/channel message.
 		self::migrate_phase_071();
+		// [2026-09-25] PHASE-0.63C GC-25.1 — opportunities.stage_entered_at, the clock "stuck in this stage" and the kind board read.
+		self::migrate_phase_063c();
 
 		update_option( self::DB_VERSION_OPTION, BIZCITY_CRM_DB_VERSION );
+	}
+
+	/**
+	 * PHASE-0.63C GC-25.1 — `opportunities.stage_entered_at` (v1.38.0).
+	 *
+	 * "Stuck in this stage" and "hours in stage" need the moment a run ENTERED its current stage. Until now that
+	 * lived only in `custom_json.stage_at` (not groupable, not comparable in SQL), and `updated_at` cannot stand in
+	 * for it: it moves on every write, including ticking a sub-step. `Pipeline_Run_Service::write_row()` stamps this
+	 * column only when `stage` really changes.
+	 *
+	 * ADD-only and idempotent. The backfill only copies a moment the run itself recorded (`custom_json.stage_at`,
+	 * written by every transition since PHASE-0.63A) — a row without one stays NULL rather than being given an invented
+	 * history. It is bounded (one batch of 500 provable rows per upgrade request), so a web request never walks the
+	 * whole table. Readers use COALESCE(stage_entered_at, updated_at), which is a read-side fallback, not a written
+	 * fact. R-DCL: modules.twin-crm.json v1.38.0.
+	 */
+	public static function migrate_phase_063c(): void {
+		global $wpdb;
+		$opps = self::tbl_crm_opportunities();
+		if ( ! self::column_exists( $opps, 'stage_entered_at' ) ) {
+			$wpdb->query( "ALTER TABLE `{$opps}` ADD COLUMN stage_entered_at DATETIME NULL AFTER pipeline_def_version" );
+		}
+		if ( ! self::index_exists( $opps, 'idx_kind_stage_at' ) ) {
+			$wpdb->query( "ALTER TABLE `{$opps}` ADD KEY idx_kind_stage_at (pipeline_kind, stage, stage_entered_at)" );
+		}
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $opps );
+		}
+		if ( function_exists( 'bizcity_column_invalidate' ) ) {
+			bizcity_column_invalidate( $opps, 'stage_entered_at' );
+		}
+		if ( ! self::column_exists( $opps, 'stage_entered_at' ) ) {
+			return;
+		}
+		// Only rows that PROVE their stage entry: registry runs (not the legacy 'sales' default) that carry custom_json.stage_at.
+		// stage_at is written from current_time('timestamp') — already site-local — so gmdate() of it IS the local wall time
+		// (adding gmt_offset again would shift it twice).
+		$rows = $wpdb->get_results( "SELECT id, custom_json FROM `{$opps}` WHERE pipeline_kind <> 'sales' AND status = 'open' AND stage_entered_at IS NULL AND deleted_at IS NULL AND custom_json LIKE '%\"stage_at\"%' ORDER BY id ASC LIMIT 500", ARRAY_A );
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$custom = json_decode( (string) ( $row['custom_json'] ?? '' ), true );
+			if ( ! is_array( $custom ) || empty( $custom['stage_at'] ) || ! is_numeric( $custom['stage_at'] ) ) { continue; }
+			$wpdb->update( $opps, array( 'stage_entered_at' => gmdate( 'Y-m-d H:i:s', (int) $custom['stage_at'] ) ), array( 'id' => (int) $row['id'] ) );
+		}
 	}
 
 	/**

@@ -302,12 +302,8 @@ class BizCity_Gateway_Bridge {
 			$compat_trigger['wp_user_id'] = (int) $trigger['wp_user_id'];
 		}
 
-		if ( function_exists( 'bizcity_aiwu_fire_twf_process_flow' ) ) {
-			// [2026-07-31 Johnny Chu] R-CH-NS — legacy dispatcher has a mixed return contract; normalize it before this bool method returns.
-			$result = bizcity_aiwu_fire_twf_process_flow( $compat_trigger, $raw, 'waic_twf_process_flow' );
-			return ! is_wp_error( $result ) && false !== $result;
-		}
-
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R10 — AIWU bridge branch removed: bizcity_aiwu_fire_twf_process_flow() was
+		// archived with bizcity-zalo-bizcity (R8) and re-emitted bizcity_channel_message_received, which handle_inbound() already emits.
 		do_action( 'waic_twf_process_flow', $compat_trigger, $raw );
 		return (int) has_action( 'waic_twf_process_flow' ) > 0;
 	}

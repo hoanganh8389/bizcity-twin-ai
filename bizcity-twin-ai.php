@@ -331,7 +331,6 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
         || ( defined( 'WP_CLI' ) && WP_CLI )
         || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/wp-json/' )
-        || false !== strpos( $bizcity_llm_bootstrap_uri, '/bizhook/' )
         // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — load the gateway client for the canonical central Facebook endpoint.
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/facehook/' )
         // [2026-08-13 Johnny Chu] HOTFIX-ZALO-LLM-LOADER — the Zalo Bot rewrite is /zalohook/, so load the gateway client before TwinBrain synthesis.
@@ -370,7 +369,6 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 			! empty( $_SERVER['REQUEST_URI'] )
 			&& (
 				false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
-				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
                 // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — keep the canonical /facehook/ request inside the backend gate.
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/facehook/' )
@@ -426,8 +424,9 @@ if ( $_bizcity_twinchat_admin_shell_request ) {
 }
 
 // [2026-07-14 Johnny Chu] PHASE-0.43 — shared local-document search for TwinChat, TwinWeb and future surfaces.
-if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/twinsearch/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/twinsearch/bootstrap.php';
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13b — the shared document-search engine now lives in core/kg-hub (same gate).
+if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/kg-hub/includes/class-twinsearch-core.php' ) ) {
+    require_once __DIR__ . '/core/kg-hub/includes/class-twinsearch-core.php';
 }
 
 // [2026-06-11 Johnny Chu] PERF-CRON-FIX — Register ALL custom cron schedule NAMES
@@ -475,6 +474,18 @@ add_filter( 'cron_schedules', function ( $schedules ) {
 	return $schedules;
 }, 1 );
 
+// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 — the handlers of these events were archived with
+// core/content-ops, core/tools and core/helper-legacy. Clear them once per blog so WP-Cron stops firing no-ops.
+add_action( 'admin_init', static function () {
+	if ( get_option( 'bizcity_wp12_retired_cron_cleared' ) ) {
+		return;
+	}
+	foreach ( array( 'bizcity_content_scheduler_tick', 'bizcity_output_store_cleanup', 'twf_check_biztask_reminder' ) as $bizcity_retired_hook ) {
+		wp_clear_scheduled_hook( $bizcity_retired_hook );
+	}
+	update_option( 'bizcity_wp12_retired_cron_cleared', 1, false );
+} );
+
 // [2026-06-09 Johnny Chu] PERF-1 — Define admin/REST/webhook context gate EARLY.
 // Must be before core/intent/bootstrap.php because that fires bizcity_intent_register_providers
 // at load time (not lazy), triggering provider callbacks like bzcc_get_intent_plans()
@@ -489,7 +500,6 @@ $_bizcity_admin_ctx =
         ! empty( $_SERVER['REQUEST_URI'] )
         && (
             false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )       // REST API
-            || false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )    // Zalo webhook (/bizhook/)
             // [2026-06-09 Johnny Chu] R-CG-FB-WEBHOOK — FB Messenger webhook arrives at ?fbhook=1
             // (legacy query-string) or /bizfbhook/ (pretty URL rewrite). Without these patterns
             // core/channel-gateway (and thus BizCity_CG_Debug_Logger) would NOT load during FB
@@ -533,8 +543,10 @@ $_bizcity_admin_ctx =
     );
 
 // [2026-08-22 Johnny Chu] PHASE-TBP-6.3 — Profile Care/Public editor needs the owner-scoped Zalo Personal mapping contract.
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13e — the standalone /profile* routes retired with plugins/bizcity-profile;
+// the TwinWeb Profile Care/Public pages live under /gpt/ and still match.
 $_bizcity_zalo_personal_public_request = ! empty( $_SERVER['REQUEST_URI'] )
-    && preg_match( '#/(?:gpt|profile|profile-care|profile-public)(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+    && preg_match( '#/gpt(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
 
 // [2026-08-07 Johnny Chu] R-PERF - the TwinChat admin shell does not need every backend/admin module in its HTML request.
 $_bizcity_twinchat_admin_page = is_admin()
@@ -674,9 +686,10 @@ if ( file_exists( $_bzc_tracking_file ) && ! class_exists( 'BizCity_Tracking_Cod
 }
 unset( $_bzc_tracking_file );
 
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R10 — /bizhook/ (Zalo Hotline webhook, retired in R8) removed from the backend, LLM and automation gates.
 // [2026-06-09 Johnny Chu] PERF-2 — channel-gateway: webhook routing + channel admin UI.
 // Not needed on plain frontend HTML renders — twinchat has its own REST routes.
-// Still loads on: REST (/wp-json/), /bizhook/ webhooks, wp-admin, cron, WP-CLI, /tool-* pages.
+// Still loads on: REST (/wp-json/), channel webhooks (/zalohook/, /facehook/, /bizfbhook/), wp-admin, cron, WP-CLI, /tool-* pages.
 if ( ( $_bizcity_admin_ctx || $_bizcity_zalo_personal_public_request ) && ! $_bizcity_twinchat_admin_page ) {
     require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
 }
@@ -695,7 +708,7 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DI
 //   b) REST API requests (REQUEST_URI contains /wp-json/)
 //   c) WP-Cron execution (DOING_CRON)
 //   d) WP-CLI (WP_CLI)
-//   e) Channel webhooks (REQUEST_URI contains /bizhook/)
+//   e) Channel webhooks (/zalohook/, /facehook/, /bizfbhook/)
 // Skipping on frontend saves ~8-12 MB RAM + ~200-400ms startup per request.
 // PHP 7.4 compat: no nullsafe, no union types, no str_contains.
 // NOTE: $_bizcity_admin_ctx already defined above (early gate for intent bootstrap).
@@ -720,7 +733,6 @@ $_bizcity_automation_runtime_request =
     || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
     || false !== strpos( $_bizcity_automation_uri, '/wp-json/bizcity-automation/' )
     || preg_match( '#^/flow(?:/|\?|$)#', $_bizcity_automation_uri )
-    || false !== strpos( $_bizcity_automation_uri, '/bizhook/' )
     || false !== strpos( $_bizcity_automation_uri, '/bizfbhook' )
     // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — load automation dependencies for central Facebook dispatch.
     || false !== strpos( $_bizcity_automation_uri, '/facehook/' )
@@ -732,23 +744,11 @@ if ( $_bizcity_automation_runtime_request
     require_once __DIR__ . '/core/automation/bootstrap.php';
 }
 unset( $_bizcity_automation_uri, $_bizcity_automation_page, $_bizcity_automation_diagnostics_page, $_bizcity_automation_runtime_request );
-// [2026-06-22 Johnny Chu] PHASE-TWINWEB — QUARANTINED: core/content-ops chưa sử dụng.
-// Uncomment khi sẵn sàng ship Content-Ops SPA (page=bizcity-content-ops).
-// Phase CO-1 — Content Ops (Layer 2: AI content + schedule + cross-channel publish)
-// if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/content-ops/bootstrap.php' ) ) {
-//     require_once __DIR__ . '/core/content-ops/bootstrap.php';
-// }
-// [2026-06-09 Johnny Chu] R-PERF — skills registers activity bar items for admin and TwinShell surfaces.
-$_bizcity_skills_public_request = ! empty( $_SERVER['REQUEST_URI'] )
-    && preg_match( '#/(?:skills|twin)(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
-if ( ( $_bizcity_admin_ctx || $_bizcity_skills_public_request )
-    && ! $_bizcity_twinchat_admin_shell_request
-    && file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/skills/bootstrap.php';
-}
-if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/tools/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/tools/bootstrap.php';
-}
+// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 — core/content-ops, core/tools, core/skills and core/helper-legacy
+// are archived under core/_archived/ and are never loaded. What stayed live moved to its owner first:
+// SMTP → core/smtp (it had been misplaced inside content-ops), Journal DB → core/kg-hub, recipe parser + slash
+// matcher → core/automation, the four send functions → core/channel-gateway/legacy/legacy-send-functions.php.
+// See core/knowledge/docs/CORE-REDUCTION-WP-12-ARCHIVE-CONTENT-TOOLS-SKILLS-LEGACY.md.
 // Phase 1 — Unified cron registry & observability (see core/cron/PHASE-CRON.md).
 // [2026-06-09 Johnny Chu] PERF-2 — cron registry only needed on admin/REST/cron context.
 // Always-load modules (twinchat, knowledge) use wp_schedule_event() directly without BizCity_Cron_Manager.
@@ -787,10 +787,13 @@ if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/m
 // [2026-08-09 Johnny Chu] R-PERF — agent runtime is needed by backend requests and the public TwinShell surface.
 $_bizcity_agent_public_request = ! empty( $_SERVER['REQUEST_URI'] )
     && preg_match( '#/twin(?:/|\\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+// [2026-09-27 Claude Sonnet 5] CORE-REDUCTION WP-12 R13g — core/agents migrated into core/twinbrain
+// (axis coupling: core/runtime's Twin Runner + REST controller, core/kg-hub, modules/twinweb and
+// plugins/bizcity-twin-crm all consume BizCity_Twin_Agent_Registry / BizCity_Artifact_Source_Federation).
 if ( ( $_bizcity_admin_ctx || $_bizcity_agent_public_request )
     && ! $_bizcity_twinchat_admin_shell_request
-    && file_exists( __DIR__ . '/core/agents/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/agents/bootstrap.php';
+    && file_exists( __DIR__ . '/core/twinbrain/includes/agents/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/twinbrain/includes/agents/bootstrap.php';
 }
 // [2026-08-09 Johnny Chu] R-PERF — core runtime only serves backend/REST/cron execution.
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/runtime/bootstrap.php' ) ) {
@@ -800,8 +803,9 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exi
 
 // Phase 0.18.1 — Guru Research Studio (Tavily ReAct port; multi-scope: character | user)
 // REST routes only → admin_ctx (REST gate) is sufficient; not needed on HTML renders.
-if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/research/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/research/bootstrap.php';
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13a — research now lives in modules/twinsearch/research (same gate as before).
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/modules/twinsearch/research/bootstrap.php' ) ) {
+    require_once __DIR__ . '/modules/twinsearch/research/bootstrap.php';
 }
 
 // Diagnostics (PHASE-0.36) — multisite schema audit + repair + cron hygiene.
@@ -921,11 +925,13 @@ if ( is_admin()
     }
 }
 
-// ── Legacy helpers — flow functions that automation blocks depend on ──────────
-// Loaded here so bizcity-twin-ai works standalone (without mu-plugin).
-// function_exists() guards inside prevent double-loading when mu-plugin is also active.
+// ── Legacy send primitives ───────────────────────────────────────────────────
+// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R4 — core/helper-legacy is archived (flows, Telegram admin
+// webhook, legacy CPTs, admin pages). Only biz_send_message(), twf_telegram_send_message(),
+// twf_telegram_send_photo() and bizgpt_zalo_format() are still called (some callers unguarded, e.g. the
+// bizcity-web mu-plugin; bizcity-zalo-bizcity until WP-12 R8 archived it), so they load here under the same gate as before.
 if ( ! $_bizcity_twinchat_admin_shell_request ) {
-    require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
+    require_once __DIR__ . '/core/channel-gateway/legacy/legacy-send-functions.php';
 }
 
 // ── Framework/channel bundled runtimes ───────────────────────────────────────
@@ -934,7 +940,7 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
 // utilities must be installed separately and degrade through their Pro gate.
 // Guard bằng constant riêng của mỗi plugin để tránh load trùng khi đã activate bình thường.
 $_bizcity_bundled_must_load = [
-    'bizcity-admin-hook-zalo'     => 'BIZCITY_ADMIN_ZALO_DIR',     // [2026-07-21 Johnny Chu] R-GW-8 — optional legacy Zalo Hotline adapter if deployed; not required for standalone Zalo Bot/Twin GPT.
+    // 'bizcity-admin-hook-zalo'  => 'BIZCITY_ADMIN_ZALO_DIR',     // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — Zalo Hotline (PA) admin channel retired (R-ONE-AXIS D-29); folder → plugins/_archived/bizcity-zalo-bizcity.
     'bizcity-facebook-bot'        => 'BIZCITY_FACEBOOK_BOT_VERSION', // Facebook Messenger + Page webhook (PHASE 0.31 Sprint 6 — moved from mu-plugins)
     'bizgpt-tool-google'          => 'BZGOOGLE_VERSION',           // Google Workspace tools
     // 'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // ARCHIVED 2026-05-24 → plugins/_archived/. Slug /tool-facebook/ now owned by core/channel-gateway (canonical /channel/).
@@ -952,7 +958,7 @@ $_bizcity_bundled_must_load = [
     // 'bizcity-video-kling'         => 'BIZCITY_VIDEO_KLING_VERSION', // B-roll Video — Kling/Sora/Veo3/SeeDance image-to-video via PiAPI
     'bizcity-pagebuilder'         => 'BZPB_VERSION',               // Page Builder — AI tạo website drag-and-drop, 19 block types, export HTML
     // [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — load the Profile module from its physical slug while preserving Personal identifiers.
-    'bizcity-profile'             => 'BIZCITY_PERSONAL_VERSION',    // Profile + Personal Assistant — canonical app path /profile/
+    // 'bizcity-profile'          => 'BIZCITY_PERSONAL_VERSION',    // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13e — retired (owner: deactivated, not core); folder → plugins/_archived/bizcity-profile.
 ];
 // [2026-06-09 Johnny Chu] PERF-2 — Admin-only bundled plugins (no public shortcodes, no
 // public URL patterns outside /tool-* or /kling-video/ covered by $_bizcity_admin_ctx).
@@ -962,7 +968,6 @@ $_bizcity_bundled_must_load = [
 // route, backend requests, or TwinShell only; they do not need full runtime on
 // ordinary frontend HTML.
 $_bizcity_admin_only_slugs = [
-    'bizcity-admin-hook-zalo',  // Optional legacy Zalo Hotline + /bizhook/ webhook + admin.
     'bizcity-facebook-bot',     // FB Messenger webhook + admin
     'bizcity-zalo-bot',         // Zalo Bot webhook + admin
     // [2026-06-10 Johnny Chu] PHASE-0.39 — no public shortcodes; REST at /wp-json/bizcity-channel/v1/zalo-bridge/* covered by admin_ctx gate.
@@ -970,18 +975,7 @@ $_bizcity_admin_only_slugs = [
     'bizgpt-tool-google',       // Google Tools — /tool-google/ + admin REST
     'bizcity-pagebuilder',      // /tool-pagebuilder/ is covered by admin_ctx
 ];
-// [2026-09-07 06:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.23-W6 — keep the legacy Zalo Admin Hook graph off unrelated admin/REST requests while preserving its webhook and owned admin surfaces.
-$_bizcity_zalo_admin_hook_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
-$_bizcity_zalo_admin_hook_page = is_admin()
-    && isset( $_GET['page'] )
-    && in_array( sanitize_key( (string) $_GET['page'] ), array( 'bizchat-gateway', 'zalo-users-admin', 'zalo-guider', 'zalo-video-guider' ), true );
-$_bizcity_zalo_admin_hook_surface =
-    $_bizcity_zalo_admin_hook_page
-    || ( defined( 'DOING_CRON' ) && DOING_CRON )
-    || ( defined( 'WP_CLI' ) && WP_CLI )
-    || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
-    || false !== strpos( $_bizcity_zalo_admin_hook_uri, '/bizhook/' )
-    || false !== strpos( $_bizcity_zalo_admin_hook_uri, '/wp-json/bizcity-channel/' );
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — the Zalo Admin Hook surface gate (/bizhook/, zalo-* admin pages) is gone with the Hotline channel.
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     $_bizcity_is_crm_bundle = 'bizcity-twin-crm' === $_slug;
     $_bizcity_crm_api_ready = ! $_bizcity_is_crm_bundle
@@ -1006,23 +1000,9 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         && in_array( $_slug, $_bizcity_admin_only_slugs, true ) ) {
         continue;
     }
-    if ( 'bizcity-admin-hook-zalo' === $_slug && ! $_bizcity_zalo_admin_hook_surface ) {
-        continue;
-    }
     // Guard: only load if plugin folder exists — skip gracefully if not deployed
     $_bundled_dir  = __DIR__ . '/plugins/' . $_slug;
     $_bundled_file = $_bundled_dir . '/' . $_slug . '.php';
-    // [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — bizcity-profile keeps the shipped bizcity-personal.php entrypoint for compatibility.
-    if ( 'bizcity-profile' === $_slug ) {
-        $_bundled_file = $_bundled_dir . '/bizcity-personal.php';
-    }
-    // [2026-07-26 Johnny Chu] R-GW-8 — cutover fallback: legacy slug
-    // `bizcity-admin-hook-zalo` may be deployed under
-    // `plugins/bizcity-zalo-bizcity/bizcity-admin-hook-zalo.php`.
-    if ( $_slug === 'bizcity-admin-hook-zalo' && ! file_exists( $_bundled_file ) ) {
-        $_bundled_dir  = __DIR__ . '/plugins/bizcity-zalo-bizcity';
-        $_bundled_file = $_bundled_dir . '/bizcity-admin-hook-zalo.php';
-    }
     // [2026-08-26 Johnny Chu] R-SAFE-LOADER — bundled feature artifacts are
     // optional/deployable and must not turn a partial checkout into a fatal.
     if ( is_dir( $_bundled_dir )
@@ -1043,29 +1023,20 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
                 && method_exists( 'BizCity_CRM_Admin_Menu', 'surfaces_for' ) ) {
                 return;
             }
+            // [2026-09-27] PHASE-0.80 doc 27 L-01 #5 — a partial upload made this line fire on every request (~55 lines in 2 minutes); once a minute per network is enough.
+            if ( function_exists( 'get_site_transient' ) && get_site_transient( 'bizcity_crm_bundle_not_ready_logged' ) ) {
+                return;
+            }
+            if ( function_exists( 'set_site_transient' ) ) {
+                set_site_transient( 'bizcity_crm_bundle_not_ready_logged', 1, MINUTE_IN_SECONDS );
+            }
             error_log( '[BizCity_Twin_AI] CRM mandatory bundle contract is not ready after plugins_loaded; check for a stale or partial CRM artifact set.' );
         }, 7 );
         define( 'BIZCITY_CRM_MUSTLOAD_RUNTIME_CHECK_REGISTERED', true );
     }
     unset( $_bizcity_is_crm_bundle, $_bizcity_crm_api_ready );
 }
-// [2026-08-22 Johnny Chu] PHASE-PROFILE-ROLE-SPLIT — force-load all Profile role routes even when a stale loader already defined its version constant.
-$_bizcity_profile_request_path = (string) parse_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '', PHP_URL_PATH );
-$__bizcity_profile_route_match = false;
-foreach ( array( 'profile', 'profile-care', 'profile-public' ) as $__bizcity_profile_slug ) {
-    if ( trim( $_bizcity_profile_request_path, '/' ) === trim( (string) parse_url( home_url( '/' . $__bizcity_profile_slug . '/' ), PHP_URL_PATH ), '/' ) ) {
-        $__bizcity_profile_route_match = true;
-        break;
-    }
-}
-if ( $__bizcity_profile_route_match && ! class_exists( 'BizCity_Personal_Page', false ) ) {
-    $_bizcity_profile_bootstrap = __DIR__ . '/plugins/bizcity-profile/bizcity-personal.php';
-    if ( file_exists( $_bizcity_profile_bootstrap ) ) {
-        require_once $_bizcity_profile_bootstrap;
-    }
-    unset( $_bizcity_profile_bootstrap );
-}
-unset( $_bizcity_profile_request_path, $__bizcity_profile_route_match, $__bizcity_profile_slug );
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13e — the /profile/, /profile-care/, /profile-public/ force-loader is gone with plugins/bizcity-profile.
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
@@ -1079,7 +1050,7 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
     add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );
 }
 
-unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_zalo_personal_public_request, $_bizcity_zalo_admin_hook_uri, $_bizcity_zalo_admin_hook_page, $_bizcity_zalo_admin_hook_surface, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_skills_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request, $_bizcity_twinsearch_public_request );
+unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_zalo_personal_public_request, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request, $_bizcity_twinsearch_public_request );
 
 // Activation hook — install DB tables, set defaults
 register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );

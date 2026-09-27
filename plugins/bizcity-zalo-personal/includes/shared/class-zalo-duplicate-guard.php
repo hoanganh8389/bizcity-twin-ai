@@ -179,6 +179,9 @@ class BizCity_Zalo_Duplicate_Guard {
 				'bridge_account_id' => (string) ( $row['bridge_account_id'] ?? '' ),
 				'crm_inbox_id'      => (int) ( $row['crm_inbox_id'] ?? 0 ),
 				'status'            => $status,
+				// [2026-09-27 Claude Sonnet 5] PHASE-0.80 — lets the caller tell "already theirs, just relogin"
+				// apart from "belongs to someone else, must claim via a real QR scan" (D-CRM-CLAIM).
+				'owner_user_id'     => (int) ( $row['owner_user_id'] ?? 0 ),
 			),
 		);
 	}

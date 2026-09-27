@@ -381,11 +381,12 @@ class BizCity_Chat_Gateway {
         }
         $this->log_channel_gateway( 'debug', 'kci_mention_check', 'ChatGateway mention check completed.', array( 'override' => $mention_override, 'effective_kci' => $kci_ratio ) );
 
-        // Make kci_ratio available to Mode Classifier
-        if ( class_exists( 'BizCity_Mode_Classifier' ) ) {
-            BizCity_Mode_Classifier::set_kci_ratio( $kci_ratio );
+        // Make kci_ratio available to the Intent Router
+        // [2026-09-25 Claude Opus 5.5] WP-11 C5 — the Mode Classifier is an alias now; set the router directly.
+        if ( class_exists( 'BizCity_Intent_Router' ) ) {
+            BizCity_Intent_Router::set_kci_ratio( $kci_ratio );
             if ( $mention_override ) {
-                BizCity_Mode_Classifier::set_mention_override( true );
+                BizCity_Intent_Router::set_mention_override( true );
             }
         }
         $this->current_kci_ratio = $kci_ratio;

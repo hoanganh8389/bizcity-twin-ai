@@ -173,6 +173,8 @@ class BizCity_Zalo_Bridge_Client {
 			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->create_account( $data ) : $this->degraded( 'managed_client_missing' );
 		}
 		// [2026-06-07 Johnny Chu] PHASE-0.39 — M2M create; OA uses a dedicated sub-path.
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C — a self-hosted (custom) bridge is always zca; provider is a managed-Hub concept.
+		unset( $data['provider'] );
 		$is_oa = isset( $data['type'] ) && 'oa' === $data['type'];
 		return $this->post( $is_oa ? 'wp/accounts/oa' : 'wp/accounts', $data );
 	}

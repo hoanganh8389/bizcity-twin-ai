@@ -153,7 +153,8 @@ final class BizCity_Probe_WebChat_Conversation_Message_Unify implements BizCity_
 
 		$disk_ok = true;
 		$class_file = defined( 'BIZCITY_TWIN_AI_DIR' )
-			? BIZCITY_TWIN_AI_DIR . 'modules/webchat/includes/class-webchat-database.php'
+			// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C1b — the store moved to core/conversation (webchat archived).
+			? BIZCITY_TWIN_AI_DIR . 'core/conversation/includes/class-conversation-store.php'
 			: '';
 		if ( $class_file && is_readable( $class_file ) ) {
 			$source = (string) file_get_contents( $class_file );

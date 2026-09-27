@@ -1260,7 +1260,8 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 			$problems[] = 'top-level <code>bizcity-channels</code> NOT registered';
 		}
 
-		$expected_subs = array( 'bizcity-zalo-bot-dashboard', 'bizcity-facebook-bots', 'bizcity-zalo-hotline' );
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R10 — 'bizcity-zalo-hotline' no longer expected (Hotline retired, R8).
+		$expected_subs = array( 'bizcity-zalo-bot-dashboard', 'bizcity-facebook-bots' );
 		$present_subs  = array();
 		if ( isset( $submenu['bizcity-channels'] ) && is_array( $submenu['bizcity-channels'] ) ) {
 			foreach ( $submenu['bizcity-channels'] as $row ) {
@@ -2609,7 +2610,7 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 		$tests  = array(
 			'/bizfbhook/'    => 'FB_MESS',
 			'/zalohook/'     => 'ZALO_BOT',
-			'/bizhook/'      => 'ZALO_HOTLINE',
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R10 — '/bizhook/' alias removed with the Hotline (R8/R10).
 			'/webchat-hook/' => 'WEBCHAT',
 		);
 		$missing = array();

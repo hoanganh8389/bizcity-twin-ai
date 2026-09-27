@@ -148,9 +148,9 @@ final class BizCity_Probe_Legacy_Table_Install_Absence implements BizCity_Diagno
 		'core/kg-hub/includes/class-kg-cleanup-service.php',
 		'core/intent/includes/conversation/class-rolling-memory.php',
 		'core/intent/includes/conversation/class-episodic-memory.php',
-		'core/intent/includes/orchestration/class-intent-engine.php',
+		// WP-11 C3a — class-intent-engine.php retired (renamed *_deleted.php, never loaded), so it can no longer install anything.
 		'core/intent/includes/infrastructure/class-intent-logger.php',
-		'modules/webchat/includes/class-webchat-database.php',
+		'core/conversation/includes/class-conversation-store.php', // WP-11 C0a/C1b — store moved out of the archived webchat module
 	);
 
 	public function id(): string {

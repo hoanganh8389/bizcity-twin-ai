@@ -78,6 +78,67 @@ Rules for every agent:
    re-run the sync script if you added, renamed or removed docs, `bin/` tools,
    tests, composer scripts or CI steps.
 
+### Browser-console evidence is mandatory for live web surfaces
+
+When a task touches a browser-visible REST/React/cache/runtime surface, the
+agent MUST provide one browser-console evidence command or a repo-owned
+read-only self-check artifact that the operator can paste into DevTools. The
+command must print a structured table with `PASS`, `FAIL` or `SKIP`, include the
+URL/surface and the exact endpoint or runtime object checked, and never print
+credentials, nonce values, tokens, SQL, PII or full response bodies.
+
+Use a committed `docs/tools/*selfcheck.js` artifact when the check is reusable;
+do not invent a one-off console snippet in chat. The artifact must:
+
+- be read-only unless the task explicitly requires a write test;
+- use same-origin `fetch()` with `credentials: 'same-origin'` and the
+  localized REST nonce where needed;
+- inspect browser runtime payload, REST status/envelope, built assets and
+  IndexedDB/cache scope when relevant;
+- label unavailable prerequisites as `SKIP`, never as `PASS`;
+- redact identifiers and cap diagnostic detail before `console.table()`;
+- state the exact page/surface and optional URL parameter needed before paste;
+- be rerunnable and append no persistent data.
+
+This browser evidence is part of R-DDV's Runtime layer. A source build or
+editor diagnostic alone is not runtime evidence. For CRM `/crm/` work, prefer
+the reusable `plugins/bizcity-twin-crm/docs/tools/*selfcheck.js` pattern; for
+other surfaces, add the equivalent self-check beside that surface's docs.
+
+### Mandatory evidence handoff for every agent environment
+
+This contract applies equally to GitHub Copilot, Claude Code, Codex, Cursor,
+VS Code custom agents and any `.vscode`/workspace agent configuration. An agent
+may not report a browser-visible task as complete without a repo-owned evidence
+artifact and a recorded result.
+
+For every live REST/React/cache/runtime change, the handoff MUST include:
+
+1. the exact committed `docs/tools/*selfcheck.js` path;
+2. the exact surface URL and required route/query/hash state;
+3. the persona/permission used, never an assumed persona;
+4. the full `console.table()` summary with `PASS`, `FAIL`, and `SKIP` rows;
+5. the stable `[claude-handoff]`/agent handoff line containing phase, task id,
+   surface, layout/role where relevant, failed count and skipped count;
+6. changed files, validation commands, remaining gaps and the next discriminating check.
+
+The same contract MUST be followed when work is delegated to Claude Code,
+Codex or a VS Code agent. Generated `AGENTS.md` or agent profile files must not
+weaken it. A handoff that says only “built”, “deployed”, “looks good” or
+“tested” is incomplete. `SKIP` is never converted to `PASS` by an agent.
+
+For UI work, the self-check must test the actual user-visible behavior, not only
+class names: mount state, runtime payload/envelope, exact endpoint, URL state,
+responsive layout tier, action controls, and relevant empty/error/permission
+states. If the check requires a mutation, use a separate write-mode artifact
+with explicit opt-in, warning, idempotency, restore/cleanup and an error
+envelope containing `code/message/hint/help_code`.
+
+The owning phase document MUST contain an acceptance matrix mapping each task to
+its self-check, latest result, evidence date and next action. This is mandatory
+for work handed to an agent in `.vscode`, Claude Code or Codex, not an optional
+team convention.
+
 Some internal rule documents, roadmaps and audits are not published in this
 repository. If this file summarises a rule and you cannot find its full spec,
 the summary here is authoritative for your change.
@@ -400,6 +461,32 @@ Conversation archives are append-only audit/recovery artifacts: the database
 remains the source of truth for lists, filters, assignment and analytics. Folder
 names use stable hashes, never raw phone numbers or provider user ids.
 
+### R-BOTSTUDIO · Channel Gateway is the Bot Studio control plane
+
+Channel Gateway (`/gateway/`) is the **single configuration gateway** for bots, and Bot Studio is the **first**
+navigation group there — above the connected channels: Overview · Agents · Sessions · Contacts · Assistants &
+Zalo numbers · Operations tuning · Queue & runtime. Contacts deep-links into the one CRM contact store; every
+link between screens addresses a customer by `conversation_id`/`contact_id`, never a raw provider UID.
+
+Everything else is a shortcut that reopens the **same** owners — binding (`bizcity_channel_bindings` via
+`inspector/bindings`), Guru persona/instruction (`bizcity_characters` via `quick-edit`), run-on-channel flags and
+tools (`settings.bot` via `bot/runtime`), media keys and config (`bizcity_bot_secrets` via `bot/media`). CRM Inbox
+shortcuts: the `+` add-number sheet must offer **all existing personal numbers with their current owner** (server-listed,
+multi-select, assigned through the existing owner-transfer path) besides adding a new number — an unowned number is assigned
+at once, a number that already has another owner is changed only after an in-sheet confirmation; the composer
+has an options button next to "AI reply" opening the standard action sheet (bot on/off and mode, Guru instruction,
+actions such as image/music generation, each labelled with its scope and availability). Do not add a second config
+store, form or route for bot settings in CRM, `/gpt/`, TwinChat or a satellite plugin, do not widen who may change
+bot settings without an explicit security decision, and do not offer a per-conversation scope until it has an
+owner.
+
+The Agents section configures each agent quickly (no trip into `core/automation`); Contacts lists contacts that are
+actively conversing and can add JSON metadata under `additional_attributes.custom_meta`; context/memory views must be
+traceable per `account_id` and state plainly what the Context Bank ledger cannot attribute.
+
+`/twinchat/` only holds and presents Context Bank values; it is never a bot configuration surface. Each new
+surface needs a read-only browser self-check row and the four R-ERROR-UX states (R-DDV).
+
 ---
 
 ## 7. Errors, cron evidence and async isolation
@@ -425,6 +512,59 @@ return BizCity_Error_Payload::make(
 - ❌ `wp_send_json_error( 'Invalid data' )` — a bare string the frontend cannot use.
 - ❌ A silent `catch` that only writes to the log.
 - ❌ SQL, stack traces, file paths or PII in a user-visible message.
+
+### R-SETTINGS-4L · four settings layers, one sheet contract
+
+Every setting or write action lives in exactly one of four layers, from easiest to hardest, and is placed in the
+lowest layer that fits the person who uses it:
+
+| Layer | What | Who | Where |
+|---|---|---|---|
+| 1 | Quick edit — a `⋯` menu or a verb button opens a dialog sheet | everyone | on the row/card/data itself |
+| 2 | Leader-level advanced — a "Bảng điều khiển …" tab | admin / supervisor / lead (`Staff_Policy`) | inside the same React app |
+| 3 | IT-level advanced — central configuration | admin / IT | Channel Gateway |
+| 4 | Shell settings — API key, Master Plan, appearance, the user's own config, simple extension settings | site admin + each user | Twin shell Control Panel (R-SETTING-PANEL registry) |
+
+- Layer 1 is mandatory on every screen in every app (Channel Gateway, CRM, Twin GPT, TwinChat, Twin shell,
+  Automation, extensions). Higher layers appear only as a small "Advanced …" link for people who have the right.
+- Every sheet implements the shared `ActionSheet` contract: verb + object title, error shown inside the sheet
+  (R-ERROR-UX), `dirty` discard confirmation, `busy` lock, independently scrolling body, and an action bar fixed
+  at the bottom that never scrolls out of view (long layer-3 forms may repeat the primary action in the header).
+- A setting may be opened from several layers but is written through one service/owner only.
+- ❌ `window.prompt` / `window.confirm` / `alert`, inline editing, or saving on Enter/blur.
+- ❌ A hand-rolled `fixed inset-0` dialog when the app has `ActionSheet`.
+
+Spec, reference components per app and known debt:
+`docs/rules/PHASE-0-RULE-SETTINGS-4-LAYERS-SHEET-STANDARD.md` (extends `PHASE-0-RULE-ACTION-SHEET-UX.md`).
+
+### R-ROUTE · the URL is the only source of location
+
+Anything a user navigates *to* — the ActivityBar plugin, a tab or menu, the record being viewed, a
+filter worth keeping on reload — is read from the URL and written by navigating. Stores may derive
+from the URL; they may not be a second source that is synced back and forth. Test every change with
+one question: *click it, press F5 (or open the link in a new tab), do you land in the same place?*
+
+- Each layer owns one URL segment: the wp-admin host owns `page`, the shell owns `plugin` plus `r`
+  (a route relative to the plugin, e.g. `/inbox/13/conv/88`), and the plugin owns its own route.
+  A host never copies a child's query keys.
+- Plugins report their route through one channel (the `TwinRoute` bridge) and declare `route_mode`
+  (`hash` | `path` | `query`) in `bizcity_twin_register_plugins`. No polling, click hooks or
+  `setTimeout` guesses to catch a route.
+- Menus are real links (`<a href>`), not buttons that set a tab in a store. Cross-plugin and
+  outbound links (menus, emails, notifications, REST responses) come from one helper
+  (`BizCity_Twin_Route::url()` / `TwinRoute.href()`), never a hand-built `page=…&plugin=…` string.
+- No wrapper page whose only job is to hold another iframe, unless it relays routes both ways.
+- Opening a place (tab, record) pushes history; changing a filter replaces it.
+- `r` is validated as a relative path and always joined to the registered entry URL, never used as
+  a full URL.
+
+**No exceptions for new work.** Any new child plugin, new plugin, new module, or new menu/tab/nav
+item — including one built as a React component in its own separate bundle — follows every rule
+above starting with its first commit. Declaring `route_mode` "later" is not an option; a reviewer
+rejects a PR that adds navigation without it, at the same severity as a R-SAFE-LOADER or R-DCL
+violation.
+
+Contract and migration plan: [PHASE-TWINSHELL-DEEPLINK-RUNTIME.md](../docs/architecture/PHASE-TWINSHELL-DEEPLINK-RUNTIME.md).
 
 ### R-CRON-META · cron runs leave evidence
 
@@ -558,17 +698,51 @@ Project conventions belong in the owning document (rule, contract, roadmap, or
 this file), where they are reviewed together with the code. An agent's private
 memory is not a place to store project rules.
 
+**UI-first documents (R-SETTINGS-4L-8).** Any analysis or phase document that
+touches a UI starts with the design: an HTML mockup in the owning
+`docs/mockups/` folder (example data labelled as such, loading / empty / error /
+no-permission states, desktop and mobile), linked from the top of the document
+and approved by the product owner before any code. Every such document then
+carries two separate checklists — **Checklist A: code to the HTML UI** (one item
+per screen, sheet, state and button in the mockup, each tagged with its settings
+layer 1–4) and **Checklist B: code solution** (data, contracts/REST, permissions,
+services, migration, cache, tests/probes) — plus an Evidence section.
+
 ### Change stamps (R-STAMP)
 
-Every functional edit to a `.php` file carries a stamp at the point of change:
+Every functional edit to a `.php` file carries a stamp at the point of change.
+This is mandatory for **every changed PHP file and every functional PHP slice**,
+including edits delegated to Claude Code, Codex, Cursor or a VS Code agent. A
+file-level stamp alone is insufficient when one file contains multiple separate
+functional edits.
 
 ```php
-// [YYYY-MM-DD HH:MM AM/PM <Author>] <Phase-ID> — <short description>
+// [YYYY-MM-DD HH:MM Johnny Chu - Chu Hoàng Anh]] <Phase-ID> — <short description>
 ```
 
-Put it on the first line of a new method body, directly above changed logic, or on
-the `if` line of a new guard. Use the identifier of the rule or phase you are
-implementing (for example `R-CH-NS`, `R-CRON-META`, `PHP74-COMPAT`, `HOTFIX`).
+Required concrete format:
+
+```php
+// [2026-09-08 01:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX0 — produce the public user-centric Inbox scope.
+```
+
+Stamp requirements:
+
+- Use local project time in `YYYY-MM-DD HH:MM AM/PM` format.
+- Include the real author do not use `<Author>` literally.
+- Include the exact phase/rule identifier (`PHASE-0.41-CX0`, `R-DDV`, `HOTFIX`, etc.).
+- Describe the changed behavior briefly and concretely.
+- Put the stamp immediately above the changed logic, on the first line of a new
+  method body, or on the `if` line of a new guard.
+- If one PHP file has multiple unrelated functional slices, add one stamp per
+  slice at each changed logic point.
+- Do not replace an existing stamp; add a new stamp for a new change.
+- PHP-only comment syntax is required; never put a JavaScript/Markdown stamp in
+  a PHP file.
+
+Before handoff, the agent must list every changed `.php` path and confirm that
+each functional hunk has its stamp. A missing or vague stamp is a validation
+`FAIL`, not a documentation nicety.
 
 ### Pull requests
 
@@ -622,6 +796,11 @@ editor tooling to write `.php` files, or write explicitly without a BOM:
 - ❌ Loading admin/REST-only modules on public page requests.
 - ❌ PHP 8-only syntax anywhere in shipped code.
 - ❌ A user-visible error without `code`, `message`, `hint` and `help_code`.
+- ❌ An everyday action reachable only from a control panel or the Channel Gateway, with no `⋯` → sheet shortcut.
+- ❌ `window.prompt` / `confirm` / `alert`, inline editing, or a sheet that is not the shared `ActionSheet` contract.
+- ❌ UI code written before its HTML mockup is approved, or a UI document without Checklist A and Checklist B.
+- ❌ A tab, record or filter that lives only in component/store state and is lost on F5.
+- ❌ A new plugin, module or menu that ships without declaring `route_mode`, planning to add it later.
 - ❌ A cron failure with no reason bucket in its run evidence.
 - ❌ Diagnostics runs that execute production workers, send messages or call providers.
 - ❌ Marking work done without a probe result, or presenting a `SKIP` as a `PASS`.
