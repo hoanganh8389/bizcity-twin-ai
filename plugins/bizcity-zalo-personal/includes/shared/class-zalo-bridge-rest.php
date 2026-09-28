@@ -875,6 +875,9 @@ class BizCity_Zalo_Bridge_REST {
 		if ( isset( $result['provider_fallback'] ) && is_array( $result['provider_fallback'] ) ) {
 			$created['provider_fallback'] = $result['provider_fallback'];
 		}
+		// [2026-09-27 Claude Opus 5.5] PHASE-0.80 doc 26 OB-6 — additive hook after a number is fully created (mapping + CRM inbox + grant),
+		// BEFORE the config sync below, so a listener that binds a Guru (first number ⇒ bot on with guru:0, D-OB-3) is part of that sync.
+		$created = (array) apply_filters( 'bizcity_zalo_personal_account_created', $created, (string) $bridge_id, (string) $kind, (int) $owner_user_id );
 		// [2026-09-26] PHASE-0.80 Lane C 4a-8 — a new zalo-hub number must not answer with an empty persona: sync soon (WP-Cron; the 5-minute tick is the backstop).
 		if ( class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) && isset( $created['provider'] ) && 'zalo_hub' === $created['provider'] ) {
 			BizCity_Zalo_Hub_Config_Sync::schedule( 2 );
@@ -1010,9 +1013,29 @@ class BizCity_Zalo_Bridge_REST {
 		return $row;
 	}
 
-	/** GET /zalo-bridge/hub-config — last zalo-hub config sync (counts and codes only, never persona text). */
-	public static function handle_hub_config_status(): WP_REST_Response {
-		return new WP_REST_Response( array( 'ok' => true, 'sync' => BizCity_Zalo_Hub_Config_Sync::status() ), 200 );
+	/**
+	 * GET /zalo-bridge/hub-config — last zalo-hub config sync (counts and codes only, never persona text).
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C3.5 — `?cell=1` also reads what the cell holds (C-7 brain overview via the Hub relay):
+	 * `cell = {config_version, platform_config_version, snapshot}` (tenant level, so one zalo-hub number is enough), or `cell: null`
+	 * with `cell_code` when it cannot be read. Opt-in because it is a remote call.
+	 */
+	public static function handle_hub_config_status( $request = null ): WP_REST_Response {
+		$out = array( 'ok' => true, 'sync' => BizCity_Zalo_Hub_Config_Sync::status() );
+		if ( is_object( $request ) && method_exists( $request, 'get_param' ) && ! empty( $request->get_param( 'cell' ) ) ) {
+			$accounts = BizCity_Zalo_Hub_Config_Sync::accounts();
+			$bridge   = $accounts ? (string) $accounts[0]['bridge_id'] : '';
+			$overview = '' !== $bridge && class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) && method_exists( 'BizCity_Zalo_Personal_Hub_Client', 'brain_overview' )
+				? BizCity_Zalo_Personal_Hub_Client::instance()->brain_overview( $bridge ) : null;
+			$out['cell'] = is_array( $overview ) ? array(
+				'config_version'          => (int) $overview['config_version'],
+				'platform_config_version' => (int) ( $overview['platform_config_version'] ?? 0 ),
+				'snapshot'                => array_key_exists( 'snapshot', $overview ) ? ( is_array( $overview['snapshot'] ) ? array( 'allowed' => ! empty( $overview['snapshot']['allowed'] ), 'expires_at' => (string) ( $overview['snapshot']['expires_at'] ?? '' ) ) : null ) : 'unknown',
+			) : null;
+			if ( null === $out['cell'] ) {
+				$out['cell_code'] = '' === $bridge ? 'no_accounts' : 'cell_unreadable';
+			}
+		}
+		return new WP_REST_Response( $out, 200 );
 	}
 
 	/**
@@ -1070,6 +1093,11 @@ class BizCity_Zalo_Bridge_REST {
 		return array( 'ok' => true, 'bridge_id' => $bridge_id, 'character_id' => $answering );
 	}
 
+	/** [2026-09-27 Claude Opus 5.5] PHASE-0.81 C1.1 — same gate for the notebook routes (BizCity_Zalo_Guru_Knowledge_REST). */
+	public static function guru_gate_s81( WP_REST_Request $request, string $bridge_id, string $ref ): array {
+		return self::guru_gate( $request, $bridge_id, $ref );
+	}
+
 	/** Contract envelope minus internal fields. */
 	private static function guru_public( array $profile ): array {
 		unset( $profile['_character_id'] );
@@ -1117,6 +1145,7 @@ class BizCity_Zalo_Bridge_REST {
 			'query'      => mb_substr( (string) ( $body['query'] ?? '' ), 0, 2000 ),
 			'max_blocks' => (int) ( $body['max_blocks'] ?? 0 ) ?: null,
 			'max_chars'  => (int) ( $body['max_chars'] ?? 0 ) ?: null,
+			'notebooks'  => false, // PHASE-0.81 S81-R4 — the cell retrieves from its own copy of the notebooks (C-4); never twice
 		) );
 		$profile = self::guru_public( BizCity_Guru_Context_Resolver::profile( $cid ) );
 		$out = array(

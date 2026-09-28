@@ -5,6 +5,11 @@ name: CI
 # them runs only when the file is present in the checkout (a full workspace or a self-hosted runner) and is SKIPPED
 # otherwise (public GitHub). SKIP is not PASS: the `evidence-boundary` job prints, per run, which gates ran and
 # which were skipped. Never read a green GitHub run as coverage of the skipped gates.
+#
+# D-35 (2026-09-28, CORE-REDUCTION WP-13): Diagnostics runs in local development only — never on GitHub, never on
+# the VPS. The R-DCL schema owner (changelog JSON + loader + additive auto-create) is production runtime and lives
+# in the public `core/helper/schema/`, so it is checked on every run (`schema-changelog`, `shipped-tree`). The VPS
+# commits to GitHub, so `shipped-tree` also fails if `core/diagnostics/` or `tests/` ever get committed.
 
 on:
   push:
@@ -519,17 +524,27 @@ jobs:
           echo "R-GW-8: PASS"
 
   schema-changelog:
-    name: Diagnostics schema changelog (R-DCL)
+    name: Schema changelog (R-DCL)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # [2026-09-28 WP-13 DL-2] public: owner location, single owner, no JSON left at core/diagnostics/changelog,
+      # no live require of the Diagnostics copies, no private identity in the public changelog.
+      - name: Validate schema owner (public, always runs)
+        run: node bin/validate-schema-owner.mjs
       - name: Setup PHP 7.4
+        if: hashFiles('core/diagnostics/validate-schema-changelog.php') != ''
         uses: shivammathur/setup-php@v2
         with:
           php-version: '7.4'
           extensions: mbstring, json
-      - name: Validate JSON changelog
-        if: hashFiles('core/diagnostics/bootstrap.php') != ''
+      # The structural validator is a dev-only tool (D-35); it reads core/helper/schema/changelog.
+      - name: Validate JSON changelog structure (dev tool present)
+        if: hashFiles('core/diagnostics/validate-schema-changelog.php') != ''
         run: php core/diagnostics/validate-schema-changelog.php
 
   diagnostics-mock:
@@ -571,13 +586,7 @@ jobs:
       - name: Verify shipped plugin tree
         run: |
           set -euo pipefail
-          provider='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/includes/profile/class-personal-profile-wheel-provider.php'
-          if [ ! -f "$provider" ]; then
-            echo "::error::Clean checkout is missing $provider"
-            echo "The Profile module is required by plugins/bizcity-profile/bootstrap.php."
-            exit 1
-          fi
-          echo "Profile provider present: $provider"
+          # [2026-09-28 WP-13] plugins/bizcity-profile was archived in WP-12 R13e; its checks were removed.
 
           crm_bootstrap='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/bootstrap.php'
           if [ -f "$crm_bootstrap" ]; then
@@ -623,37 +632,15 @@ jobs:
           fi
           echo "Scheduler canonical migration guard present: $scheduler_manager"
 
-          diagnostics_bootstrap='wp-content/plugins/bizcity-twin-ai/core/diagnostics/bootstrap.php'
-          if [ ! -f "$diagnostics_bootstrap" ] \
-            || ! grep -Fq 'class-diagnostics-changelog-loader.php' "$diagnostics_bootstrap" \
-            || ! grep -Fq 'class-diagnostics-auto-create.php' "$diagnostics_bootstrap"; then
-            echo "::error::Diagnostics bootstrap does not load the R-DCL schema owner before probes."
-            echo "Expected changelog loader and Auto-Create before Site Provisioner/probe execution."
-            exit 1
-          fi
-          echo "Diagnostics schema owner load order present: $diagnostics_bootstrap"
-
-          profile_bootstrap='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/bootstrap.php'
-          profile_entry='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/bizcity-personal.php'
-          if [ ! -f "$profile_bootstrap" ] || [ ! -f "$profile_entry" ]; then
-            echo "::error::Profile bootstrap or entrypoint is missing from the shipped tree."
-            exit 1
-          fi
-          if grep -Eq "require_once[[:space:]]+BIZCITY_PERSONAL_DIR|require_once[[:space:]]+\\\$probe" "$profile_bootstrap"; then
-            echo "::error::Profile bootstrap contains an unguarded module/probe require_once."
-            echo "Use BizCity_Safe_Loader::require_file() for every Profile artifact."
-            exit 1
-          fi
-          if grep -Eq "require_once[[:space:]]+__DIR__[[:space:]]*\\.[[:space:]]*'bootstrap\\.php'" "$profile_entry"; then
-            echo "::error::Profile entrypoint contains an unguarded bootstrap require_once."
-            exit 1
-          fi
-          if ! grep -Fq 'BizCity_Safe_Loader::require_file' "$profile_bootstrap" \
-            || ! grep -Fq 'BizCity_Safe_Loader::require_file' "$profile_entry"; then
-            echo "::error::Profile artifact loading is not routed through BizCity_Safe_Loader."
-            exit 1
-          fi
-          echo "Profile Safe Loader contract present: $profile_bootstrap"
+          # [2026-09-28 WP-13 DL-2] the R-DCL schema owner lives in core/helper/schema; the Diagnostics copies are shims.
+          for shim in class-diagnostics-changelog-loader.php class-diagnostics-auto-create.php; do
+            shim_path="wp-content/plugins/bizcity-twin-ai/core/diagnostics/includes/$shim"
+            if [ ! -f "$shim_path" ] || ! grep -Fq "/helper/schema/$shim" "$shim_path"; then
+              echo "::error::$shim_path must be a shim to core/helper/schema/$shim (WP-13 DL-2)."
+              exit 1
+            fi
+          done
+          echo "Diagnostics schema shims point at core/helper/schema."
 
       - name: Activate plugin
         run: wp plugin activate bizcity-twin-ai
@@ -897,13 +884,42 @@ jobs:
       - name: Verify shipped plugin tree
         run: |
           set -euo pipefail
-          provider='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/includes/profile/class-personal-profile-wheel-provider.php'
-          if [ ! -f "$provider" ]; then
-            echo "::error::Clean checkout is missing $provider"
-            echo "The Profile module is required by plugins/bizcity-profile/bootstrap.php."
+          plugin='wp-content/plugins/bizcity-twin-ai'
+
+          # [2026-09-28 WP-13] D-35: Diagnostics and tests are dev-only. The VPS commits to GitHub, so a missing or
+          # stale .gitignore there would publish them; fail loudly if any file under them is tracked.
+          tracked_private="$(git -C "$plugin" ls-files -- core/diagnostics tests | head -5)"
+          if [ -n "$tracked_private" ]; then
+            echo "::error::Dev-only files are committed (D-35): core/diagnostics/ and tests/ must stay untracked."
+            echo "$tracked_private"
+            echo "On the VPS: upload the current .gitignore, then git rm -r --cached core/diagnostics tests"
             exit 1
           fi
-          echo "Profile provider present: $provider"
+          echo "No Diagnostics or tests files are tracked (D-35)."
+
+          # [2026-09-28 WP-13 DL-2] the R-DCL schema owner is production runtime and must ship.
+          for owner in core/helper/schema/class-diagnostics-changelog-loader.php core/helper/schema/class-diagnostics-auto-create.php; do
+            if [ ! -f "$plugin/$owner" ]; then
+              echo "::error::Schema owner missing from the shipped tree: $owner"
+              exit 1
+            fi
+          done
+          if ! ls "$plugin"/core/helper/schema/changelog/*.json >/dev/null 2>&1; then
+            echo "::error::core/helper/schema/changelog/ has no JSON; new sites would get no tables."
+            exit 1
+          fi
+          if ! grep -Fq "'BizCity_Diagnostics_Auto_Create'      => 'class-diagnostics-auto-create.php'" "$plugin/core/helper/bootstrap.php"; then
+            echo "::error::core/helper/bootstrap.php no longer registers the schema owner autoloader."
+            exit 1
+          fi
+          echo "Schema owner present: core/helper/schema ($(ls "$plugin"/core/helper/schema/changelog/*.json | wc -l) changelog files)."
+
+          # [2026-09-28 WP-13] plugins/bizcity-profile was archived in WP-12 R13e and must not come back as a live plugin.
+          if [ -f "$plugin/plugins/bizcity-profile/bootstrap.php" ]; then
+            echo "::error::plugins/bizcity-profile/ is back in the live tree; it was archived (WP-12 R13e)."
+            exit 1
+          fi
+          echo "Archived plugins/bizcity-profile is not in the live tree."
 
           crm_bootstrap='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/bootstrap.php'
           if [ -f "$crm_bootstrap" ]; then
@@ -931,28 +947,6 @@ jobs:
             exit 1
           fi
           echo "Scheduler canonical migration guard present: $scheduler_manager"
-
-          profile_bootstrap='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/bootstrap.php'
-          profile_entry='wp-content/plugins/bizcity-twin-ai/plugins/bizcity-profile/bizcity-personal.php'
-          if [ ! -f "$profile_bootstrap" ] || [ ! -f "$profile_entry" ]; then
-            echo "::error::Profile bootstrap or entrypoint is missing from the shipped tree."
-            exit 1
-          fi
-          if grep -Eq "require_once[[:space:]]+BIZCITY_PERSONAL_DIR|require_once[[:space:]]+\\\$probe" "$profile_bootstrap"; then
-            echo "::error::Profile bootstrap contains an unguarded module/probe require_once."
-            echo "Use BizCity_Safe_Loader::require_file() for every Profile artifact."
-            exit 1
-          fi
-          if grep -Eq "require_once[[:space:]]+__DIR__[[:space:]]*\\.[[:space:]]*'bootstrap\\.php'" "$profile_entry"; then
-            echo "::error::Profile entrypoint contains an unguarded bootstrap require_once."
-            exit 1
-          fi
-          if ! grep -Fq 'BizCity_Safe_Loader::require_file' "$profile_bootstrap" \
-            || ! grep -Fq 'BizCity_Safe_Loader::require_file' "$profile_entry"; then
-            echo "::error::Profile artifact loading is not routed through BizCity_Safe_Loader."
-            exit 1
-          fi
-          echo "Profile Safe Loader contract present: $profile_bootstrap"
 
   evidence-boundary:
     name: Evidence boundary (which gates ran)
@@ -1009,7 +1003,8 @@ jobs:
             row "Brain retrieval facade ownership" tests
             row "KG reranker ownership" tests
             row "Legacy table lifecycle gates" diag
-            row "R-DCL schema changelog validation" diag
+            echo "| Schema owner + public changelog (validate-schema-owner, shipped-tree) | RUNS (public) |"
+            row "R-DCL changelog structure (dev-only validator)" diag
             row "Diagnostics CLI runner (mock mode), wp bizcity health, framework smoke" diag
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

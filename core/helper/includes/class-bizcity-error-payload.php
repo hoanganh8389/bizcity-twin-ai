@@ -52,7 +52,7 @@ class BizCity_Error_Payload {
 	 */
 	public static function make( $code, $message, $hint = null, $help_code = null, $context = array() ) {
 		// [2026-06-05 Johnny Chu] R-ERROR-UX — bridge to Error_Reporter auto-record.
-		// Auto-record only when BizCity_Error_Reporter is available (diagnostics loaded).
+		// Auto-record via BizCity_Error_Reporter (core/helper, autoloaded; JSONL contract core.helper.error_reports since WP-13 DL-3).
 		if ( class_exists( 'BizCity_Error_Reporter' ) ) {
 			BizCity_Error_Reporter::record( array(
 				'code'    => $code,

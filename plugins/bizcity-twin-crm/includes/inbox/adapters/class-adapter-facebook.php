@@ -149,6 +149,26 @@ class BizCity_CRM_Adapter_Facebook extends BizCity_CRM_Adapter_Base {
 	}
 
 	/**
+	 * [2026-09-27] PHASE-0.80 doc 27 L-06 — mirror of the credential gates in send(), without sending: a Page with no
+	 * usable token cannot deliver, so the AI Replier must not generate an answer for it.
+	 */
+	public function preflight_send( array $inbox ): array {
+		if ( ! BizCity_CRM_Bridge_FB::is_available() ) {
+			return array( 'ok' => false, 'error' => 'bizcity-facebook-bot plugin not active' );
+		}
+		$ref              = (string) ( $inbox['channel_ref_id'] ?? '' );
+		$is_comment_inbox = ( strpos( $ref, 'fb_feed_' ) === 0 );
+		$page_id          = $is_comment_inbox ? substr( $ref, 8 ) : $ref;
+		if ( ! $is_comment_inbox && self::has_gateway_page_account( $page_id ) && class_exists( 'BizCity_Gateway_Sender' ) ) {
+			return array( 'ok' => true, 'error' => '' ); // canonical Channel Gateway account owns the token.
+		}
+		if ( BizCity_CRM_Bridge_FB::lookup_page_access_token( $page_id ) === '' ) {
+			return array( 'ok' => false, 'error' => 'no page access token for ' . $page_id );
+		}
+		return array( 'ok' => true, 'error' => '' );
+	}
+
+	/**
 	 * Send outbound text/image/file via Facebook Graph API (through bridge).
 	 */
 	public function send( array $conversation, array $message ): array {

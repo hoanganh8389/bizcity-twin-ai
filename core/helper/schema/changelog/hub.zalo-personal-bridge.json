@@ -1,0 +1,80 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "hub.zalo-personal-bridge",
+  "owner": "plugins/bizcity-llm-router (Branch 19 + PHASE-0.80 Lane B)",
+  "installer_id": "bizcity_llm_router_schema",
+  "current_version": "3.3.0",
+  "version_option": "bizcity_llm_router_db_version",
+  "history": [
+    {
+      "version": "2.3.0",
+      "date": "2026-08-22",
+      "change": "PHASE-0.39B-W7: Global registry bizcity_zca_managed_accounts — managed zca-bridge accounts and per-account callback credentials isolated by exact api_key_id."
+    },
+    {
+      "version": "2.4.0",
+      "date": "2026-08-23",
+      "change": "PHASE-0.39E: B2 installation identity (client_instance_id, tenant_key), bridge_instance_id/region, auditable lifecycle + reconcile fields, multi-instance unique keys."
+    },
+    {
+      "version": "3.3.0",
+      "date": "2026-09-25",
+      "change": "PHASE-0.80 Lane B (SW-3, HB-2/HB-11, R-B2B2C-ZH §4.2): ADD provider VARCHAR(16) DEFAULT 'zca' (zca | zalo_hub; cell = bridge_instance_id), ADD ai_enabled TINYINT(1) DEFAULT 1 (downgrade keeps the account, stops the bot), ADD KEY idx_key_provider_status (api_key_id, provider, status). Existing rows stay zca/enabled. Companion data migration in bizcity_llm_master_plans v2.8.0: slug bizcity-zalo-hub appended to plugins_enabled of EVERY plan row (no plan-level switch for zalo-hub)."
+    }
+  ],
+  "tables": {
+    "bizcity_zca_managed_accounts": {
+      "since": "2.3.0",
+      "purpose": "Global B1 registry of managed Zalo Personal accounts (zca sidecar or zalo-hub cell) keyed by exact api_key_id + bridge_account_id; owns the encrypted per-account callback credential and the per-account AI switch.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "2.3.0", "pk": true },
+        "api_key_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.3.0" },
+        "client_instance_id": { "type": "VARCHAR(128) NOT NULL DEFAULT ''", "since": "2.4.0" },
+        "tenant_key": { "type": "VARCHAR(128) NOT NULL DEFAULT ''", "since": "2.4.0" },
+        "bridge_instance_id": { "type": "VARCHAR(128) NOT NULL DEFAULT 'default'", "since": "2.4.0" },
+        "provider": { "type": "VARCHAR(16) NOT NULL DEFAULT 'zca'", "since": "3.3.0" },
+        "ai_enabled": { "type": "TINYINT(1) NOT NULL DEFAULT 1", "since": "3.3.0" },
+        "region": { "type": "VARCHAR(64) NOT NULL DEFAULT 'unknown'", "since": "2.4.0" },
+        "site_url": { "type": "VARCHAR(255) NOT NULL DEFAULT ''", "since": "2.3.0" },
+        "callback_url": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "2.3.0" },
+        "callback_token_enc": { "type": "TEXT NOT NULL", "since": "2.3.0" },
+        "bridge_account_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.3.0" },
+        "client_request_id": { "type": "VARCHAR(100) NOT NULL DEFAULT ''", "since": "2.3.0" },
+        "status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'", "since": "2.3.0" },
+        "revoked_at": { "type": "DATETIME NULL", "since": "2.4.0" },
+        "revoked_by": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "2.4.0" },
+        "revoke_reason": { "type": "VARCHAR(100) NOT NULL DEFAULT ''", "since": "2.4.0" },
+        "callback_token_version": { "type": "VARCHAR(16) NOT NULL DEFAULT 'v1'", "since": "2.4.0" },
+        "rotated_at": { "type": "DATETIME NULL", "since": "2.4.0" },
+        "last_seen_at": { "type": "DATETIME NULL", "since": "2.4.0" },
+        "last_inbound_at": { "type": "DATETIME NULL", "since": "2.4.0" },
+        "last_outbound_at": { "type": "DATETIME NULL", "since": "2.4.0" },
+        "last_error_code": { "type": "VARCHAR(100) NOT NULL DEFAULT ''", "since": "2.4.0" },
+        "last_reconciled_at": { "type": "DATETIME NULL", "since": "2.4.0" },
+        "reconcile_state": { "type": "VARCHAR(32) NOT NULL DEFAULT 'unknown'", "since": "2.4.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.3.0" },
+        "updated_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.3.0" }
+      },
+      "indexes": {
+        "uq_key_bridge": { "cols": ["api_key_id", "bridge_instance_id", "bridge_account_id"], "unique": true, "since": "2.4.0" },
+        "uq_key_request": { "cols": ["api_key_id", "client_request_id"], "unique": true, "since": "2.3.0" },
+        "uq_bridge_account": { "cols": ["bridge_instance_id", "bridge_account_id"], "unique": true, "since": "2.4.0" },
+        "idx_key_status": { "cols": ["api_key_id", "status"], "since": "2.3.0" },
+        "idx_key_provider_status": { "cols": ["api_key_id", "provider", "status"], "since": "3.3.0" },
+        "idx_site": { "cols": ["site_url(80)"], "since": "2.3.0" },
+        "idx_client_instance": { "cols": ["client_instance_id(80)"], "since": "2.4.0" },
+        "idx_tenant_key": { "cols": ["tenant_key(80)"], "since": "2.4.0" },
+        "idx_bridge_instance": { "cols": ["bridge_instance_id(80)"], "since": "2.4.0" },
+        "idx_reconcile": { "cols": ["reconcile_state", "last_reconciled_at"], "since": "2.4.0" }
+      }
+    }
+  },
+  "options": {
+    "bizcity_zalo_hub_cells": { "scope": "site_option", "since": "3.3.0", "purpose": "zalo-hub cells [{instance_id, base_url, secret_enc, region, capacity_accounts, enabled, drain}]; secret AES-256-CBC+HMAC, never returned." },
+    "bizcity_zalo_hub_key_allowlist": { "scope": "site_option", "since": "3.3.0", "purpose": "Pilot allowlist of exact key_ids that may create zalo_hub accounts until G-2 (master P-6)." },
+    "bizcity_zalo_hub_open_to_all": { "scope": "site_option", "since": "3.3.0", "purpose": "1 lifts the pilot allowlist after D-L28." },
+    "bizcity_openai_compat_stream_cap": { "scope": "site_option", "since": "3.3.0", "purpose": "Max concurrent Branch 21 SSE streams inside PHP-FPM (default 20)." }
+  }
+}

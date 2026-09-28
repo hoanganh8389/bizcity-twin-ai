@@ -21,6 +21,48 @@ if ( defined( 'BIZCITY_HELPER_LOADED' ) ) {
 }
 define( 'BIZCITY_HELPER_LOADED', true );
 
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 D-35 — Diagnostics ships only in local dev; production
+// code asks this before linking to or calling the engine. Defined before any early return below.
+if ( ! function_exists( 'bizcity_diagnostics_available' ) ) {
+	function bizcity_diagnostics_available(): bool {
+		return defined( 'BIZCITY_DIAGNOSTICS_LOADED' ) || is_file( dirname( __DIR__ ) . '/diagnostics/bootstrap.php' );
+	}
+}
+
+// [2026-09-28 Claude Opus 5.5] CORE-REDUCTION WP-13 DL-2 — the R-DCL schema owner (changelog loader +
+// additive auto-create) is production runtime and lives in core/helper/schema/. The installers find it
+// through their own `class_exists( 'BizCity_Diagnostics_Auto_Create' )` checks via this autoloader.
+// It is registered only where the Diagnostics bootstrap used to provide these classes (admin, WP-CLI,
+// diagnostics CLI, bizcity-diagnostics REST), so frontend and other REST requests keep skipping the
+// SHOW COLUMNS/INDEX reconcile exactly as before (PHASE-DIAG-PERF).
+if ( ! defined( 'BIZCITY_SCHEMA_CHANGELOG_DIR' ) ) {
+	define( 'BIZCITY_SCHEMA_CHANGELOG_DIR', __DIR__ . '/schema/changelog/' );
+}
+$_helper_schema_ctx = ( function_exists( 'is_admin' ) && is_admin() )
+	|| ( defined( 'WP_CLI' ) && WP_CLI )
+	|| ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
+	|| ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/bizcity-diagnostics/' ) );
+if ( $_helper_schema_ctx ) {
+	spl_autoload_register( static function ( $class ) {
+		static $map = array(
+			'BizCity_Diagnostics_Changelog_Loader' => 'class-diagnostics-changelog-loader.php',
+			'BizCity_Diagnostics_Auto_Create'      => 'class-diagnostics-auto-create.php',
+		);
+		if ( isset( $map[ $class ] ) && is_file( __DIR__ . '/schema/' . $map[ $class ] ) ) {
+			require_once __DIR__ . '/schema/' . $map[ $class ];
+		}
+	} );
+}
+unset( $_helper_schema_ctx );
+
+// [2026-09-28 Claude Opus 5.5] CORE-REDUCTION WP-13 DL-3 — errors happen on every request type, so the reporter
+// autoloads everywhere; it is only read from disk when an error is actually built (`class_exists` on the error path).
+spl_autoload_register( static function ( $class ) {
+	if ( 'BizCity_Error_Reporter' === $class && is_file( __DIR__ . '/includes/class-bizcity-error-reporter.php' ) ) {
+		require_once __DIR__ . '/includes/class-bizcity-error-reporter.php';
+	}
+} );
+
 $_helper_includes = __DIR__ . '/includes/';
 
 // [2026-08-25 Johnny Chu] PHASE-1.24 — expose the shared guarded artifact loader before optional module bootstraps require PHP files.
@@ -69,8 +111,9 @@ if ( class_exists( 'BizCity_Log_Index', false ) && method_exists( 'BizCity_Log_I
 // [2026-08-26 Johnny Chu] PHASE-LEGACY-TABLES — load the central quarantine/install/drop policy before legacy callers and installers run.
 BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-legacy-table-policy.php', 'helper.legacy_table_policy' );
 if ( class_exists( 'BizCity_File_Contract_Registry' ) ) {
+	// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C4b — Rolling/Episodic memory (and their traces) are owned by core/memory; the contract ids keep the `core.intent.` prefix (stored data + Context Bank refs).
 	BizCity_File_Contract_Registry::register( 'core.intent.episodic_memory', array(
-		'owner_module'       => 'core/intent',
+		'owner_module'       => 'core/memory',
 		'label'              => 'Episodic memory business records',
 		'folder'             => 'bizcity-memory-data',
 		'module'             => 'episodic',
@@ -81,7 +124,7 @@ if ( class_exists( 'BizCity_File_Contract_Registry' ) ) {
 	) );
 	// [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — rolling-memory business state is canonical in encrypted JSONL during legacy SQL retirement.
 	BizCity_File_Contract_Registry::register( 'core.intent.rolling_memory', array(
-		'owner_module'       => 'core/intent',
+		'owner_module'       => 'core/memory',
 		'label'              => 'Rolling memory business records',
 		'folder'             => 'bizcity-memory-data',
 		'module'             => 'rolling',
@@ -252,6 +295,17 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'retention_days'     => 7,
 		'indexed'            => true,
 	) );
+	// [2026-09-28 Claude Opus 5.5] CORE-REDUCTION WP-13 DL-3 (Q-3) — user-facing REST/FE errors, written by
+	// BizCity_Error_Reporter::record(); replaces the capped wp_option `bizcity_error_reports`.
+	BizCity_Log_Contract_Registry::register( 'core.helper.error_reports', array(
+		'owner_module'       => 'core/helper',
+		'label'              => 'User-facing error reports',
+		'jsonl_folder'       => 'bizcity-error-logs',
+		'jsonl_module'       => 'error-reports',
+		'related_sql_tables' => array(),
+		'retention_days'     => 7,
+		'indexed'            => false,
+	) );
 	BizCity_Log_Contract_Registry::register( 'core.knowledge.kg_source_progress', array(
 		'owner_module'       => 'core/kg-hub',
 		'label'              => 'KG source progress',
@@ -368,7 +422,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'indexed'            => true,
 	) );
 	BizCity_Log_Contract_Registry::register( 'core.intent.episodic_memory_trace', array(
-		'owner_module'       => 'core/intent',
+		'owner_module'       => 'core/memory',
 		'label'              => 'Episodic memory migration trace',
 		'jsonl_folder'       => 'bizcity-memory-logs',
 		'jsonl_module'       => 'episodic-memory',
@@ -377,7 +431,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'indexed'            => true,
 	) );
 	BizCity_Log_Contract_Registry::register( 'core.intent.rolling_memory_trace', array(
-		'owner_module'       => 'core/intent',
+		'owner_module'       => 'core/memory',
 		'label'              => 'Rolling memory migration trace',
 		'jsonl_folder'       => 'bizcity-memory-logs',
 		'jsonl_module'       => 'rolling-memory',

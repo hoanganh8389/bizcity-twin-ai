@@ -50,6 +50,10 @@ $_bizcity_zp_files = array(
 	// [2026-09-18] R-ZP-ERR — canonical session-state + error catalog (contract zalo-personal-session-errors@1).
 	$_shared . 'class-zalo-session-errors.php',
 	$_shared . 'class-zalo-bridge-rest.php',
+	// [2026-09-27] PHASE-0.81 C1.1–C1.4/C2.2 — notebook version, notebook pack routes (C-4), Guru/notebook change notice to the Hub (C-10).
+	$_shared . 'class-zalo-guru-knowledge-version.php',
+	$_shared . 'class-zalo-guru-knowledge-rest.php',
+	$_shared . 'class-zalo-hub-guru-invalidate.php',
 	$_shared . 'class-zalo-connection-status.php', // [2026-09-27] PHASE-0.80 doc 26 OB-2 — one owner of the Zalo connection report (L0–L10)
 	$_shared . 'class-zalo-start-page.php', // [2026-09-27] PHASE-0.80 doc 26 OB-4 — wp-admin "BizCity — Bắt đầu" (3 steps), activation redirect, dashboard widget
 	// [2026-09-19] PHASE-0.60 — periodic reconciliation backstop for cross-site session takeovers
@@ -94,6 +98,7 @@ add_filter( 'bizcity_bot_studio_account_gate', array( 'BizCity_Zalo_Account_Flag
 
 // [2026-09-26] PHASE-0.80 Lane C 4a-8 — debounced on `bizcity_bot_config_changed`, plus a 5-minute fingerprint tick; no-ops on sites without a zalo-hub number.
 BizCity_Zalo_Hub_Config_Sync::boot();
+BizCity_Zalo_Hub_Guru_Invalidate::boot(); // [2026-09-27] PHASE-0.81 C1.4/C2.2 — debounced; no-op on sites without a zalo-hub number
 
 // Register channel integrations with Gateway Bridge + Integration Registry.
 add_action( 'bizcity_register_integrations', static function ( $registry ) {
@@ -140,5 +145,6 @@ add_filter( 'bizcity_cg_boot_data', static function ( array $boot ): array {
 // because WordPress snapshots the priority list at hook dispatch time.
 // Pattern: php-require-once-init-pattern.md
 BizCity_Zalo_Bridge_REST::init();
+BizCity_Zalo_Guru_Knowledge_REST::init(); // [2026-09-27] PHASE-0.81 C1.1/C1.2 — GET zalo-bridge/guru/{ref}/knowledge[/{nb}]
 BizCity_Zalo_Connection_Status::init(); // [2026-09-27] PHASE-0.80 doc 26 OB-2 — GET zalo-connection/status, POST zalo-connection/echo
 BizCity_Zalo_Start_Page::init(); // [2026-09-27] PHASE-0.80 doc 26 OB-4

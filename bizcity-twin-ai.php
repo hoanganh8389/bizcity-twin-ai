@@ -210,8 +210,10 @@ add_action( 'admin_init', 'bizcity_twin_cleanup_bundled_activation_entries', 1 )
 // PHASE-0.41 L3 — REST_Error trait must load BEFORE any controller that
 // `use`s it (research/twinbrain/twinchat-sources). Diagnostics bootstrap
 // (loaded later) re-requires it via require_once, so this is idempotent.
-if ( file_exists( __DIR__ . '/core/diagnostics/includes/trait-rest-error.php' ) ) {
-    require_once __DIR__ . '/core/diagnostics/includes/trait-rest-error.php';
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 B-5 — load the trait from its owner (core/helper) directly;
+// the core/diagnostics copy is only a shim and Diagnostics does not ship to production (D-35).
+if ( file_exists( __DIR__ . '/core/helper/includes/trait-rest-error.php' ) ) {
+    require_once __DIR__ . '/core/helper/includes/trait-rest-error.php';
 }
 
 /**

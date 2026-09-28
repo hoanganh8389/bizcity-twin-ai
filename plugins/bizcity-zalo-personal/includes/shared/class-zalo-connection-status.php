@@ -76,6 +76,23 @@ class BizCity_Zalo_Connection_Status {
 		'website_not_ready'        => 'contact_admin',
 	);
 
+	/**
+	 * [2026-09-28 Claude Opus 5.5] PHASE-0.81 (status unify) — member-safe wording of website-level codes for scope=mine:
+	 * no domain, plan label, key or backend id in any of them. Same words as Channel Gateway where those carry none.
+	 */
+	const MEMBER_SAFE_MESSAGES = array(
+		'domain_unverified'     => 'Tên miền đúng nhưng chưa được xác minh.',
+		'domain_missing'        => 'Mã kết nối của website chưa gắn tên miền.',
+		'domain_mismatch'       => 'Mã kết nối của website đang gắn với một tên miền khác.',
+		'domain_localhost'      => 'Mã kết nối của website đang gắn với localhost.',
+		'domain_signal_missing' => 'Chưa nhận được tín hiệu tên miền từ website.',
+		'key_legacy'            => 'Mã kết nối của website là bản cũ, cần kết nối lại.',
+		'plan_expired'          => 'Gói BizCity của website đã hết hạn.',
+		'plan_expiring'         => 'Gói BizCity của website sắp hết hạn.',
+		'zalo_hub_not_enabled'  => 'Gói hiện tại của website chưa bật Zalo Hub.',
+		'bridge_degraded'       => 'Máy chủ Zalo đang chậm hoặc chập chờn.',
+	);
+
 	/** @var array<string,callable> test seams; production readers are the real owners. */
 	private static $readers = array();
 
@@ -127,6 +144,8 @@ class BizCity_Zalo_Connection_Status {
 	public static function handle_status( $request ) {
 		$force = (string) $request->get_param( 'force' ) === '1';
 		if ( (string) $request->get_param( 'scope' ) === 'mine' ) {
+			// scope=mine is the /gpt/ (C_PUBLIC_TWINGPT) projection for EVERY caller, admins included:
+			// R-TWIN-GPT-FIRST-USER-ID-PII-SURFACE §3 — manage_options is not an owner override on a C request.
 			// Members read the shared cache; only admins may force a Hub round-trip (a room of members must not hammer the Hub).
 			return rest_ensure_response( self::report_mine( get_current_user_id(), $force && self::can_view() ) );
 		}
@@ -169,10 +188,23 @@ class BizCity_Zalo_Connection_Status {
 	public static function report_mine( int $user_id, bool $force = false ): array {
 		$full = self::report( $force );
 		$layers = array();
+		$admin = self::can_view();
 		foreach ( (array) ( $full['layers'] ?? array() ) as $l ) {
 			if ( in_array( $l['id'], array( 'L8', 'L10' ), true ) ) { continue; }
 			if ( $l['status'] === 'fail' || $l['status'] === 'warn' ) {
-				$l = self::layer( $l['id'], $l['status'], 'website_not_ready', $l['status'] === 'fail' ? 'Kết nối Zalo của website đang gặp sự cố; quản trị viên cần kiểm tra.' : 'Kết nối Zalo của website có điểm cần quản trị viên xem lại.', array(), 'Báo quản trị viên website.' );
+				// [2026-09-28 Claude Opus 5.5] PHASE-0.81 (status unify) — a known code keeps its REAL code and gets a fixed,
+				// site-owned sentence (the same words Channel Gateway shows when those words carry no domain/plan/key), so
+				// /gpt/crm/ and Channel Gateway say the same thing; the Hub text itself never passes (it may name the domain).
+				// Unknown codes stay the generic website_not_ready. An admin gets the real button (it only opens the admin
+				// page, which checks its own capability); a member gets "báo quản trị viên".
+				$safe = self::MEMBER_SAFE_MESSAGES[ (string) $l['code'] ] ?? null;
+				if ( $safe === null ) {
+					$l = self::layer( $l['id'], $l['status'], 'website_not_ready', $l['status'] === 'fail' ? 'Kết nối Zalo của website đang gặp sự cố; quản trị viên cần kiểm tra.' : 'Kết nối Zalo của website có điểm cần quản trị viên xem lại.', array(), 'Báo quản trị viên website.' );
+				} else {
+					$action = $admin ? (string) ( $l['action'] ?? ( self::ACTIONS[ $l['code'] ] ?? 'none' ) ) : 'contact_admin';
+					$l = self::layer( $l['id'], $l['status'], (string) $l['code'], $safe, array(), $admin ? 'Mở Channel Gateway → Zalo Cá nhân để xử lý.' : 'Báo quản trị viên website.' );
+					$l['action'] = $action;
+				}
 			} else {
 				unset( $l['details'], $l['hint'] );
 				if ( in_array( $l['id'], array( 'L2', 'L3', 'L4', 'L5' ), true ) ) { $l['message'] = 'Kết nối BizCity của website bình thường.'; }
@@ -527,7 +559,7 @@ class BizCity_Zalo_Connection_Status {
 			$silence[] = array( 'code' => 'office_hours_staff_on_duty', 'message' => 'Đang trong giờ trực của nhân viên — bot thật sẽ im lặng.' );
 		}
 
-		$built = (array) self::read( 'context_build', $character, array() );
+		$built = (array) self::read( 'context_build', $character, array( 'query' => $text ) ); // PHASE-0.81 S81-R4 — the test text searches the Guru notebooks like a real turn
 		$messages = (array) ( $built['messages'] ?? array() );
 		$messages[] = array( 'role' => 'user', 'content' => $text );
 

@@ -260,6 +260,50 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		return $this->get( '/zalo-hub/guru/' . rawurlencode( $ref ) . '/sync-check?' . $query );
 	}
 
+	/**
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C3.5 (C-7) — trace metadata of the latest turn of one zalo-hub number: `turn_id` plus the C-7 blocks
+	 * (`reply_kind`, `guru`, `context`, `knowledge`, `llm`, `denied`). Never the step texts (they hold message content).
+	 *
+	 * @return array|null null = unreadable; array() = no turn yet.
+	 */
+	public function brain_last_turn( string $account_id ): ?array {
+		$q    = 'account_id=' . rawurlencode( $account_id );
+		$list = $this->get( '/zalo-personal-bridge/brain/traces?' . $q . '&limit=1' );
+		if ( empty( $list['ok'] ) ) {
+			return null;
+		}
+		$first = is_array( $list['turns'] ?? null ) ? reset( $list['turns'] ) : null;
+		$turn  = is_array( $first ) ? (int) ( $first['id'] ?? 0 ) : 0;
+		if ( $turn <= 0 ) {
+			return array();
+		}
+		$t = $this->get( '/zalo-personal-bridge/brain/traces/' . $turn . '?' . $q );
+		if ( empty( $t['ok'] ) ) {
+			return null;
+		}
+		return array( 'turn_id' => $turn ) + array_intersect_key( $t, array_flip( array( 'reply_kind', 'guru', 'context', 'knowledge', 'llm', 'denied' ) ) );
+	}
+
+	/**
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C-7 read path (A4.3 ↔ C3.2/C3.3) — the config state the zalo-hub cell holds for THIS
+	 * number: `config_version`, `agent_ref`, `persona_chars`, `persona_source`, `snapshot{allowed,updated_at,expires_at}`,
+	 * `platform_config_version`. Read through the Hub's existing `brain/*` relay (15 s cache, exact key + bound site); never the
+	 * persona text. `null` when the Hub/cell cannot answer (old cell, zca number, network) — callers must say so, not guess.
+	 *
+	 * @return array<string,mixed>|null
+	 */
+	public function brain_overview( string $bridge_account_id ): ?array {
+		$id = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		if ( $id === '' ) {
+			return null;
+		}
+		$r = $this->get( '/zalo-personal-bridge/brain/overview?account_id=' . rawurlencode( $id ) );
+		if ( ! is_array( $r ) || empty( $r['ok'] ) || ! array_key_exists( 'config_version', $r ) ) {
+			return null;
+		}
+		return $r;
+	}
+
 	/** Read the provider group label for an exact key-owned account. */
 	public function get_group_name( string $account_id, string $group_id ): array {
 		// [2026-09-17 11:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CX2 — route managed group-label reads through Hub Branch 19.

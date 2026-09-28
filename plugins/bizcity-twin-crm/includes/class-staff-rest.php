@@ -1280,11 +1280,11 @@ final class BizCity_CRM_Staff_REST {
 		global $wpdb;
 		$messages = BizCity_CRM_DB_Installer_V2::tbl_messages();
 		$conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
-		$last_row = $wpdb->get_row( $wpdb->prepare( "SELECT m.created_at, m.ai_metadata FROM {$messages} m INNER JOIN {$conv} c ON c.id = m.conversation_id WHERE c.inbox_id = %d AND m.sender_type IN ('bot','agent_bot') ORDER BY m.created_at DESC LIMIT 1", $inbox_id ), ARRAY_A );
+		$last_row = $wpdb->get_row( $wpdb->prepare( "SELECT m.created_at, m.ai_metadata_json FROM {$messages} m INNER JOIN {$conv} c ON c.id = m.conversation_id WHERE c.inbox_id = %d AND m.sender_type IN ('bot','agent_bot') ORDER BY m.created_at DESC LIMIT 1", $inbox_id ), ARRAY_A );
 		$last_reply = $last_row['created_at'] ?? null;
 		$reply_kind = '';
-		if ( $last_row && ! empty( $last_row['ai_metadata'] ) ) {
-			$meta = json_decode( (string) $last_row['ai_metadata'], true );
+		if ( $last_row && ! empty( $last_row['ai_metadata_json'] ) ) {
+			$meta = json_decode( (string) $last_row['ai_metadata_json'], true );
 			$reply_kind = is_array( $meta ) ? sanitize_key( (string) ( $meta['reply_kind'] ?? '' ) ) : '';
 		}
 		$fallback_labels = array(
@@ -1313,9 +1313,13 @@ final class BizCity_CRM_Staff_REST {
 			$ref       = (string) ( $profile['guru']['ref'] ?? ( 'guru:' . $answering_id ) );
 			$sync      = BizCity_Zalo_Personal_Hub_Client::instance()->guru_sync_check( $bridge_account_id, $ref, $site_etag );
 			if ( empty( $sync['ok'] ) ) {
-				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'unknown', 'summary' => 'Chưa hỏi được BizCity Hub ngay lúc này.', 'guide' => 'Bấm "Kiểm tra lại" sau vài giây.', 'action' => 'none', 'action_label' => '' );
+				// [2026-09-28 Claude Opus 5.5] PHASE-0.81 P0-5 — canary 28/9 showed only this sentence and nothing was logged on either side;
+				// the HTTP status + error code say which half failed (404 rest_no_route = old Hub file, 401 = key, 3xx = redirect).
+				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'unknown', 'summary' => 'Chưa hỏi được BizCity Hub ngay lúc này' . self::sync_check_failure_detail( $sync ) . '.', 'guide' => 'Bấm "Kiểm tra lại" sau vài giây. Lặp lại thì gửi mã trong ngoặc cho người vận hành.', 'action' => 'none', 'action_label' => '' );
 			} elseif ( 'never_pulled' === ( $sync['code'] ?? '' ) ) {
-				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'info', 'summary' => 'Máy chủ trả lời chưa từng lấy Guru này (chưa có khách nào nhắn tới, hoặc đã hơn 5 phút không dùng).', 'guide' => 'Bình thường với số ít hoạt động. Nhờ một số khác nhắn thử để xác nhận.', 'action' => 'none', 'action_label' => '' );
+				// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C3.3 (S81-S8) — owner decision: "never pulled" is an error, not info. A number the cell
+				// has not read the Guru for cannot be shown as healthy; the guide says how to force a read.
+				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'error', 'summary' => 'Máy chủ trả lời chưa lấy Guru này trong 5 phút gần nhất — chưa chứng minh được bot đang dùng đúng Guru.', 'guide' => 'Bấm "Đồng bộ lại" ở Bot Studio, nhờ một số khác nhắn thử rồi bấm "Kiểm tra lại". Vẫn lỗi thì kiểm cell (Hub console → brain overview của số này).', 'action' => 'none', 'action_label' => '' );
 			} elseif ( ! empty( $sync['in_sync'] ) ) {
 				$sync_step = array( 'key' => 'guru_synced', 'title' => 'Cấu hình đã tới đúng máy chủ trả lời', 'status' => 'ok', 'summary' => 'Máy chủ trả lời đang dùng đúng bản Guru mới nhất.', 'guide' => '', 'action' => 'none', 'action_label' => '' );
 			} else {
@@ -1323,7 +1327,7 @@ final class BizCity_CRM_Staff_REST {
 			}
 		}
 
-		$steps = array( $connection_step, $bot_step, $guru_step, $replied_step, $sync_step );
+		$steps = array( $connection_step, $bot_step, $guru_step, $replied_step, $sync_step, self::cell_config_version_step( $provider, $bridge_account_id ), self::last_turn_source_step( $provider, $bridge_account_id ) );
 		$overall = 'ok';
 		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 doc 28 T-5 — `replied_step` can now be 'warn' too (the last
 		// reply was one of zalo-hub's own fixed apologies, not the Guru) — a real, worth-surfacing symptom,
@@ -1335,6 +1339,101 @@ final class BizCity_CRM_Staff_REST {
 			if ( 'unknown' === $s['status'] && 'ok' === $overall ) { $overall = 'warn'; }
 		}
 		return new WP_REST_Response( array( 'ok' => true, 'steps' => $steps, 'overall' => $overall, 'checked_at' => gmdate( 'c' ) ), 200 );
+	}
+
+	/**
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C3.3 — T-5 step `cell_config_version`: the config bundle version the site last sent
+	 * (BizCity_Zalo_Hub_Config_Sync) against the `config_version` the cell holds (brain overview, contract C-7), read through the Hub
+	 * `brain/*` relay (`BizCity_Zalo_Personal_Hub_Client::brain_overview()`). Unreadable (old cell, Hub down) ⇒ `info` saying so, never
+	 * a guessed `ok`.
+	 */
+	/**
+	 * [2026-09-28 Claude Opus 5.5] PHASE-0.81 P0-5 — " (HTTP 404 · rest_no_route)" from a failed Hub answer: status and code only,
+	 * never the Hub message or body.
+	 */
+	public static function sync_check_failure_detail( array $sync ): string {
+		$http = (int) ( $sync['http_code'] ?? 0 );
+		$code = sanitize_key( (string) ( $sync['code'] ?? ( $sync['error'] ?? '' ) ) );
+		$parts = array();
+		if ( $http > 0 ) {
+			$parts[] = 'HTTP ' . $http;
+		}
+		if ( '' !== $code ) {
+			$parts[] = substr( $code, 0, 60 );
+		}
+		return $parts ? ' (' . implode( ' · ', $parts ) . ')' : '';
+	}
+
+	public static function cell_config_version_step( string $provider, string $bridge_account_id ): array {
+		$step = array( 'key' => 'cell_config_version', 'title' => 'Máy chủ trả lời giữ đúng bản cấu hình', 'status' => 'info', 'summary' => '', 'guide' => '', 'action' => 'none', 'action_label' => '' );
+		if ( 'zalo_hub' !== $provider ) {
+			return array_merge( $step, array( 'summary' => 'Không áp dụng — số này chạy zca (không có bản cấu hình gửi đi).' ) );
+		}
+		$site = class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) ? (int) ( BizCity_Zalo_Hub_Config_Sync::status()['version'] ?? 0 ) : 0;
+		$step['site_version'] = $site;
+		$overview = class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) && method_exists( 'BizCity_Zalo_Personal_Hub_Client', 'brain_overview' )
+			? BizCity_Zalo_Personal_Hub_Client::instance()->brain_overview( $bridge_account_id ) : null;
+		if ( ! is_array( $overview ) || ! array_key_exists( 'config_version', $overview ) ) {
+			return array_merge( $step, array( 'summary' => 'Site đã gửi bản v' . $site . '. Chưa đọc được bản cell đang giữ (cần relay brain overview C-7).', 'guide' => 'Xem "config_version" của số này ở Hub console → brain overview.' ) );
+		}
+		$cell = (int) $overview['config_version'];
+		$step['cell_version'] = $cell;
+		$step['persona_source'] = (string) ( $overview['persona_source'] ?? '' );
+		if ( 0 === $cell ) {
+			return array_merge( $step, array( 'status' => 'error', 'summary' => 'Máy chủ trả lời chưa nhận bản cấu hình nào (v0) — bot chưa có Guru của bạn.', 'guide' => 'Bấm "Đồng bộ lại" ở Bot Studio rồi bấm "Kiểm tra lại". Vẫn v0 thì kiểm cell.' ) );
+		}
+		// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C3.5 — C-1: no snapshot / allowed:false ⇒ the cell keeps this site's bot silent. Only
+		// judged when the cell reports the key at all (a cell before A2 has no `snapshot`).
+		// [2026-09-28 Claude Sonnet 5] N-2 (peer review, confirmed) — C-1 also says the tenant goes silent when `now > expires_at`, even
+		// with `allowed:true`; checking `allowed` alone reported "ok" for a grant that had already lapsed.
+		$snap = is_array( $overview['snapshot'] ?? null ) ? $overview['snapshot'] : null;
+		$expired = null !== $snap && '' !== (string) ( $snap['expires_at'] ?? '' ) && ( (int) strtotime( (string) $snap['expires_at'] ) ) < time();
+		if ( array_key_exists( 'snapshot', $overview ) && ( null === $snap || empty( $snap['allowed'] ) || $expired ) ) {
+			$why = $expired ? 'quyền đã hết hạn (' . $snap['expires_at'] . ')' : 'chưa được Hub cấp quyền dùng AI cho site này';
+			return array_merge( $step, array( 'status' => 'error', 'summary' => 'Cell giữ v' . $cell . ' nhưng ' . $why . ' — bot im lặng, tin vẫn về CRM.', 'guide' => 'Kiểm gói / hạn mức của API key ở BizCity Hub (quyền AI của key). Hub đẩy lại quyền thì bot tự trả lời, không cần đồng bộ lại.' ) );
+		}
+		if ( $cell < $site ) {
+			return array_merge( $step, array( 'status' => 'warn', 'summary' => 'Cell giữ v' . $cell . ', site đã gửi v' . $site . ' — cell chưa nhận bản mới.', 'guide' => 'Cell tự đối chiếu mỗi 10 phút; muốn nhanh thì bấm "Đồng bộ lại".' ) );
+		}
+		if ( 'cell_default' === $step['persona_source'] ) {
+			return array_merge( $step, array( 'status' => 'warn', 'summary' => 'Cell giữ v' . $cell . ' nhưng số này đang dùng persona mặc định của cell, chưa phải Guru của bạn.', 'guide' => 'Kiểm Guru gắn với số này ở Bot Studio (instruction không được rỗng) rồi bấm "Đồng bộ lại".' ) );
+		}
+		return array_merge( $step, array( 'status' => 'ok', 'summary' => 'Cell đang giữ v' . $cell . ' (site v' . $site . ').' ) );
+	}
+
+	/**
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C3.5 — T-5 step `last_turn_source`: which Guru copy the LATEST real turn of this
+	 * number used (C-7 `guru.source`): `profile` / `bundle` = the site's Guru; `cell_default` / `none` = not the site's Guru.
+	 */
+	public static function last_turn_source_step( string $provider, string $bridge_account_id ): array {
+		// Only turns that reached the model have a trace: a message stopped at the cell's gate (no AI permission, manual, hours…) leaves
+		// none — its reason is `bot_skipped_reason` on the CRM message — so "latest turn" can be older than the latest message.
+		$step = array( 'key' => 'last_turn_source', 'title' => 'Lượt trả lời gần nhất dùng Guru của bạn', 'status' => 'info', 'summary' => '', 'guide' => 'Chỉ tính lượt đã gọi tới model; tin bị chặn trước đó không có lượt (lý do nằm ở tin trong CRM).', 'action' => 'none', 'action_label' => '' );
+		if ( 'zalo_hub' !== $provider ) {
+			return array_merge( $step, array( 'summary' => 'Không áp dụng — số zca đọc Guru trực tiếp tại site.' ) );
+		}
+		$turn = class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) && method_exists( 'BizCity_Zalo_Personal_Hub_Client', 'brain_last_turn' )
+			? BizCity_Zalo_Personal_Hub_Client::instance()->brain_last_turn( $bridge_account_id ) : null;
+		if ( null === $turn ) {
+			return array_merge( $step, array( 'status' => 'unknown', 'summary' => 'Chưa đọc được lượt gần nhất từ máy chủ trả lời.', 'guide' => 'Bấm "Kiểm tra lại" sau vài giây.' ) );
+		}
+		if ( array() === $turn ) {
+			return array_merge( $step, array( 'summary' => 'Chưa có lượt nào.', 'guide' => 'Nhờ một số khác nhắn thử rồi bấm "Kiểm tra lại".' ) );
+		}
+		$guru = is_array( $turn['guru'] ?? null ) ? $turn['guru'] : null;
+		$step['turn_id'] = (int) $turn['turn_id'];
+		if ( null === $guru ) {
+			return array_merge( $step, array( 'summary' => 'Cell chưa ghi nguồn Guru cho lượt #' . $step['turn_id'] . ' (bản cell trước PHASE-0.81).', 'guide' => '' ) );
+		}
+		$source = (string) ( $guru['source'] ?? '' );
+		$ref    = (string) ( $guru['ref'] ?? '' );
+		$step['guru_source'] = $source;
+		$step['guru_ref']    = $ref;
+		$hits = is_array( $turn['knowledge'] ?? null ) ? (int) ( $turn['knowledge']['hits'] ?? 0 ) : 0;
+		if ( in_array( $source, array( 'profile', 'bundle' ), true ) ) {
+			return array_merge( $step, array( 'status' => 'ok', 'summary' => 'Lượt #' . $step['turn_id'] . ' dùng ' . ( '' !== $ref ? $ref : 'Guru' ) . ' (' . $source . ')' . ( $hits > 0 ? ', ' . $hits . ' đoạn notebook.' : '.' ) ) );
+		}
+		return array_merge( $step, array( 'status' => 'warn', 'summary' => 'Lượt #' . $step['turn_id'] . ' KHÔNG dùng Guru của bạn (nguồn: ' . ( '' !== $source ? $source : 'không rõ' ) . ').', 'guide' => 'Bấm "Đồng bộ lại" ở Bot Studio, nhắn thử lại rồi bấm "Kiểm tra lại".' ) );
 	}
 
 	/**

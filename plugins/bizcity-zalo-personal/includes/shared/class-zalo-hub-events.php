@@ -116,10 +116,23 @@ final class BizCity_Zalo_Hub_Events {
 		}
 		$key = self::dedupe_key( $body );
 		$existing = BizCity_Zalo_Mapping_Repo::find_by_zalo_msg_id( $local_id, $key );
-		if ( null !== $existing && (int) ( $existing['crm_message_id'] ?? 0 ) > 0 ) {
-			return array( 'status' => 200, 'body' => array( 'ok' => true, 'accepted' => true, 'duplicate' => true, 'crm_message_id' => (int) $existing['crm_message_id'] ) );
-		}
 		$norm = self::bot_reply_norm( $body );
+		if ( null !== $existing && (int) ( $existing['crm_message_id'] ?? 0 ) > 0 ) {
+			$crm_id = (int) $existing['crm_message_id'];
+			// [2026-09-28 Claude Opus 5.5] PHASE-0.81 P0-6 — Zalo echoes the bot's own message back (selfListen) and that
+			// echo can reach this site BEFORE `bot_reply`: the cell only remembers "this msgId is the bot's" after every
+			// part is sent. The echo was then stored as the owner typing on the phone (`agent`, `zalo:self:`) and the real
+			// `bot_reply` was dropped as a duplicate ⇒ no `agent_bot` row, CRM shows the bot's words as a person's.
+			// Same Zalo msgId ⇒ same message: turn that echo row into the bot row instead of ignoring the bot event.
+			if ( self::claim_self_echo( $crm_id, $norm ) ) {
+				self::log( 'hub_bot_reply_claimed_echo', array( 'account_id' => $account_id, 'crm_message_id' => $crm_id, 'trace_ref' => $norm['ai_metadata']['trace_ref'], 'part' => $norm['ai_metadata']['part'] ) );
+				if ( function_exists( 'do_action' ) ) {
+					do_action( 'bizcity_zalo_hub_bot_reply', $crm_id, $norm, $body );
+				}
+				return array( 'status' => 200, 'body' => array( 'ok' => true, 'accepted' => true, 'claimed_echo' => true, 'crm_message_id' => $crm_id ) );
+			}
+			return array( 'status' => 200, 'body' => array( 'ok' => true, 'accepted' => true, 'duplicate' => true, 'crm_message_id' => $crm_id ) );
+		}
 		if ( null === $existing ) {
 			BizCity_Zalo_Mapping_Repo::save_map( array(
 				'account_id'     => $local_id,
@@ -142,6 +155,45 @@ final class BizCity_Zalo_Hub_Events {
 			do_action( 'bizcity_zalo_hub_bot_reply', $msg_id, $norm, $body );
 		}
 		return array( 'status' => 200, 'body' => array( 'ok' => true, 'accepted' => true, 'crm_message_id' => $msg_id ) );
+	}
+
+	/**
+	 * Pure: the column update that turns a self-echo CRM row into this `bot_reply` row, or null when the row is not an
+	 * echo (a real bot row, a staff/CRM send, anything else is left alone). `external_source_id` is kept: it is unique per
+	 * inbox and already names this Zalo message.
+	 *
+	 * @param array $row  CRM message row (`sender_type`, `external_source_id`, `ai_metadata_json`).
+	 * @param array $norm bot_reply_norm() of the event.
+	 */
+	public static function echo_claim_patch( array $row, array $norm ): ?array {
+		if ( 'agent' !== (string) ( $row['sender_type'] ?? '' ) || 0 !== strpos( (string) ( $row['external_source_id'] ?? '' ), 'zalo:self:' ) ) {
+			return null;
+		}
+		$meta = json_decode( (string) ( $row['ai_metadata_json'] ?? '' ), true );
+		$meta = is_array( $meta ) ? $meta : array();
+		if ( 'native_zalo' !== (string) ( $meta['zalo_personal_origin'] ?? '' ) ) {
+			return null;
+		}
+		$meta = array_merge( $meta, $norm['ai_metadata'], array( 'zalo_personal_origin' => 'bot', 'claimed_from' => 'self_echo' ) );
+		return array(
+			'sender_type'      => 'agent_bot',
+			'responder_kind'   => 'auto',
+			'ai_metadata_json' => wp_json_encode( $meta, JSON_UNESCAPED_UNICODE ),
+		);
+	}
+
+	private static function claim_self_echo( int $crm_id, array $norm ): bool {
+		global $wpdb;
+		if ( $crm_id <= 0 || ! isset( $wpdb ) || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			return false;
+		}
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT id, sender_type, external_source_id, ai_metadata_json FROM {$tbl} WHERE id = %d", $crm_id ), ARRAY_A );
+		$patch = is_array( $row ) ? self::echo_claim_patch( $row, $norm ) : null;
+		if ( null === $patch ) {
+			return false;
+		}
+		return false !== $wpdb->update( $tbl, $patch, array( 'id' => $crm_id ), array( '%s', '%s', '%s' ), array( '%d' ) );
 	}
 
 	private static function thread_state( array $body ): array {

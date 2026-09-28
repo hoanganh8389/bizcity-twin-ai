@@ -31,6 +31,18 @@ abstract class BizCity_CRM_Adapter_Base implements BizCity_CRM_Channel_Adapter {
 		// no-op default
 	}
 
+	/**
+	 * [2026-09-27] PHASE-0.80 doc 27 L-06 — cheap, network-free "could a reply leave this inbox at all?" check.
+	 * The AI Replier calls it BEFORE spending an LLM turn (blog 559, 2026-09-26: five 376–602-char answers were generated
+	 * and thrown away with `no page access token`). Not in the interface — probed via method_exists. Default: assume yes.
+	 *
+	 * @param array $inbox Row from BizCity_CRM_Repository::get_inbox().
+	 * @return array{ok:bool,error:string}
+	 */
+	public function preflight_send( array $inbox ): array {
+		return array( 'ok' => true, 'error' => '' );
+	}
+
 	/* -- M7 self-description (NOT in interface — probed via method_exists) - */
 
 	/**

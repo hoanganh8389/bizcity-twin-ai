@@ -36,7 +36,10 @@ final class BizCity_Zalo_Hub_Config_Sync {
 	const CRON_TICK    = 'bizcity_zalo_hub_config_sync_tick';
 	const LOCK         = 'bizcity_zalo_hub_config_sync_lock';
 	const PLATFORM     = 'ZALO_PERSONAL';
-	const CONTRACT     = 'zalo-hub-bridge/1.0';
+	// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C0.5 (C-5). A cell older than A5.5 validates `contract` as the 1.0 literal and rejects
+	// 1.1; the filter `bizcity_zalo_hub_bundle_contract` returning CONTRACT_V10 is the way back while such a cell is still serving.
+	const CONTRACT     = 'zalo-hub-bridge/1.1';
+	const CONTRACT_V10 = 'zalo-hub-bridge/1.0';
 	const DEBOUNCE     = 5;
 	const RETRY_AFTER  = 60;
 	const MAX_ATTEMPTS = 10;
@@ -207,6 +210,13 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			if ( $character_id <= 0 ) {
 				// No Guru bound: Bot Studio says `no_binding`/`no_character` and stays silent. The cell must too.
 				$row['mode'] = 'manual';
+				// [2026-09-28 Claude Sonnet 5] PHASE-0.81 N-1 (peer review, confirmed) — send `office_hours` here too (same shape as the
+				// bound path below): without it, a number that HAD hours/pause_on_manual_reply configured before its Guru was unbound
+				// keeps whatever the cell already holds. Moot while silent, but stale the moment it gets a Guru rebound before its next
+				// unrelated edit re-sends this block.
+				$no_guru_hours = self::decode( is_array( $binding ) ? ( $binding['office_hours_json'] ?? '' ) : '' );
+				$oh = self::bot_hours( $no_guru_hours );
+				$row['office_hours'] = null !== $oh ? $oh : array( 'enabled' => false, 'pause_on_manual_reply' => ! empty( $no_guru_hours['pause_on_manual_reply'] ) );
 				$warnings[] = $bridge_id . ': chưa gắn Guru (binding) — bot zalo-hub im lặng, tin vẫn về CRM';
 				$accounts[] = $row;
 				continue;
@@ -240,12 +250,21 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			$pol['auto_react']       = ! empty( $policy['auto_react'] );
 			if ( '' !== (string) ( $policy['react_icon'] ?? '' ) ) { $pol['react_icon'] = sanitize_key( (string) $policy['react_icon'] ); }
 			$row['policy'] = $pol;
+			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C0.1 (D-S81-3, G-22) — the cell has no "suggest only" mode; sending `hybrid` let it
+			// answer like `auto`. The number goes manual (silent, messages still reach CRM) and `mode_source` lets Bot Studio say why.
+			if ( 'hybrid' === $mode ) {
+				$mode = 'manual';
+				$row['mode_source'] = 'hybrid';
+				$warnings[] = $bridge_id . ': chế độ Chỉ gợi ý chưa hỗ trợ trên zalo-hub — số đang để thủ công';
+			}
 			$row['mode']   = $mode;
 
 			// Staff hours off ⇒ no working-hours restriction, but the manual-reply pause still applies: Bot Studio pauses only when the
 			// flag is set (absent ⇒ no pause, as in BizCity_Bot_Turn_Claim), so say so instead of leaving the cell on its own default.
+			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C0.2 (S81-S2) — `enabled:false` is explicit: without it the cell kept the hours it
+			// already held after the owner switched them off.
 			$oh = self::bot_hours( $hours );
-			$row['office_hours'] = null !== $oh ? $oh : array( 'pause_on_manual_reply' => ! empty( $hours['pause_on_manual_reply'] ) );
+			$row['office_hours'] = null !== $oh ? $oh : array( 'enabled' => false, 'pause_on_manual_reply' => ! empty( $hours['pause_on_manual_reply'] ) );
 			// Per-number history depth, resolved exactly like a Bot Studio turn (binding → Guru → 20, clamped 20–200).
 			$row['tuning'] = array( 'history_limit' => self::history_limit( $policy, self::bot_settings( $character_id ) ) );
 			$accounts[] = $row;
@@ -256,7 +275,7 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			}
 		}
 		$bundle = array(
-			'contract'     => self::CONTRACT,
+			'contract'     => self::contract(),
 			'version'      => max( 1, $version ),
 			'generated_at' => gmdate( 'c', self::now() ),
 			'accounts'     => $accounts,
@@ -267,10 +286,34 @@ final class BizCity_Zalo_Hub_Config_Sync {
 		return array( 'bundle' => $bundle, 'warnings' => array_values( array_unique( $warnings ) ) );
 	}
 
+	private static function contract(): string {
+		$c = function_exists( 'apply_filters' ) ? (string) apply_filters( 'bizcity_zalo_hub_bundle_contract', self::CONTRACT ) : self::CONTRACT;
+		return in_array( $c, array( self::CONTRACT, self::CONTRACT_V10 ), true ) ? $c : self::CONTRACT;
+	}
+
+	/** Cell floor of LLM_TURN_TIMEOUT_MS (tuning-definitions.ts), in seconds. Bot Studio allows 10 s. */
+	const CELL_TURN_TIMEOUT_MIN_S = 60;
+
+	/** Cell range of SCHEDULER_MAX_PROACTIVE_PER_DAY, where `daily_message_cap` lands (D-S81-6). Bot Studio allows 500. */
+	const CELL_DAILY_CAP_MAX = 100;
+
+	/** Tuning keys this class sends (site_tuning + per-account history_limit). Every other Bot Studio tuning key is not applied on zalo-hub. */
+	const SENT_TUNING = array( 'debounce_seconds', 'pause_window_minutes', 'max_tool_steps', 'turn_timeout_seconds', 'daily_message_cap', 'reasoning_effort' );
+
+	/** Guru-level Bot Studio settings a zalo-hub number does not apply (PHASE-0.81 C0.4, shown by C3.2). */
+	const GURU_NOT_APPLIED = array(
+		'vision_mode'            => 'Xem ảnh khách gửi (Guru)',
+		'context_source'         => 'Nguồn ngữ cảnh CRM/Context Bank (Guru)',
+		'enabled_optional_tools' => 'Công cụ tuỳ chọn bật thêm (Guru)',
+		'bypass_notebook'        => 'Bỏ qua notebook (Guru)',
+	);
+
 	/**
-	 * Site-wide Bot Studio tuning the cell honours with the SAME meaning. Deliberately not sent: `daily_message_cap` (the cell maps it to
-	 * its proactive-scheduler cap, not replies), `max_tool_steps` (Bot Studio counts tool rounds 0–5, the cell counts LLM steps ≥ 1),
-	 * `turn_timeout_seconds` (always trips the cell's image-timeout warning), `history_char_budget` (tokens vs characters).
+	 * Site-wide Bot Studio tuning sent under `tuning` (C-5). `history_char_budget` stays home (tokens vs characters).
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C0.4 (S81-S7) — `max_tool_steps`, `turn_timeout_seconds`, `daily_message_cap` are now sent:
+	 *  - `max_tool_steps`: Bot Studio counts tool rounds (0–5), the cell counts LLM steps (≥ 1, the answer is a step) ⇒ rounds + 1;
+	 *  - `turn_timeout_seconds`: raised to the cell floor (60 s) with a warning;
+	 *  - `daily_message_cap`: sent as is; the cell (A5.5) owns its meaning and answers a warning when out of its range.
 	 */
 	private static function site_tuning( array &$warnings ): array {
 		$t = isset( self::$readers['tuning'] ) ? (array) call_user_func( self::$readers['tuning'] ) : ( class_exists( 'BizCity_Bot_Config_Repo' ) && method_exists( 'BizCity_Bot_Config_Repo', 'get_tuning' ) ? (array) BizCity_Bot_Config_Repo::get_tuning() : array() );
@@ -285,6 +328,50 @@ final class BizCity_Zalo_Hub_Config_Sync {
 		}
 		if ( isset( $t['pause_window_minutes'] ) && is_numeric( $t['pause_window_minutes'] ) ) {
 			$out['pause_window_minutes'] = max( 1, min( 1440, (int) $t['pause_window_minutes'] ) );
+		}
+		if ( isset( $t['max_tool_steps'] ) && is_numeric( $t['max_tool_steps'] ) ) {
+			$out['max_tool_steps'] = max( 0, min( 5, (int) $t['max_tool_steps'] ) ) + 1;
+		}
+		if ( isset( $t['turn_timeout_seconds'] ) && is_numeric( $t['turn_timeout_seconds'] ) ) {
+			$s = min( 300, (int) $t['turn_timeout_seconds'] );
+			if ( $s < self::CELL_TURN_TIMEOUT_MIN_S ) {
+				$warnings[] = 'tuning: trần thời gian một lượt ' . $s . ' giây thấp hơn mức tối thiểu ' . self::CELL_TURN_TIMEOUT_MIN_S . ' giây của zalo-hub — gửi ' . self::CELL_TURN_TIMEOUT_MIN_S . ' giây';
+				$s = self::CELL_TURN_TIMEOUT_MIN_S;
+			}
+			$out['turn_timeout_seconds'] = $s;
+		}
+		if ( isset( $t['daily_message_cap'] ) && is_numeric( $t['daily_message_cap'] ) ) {
+			// [2026-09-27 Claude Opus 5.5] D-S81-6 — the cell keeps its own setting when it has one, otherwise takes this value within 1–100
+			// (it counts proactive messages only). Clamp here too so Bot Studio shows the cut instead of the cell doing it silently.
+			$cap = max( 1, (int) $t['daily_message_cap'] );
+			if ( $cap > self::CELL_DAILY_CAP_MAX ) {
+				$warnings[] = 'tuning: trần ' . $cap . ' tin/ngày vượt mức ' . self::CELL_DAILY_CAP_MAX . ' của zalo-hub (chỉ đếm tin chủ động) — gửi ' . self::CELL_DAILY_CAP_MAX;
+				$cap = self::CELL_DAILY_CAP_MAX;
+			}
+			$out['daily_message_cap'] = $cap;
+		}
+		// Bot Studio has no reasoning setting today; sent only when one exists (C-5: missing ⇒ cell default).
+		if ( isset( $t['reasoning_effort'] ) && in_array( $t['reasoning_effort'], array( 'off', 'low', 'medium', 'high' ), true ) ) {
+			$out['reasoning_effort'] = (string) $t['reasoning_effort'];
+		}
+		return $out;
+	}
+
+	/**
+	 * Bot Studio settings a zalo-hub number does not apply (tuning keys not sent + Guru-level switches), for the Bot Studio notice.
+	 *
+	 * @return list<array{key:string,label:string}>
+	 */
+	public static function not_applied(): array {
+		$out = array();
+		$registry = class_exists( 'BizCity_Bot_Config_Repo' ) && method_exists( 'BizCity_Bot_Config_Repo', 'tuning_registry' ) ? (array) BizCity_Bot_Config_Repo::tuning_registry() : array();
+		foreach ( $registry as $key => $row ) {
+			if ( ! in_array( (string) $key, self::SENT_TUNING, true ) ) {
+				$out[] = array( 'key' => (string) $key, 'label' => (string) ( $row['label'] ?? $key ) );
+			}
+		}
+		foreach ( self::GURU_NOT_APPLIED as $key => $label ) {
+			$out[] = array( 'key' => $key, 'label' => $label );
 		}
 		return $out;
 	}
@@ -338,7 +425,31 @@ final class BizCity_Zalo_Hub_Config_Sync {
 		$agent = array( 'ref' => $ref, 'name' => mb_substr( (string) ( $char->name ?? $ref ), 0, 100 ), 'system_prompt' => $prompt, 'faq' => $faq );
 		if ( null !== $profile ) { $agent['guru_version'] = (string) $profile['guru']['etag']; }
 		if ( $disabled ) { $agent['tools_disabled'] = array_keys( $disabled ); } // never `tools_enabled`: the cell would then disable everything else
+		$knowledge = self::knowledge( $character_id );
+		if ( null !== $knowledge ) { $agent['knowledge'] = $knowledge; }
 		return $agent;
+	}
+
+	/**
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C0.3 (C-5) — `{notebook_ids, versions}` when the Guru opted into `base+notebooks`, else null
+	 * (no key: base level only, R-GURU-PRIVATE). Ids are the one source of C1.0; a notebook edit moves its version, so the fingerprint
+	 * changes and the next tick re-sends the bundle. Only ids and versions travel here — the content goes over C-4.
+	 */
+	private static function knowledge( int $character_id ): ?array {
+		if ( isset( self::$readers['knowledge'] ) ) {
+			$scope = (array) call_user_func( self::$readers['knowledge'], $character_id );
+		} elseif ( self::resolver() ) {
+			$scope = BizCity_Guru_Context_Resolver::scope( $character_id );
+		} else {
+			return null;
+		}
+		if ( 'base+notebooks' !== ( $scope['knowledge'] ?? 'base' ) ) { return null; }
+		$ids = array_values( array_filter( array_map( 'intval', (array) ( $scope['notebook_ids'] ?? array() ) ), static function ( $v ) { return $v > 0; } ) );
+		$versions = array();
+		foreach ( $ids as $id ) {
+			$versions[ (string) $id ] = class_exists( 'BizCity_Zalo_Guru_Knowledge_Version' ) ? BizCity_Zalo_Guru_Knowledge_Version::for_notebook( $id ) : '';
+		}
+		return array( 'notebook_ids' => $ids, 'versions' => (object) $versions ); // object: `{}` on the wire even when empty
 	}
 
 	/**
@@ -441,6 +552,7 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			'ignored'   => array_slice( array_values( array_unique( $ignored ) ), 0, 30 ),
 			'warnings'  => array_slice( array_merge( $built['warnings'], array_values( array_unique( $cell_warnings ) ) ), 0, 30 ),
 			'attempts'  => $attempts,
+			'hybrid_accounts' => $ok && ! $stale ? self::hybrid_accounts( $bundle ) : (array) ( $state['hybrid_accounts'] ?? array() ),
 		);
 		self::save_state( $new );
 		if ( ! $new['ok'] && $attempts <= self::MAX_ATTEMPTS ) { self::schedule( self::RETRY_AFTER ); }
@@ -472,7 +584,7 @@ final class BizCity_Zalo_Hub_Config_Sync {
 				$source_at = self::now();
 				self::save_state( array_merge( $state, array(
 					'version' => $version, 'hash' => $hash, 'ok' => true, 'at' => self::now(), 'source_at' => $source_at, 'code' => 'pulled',
-					'accounts' => count( $built['bundle']['accounts'] ), 'agents' => count( $built['bundle']['agents'] ), 'warnings' => array_slice( $built['warnings'], 0, 30 ), 'attempts' => 0,
+					'accounts' => count( $built['bundle']['accounts'] ), 'agents' => count( $built['bundle']['agents'] ), 'warnings' => array_slice( $built['warnings'], 0, 30 ), 'attempts' => 0, 'hybrid_accounts' => self::hybrid_accounts( $built['bundle'] ),
 				) ) );
 			}
 			$out = array( 'ok' => true, 'code' => $version <= $have_version ? 'unchanged' : 'ok', 'version' => $version, 'source_updated_at' => $source_at );
@@ -485,6 +597,15 @@ final class BizCity_Zalo_Hub_Config_Sync {
 		} finally {
 			if ( function_exists( 'delete_transient' ) ) { delete_transient( self::LOCK ); }
 		}
+	}
+
+	/** Numbers set to "Chỉ gợi ý" in Bot Studio that were sent as manual (C0.1). */
+	private static function hybrid_accounts( array $bundle ): array {
+		$out = array();
+		foreach ( (array) ( $bundle['accounts'] ?? array() ) as $a ) {
+			if ( 'hybrid' === ( $a['mode_source'] ?? '' ) ) { $out[] = (string) $a['account_id']; }
+		}
+		return $out;
 	}
 
 	private static function send( array $bundle ): array {
@@ -520,6 +641,10 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			'ignored'      => (array) ( $s['ignored'] ?? array() ),
 			'warnings'     => (array) ( $s['warnings'] ?? array() ),
 			'attempts'     => (int) ( $s['attempts'] ?? 0 ),
+			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C0.1/C0.4 — for the Bot Studio notice (C3.2).
+			'contract'     => self::contract(),
+			'hybrid_accounts' => array_values( array_map( 'strval', (array) ( $s['hybrid_accounts'] ?? array() ) ) ),
+			'not_applied'  => self::not_applied(),
 		);
 	}
 

@@ -90,11 +90,41 @@ final class BizCity_Legacy_Table_Policy {
 		'bizcity_memory_users', 'bizcity_memory_episodic',
 		'bizcity_memory_rolling', 'bizcity_memory_session', 'bizcity_memory_notes',
 		'bizcity_kg_usage_log',
+		// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — R-INTENT-MIN intent state cohort (PHASE-1.30 §0.2.27).
+		'bizcity_intent_conversations', 'bizcity_intent_turns', 'bizcity_intent_todos',
+		'bizcity_intent_evidence', 'bizcity_pipeline_oneshot', 'bizcity_intent_classify_cache',
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R12 — tables whose every reader/writer is archived (core/content-ops,
+		// core/skills tool map). Deprecated → orphan → empty over time; no DROP (owner decision 2026-09-27, R-ONE-AXIS R-AX-8).
+		'bizcity_posts', 'bizcity_post_targets', 'bizcity_brand_assets', 'bizcity_schedule_queue', 'bizcity_ai_jobs',
+		'bizcity_skill_tool_map',
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R12b — plugins/bizcity-profile archived (R13e); its tables follow the same path.
+		'bizcity_personal_finance_categories', 'bizcity_personal_finance_entries', 'bizcity_personal_journal',
+		'bizcity_personal_notebooks', 'bizcity_personal_notebook_pages', 'bizcity_personal_notebook_chunks',
+		'bizcity_personal_profile_cards', 'bizcity_personal_profile_qrcodes', 'bizcity_personal_profile_analytics_events',
+		// [2026-09-28 Claude Sonnet 5] CORE-REDUCTION WP-13 — these two were quarantine_only ONLY in
+		// core/diagnostics/includes/class-diagnostics-table-registry.php (lines 348-350); is_legacy() fell back to
+		// that class, so deleting core/diagnostics (D-35) would have silently un-quarantined them. Same reason as
+		// the registry: session/conversation metadata callers now use the filestore / webchat_messages.
+		'bizcity_webchat_sessions', 'bizcity_webchat_conversations',
 	);
 
 	/** [2026-08-29 Johnny Chu] PHASE-1.30-WRITER-STOP — JSONL-backed log owners start in draining so SQL writes are refused by default while reads remain available during cutover. */
 	private static $writer_stop_defaults = array(
 		// [2026-08-29 Johnny Chu] PHASE-1.30-MEMORY-WRITER-STOP — filestore-first memory owners now refuse legacy SQL writes while retaining bounded read fallback.
+		// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — their writers (Engine, One_Shot, pipeline evidence, todos) are
+		// retired and no reader outside core/intent remains (D-26): refuse install/writes, keep reads until the drop gates.
+		'bizcity_intent_conversations', 'bizcity_intent_turns', 'bizcity_intent_todos',
+		'bizcity_intent_evidence', 'bizcity_pipeline_oneshot', 'bizcity_intent_classify_cache',
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R12 — writers archived with core/content-ops and core/skills.
+		'bizcity_posts', 'bizcity_post_targets', 'bizcity_brand_assets', 'bizcity_schedule_queue', 'bizcity_ai_jobs',
+		'bizcity_skill_tool_map',
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R12b — plugins/bizcity-profile archived (R13e); its tables follow the same path.
+		'bizcity_personal_finance_categories', 'bizcity_personal_finance_entries', 'bizcity_personal_journal',
+		'bizcity_personal_notebooks', 'bizcity_personal_notebook_pages', 'bizcity_personal_notebook_chunks',
+		'bizcity_personal_profile_cards', 'bizcity_personal_profile_qrcodes', 'bizcity_personal_profile_analytics_events',
+		// [2026-09-28 Claude Sonnet 5] CORE-REDUCTION WP-13 — mirrors the registry's quarantine_only for both
+		// (install blocked, writes refused, reads allowed) so the state does not depend on core/diagnostics.
+		'bizcity_webchat_sessions', 'bizcity_webchat_conversations',
 	);
 
 	private static $base_prefix_tables = array( 'bizcity_zalo_bot_memory', 'bizcity_google_usage_logs' );

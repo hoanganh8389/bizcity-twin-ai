@@ -24,7 +24,7 @@ class BizCity_Zalo_Personal_Integration extends BizCity_Channel_Integration {
 	protected string $code           = 'zalo_personal';
 	protected string $platform       = 'ZALO_PERSONAL';
 	protected string $name           = 'Zalo Cá nhân';
-	protected string $desc           = 'Tài khoản Zalo cá nhân — đăng nhập QR qua zca-bridge. Nhận & gửi tin vào CRM Inbox.';
+	protected string $desc           = 'Tài khoản Zalo cá nhân — quét QR là kết nối, bot AI trả lời qua Zalo Hub (mặc định). Nhận & gửi tin vào CRM Inbox.';
 	protected string $logo           = 'zalo';
 	protected string $default_role   = 'cskh';
 	protected string $chat_id_prefix = 'zalop_';

@@ -44,6 +44,8 @@ class BizCity_JSONL_File_Logger {
 		'bizcity-google-logs',
 		'bizcity-cg-debug-logs',
 		'bizcity-cg-logs',
+		// [2026-09-28 Claude Opus 5.5] CORE-REDUCTION WP-13 DL-3 — contract core.helper.error_reports.
+		'bizcity-error-logs',
 	);
 
 	private static $dir_cache = array();

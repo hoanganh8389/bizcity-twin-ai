@@ -1,9 +1,0 @@
-Options -Indexes
-<Files "*.php">
-  Order Allow,Deny
-  Deny from all
-</Files>
-<FilesMatch "^(bootstrap\.php)$">
-  Order Allow,Deny
-  Allow from all
-</FilesMatch>
