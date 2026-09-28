@@ -118,13 +118,18 @@ final class BizCity_Bot_Zalo_Actions {
 		}
 		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 — these tools only ever call the site's OWN zca-bridge
 		// (run() below: BizCity_Zalo_Bridge_Client::instance()->run_action(), the local zca sidecar). A
-		// zalo-hub-provider number's turns never reach this PHP class at all (the CELL answers those — see
-		// class-guru-context-resolver.php's header). So for a zalo-hub number this is not "chưa cấu hình" /
-		// "cần build sidecar" (nothing is missing or broken) — it genuinely does not exist for that provider
-		// yet. Say that plainly instead of pointing at a zca fix that would not do anything.
-		$provider = '' !== $account_id && class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::provider( $account_id ) : '';
-		if ( 'zalo_hub' === $provider ) {
-			return array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, 'Số này đang chạy zalo-hub — nhóm công cụ hành động Zalo (kick, bổ nhiệm, bình chọn, đổi tên nhóm…) hiện CHƯA phát triển cho zalo-hub, chỉ có ở zca-bridge (legacy). Không phải do thiếu cấu hình hay cần build lại — cần làm thêm mã cho zalo-hub trước.' );
+		// transport with no action surface of its own is not "chưa cấu hình" / "cần build sidecar" —
+		// nothing is missing or broken, the tools genuinely do not exist there yet. Say that plainly
+		// instead of pointing at a zca fix that would not do anything.
+		// [2026-09-28 Claude Opus 5] PHASE-0.82 doc 07 §9 step 2 — ask the capability instead of naming
+		// the transport. Core no longer knows `zalo_hub` by heart, and the sentence the user reads is the
+		// transport's own (class-zalo-transport-capability.php). Behaviour unchanged for zca and zalo_hub;
+		// a transport that has published no descriptor supports nothing, so it locks rather than
+		// inheriting zca's action surface by accident.
+		$transport = class_exists( 'BizCity_Zalo_Transport_Capability' ) ? BizCity_Zalo_Transport_Capability::for_account( $account_id ) : null;
+		if ( null !== $transport && ! BizCity_Zalo_Transport_Capability::supports( $transport, 'group_actions' ) ) {
+			$why = BizCity_Zalo_Transport_Capability::hint( $transport, 'group_actions' );
+			return array( BizCity_Bot_Tool_Registry::STATUS_NEEDS_BRIDGE, '' !== $why ? $why : 'Số này đang chạy một transport chưa có nhóm công cụ hành động Zalo (kick, bổ nhiệm, bình chọn, đổi tên nhóm…). Không phải do thiếu cấu hình — cần làm thêm mã cho transport đó trước.' );
 		}
 		$scope_suffix = '' === $account_id ? ' (chỉ áp dụng cho số chạy zca-bridge; xem đúng theo từng số ở "Bot trả lời…").' : '';
 		$caps = self::supported_actions();

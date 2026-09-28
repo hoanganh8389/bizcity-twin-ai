@@ -245,6 +245,27 @@ class BizCity_Gateway_Sender {
 	}
 
 	/**
+	 * Did a legacy send shim (biz_send_message / twf_telegram_send_message) actually deliver?
+	 *
+	 * [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R9 — the shims return the override filter's value when a route
+	 * delivered (array / true / provider response) and false otherwise; the branches used to report sent=true blindly.
+	 *
+	 * @param mixed $result Shim return value.
+	 */
+	private static function shim_delivered( $result ): bool {
+		if ( $result === false || $result === null || $result === '' ) {
+			return false;
+		}
+		if ( function_exists( 'is_wp_error' ) && is_wp_error( $result ) ) {
+			return false;
+		}
+		if ( is_array( $result ) && array_key_exists( 'sent', $result ) ) {
+			return (bool) $result['sent'];
+		}
+		return true;
+	}
+
+	/**
 	 * Legacy send — mirrors bizcity_gateway_send_message() from gateway-functions.php.
 	 *
 	 * Maintains backward compat until all channels have adapter plugins.
@@ -269,8 +290,9 @@ class BizCity_Gateway_Sender {
 					return [ 'sent' => (bool) $res, 'error' => '', 'platform' => 'ZALO_PERSONAL' ];
 				}
 				if ( function_exists( 'biz_send_message' ) ) {
-					biz_send_message( $chat_id, $message );
-					return [ 'sent' => true, 'error' => '', 'platform' => 'ZALO_PERSONAL' ];
+					// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R9 — report the shim's real result (it returns false when no route delivers).
+					$ok = self::shim_delivered( biz_send_message( $chat_id, $message ) );
+					return [ 'sent' => $ok, 'error' => $ok ? '' : 'No delivery route for this chat_id', 'platform' => 'ZALO_PERSONAL' ];
 				}
 				return [ 'sent' => false, 'error' => 'Zalo send function not available', 'platform' => 'ZALO_PERSONAL' ];
 
@@ -385,8 +407,8 @@ class BizCity_Gateway_Sender {
 
 				// Fallback to zalo personal
 				if ( function_exists( 'biz_send_message' ) ) {
-					biz_send_message( 'zalo_' . $raw_user_id, $message );
-					return [ 'sent' => true, 'error' => '', 'platform' => 'ZALO_BOT_FALLBACK' ];
+					$ok = self::shim_delivered( biz_send_message( 'zalo_' . $raw_user_id, $message ) );
+					return [ 'sent' => $ok, 'error' => $ok ? '' : 'No delivery route for this chat_id', 'platform' => 'ZALO_BOT_FALLBACK' ];
 				}
 				return [ 'sent' => false, 'error' => 'Zalo Bot plugin not active', 'platform' => 'ZALO_BOT' ];
 
@@ -433,16 +455,14 @@ class BizCity_Gateway_Sender {
 				return [ 'sent' => false, 'error' => 'Facebook send function not available', 'platform' => 'FACEBOOK' ];
 
 			case 'telegram':
-				if ( function_exists( 'twf_telegram_send_message' ) ) {
-					twf_telegram_send_message( $chat_id, $message, 'HTML' );
-					return [ 'sent' => true, 'error' => '', 'platform' => 'TELEGRAM' ];
-				}
-				return [ 'sent' => false, 'error' => 'Telegram function not available', 'platform' => 'TELEGRAM' ];
+				// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R9 — the Telegram admin bot (global twf_bot_token) is retired
+				// (R-ONE-AXIS D-30); numeric chat_ids have no delivery route any more. Fail explicitly instead of reporting sent.
+				return [ 'sent' => false, 'error' => 'Telegram admin bot retired (R-ONE-AXIS D-30)', 'platform' => 'TELEGRAM' ];
 
 			default:
 				if ( function_exists( 'biz_send_message' ) ) {
-					biz_send_message( $chat_id, $message );
-					return [ 'sent' => true, 'error' => '', 'platform' => 'FALLBACK' ];
+					$ok = self::shim_delivered( biz_send_message( $chat_id, $message ) );
+					return [ 'sent' => $ok, 'error' => $ok ? '' : 'No send method available for: ' . $chat_id, 'platform' => 'FALLBACK' ];
 				}
 				return [ 'sent' => false, 'error' => 'No send method available for: ' . $chat_id, 'platform' => 'UNKNOWN' ];
 		}

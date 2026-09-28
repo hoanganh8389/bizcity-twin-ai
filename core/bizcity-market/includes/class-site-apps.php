@@ -30,14 +30,23 @@ class BizCity_Market_Site_Apps {
 
     /** Optional: menu page (anh đang comment trước đó, em để ON để đồng nhất) */
     public static function menu() {
-        if (!current_user_can('manage_options')) return;
+        // [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — a Network Super
+        // Admin with no local administrator row was getting this menu item silently hidden by
+        // both the early-return guard below and the hardcoded capability string.
+        $can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+            ? BizCity_Network_Admin_Capability::can_manage()
+            : current_user_can( 'manage_options' );
+        if ( ! $can_manage ) { return; }
+        $capability = class_exists( 'BizCity_Network_Admin_Capability' )
+            ? BizCity_Network_Admin_Capability::menu_cap()
+            : 'manage_options';
 
         // submenu dưới Dashboard (index.php)
         add_submenu_page(
             'index.php',
             'Ứng dụng mặc định',
             'Ứng dụng mặc định',
-            'manage_options',
+            $capability,
             self::PAGE_SLUG,
             [__CLASS__, 'render_site_apps_page'],
             61

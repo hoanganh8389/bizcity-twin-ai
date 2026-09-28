@@ -84,6 +84,8 @@ class BizCity_Memory_Unified_Writer {
 				'trace_id'    => (string) ( $row['trace_id'] ?? '' ),
 				'record_id'    => (string) ( $receipt['record_id'] ?? $row['record_id'] ?? '' ),
 				'receipt'      => $receipt,
+				// [2026-09-24 PHASE-0.60J BG-7] channel account from the row or its provenance metadata (empty for owners that have none).
+				'account_id'   => class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ? BizCity_Context_Bank_Memory_Adapter::account_from_reference( $row ) : '',
 			);
 			// [2026-09-01 Johnny Chu] PHASE-CB4.5 — synchronously admit the receipt so a memory write cannot be mistaken for Context Bank completion when the hook is absent.
 			if ( class_exists( 'BizCity_Context_Bank_Memory_Adapter' ) ) {

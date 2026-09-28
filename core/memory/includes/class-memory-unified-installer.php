@@ -169,17 +169,16 @@ class BizCity_Memory_Unified_Installer {
 			) );
 		$diagnostics_context = defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI;
 		// [2026-08-25 Johnny Chu] PHASE-1.24 — load the additive schema owner lazily so probe execution does not depend on diagnostics bootstrap order.
+		// [2026-09-28 Claude Opus 5.5] CORE-REDUCTION WP-13 DL-2 — the schema owner moved to core/helper/schema (D-35).
 		if ( $diagnostics_context && ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) ) {
-			$diagnostics_dir = defined( 'BIZCITY_DIAGNOSTICS_DIR' )
-				? trailingslashit( BIZCITY_DIAGNOSTICS_DIR )
-				: dirname( __DIR__, 2 ) . '/diagnostics/';
-			if ( ! class_exists( 'BizCity_Diagnostics_Changelog_Loader' ) && is_readable( $diagnostics_dir . 'includes/class-diagnostics-changelog-loader.php' ) ) {
-				require_once $diagnostics_dir . 'includes/class-diagnostics-changelog-loader.php';
+			$schema_dir = dirname( __DIR__, 2 ) . '/helper/schema/';
+			if ( ! class_exists( 'BizCity_Diagnostics_Changelog_Loader' ) && is_readable( $schema_dir . 'class-diagnostics-changelog-loader.php' ) ) {
+				require_once $schema_dir . 'class-diagnostics-changelog-loader.php';
 			}
-			if ( is_readable( $diagnostics_dir . 'includes/class-diagnostics-auto-create.php' ) ) {
-				require_once $diagnostics_dir . 'includes/class-diagnostics-auto-create.php';
+			if ( is_readable( $schema_dir . 'class-diagnostics-auto-create.php' ) ) {
+				require_once $schema_dir . 'class-diagnostics-auto-create.php';
 			}
-			unset( $diagnostics_dir );
+			unset( $schema_dir );
 		}
 		if ( class_exists( 'BizCity_Diagnostics_Auto_Create' ) && ( $existing || $diagnostics_context ) ) {
 			$reconcile = BizCity_Diagnostics_Auto_Create::run( self::TABLE_SUFFIX );

@@ -342,17 +342,10 @@ class BizCity_Channel_Role {
 			}
 		}
 
-		// Telegram (single instance per blog)
-		$tg_token = get_option( 'twf_bot_token', '' );
-		if ( $tg_token ) {
-			$instances[] = [
-				'platform'    => 'TELEGRAM',
-				'instance_id' => null,
-				'label'       => 'Telegram Bot',
-				'status'      => true,
-				'key'         => 'telegram',
-			];
-		}
+		// [2026-09-27 Claude Sonnet 5] CORE-REDUCTION WP-12 D-33/R9-gap — this read `twf_bot_token`, the Telegram
+		// admin-bot's global token that R9 already retired (D-30); a leftover value in the option would have
+		// listed a non-functional "Telegram Bot" role instance. The Telegram customer channel is also retired
+		// (D-33), so no Telegram instance is offered here at all.
 
 		// Facebook (single instance per blog)
 		$fb_token = get_option( 'fbm_page_access_token', '' );

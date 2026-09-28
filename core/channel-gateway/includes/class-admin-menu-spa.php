@@ -121,25 +121,9 @@ final class BizCity_Gateway_Admin_SPA {
 	/* ─── Render ─── */
 
 	public function render_page(): void {
-		// 2026-05-26 R-CMP-MIG: auto-import legacy flows → campaigns once per
-		// AUTO_IMPORT_VERSION bump. Idempotent (version-gated). Runs here so
-		// admins simply opening the Channel Gateway SPA see /campaigns
-		// populated automatically without a manual CLI / migrate button.
-		if ( class_exists( 'BizCity_CRM_Flow_Importer' ) ) {
-			$mig = BizCity_CRM_Flow_Importer::maybe_auto_import_all();
-			if ( ! empty( $mig['processed'] ) && ( $mig['created'] + $mig['updated'] ) > 0 ) {
-				$src = isset( $mig['source'] ) ? esc_html( (string) $mig['source'] ) : '';
-				echo '<div class="notice notice-success is-dismissible"><p>'
-					. '<b>Đã import</b> ' . (int) $mig['created'] . ' tạo mới · '
-					. (int) $mig['updated'] . ' cập nhật · ' . (int) $mig['failed'] . ' fail'
-					. ' (từ <code>' . $src . '</code>) sang <code>wp_bizcity_crm_campaigns</code>.'
-					. '</p></div>';
-			} elseif ( ! empty( $mig['failed'] ) ) {
-				echo '<div class="notice notice-warning is-dismissible"><p>'
-					. '<b>Flow → Campaign import:</b> ' . (int) $mig['failed'] . ' fail. Reason: '
-					. esc_html( (string) ( $mig['reason'] ?? '' ) ) . '</p></div>';
-			}
-		}
+		// [2026-09-28 Claude Opus 5.5] WP-14 B-1 — the Flow → Campaign auto-import moved to the CRM
+		// page render (BizCity_CRM_Admin_Menu::render_inbox_page); opening a channel screen no longer
+		// writes CRM data.
 
 		// Strip wp-admin chrome around our mount point so React owns the canvas.
 		// When inside an iframe the admin bar is absent — use full 100vh.
@@ -305,7 +289,7 @@ JS;
 			// ── ZONE 2 — Kênh Quản Trị ──────────────────────────────────────────────
 			[ 'code' => 'zalo_bot',       'label' => 'Zalo Bot',            'platform' => 'ZALO_BOT',     'icon' => 'zalo',      'group' => 'admin',     'zone' => 'admin',    'ready' => $has( 'zalo_bot' ),                          'desc' => 'Bot Zalo — admin/NV giao việc cho AI, automation chạy nền.' ],
 			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — 'zalo_hotline' (Zalo Hotline PA) tile removed; channel retired (R-ONE-AXIS D-29).
-			[ 'code' => 'telegram',       'label' => 'Telegram',            'platform' => 'TELEGRAM',     'icon' => 'telegram',  'group' => 'admin',     'zone' => 'admin',    'ready' => function_exists( 'twf_telegram_send_message' ), 'desc' => 'Telegram Bot — admin giao việc, automation báo kết quả.' ],
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R9 — 'telegram' admin-bot tile removed (R-ONE-AXIS D-30); its 'ready' was always true via the shim.
 			// ── Tools (shared) ───────────────────────────────────────────────────────
 			// [2026-06-12 Johnny Chu] HOTFIX — gmail entry removed (merged into email_smtp above).
 			// [2026-06-12 Johnny Chu] HOTFIX — google_calendar now ready=true, links to core/scheduler FE.

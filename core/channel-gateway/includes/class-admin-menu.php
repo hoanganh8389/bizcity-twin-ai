@@ -107,13 +107,7 @@ class BizCity_Gateway_Admin {
 				'admin_page'  => 'bizchat-zalobot',
 			],
 			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — 'zalo' (Zalo BizCity Hotline) card removed; channel retired (R-ONE-AXIS D-29).
-			'telegram'  => [
-				'label'       => 'Telegram',
-				'desc'        => 'Kết nối Telegram Bot API',
-				'icon'        => '✈️',
-				'status'      => function_exists( 'twf_telegram_send_message' ),
-				'admin_page'  => '',
-			],
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R9 — 'telegram' admin-bot card removed (R-ONE-AXIS D-30); its status was always true via the shim.
 			'facebook'  => [
 				'label'       => 'Facebook Messenger',
 				'desc'        => 'Kết nối Facebook Fanpage Messenger',

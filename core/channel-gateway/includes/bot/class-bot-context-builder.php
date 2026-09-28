@@ -51,11 +51,16 @@ final class BizCity_Bot_Context_Builder {
 		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-1 — instruction (Guru prompt + quick FAQ) and prompt (customer
 		// block, scope-allowed knowledge) come SEPARATELY from the one Guru resolver shared with zalo-hub cells; this builder is the
 		// PHP engine's final composer (engine rules first, then the Guru instruction, then the turn blocks).
+		// [2026-09-27 Claude Opus 5.5] PHASE-0.81 S81-R4 — history is read first: the customer's latest message(s) are the `query` the
+		// Guru's notebooks are searched with (base+notebooks only; opts.query overrides, e.g. the Bot Studio test turn).
+		$history = self::history( $conversation_id, $limit, $source, $passive_listen );
+		$query   = isset( $opts['query'] ) ? (string) $opts['query'] : self::turn_query( $history );
+
 		$guru_meta = array();
 		if ( class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
 			$guru_id       = (int) ( $character->id ?? 0 );
 			$profile       = BizCity_Guru_Context_Resolver::profile( $guru_id );
-			$prompt        = BizCity_Guru_Context_Resolver::context( $guru_id, array( 'contact_id' => $contact_id ) );
+			$prompt        = BizCity_Guru_Context_Resolver::context( $guru_id, array( 'contact_id' => $contact_id, 'query' => $query ) );
 			$blocks        = BizCity_Guru_Context_Resolver::compose_system( $profile, $prompt );
 			$contact_block = '';
 			foreach ( (array) $prompt['blocks'] as $pb ) {
@@ -69,6 +74,7 @@ final class BizCity_Bot_Context_Builder {
 				'instruction_source' => (string) $profile['instruction']['source'],
 				'faq'                => count( (array) $profile['instruction']['faq'] ),
 				'prompt_blocks'      => count( (array) $prompt['blocks'] ),
+				'knowledge_blocks'   => count( array_filter( (array) $prompt['blocks'], static function ( $b ) { return 'knowledge' === ( $b['kind'] ?? '' ); } ) ),
 			);
 		} else {
 			$system = trim( (string) ( $character->system_prompt ?? '' ) );
@@ -96,7 +102,6 @@ final class BizCity_Bot_Context_Builder {
 		}
 
 		$messages   = array( array( 'role' => 'system', 'content' => implode( "\n\n", $blocks ) ) );
-		$history    = self::history( $conversation_id, $limit, $source, $passive_listen );
 		$trimmed    = self::trim_to_budget( $history, $budget );
 		foreach ( $trimmed['rows'] as $row ) {
 			$messages[] = array( 'role' => $row['role'], 'content' => $row['content'] );
@@ -113,6 +118,20 @@ final class BizCity_Bot_Context_Builder {
 				'sources'         => array_count_values( array_map( static function ( $r ) { return $r['source']; }, $history ) ),
 			),
 		);
+	}
+
+	/**
+	 * PHASE-0.81 S81-R4 — the text the customer sent this turn: the trailing run of `user` rows (a batch of messages is one turn),
+	 * newest last, capped at 500 characters from the end. '' when the last row is the bot's.
+	 */
+	public static function turn_query( array $history ): string {
+		$parts = array();
+		for ( $i = count( $history ) - 1; $i >= 0; $i-- ) {
+			if ( 'user' !== ( $history[ $i ]['role'] ?? '' ) ) { break; }
+			array_unshift( $parts, trim( (string) ( $history[ $i ]['content'] ?? '' ) ) );
+		}
+		$q = trim( implode( "\n", array_filter( $parts, 'strlen' ) ) );
+		return mb_strlen( $q ) > 500 ? mb_substr( $q, -500 ) : $q;
 	}
 
 	/**

@@ -162,8 +162,15 @@ class BizCity_Market_Template_Guard {
         }
         if ( is_plugin_active( $plugin_info['plugin_file'] ) ) return;
 
-        // User must have manage_options
-        if ( ! current_user_can( 'manage_options' ) ) return;
+        // User must have manage_options (or the Network Super Admin equivalent).
+        // [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit.
+        $can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+            ? BizCity_Network_Admin_Capability::can_manage()
+            : current_user_can( 'manage_options' );
+        if ( ! $can_manage ) return;
+        $capability = class_exists( 'BizCity_Network_Admin_Capability' )
+            ? BizCity_Network_Admin_Capability::menu_cap()
+            : 'manage_options';
 
         // Store plugin info for the render callback
         self::$admin_guard_info = $plugin_info;
@@ -173,7 +180,7 @@ class BizCity_Market_Template_Guard {
             'bizcity-twin-diagnostics',
             $plugin_info['name'],
             $plugin_info['name'],
-            'manage_options',
+            $capability,
             $page,
             [ __CLASS__, 'render_admin_guard_page' ]
         );

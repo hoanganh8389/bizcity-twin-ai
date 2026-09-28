@@ -267,30 +267,8 @@ class BizCity_Facebook_Page_REST {
 			),
 		) );
 
-		// ── Web post AI compose ─────────────────────────────────────────────
-		// POST /bizcity-channel/v1/web/ai-compose
-		// Generates an SEO-friendly blog post (title + HTML content) using LLM.
-		register_rest_route( self::NS, '/web/ai-compose', array(
-			'methods'             => 'POST',
-			'callback'            => array( __CLASS__, 'web_ai_compose' ),
-			'permission_callback' => $perm,
-			'args'                => array(
-				'prompt' => array( 'required' => true, 'sanitize_callback' => 'sanitize_textarea_field' ),
-				'tone'   => array( 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ),
-			),
-		) );
-
-		// ── Web post force-publish ───────────────────────────────────────────
-		// POST /bizcity-channel/v1/web/publisher/force
-		// Force a scheduled web_post event to publish NOW (bypass cron 5-min wait).
-		register_rest_route( self::NS, '/web/publisher/force', array(
-			'methods'             => 'POST',
-			'callback'            => array( __CLASS__, 'web_force_publish' ),
-			'permission_callback' => $perm,
-			'args'                => array(
-				'event_id' => array( 'required' => true, 'sanitize_callback' => 'absint' ),
-			),
-		) );
+		// [2026-09-28 Claude Opus 5.5] WP-14 W3 — /web/ai-compose and /web/publisher/force were retired with
+		// the Công việc screen (their only caller). Scheduled web_post events still publish via cron.
 	}
 
 	public static function perm_admin(): bool {
@@ -1323,87 +1301,6 @@ class BizCity_Facebook_Page_REST {
 	}
 
 	/**
-	 * Web post AI compose — generate SEO title + HTML body for a WordPress post.
-	 *
-	 * Returns: { ok, title, content, meta_description, model, provider }
-	 */
-	public static function web_ai_compose( WP_REST_Request $req ) {
-		$prompt = trim( (string) $req->get_param( 'prompt' ) );
-		$tone   = (string) $req->get_param( 'tone' );
-		if ( $prompt === '' ) {
-			return new WP_Error( 'no_prompt', 'Cần nhập chủ đề / mô tả bài.', array( 'status' => 400 ) );
-		}
-		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
-			return new WP_Error( 'no_llm', 'BizCity LLM client chưa load.', array( 'status' => 503 ) );
-		}
-		$llm = BizCity_LLM_Client::instance();
-		if ( ! $llm->is_ready() ) {
-			return new WP_Error( 'no_llm_key', 'Chưa cấu hình BizCity LLM Gateway.', array( 'status' => 503 ) );
-		}
-		$tone_hint = $tone !== '' ? " Tone: {$tone}." : '';
-		$sys = 'Bạn là chuyên gia content SEO cho blog Việt Nam. Viết 1 bài blog chuẩn SEO theo yêu cầu.'
-			. $tone_hint
-			. ' Trả lời CHÍNH XÁC dạng JSON: {"title":"...","content":"<p>...</p>","meta_description":"..."}'
-			. ' Không kèm markdown, không giải thích, chỉ JSON thuần.'
-			. ' Content phải là HTML (p, h2, h3, ul, li, strong), 400-800 từ, có keyword tự nhiên, headings rõ ràng.';
-		$messages = array(
-			array( 'role' => 'system', 'content' => $sys ),
-			array( 'role' => 'user',   'content' => $prompt ),
-		);
-		$options = array(
-			'purpose'     => 'chat',
-			'temperature' => 0.7,
-			'max_tokens'  => 1500,
-		);
-		$result = $llm->chat( $messages, $options );
-		if ( empty( $result['success'] ) ) {
-			return new WP_Error( 'ai_failed', (string) ( $result['error'] ?? 'LLM lỗi.' ), array( 'status' => 502 ) );
-		}
-		$raw = trim( (string) ( $result['message'] ?? '' ) );
-		// Strip markdown code fences if present.
-		$raw = preg_replace( '/^```(?:json)?\s*/i', '', $raw );
-		$raw = preg_replace( '/\s*```$/', '', $raw );
-		$raw = trim( $raw );
-		$json = json_decode( $raw, true );
-		// Attempt 2: LLM prepended text before the JSON object — extract first {…} block.
-		if ( ! is_array( $json ) ) {
-			if ( preg_match( '/(\{.+\})/s', $raw, $m ) ) {
-				$json = json_decode( $m[1], true );
-			}
-		}
-		// Attempt 3: unescaped newlines/tabs inside string values — strip control chars and retry.
-		if ( ! is_array( $json ) ) {
-			$raw_clean = preg_replace_callback(
-				'/"((?:[^"\\\\]|\\\\.)*)"/',
-				function ( $match ) {
-					// Replace raw control chars (0x00-0x1F except \t \n \r) inside quoted strings.
-					$inner = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $match[1] );
-					// Escape bare \n and \r inside strings.
-					$inner = str_replace( "\n", '\\n', $inner );
-					$inner = str_replace( "\r", '\\r', $inner );
-					return '"' . $inner . '"';
-				},
-				$raw
-			);
-			if ( preg_match( '/(\{.+\})/s', $raw_clean, $m ) ) {
-				$json = json_decode( $m[1], true );
-			}
-		}
-		if ( ! is_array( $json ) ) {
-			// LLM returned raw text instead of JSON — wrap it.
-			$json = array( 'title' => '', 'content' => nl2br( esc_html( $raw ) ), 'meta_description' => '' );
-		}
-		return rest_ensure_response( array(
-			'ok'               => true,
-			'title'            => (string) ( $json['title'] ?? '' ),
-			'content'          => (string) ( $json['content'] ?? '' ),
-			'meta_description' => (string) ( $json['meta_description'] ?? '' ),
-			'model'            => (string) ( $result['model'] ?? '' ),
-			'provider'         => (string) ( $result['provider'] ?? '' ),
-		) );
-	}
-
-	/**
 	 * List recent feed posts of a connected Page (live from Graph API).
 	 */
 	public static function list_page_posts( WP_REST_Request $req ) {
@@ -1938,70 +1835,6 @@ class BizCity_Facebook_Page_REST {
 		}
 
 		BizCity_FB_Publisher::instance()->on_reminder_fire( $event );
-
-		// Reload to capture publish result.
-		$fresh = $mgr->get_event( $event_id, null );
-		return rest_ensure_response( array(
-			'ok'    => true,
-			'event' => $fresh ? (array) $fresh : null,
-		) );
-	}
-
-	/* ─────────── Force-publish scheduled web_post ─────────── */
-
-	/**
-	 * Force a scheduled web_post event to publish NOW via BizCity_Web_Post_Publisher.
-	 * Returns the refreshed event row so FE can update badge + permalink.
-	 */
-	public static function web_force_publish( WP_REST_Request $req ) {
-		$event_id = (int) $req->get_param( 'event_id' );
-		if ( $event_id <= 0 ) {
-			return new WP_Error( 'bad_event_id', 'event_id phải > 0.', array( 'status' => 400 ) );
-		}
-		if ( ! class_exists( 'BizCity_Scheduler_Manager' ) ) {
-			return new WP_Error( 'no_scheduler', 'core/scheduler chưa load.', array( 'status' => 500 ) );
-		}
-		if ( ! class_exists( 'BizCity_Web_Post_Publisher' ) ) {
-			return new WP_Error( 'no_publisher', 'BizCity_Web_Post_Publisher chưa load.', array( 'status' => 500 ) );
-		}
-
-		$mgr = BizCity_Scheduler_Manager::instance();
-		$row = $mgr->get_event( $event_id, null );
-		if ( ! $row ) {
-			return new WP_Error( 'not_found', 'Không tìm thấy event ' . $event_id, array( 'status' => 404 ) );
-		}
-		$event = (array) $row;
-
-		$meta = array();
-		if ( ! empty( $event['metadata'] ) ) {
-			$decoded = json_decode( (string) $event['metadata'], true );
-			if ( is_array( $decoded ) ) { $meta = $decoded; }
-		}
-
-		if ( ( $event['event_type'] ?? '' ) !== 'web_post' ) {
-			return new WP_Error( 'wrong_type',
-				'Event này không phải web_post (event_type=' . ( $event['event_type'] ?? '' ) . ').',
-				array( 'status' => 400 )
-			);
-		}
-
-		if ( ! empty( $meta['web_post_id'] ) ) {
-			return new WP_Error( 'already_published',
-				'Event đã đăng (web_post_id=' . $meta['web_post_id'] . '). Xoá web_post_id trước nếu muốn đăng lại.',
-				array( 'status' => 409 )
-			);
-		}
-		if ( ( $meta['web_publish_status'] ?? '' ) === 'publishing' ) {
-			return new WP_Error( 'in_flight', 'Event đang trong quá trình publish.', array( 'status' => 409 ) );
-		}
-
-		// Re-activate if cancelled (admin override).
-		if ( ( $event['status'] ?? '' ) !== 'active' ) {
-			$event['status'] = 'active';
-			$mgr->update_event( $event_id, array( 'status' => 'active' ), null );
-		}
-
-		BizCity_Web_Post_Publisher::instance()->on_reminder_fire( $event );
 
 		// Reload to capture publish result.
 		$fresh = $mgr->get_event( $event_id, null );

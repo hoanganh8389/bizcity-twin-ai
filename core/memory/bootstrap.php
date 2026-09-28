@@ -39,6 +39,36 @@ if ( ! defined( 'BIZCITY_MEMORY_ENABLED' ) ) {
 	define( 'BIZCITY_MEMORY_ENABLED', true );
 }
 
+/* ── Rolling + Episodic memory owners ─────────────────────────────── */
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C4b (R-IM-5) — moved here from core/intent. Loaded BEFORE the
+// BIZCITY_MEMORY_ENABLED switch on purpose: they never depended on it while they lived in core/intent, so the
+// switch keeps meaning "no Memory Spec / Memory Manager hooks" only. Same class names, tables, contracts
+// (`core.intent.rolling_memory`, `core.intent.episodic_memory` keep their ids) and hook names.
+if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+	BizCity_Safe_Loader::require_file( BIZCITY_MEMORY_DIR . 'includes/class-rolling-memory.php', 'memory.rolling_memory' );
+	BizCity_Safe_Loader::require_file( BIZCITY_MEMORY_DIR . 'includes/class-episodic-memory.php', 'memory.episodic_memory' );
+} else {
+	error_log( '[bizcity] memory_rolling_episodic_skipped: BizCity_Safe_Loader unavailable' );
+}
+add_action( 'plugins_loaded', function () {
+	// [2026-07-28 Johnny Chu] HOTFIX P0 — a partial/invalid deploy of one memory class must degrade that service
+	// instead of turning every request into a Class-not-found fatal.
+	if ( class_exists( 'BizCity_Rolling_Memory' ) ) {
+		BizCity_Rolling_Memory::instance();
+	} else {
+		error_log( '[bizcity] BizCity_Rolling_Memory unavailable — skipping rolling memory boot; verify deployment artifact.' );
+	}
+	if ( class_exists( 'BizCity_Episodic_Memory' ) ) {
+		// The constructor hooks `bizcity_episodic_daily_aggregate`; only the schedule lives here.
+		BizCity_Episodic_Memory::instance();
+		if ( ! wp_next_scheduled( 'bizcity_episodic_daily_aggregate' ) ) {
+			wp_schedule_event( time(), 'daily', 'bizcity_episodic_daily_aggregate' );
+		}
+	} else {
+		error_log( '[bizcity] BizCity_Episodic_Memory unavailable — skipping episodic memory boot; verify deployment artifact.' );
+	}
+}, 5 );
+
 if ( ! BIZCITY_MEMORY_ENABLED ) {
 	return;
 }
@@ -62,6 +92,10 @@ require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-installer.php';
 // [2026-09-01 Johnny Chu] PHASE-CB4.4 — compatibility bridge forwards only
 // filestore receipts to the Context Bank reference adapter hook.
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-writer.php';
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C4a — session memory owner (moved from the archived webchat module).
+if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+	BizCity_Safe_Loader::require_file( BIZCITY_MEMORY_DIR . 'includes/class-session-memory.php', 'memory.session_memory' );
+}
 // Wave 2.8d (TBR.MEM-D6.7 2026-05-24) — admin toggle UI for the unified flag
 // + staging timer + D7 readiness checklist (replaces hardcoded filter).
 if ( is_admin() ) {

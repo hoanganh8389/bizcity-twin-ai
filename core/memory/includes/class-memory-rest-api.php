@@ -168,7 +168,10 @@ class BizCity_Memory_REST_API {
 	 * @return bool
 	 */
 	public function check_admin() {
-		return current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	/* ================================================================

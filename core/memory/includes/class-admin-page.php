@@ -49,11 +49,15 @@ class BizCity_Memory_Admin_Page {
 	public function add_menu() {
 		$td = 'bizcity-twin-ai';
 
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_submenu_page(
 			'bizcity-knowledge',
 			__( 'Memory Specs', $td ),
 			'🧠 ' . __( 'Memory Specs', $td ),
-			'manage_options',
+			$capability,
 			'bizcity-memory',
 			array( $this, 'render_page' )
 		);

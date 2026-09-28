@@ -48,11 +48,15 @@ class BizCity_Memory_Unified_Admin {
 	}
 
 	public function register_menu(): void {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_submenu_page(
 			'bizcity-knowledge',
 			__( 'Memory Unified', 'bizcity-twin-ai' ),
 			'🧬 ' . __( 'Memory Unified', 'bizcity-twin-ai' ),
-			'manage_options',
+			$capability,
 			self::SLUG,
 			[ $this, 'render' ]
 		);
@@ -111,7 +115,8 @@ class BizCity_Memory_Unified_Admin {
 		$staging_days    = ( $opt_enabled && $enabled_at > 0 ) ? floor( ( time() - $enabled_at ) / DAY_IN_SECONDS ) : 0;
 		$staging_ready   = ( $staging_days >= 7 ); // 1 sprint = 7d
 		$saved           = isset( $_GET['saved'] ) ? sanitize_key( (string) $_GET['saved'] ) : '';
-		$diagnostics_url = admin_url( 'admin.php?page=bizcity-diagnostics' );
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 B-13 — Diagnostics is dev-only (D-35): no link when absent.
+		$diagnostics_url = ( function_exists( 'bizcity_diagnostics_available' ) && bizcity_diagnostics_available() ) ? admin_url( 'admin.php?page=bizcity-diagnostics' ) : '';
 		?>
 		<div class="wrap">
 			<h1>🧬 <?php esc_html_e( 'Memory Unified — Wave 2.8d D6.7', 'bizcity-twin-ai' ); ?></h1>
@@ -193,7 +198,7 @@ class BizCity_Memory_Unified_Admin {
 						<li><?php echo $unified_exists ? '✅' : '❌'; ?> Unified table installed (<code><?php echo esc_html( $unified_tbl ); ?></code>)</li>
 						<li><?php echo $opt_enabled ? '✅' : '⏳'; ?> Flag ON ở môi trường hiện tại</li>
 						<li><?php echo $staging_ready ? '✅' : '⏳'; ?> Flag ON ≥ 1 sprint (7 days) — current <?php echo (int) $staging_days; ?>d</li>
-						<li>⏳ Probe <code>core.memory.unified.dual-write-parity</code> PASS — <a href="<?php echo esc_url( $diagnostics_url ); ?>">mở Diagnostics ↗</a></li>
+						<li>⏳ Probe <code>core.memory.unified.dual-write-parity</code> PASS<?php if ( $diagnostics_url !== '' ) : ?> — <a href="<?php echo esc_url( $diagnostics_url ); ?>">mở Diagnostics ↗</a><?php endif; ?></li>
 						<li>⏳ Probe <code>core.memory.unified.recall-parity</code> PASS (overlap ≥ 95%)</li>
 						<li>⏳ Unified write cutover marker <code>bizcity_memory_unified_write_cutover=1</code> (legacy writers no longer require old tables)</li>
 						<li>⏳ Founder sign-off explicitly (chat / commit message)</li>

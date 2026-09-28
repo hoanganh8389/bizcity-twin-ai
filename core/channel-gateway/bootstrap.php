@@ -68,7 +68,8 @@ $adapters_dir = $gateway_dir . 'adapters/';
 $webchat_dir  = $gateway_dir . 'webchat/';
 // [2026-09-02 05:45 PM Johnny Chu - Chu Hoàng Anh] R-SAFE-LOADER — a partial deploy must degrade one stub adapter instead of fatalling the whole gateway.
 $_bzc_stub_adapters = array(
-	$adapters_dir . 'class-telegram-adapter.php'      => 'channel.adapter.telegram',
+	// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R9 — telegram adapter retired with the Telegram admin bot (R-ONE-AXIS D-30):
+	// it sent through the global twf_bot_token and its inbound was the unverified base stub (verify_webhook() === true).
 	$webchat_dir  . 'class-webchat-adapter.php'       => 'channel.adapter.webchat',
 	$adapters_dir . 'class-adminchat-adapter.php'     => 'channel.adapter.adminchat',
 	$adapters_dir . 'class-email-smtp-adapter.php'    => 'channel.adapter.email_smtp',
@@ -239,16 +240,9 @@ require_once $gateway_dir . 'class-fb-publisher.php';
 // Allows admins to enable the Messenger chat bubble sitewide via toggle (no page-builder editing needed).
 require_once $gateway_dir . 'class-fb-chat-widget.php';
 
-// [2026-06-13 Johnny Chu] PHASE-CG-NOTIFY-BINDINGS — Notification Center REST + dispatcher.
-$_bzc_notify_rest = $gateway_dir . 'class-notify-settings-rest.php';
-$_bzc_notify_disp = $gateway_dir . 'class-notify-dispatcher.php';
-if ( file_exists( $_bzc_notify_rest ) && file_exists( $_bzc_notify_disp ) ) {
-	require_once $_bzc_notify_rest;
-	require_once $_bzc_notify_disp;
-	BizCity_Notify_Settings_REST::init();
-	BizCity_Notify_Dispatcher::init();
-}
-unset( $_bzc_notify_rest, $_bzc_notify_disp );
+// [2026-09-28 Claude Opus 5.5] WP-14 W5 — Notification Center (notify-settings REST + dispatcher) retired
+// by the owner. The option `bizcity_cg_notify_settings` is deliberately kept: TwinBrain's progress-notice
+// policy still reads its twin_progress_* keys (deleting it would switch notices back on for tenants).
 
 // [2026-06-13 Johnny Chu] PHASE-CG-CF7 — Contact Form 7 lead-capture channel.
 $_bzc_cf7_dir = $gateway_dir . 'cf7/';
@@ -457,6 +451,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/documents/class-bot-doc-text.php'        => 'channel.bot.doc_text',
 	$gateway_dir . 'bot/documents/class-bot-documents.php'       => 'channel.bot.documents',
 	$gateway_dir . 'bot/class-bot-tools.php'          => 'channel.bot.tools',
+	// [2026-09-28 Claude Opus 5] PHASE-0.82 doc 07 — what each Zalo transport can do, as data; loaded before the bot classes that query it.
+	$gateway_dir . 'class-zalo-transport-capability.php' => 'channel.zalo_transport_capability',
 	// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — Zalo action tools (sticker, poll, group admin…) via zca-bridge ≥ 0.40.0.
 	$gateway_dir . 'bot/class-bot-zalo-actions.php'   => 'channel.bot.zalo_actions',
 	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — pure @mention helper, loaded before the turn runner that calls it.
@@ -465,6 +461,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-goal-loop.php'      => 'channel.bot.goal_loop',
 	// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-1 — the one Guru content source (instruction/prompt split, gate 0); before the builder that composes it.
 	$gateway_dir . 'bot/class-guru-context-resolver.php' => 'channel.bot.guru_context_resolver',
+	// [2026-09-27 Claude Opus 5.5] PHASE-0.81 S81-R4 — notebook passages for the PHP engine (listener of the resolver's notebook seam).
+	$gateway_dir . 'bot/class-guru-notebook-blocks.php' => 'channel.bot.guru_notebook_blocks',
 	$gateway_dir . 'bot/class-bot-context-builder.php' => 'channel.bot.context_builder',
 	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',
 	$gateway_dir . 'bot/class-bot-turn-runner.php'    => 'channel.bot.turn_runner',
@@ -478,6 +476,9 @@ foreach ( $_bzc_bot_files as $_bzc_bot_file => $_bzc_bot_label ) {
 	}
 }
 unset( $_bzc_bot_files, $_bzc_bot_file, $_bzc_bot_label );
+if ( class_exists( 'BizCity_Guru_Notebook_Blocks' ) ) {
+	BizCity_Guru_Notebook_Blocks::boot(); // [2026-09-27] PHASE-0.81 S81-R4
+}
 
 // Phase CG-Listener S1 — live tail bus + SSE for Listener UI + Automation debug.
 require_once $gateway_dir . 'listener/class-listener-bus.php';
@@ -553,9 +554,6 @@ if ( class_exists( 'BizCity_Mabel_Wheel_Channel_Listener' ) ) {
 // PHASE 0.37 M3.W3 — Register built-in stub adapters with Gateway Bridge.
 // These provide coverage for legacy platforms until full adapters are built (M5).
 add_action( 'bizcity_register_channel', function ( $bridge ) {
-	if ( class_exists( 'BizCity_Telegram_Adapter' ) ) {
-		$bridge->register_adapter( new BizCity_Telegram_Adapter() );
-	}
 	if ( class_exists( 'BizCity_WebChat_Adapter' ) ) {
 		$bridge->register_adapter( new BizCity_WebChat_Adapter() );
 	}
@@ -639,13 +637,15 @@ if ( ( is_admin() || is_network_admin() ) && class_exists( 'BizCity_Network_OAut
 }
 
 // PHASE 0.31 — sprint-by-sprint validation page (Tools → Channel GW Sprint Diag)
+// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 B-6 — diagnostic pages are dev-only (D-35) and may be
+// absent from a production deploy, so each one is optional.
 if ( is_admin() ) {
-	require_once $gateway_dir . 'class-sprint-diagnostic.php';
-	// PHASE-0.35 / 2026-05-14 — Phase C/D sections live in sibling class.
-	$_phase_cd = $gateway_dir . 'class-sprint-diagnostic-phase-cd.php';
-	if ( file_exists( $_phase_cd ) ) { require_once $_phase_cd; }
-	// PHASE 0.37 — Unify Channel diagnostic (Tools → Channel P0.37 Diag)
-	require_once $gateway_dir . 'class-phase-037-diagnostic.php';
+	foreach ( array( 'class-sprint-diagnostic.php', 'class-sprint-diagnostic-phase-cd.php', 'class-phase-037-diagnostic.php' ) as $_cg_diag_file ) {
+		if ( is_file( $gateway_dir . $_cg_diag_file ) && is_readable( $gateway_dir . $_cg_diag_file ) && class_exists( 'BizCity_Safe_Loader', false ) ) {
+			BizCity_Safe_Loader::require_file( $gateway_dir . $_cg_diag_file, 'channel_gateway.diagnostics.' . basename( $_cg_diag_file, '.php' ) );
+		}
+	}
+	unset( $_cg_diag_file );
 }
 
 // Sprint 5.5 (T-S5b.2) — Test-Run single block AJAX endpoint.

@@ -28,7 +28,8 @@
  *
  *   wp eval-file path/to/migrate-bizgpt-custom-flows.php
  *
- * or in admin: tools.php?page=bizcity-channel-gateway-sprint-diag&run-bizgpt-migration=1
+ * or, in a dev install that still has the Sprint Diagnostic page (dev-only since D-35; its CG nav link was
+ * removed in WP-14): tools.php?page=bizcity-channel-gateway-sprint-diag&run-bizgpt-migration=1
  *
  * @package BizCity\TwinAI\ChannelGateway
  */

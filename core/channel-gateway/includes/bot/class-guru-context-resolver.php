@@ -25,6 +25,18 @@
 // [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-1/GS-2/GS-3.
 defined( 'ABSPATH' ) || exit;
 
+// Before the guard below: PHP binds the class at compile time, so that guard returns on the first include too.
+if ( ! function_exists( 'bizcity_guru_notebook_ids' ) ) {
+	/**
+	 * PHASE-0.81 C1.0 — notebooks attached to a Guru (one source for Bot Studio, config sync and the C-4 notebook route).
+	 *
+	 * @return int[]
+	 */
+	function bizcity_guru_notebook_ids( int $character_id ): array {
+		return BizCity_Guru_Context_Resolver::notebook_ids( $character_id );
+	}
+}
+
 if ( class_exists( 'BizCity_Guru_Context_Resolver', false ) ) {
 	return;
 }
@@ -66,8 +78,11 @@ final class BizCity_Guru_Context_Resolver {
 	/** Per-request memo of profile() — the builder runs once per tool step of a turn. */
 	private static $memo = array();
 
+	/** Per-request memo of notebook_ids(). */
+	private static $nb_memo = array();
+
 	/** Tests / after a Guru edit in the same request. */
-	public static function reset(): void { self::$memo = array(); }
+	public static function reset(): void { self::$memo = array(); self::$nb_memo = array(); }
 
 	/* ================================================================
 	 *  Guru selection (gate 0)
@@ -224,7 +239,54 @@ final class BizCity_Guru_Context_Resolver {
 	public static function scope( int $character_id ): array {
 		$bot   = self::bot_settings( $character_id );
 		$raw   = isset( $bot['scope'] ) && is_array( $bot['scope'] ) ? $bot['scope'] : array();
-		return self::sanitize_scope( $raw );
+		$s     = self::sanitize_scope( $raw );
+		// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C1.0 — the notebook list comes from the kg-hub attachments (what Bot Studio's
+		// "gắn notebook" writes), not from settings.bot.scope.notebook_ids, which no UI writes. The stored list is only read when
+		// kg-hub is not loaded at all.
+		$attached = self::attached_notebook_ids( $character_id );
+		if ( null !== $attached ) { $s['notebook_ids'] = $attached; }
+		return $s;
+	}
+
+	/**
+	 * PHASE-0.81 C1.0 — the ONE answer to "which notebooks does this Guru use": ids attached to the Guru in kg-hub
+	 * (`bizcity_notebook_character_attachments` by guru_uuid, else the legacy `bizcity_kg_notebooks.character_id`, exactly like
+	 * the quick-edit sheet shows them). Whether they are USED is `scope.knowledge` (`base+notebooks`); callers check that.
+	 *
+	 * @return int[]
+	 */
+	public static function notebook_ids( int $character_id ): array {
+		return self::scope( $character_id )['notebook_ids'];
+	}
+
+	/** @return int[]|null null = kg-hub not loaded (fall back to the stored scope list). */
+	private static function attached_notebook_ids( int $character_id ): ?array {
+		if ( $character_id <= 0 ) { return array(); }
+		if ( array_key_exists( $character_id, self::$nb_memo ) ) { return self::$nb_memo[ $character_id ]; }
+		if ( isset( self::$readers['notebook_ids'] ) ) {
+			$ids = (array) call_user_func( self::$readers['notebook_ids'], $character_id );
+		} elseif ( class_exists( 'BizCity_KG_Database' ) ) {
+			global $wpdb;
+			$kg   = BizCity_KG_Database::instance();
+			$nb   = $kg->tbl_notebooks();
+			$att  = $kg->tbl_notebook_character_attachments();
+			$uuid = strtolower( trim( (string) $wpdb->get_var( $wpdb->prepare( "SELECT guru_uuid FROM {$wpdb->prefix}bizcity_characters WHERE id = %d LIMIT 1", $character_id ) ) ) );
+			$ids  = '' === $uuid ? array() : (array) $wpdb->get_col( $wpdb->prepare( "SELECT a.notebook_id FROM {$att} AS a INNER JOIN {$nb} AS nb ON nb.id = a.notebook_id WHERE a.guru_uuid = %s ORDER BY a.notebook_id ASC LIMIT 200", $uuid ) );
+			// [2026-09-28 Claude Sonnet 5] PHASE-0.81 N-6 (peer review, confirmed) — deliberately NO fallback to the legacy
+			// `bizcity_kg_notebooks.character_id` column when the attachments join is empty. kg-hub's own notebook-management REST
+			// (class-kg-rest-controller.php::detach_guru) calls `BizCity_KG_Database::detach_guru()` directly and does NOT clear
+			// `character_id` (only the Bot Studio quick-edit sheet's own detach handler does that, as ITS caller-side cleanup); the
+			// migration that would retire `character_id` for good (`backfill_legacy_character_attachments()`) is never invoked
+			// anywhere in this codebase, so that column is not a reliable "still attached" signal. This is the LIVE wire path (config
+			// bundle, C-4 notebook route) that reaches a real customer's bot: falling back here would let a notebook someone
+			// deliberately detached keep answering. Bot Studio's own quick-edit sheet keeps its display-only legacy fallback
+			// unchanged (out of scope here) for pre-migration admin visibility.
+		} else {
+			return null;
+		}
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ), static function ( $v ) { return $v > 0; } ) ) );
+		sort( $ids );
+		return self::$nb_memo[ $character_id ] = $ids;
 	}
 
 	public static function sanitize_scope( array $raw ): array {
@@ -268,7 +330,10 @@ final class BizCity_Guru_Context_Resolver {
 		$faq   = $cid > 0 ? self::faq( $cid ) : array();
 		$scope = $cid > 0 ? self::scope( $cid ) : self::SCOPE_DEFAULTS;
 		$bot   = $cid > 0 ? self::bot_settings( $cid ) : array();
-		$hash  = md5( (string) wp_json_encode( array( $text, $faq, $scope ) ) );
+		// [2026-09-28 Claude Sonnet 5] PHASE-0.81 S-1 (peer review) — engine_rules_version must be in the hash: a code deploy that
+		// changes ENGINE_RULES is not a Guru edit, so without this the etag never moves and a cell that cached the old profile gets
+		// 304 forever, never receiving the new C-8 rules until the Guru itself is edited or the cell restarts.
+		$hash  = md5( (string) wp_json_encode( array( $text, $faq, $scope, self::engine_rules_version() ) ) );
 		$ver   = self::version_of( $c, $hash );
 		return array(
 			'contract'    => self::CONTRACT,
@@ -276,16 +341,24 @@ final class BizCity_Guru_Context_Resolver {
 			'instruction' => array( 'source' => $g['is_default'] ? 'default_guru' : 'guru', 'text' => $text, 'faq' => $faq, 'version' => $ver ),
 			'scope'       => array(
 				'knowledge'         => $scope['knowledge'],
+				'notebook_ids'      => $scope['notebook_ids'], // PHASE-0.81 C-8/C-4 (attached; used only with base+notebooks)
 				'max_context_chars' => $scope['max_context_chars'],
 				'max_blocks'        => $scope['max_blocks'],
 				'contact_block'     => $scope['contact_block'],
 				'history_limit'     => class_exists( 'BizCity_Bot_Config_Repo' ) ? BizCity_Bot_Config_Repo::resolve_history_limit( array(), $bot ) : 20,
 			),
-			'compose'     => array( 'prefer' => $scope['compose_prefer'], 'engine_rules' => 'always' ),
+			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C2.1 (C-8) — the cell puts these rules before the Guru instruction, the same
+			// order compose_system() uses here, so both engines answer under one rule set.
+			'compose'     => array( 'prefer' => $scope['compose_prefer'], 'engine_rules' => 'always', 'engine_rules_text' => self::ENGINE_RULES, 'engine_rules_version' => self::engine_rules_version() ),
 			'cache'       => array( 'profile_ttl_s' => self::PROFILE_TTL_S ),
 			'generated_at' => gmdate( 'c' ),
 			'_character_id' => $cid, // internal only; stripped by the REST layer (never sent over the wire)
 		);
+	}
+
+	/** `er-<8 hex>` — moves only when ENGINE_RULES changes (PHASE-0.81 C-8). */
+	public static function engine_rules_version(): string {
+		return 'er-' . substr( md5( self::ENGINE_RULES ), 0, 8 );
 	}
 
 	/** Instruction as ONE text for an engine composer: Guru system prompt + quick FAQ block. */
@@ -327,7 +400,9 @@ final class BizCity_Guru_Context_Resolver {
 			$cb = self::contact_block( $contact_id );
 			if ( $cb !== '' ) { $blocks[] = array( 'kind' => 'contact', 'label' => 'Hồ sơ khách', 'text' => $cb ); }
 		}
-		if ( 'base+notebooks' === $scope['knowledge'] && $scope['notebook_ids'] && $cid > 0 ) {
+		// [2026-09-27 Claude Opus 5.5] PHASE-0.81 S81-R4 — `notebooks => false`: the caller retrieves on its own (the Hub guru-context
+		// route: a zalo-hub cell searches its local copy of the same notebooks, C-4), so the site does not search a second time.
+		if ( 'base+notebooks' === $scope['knowledge'] && $scope['notebook_ids'] && $cid > 0 && false !== ( $opts['notebooks'] ?? true ) ) {
 			// Notebook retrieval is opt-in per Guru (R-GP-6) and owned by the knowledge module, reached through a filter seam.
 			foreach ( (array) self::notebook_blocks( $cid, (string) ( $opts['query'] ?? '' ), $scope ) as $b ) {
 				if ( is_array( $b ) && '' !== trim( (string) ( $b['text'] ?? '' ) ) ) {
