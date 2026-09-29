@@ -44,8 +44,13 @@ final class BizCity_Zalo_Hub_Events {
 		return array( 'status' => 200, 'body' => array( 'ok' => true, 'ignored' => true, 'event' => $event ) );
 	}
 
-	/** Pure: the CRM outbound row for one `bot_reply` (unit-tested against the fixture). */
-	public static function bot_reply_norm( array $body ): array {
+	/**
+	 * Pure shared builder for outbound CRM echoes from every Zalo Personal transport.
+	 *
+	 * The legacy name remains as a compatibility wrapper because existing Hub fixtures and
+	 * callers use it directly. Transport provenance is metadata, never a routing branch.
+	 */
+	public static function build_outbound_echo( array $body ): array {
 		$account_id = (string) ( $body['account_id'] ?? '' );
 		$peer       = (string) ( $body['conversation_id'] ?? '' );
 		$is_group   = 'group' === sanitize_key( (string) ( $body['thread_kind'] ?? '' ) );
@@ -72,6 +77,8 @@ final class BizCity_Zalo_Hub_Events {
 				'system_source'   => self::SYSTEM_SOURCE,
 				'replier'         => self::SYSTEM_SOURCE,
 				'provider'        => 'zalo_hub',
+				// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A3 — preserve transport provenance in the shared echo builder.
+				'transport'       => (string) ( $body['transport'] ?? 'zalo_hub' ),
 				// [2026-09-27 Claude Sonnet 5] PHASE-0.80 doc 28 T-2 — "agent" (model thật viết) hay một câu dự
 				// phòng cố định cell tự gửi khi hỏng (`fallback_router_empty`/`fallback_step_limit`, không qua
 				// Guru). Trước trường này, CRM/Bot Studio không phân biệt được "đã trả lời thật" với "cell đang
@@ -91,6 +98,11 @@ final class BizCity_Zalo_Hub_Events {
 			'attachments'        => $attachments,
 			'trace_id'           => sanitize_text_field( (string) ( $body['trace_ref'] ?? '' ) ),
 		);
+	}
+
+	/** Pure compatibility alias for the historical Hub event API. */
+	public static function bot_reply_norm( array $body ): array {
+		return self::build_outbound_echo( $body );
 	}
 
 	/** Zalo message id of the bot message; `idempotency_key` when the cell could not get one. */
@@ -116,7 +128,7 @@ final class BizCity_Zalo_Hub_Events {
 		}
 		$key = self::dedupe_key( $body );
 		$existing = BizCity_Zalo_Mapping_Repo::find_by_zalo_msg_id( $local_id, $key );
-		$norm = self::bot_reply_norm( $body );
+		$norm = self::build_outbound_echo( $body );
 		if ( null !== $existing && (int) ( $existing['crm_message_id'] ?? 0 ) > 0 ) {
 			$crm_id = (int) $existing['crm_message_id'];
 			// [2026-09-28 Claude Opus 5.5] PHASE-0.81 P0-6 — Zalo echoes the bot's own message back (selfListen) and that

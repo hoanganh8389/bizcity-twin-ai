@@ -103,9 +103,20 @@ vendor/
 /docs/AGENT-DOC-CATALOG.local.md
 /CLAUDE.local.md
 
-# Private evidence (2026-09-25) — stays in the workspace and on the VPS (deployed by scp), NOT published to GitHub.
-# core/diagnostics = Diagnostics engine, schema changelog (R-DCL source) and probes; tests = PHPUnit, fixtures, baselines.
-# Runtime never requires them: the only hard dependency (trait BizCity_REST_Error) lives in core/helper; the other
-# users guard with file_exists / class_exists. Without them, GitHub CI SKIPs their gates (see .github/workflows/ci.yml).
+# R-DIAG-LOCAL (D-35, 2026-09-28) — LOCAL DEVELOPMENT ONLY: never uploaded to a VPS, never committed to GitHub.
+# Full list: bin/dev-only-paths.txt · rule: docs/rules/PHASE-0-RULE-DIAGNOSTICS-DEV-LOCAL.md.
+# core/diagnostics = Diagnostics engine, probes, diagnostic pages/REST (the schema changelog moved to core/helper/schema/);
+# tests = PHPUnit, fixtures, baselines; _notes = reduction snapshots/tarballs.
+# Production never requires them (is_file + Safe_Loader / class_exists guards). CI `shipped-tree` fails if
+# core/diagnostics or tests is tracked. Commits are made from the VPS: upload this .gitignore with every change,
+# and if a path was ever committed run `git rm -r --cached <path>` once there.
 /core/diagnostics/
 /tests/
+/_notes/
+# WP-13 DL-5 — module diagnostic pages and probes (same list as bin/dev-only-paths.txt).
+/core/channel-gateway/includes/class-sprint-diagnostic.php
+/core/channel-gateway/includes/class-phase-037-diagnostic.php
+/plugins/bizcity-twin-crm/includes/class-sprint-diagnostic.php
+/plugins/bizcity-twin-crm/includes/class-sprint-diagnostic-phase-cd.php
+/modules/twinchat/includes/diagnostics/
+/modules/twinweb/includes/class-probe-twinweb-*.php

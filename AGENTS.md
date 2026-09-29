@@ -302,11 +302,13 @@ try {
 Before any `dbDelta`, `CREATE TABLE` or `ALTER TABLE`, and before any probe that
 checks or repairs schema:
 
-1. Update `core/diagnostics/changelog/<module_id>.json`: bump `current_version`
-   and push a `{version, date, change}` row; every new column/index carries a
-   matching `since`.
-2. Run the validator: `php core/diagnostics/validate-schema-changelog.php`
-   (must exit `0`).
+1. Update `core/helper/schema/changelog/<module_id>.json` (the schema owner moved
+   out of Diagnostics, R-DCL v1.1): bump `current_version` and push a
+   `{version, date, change}` row; every new column/index carries a matching `since`.
+   This folder is public: no blog ids, tenant domains or database hosts.
+2. Run the validators: `node bin/validate-schema-owner.mjs` (everywhere) and, in the
+   local workspace, `php core/diagnostics/validate-schema-changelog.php` (must exit `0`;
+   Diagnostics is local-only, see R-DIAG-LOCAL).
 3. Repairs must be idempotent. `DROP`/`MODIFY`/`CHANGE` is a hand-written
    migration run through the site provisioner, never an auto-create.
 
@@ -553,6 +555,31 @@ lowest layer that fits the person who uses it:
 Spec, reference components per app and known debt:
 `docs/rules/PHASE-0-RULE-SETTINGS-4-LAYERS-SHEET-STANDARD.md` (extends `PHASE-0-RULE-ACTION-SHEET-UX.md`).
 
+### R-SETUP-4 · four-step setup is the entry of the vertical axis (supreme)
+
+Every channel setup surface (Channel Gateway dashboard, `/crm/`, `/gpt/crm/`, wp-admin "Bắt đầu") shows the same four
+steps, in this order, with these labels:
+
+| Step | Label | Passes when (server check only) |
+|---|---|---|
+| ① | Kết nối tài khoản BizCity | the site's 1API key is saved and tested (connection report: no `fail` in L0–L5) |
+| ② | Kết nối máy chủ Zalo | Zalo Hub (default) is checked automatically; other branches are a secondary choice |
+| ③ | Đăng nhập số Zalo | QR shown only after ①② pass; after login, pick the WordPress user who owns the number |
+| ④ | Chọn Agent Guru | the default Agent Guru is preselected; quick create/edit in place; auto-reply on |
+
+- **Five states per step.** Each step is Khoá, Đang kiểm tra, Đạt, Chưa đạt (R-ERROR-UX message + a hint that starts
+  with a verb) or Không có quyền. A step unlocks only when the previous one passes.
+- **One skeleton for every channel.** The four slots are: ① account, ② transport, ③ identity + owner, ④ Agent Guru.
+- **Name.** "Agent Guru" is the user-facing name of a Guru everywhere. Code identifiers stay `character`/`guru`.
+- **Sheets.** Per-item settings open in `ActionSheet`. "Quản lý Agent Guru" lists Agent Gurus with create and edit;
+  it is never a create-only dialog.
+- **Axis and packaging.** The path is channel ⇒ CRM Inbox ⇒ Agent Guru ⇒ knowledge. A channel package ships only when
+  its four steps pass end to end (FRAMEWORK-GUIDE §14.1).
+- ❌ Reaching the QR code before the key and the Zalo server are checked. Showing words like bridge, binding, cell,
+  character id or provider on a step. A step marked "Đạt" from client state.
+
+Spec: `docs/rules/PHASE-0-RULE-FOUR-STEP-SETUP-AXIS.md`. Design: `core/channel-gateway/docs/PHASE-0.83-FOUR-STEP-SETUP/`.
+
 ### R-ROUTE · the URL is the only source of location
 
 Anything a user navigates *to* — the ActivityBar plugin, a tab or menu, the record being viewed, a
@@ -638,6 +665,40 @@ Read the JSON: `verdict`, `counts`, and each result's `status`, `summary`,
 
 Server deployments often ship only built frontend bundles, so a probe must not
 fail merely because React sources are absent — that step is `SKIP`/`INFO`.
+
+Probes run in the local development workspace only (R-DIAG-LOCAL): a probe `PASS`
+is local evidence, not evidence about a server.
+
+### R-DIAG-LOCAL · Diagnostics is a local development tool (D-35)
+
+`core/diagnostics/` (engine, probes, diagnostic admin pages, the
+`bizcity-diagnostics/v1` REST routes, `validate-schema-changelog.php`), `tests/`,
+`_notes/`, and the module diagnostic pages and probes exist **only in the developer's
+local workspace**. They are never uploaded to a server and never committed to GitHub.
+The full list is `bin/dev-only-paths.txt`. Server operations CLIs and repair classes
+(`wp bizcity diag`, KG-Hub repair) are not diagnostics tooling and stay.
+
+- **No production dependency.** An optional reference checks `is_file()` and then
+  loads through `BizCity_Safe_Loader::require_file()`, or checks `class_exists()` /
+  `bizcity_diagnostics_available()`. Links into Diagnostics appear only when it is
+  present. A missing folder must never cause a fatal, a 500, a missing table or a
+  lost error record.
+- **Runtime owners stay outside it.** The schema changelog, loader and auto-create
+  live in `core/helper/schema/`, and the error reporter and REST error trait live in
+  `core/helper`. Never move runtime logic back into `core/diagnostics/`.
+- **Evidence.** Probes run locally, against the local site, a mirror or a harness.
+  Server evidence comes from production surfaces: JSONL logs, browser self-checks
+  (`<module>/docs/tools/*selfcheck.js`), and `wp bizcity health`, which answers
+  `skip` on a server. Never run probes or `bin/diagnostics-run.php` on a server.
+- **Git and upload.** `.gitignore` ignores these paths, and CI `shipped-tree` fails
+  if `core/diagnostics/` or `tests/` is tracked. Commits are made from the server
+  after an upload, so exclude every `bin/dev-only-paths.txt` entry from the upload,
+  and upload `.gitignore` with every change. A deploy list names production files
+  only and lists dev-only files separately as "do not upload".
+- **Checks.** `node bin/validate-dev-only-boundary.mjs` (dev and CI) fails on an
+  unguarded require of a dev-only path, or an unguarded use of a class declared only
+  there. Before a deploy, `node bin/simulate-production-tree.mjs` also checks that
+  every unguarded require target ships, and runs the mirror harnesses.
 
 ### Resolve the interpreter before claiming a tool is missing
 
@@ -788,6 +849,7 @@ requested, ask for the exact mechanism (remote and branch, or host and path) and
 confirm before every run. Production sites are not a test environment: no write
 SQL, schema repair or migration against a remote host from a development machine,
 and no falling back to production data when local configuration is missing.
+Dev-only paths (`bin/dev-only-paths.txt`, R-DIAG-LOCAL) are never part of a deploy.
 
 ### Editing files from a terminal on Windows
 
@@ -819,6 +881,7 @@ editor tooling to write `.php` files, or write explicitly without a BOM:
 - ❌ A new plugin, module or menu that ships without declaring `route_mode`, planning to add it later.
 - ❌ A cron failure with no reason bucket in its run evidence.
 - ❌ Diagnostics runs that execute production workers, send messages or call providers.
+- ❌ Uploading or committing `core/diagnostics/`, `tests/` or `_notes/`; production code that requires them; probes run on a server.
 - ❌ Marking work done without a probe result, or presenting a `SKIP` as a `PASS`.
 - ❌ A `.php` change with no stamp, or edits inside archived/vendored trees.
 - ❌ Secrets, customer domains, server paths or PII in code, logs, docs or replies.
@@ -853,11 +916,12 @@ applyTo: "**"
 
 _Rule documents are not published in this repository — see the local environment map if you have the internal docs. The summaries in `.github/copilot-instructions.md` are authoritative_
 
-## 2. Contracts (18) — public/runtime contracts, schemas, registries
+## 2. Contracts (20) — public/runtime contracts, schemas, registries
 
 | File | Summary | Status |
 |---|---|---|
 | `docs/contracts/ADMIN-NAVIGATION-CONTRACT-v1.md` | BizCity Twin Admin Navigation Contract v1 |  |
+| `docs/contracts/BIZTWIN-CRM-AXIS-v1.json` | machine-readable contract data |  |
 | `docs/contracts/CAPABILITY-RECEIPT-v1.md` | Capability Registration Receipt v1 |  |
 | `docs/contracts/CAPABILITY-SECURITY-v1.md` | Capability Security Contract v1 |  |
 | `docs/contracts/CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1.md` | Design owner document: PHASE-1.33D | PROPOSED - contract freeze candidate (documentation only) |
@@ -866,6 +930,7 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/contracts/CONTEXT-BANK-VERTICAL-BRIDGE-BINDING-MATRIX-v1.md` | Design owner document: PHASE-1.33D | PROPOSED - per-vertical binding freeze candidate (documenta… |
 | `docs/contracts/CONTRACT-TESTING-v1.md` | BizCity Twin Contract Testing v1 |  |
 | `docs/contracts/EXTENSION-STORAGE-CONTEXT-CONTRACT-v1.md` | BizCity Twin Extension Storage & Context Contract v1 | Public contract proposal for catalog v1.x adoption; schema… |
+| `docs/contracts/GURU-CONTEXT-CONTRACT-v1.md` | Guru Context Contract v1 — bizcity-guru-context/1.0 | v1.0 · 2026-09-26 · fixtures _library/zalo-hub/contracts/gu… |
 | `docs/contracts/LEADER-MEMBER-WORKSPACE-CONTRACT-v1.md` | BizCity Leader/Member Workspace Contract v1 | Schema + fixture + catalog entry có (C-01, 2026-09-18, cata… |
 | `docs/contracts/LEGACY-29-CONTEXT-BANK-MANIFEST-v1.json` | machine-readable contract data |  |
 | `docs/contracts/PLUGIN-CONTRACT-REGISTRY-ADOPTION-v1.md` | Plugin Contract Registry Adoption v1 |  |
@@ -907,11 +972,12 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/api/README.md` | BizCity 1-API — Client Integration Guide (bizcity-twin-ai) |  |
 | `docs/mcp/MCP-AUDIT-BEFORE-IMPLEMENT.md` | MCP Audit Before Implementation / Reflect |  |
 
-## 4. Module / plugin / package READMEs (21)
+## 4. Module / plugin / package READMEs (20)
 
 | File | Summary | Status |
 |---|---|---|
 | `core/bizcity-llm/docs/README.md` | core/bizcity-llm/docs/ |  |
+| `core/channel-gateway/docs/PHASE-0.82-CRM-REMOTE-ZALO-HUB/README.md` | PHASE-0.82 — Remote Zalo Hub API Channel Gateway Branch | Framework done · lanes ready for mock-first code behind a d… |
 | `core/channel-gateway/frontend/README.md` | Channel Gateway — React Admin SPA |  |
 | `core/membership/docs/README.md` | core/membership/docs/ |  |
 | `core/twin-core/event-stream/README.md` | Twin Event Stream — Single Backbone |  |
@@ -923,17 +989,15 @@ _Rule documents are not published in this repository — see the local environme
 | `modules/twinshell/learning-hub/README.md` | TwinShell Learning Hub (Wave C) |  |
 | `plugins/bizcity-facebook-bot/README.md` | BizCity Facebook Bot |  |
 | `plugins/bizcity-pagebuilder/README.md` | BizCity Page Builder |  |
-| `plugins/bizcity-profile/README.md` | BizCity Personal |  |
 | `plugins/bizcity-twin-crm/README.md` | BizCity Twin CRM (Inbox Hub) |  |
 | `plugins/bizcity-twin-crm/apps/README.md` | apps/ — nơi ở của Context App, tách khỏi includes/ |  |
 | `plugins/bizcity-twin-crm/frontend/README.md` | BizCity CRM Inbox — Frontend |  |
-| `plugins/bizcity-zalo-bizcity/README.md` | BizCity Zalo Admin Hook | legacy_adapter per |
 | `plugins/bizcity-zalo-bot/README.md` | BizCity Zalo Bot Integration |  |
 | `plugins/bizcity-zalo-personal/README.md` | BizCity Zalo Personal & OA Gateway |  |
 | `packages/twin-ui-sdk/README.md` | @bizcity/twin-ui-sdk |  |
 | `examples/bizcity-reference-plugin/README.md` | BizCity Reference Extension |  |
 
-## 5. bin tools (64) — use the existing tool, do not write an ad-hoc script
+## 5. bin tools (73) — use the existing tool, do not write an ad-hoc script
 
 | Command | Purpose |
 |---|---|
@@ -955,17 +1019,22 @@ _Rule documents are not published in this repository — see the local environme
 | `php bin/framework-smoke.php` | Production framework smoke checks for a booted WordPress installation. |
 | `node bin/generate-closed-loop-scorecard.mjs` | Generate the closed-loop readiness scorecard from the plugin contract registry. |
 | `node bin/generate-lifecycle-contradiction-report.mjs` | Report contradictions between the diagnostics table registry and active legacy-table callers. |
+| `node bin/generate-reduction-findings-ledger.mjs` | Build the CORE-REDUCTION Findings Ledger from the numbered "N#" lesson rows |
 | `php bin/legacy-table-drop-readiness.php` | Read-only readiness report for explicitly named legacy tables. |
 | `php bin/legacy-table-inventory.php` | Read-only inventory of the deprecated-table catalog for one tenant blog. |
 | `php bin/license-ledger-concurrency-worker.php` | Internal worker for the H4 exact-key concurrency diagnostics probe. |
 | `php bin/log-idempotency-worker.php` | Internal worker for the JSONL idempotency diagnostics probe. |
+| `node bin/scan-private-identity.mjs` | Private-identity leak scanner for files that are about to become public (GitHub). |
 | `pwsh bin/secret-scan.ps1` | Secret leak scanner for bizcity-twin-ai before public push. |
 | `php bin/seed-knowledge-skills.php` | Skill Library — Sample Skills Seeder |
 | `bash bin/setting-panel-vps-evidence.sh` | PHASE-0-SETTING-PANEL — VPS MVP evidence runner |
+| `node bin/simulate-production-tree.mjs` | L4 — production-tree simulation (WP-13 DL-4, R-DIAG-LOCAL). Dev machine only. |
 | `node bin/sync-agent-instructions-fixtures.mjs` | CI runner for the R-AGENT-PARITY gates in bin/sync-agent-instructions.mjs. |
 | `node bin/sync-agent-instructions.mjs` | R-AGENT-PARITY — build one AI-agent environment from the canonical project sources. |
 | `php bin/test-e2e-skill-pipeline.php` | PHASE-1.2 S5 — End-to-End Verification Script |
 | `php bin/twin` | Twin CLI — unified control door for the BizCity Twin Brain framework. |
+| `node bin/validate-archive-completeness.mjs` | R-REDUCTION-AUDIT completeness validator — mechanical check that an archive/reduction |
+| `node bin/validate-biztwin-axis.mjs` | R-BIZTWIN-AXIS validator — keeps core/ shaped around the BizTwin CRM axis. |
 | `node bin/validate-brain-retrieval-facade-ownership-fixtures.mjs` | CI runner for the WP7 Brain retrieval facade ownership gate. |
 | `node bin/validate-brain-retrieval-facade-ownership.mjs` | WP7 — route retrieval through the canonical Context Bank/KG facade. |
 | `node bin/validate-capability-receipts-fixtures.mjs` | CI runner for the WP3 capability receipt gate. |
@@ -983,6 +1052,7 @@ _Rule documents are not published in this repository — see the local environme
 | `node bin/validate-crm-ownership.mjs` | WP5 — CRM repository and event ownership gate. |
 | `node bin/validate-ddl-table-parity-fixtures.mjs` | CI runner for the DDL table parity gate. |
 | `node bin/validate-ddl-table-parity.mjs` | Reconcile DDL tables across changelog, diagnostics table registry and schema registry. |
+| `node bin/validate-dev-only-boundary.mjs` | R-DIAG-LOCAL boundary validator (WP-13 DL-4). |
 | `php bin/validate-event-stream.php` | Twin Event Stream — backbone validator (R-EVT-1..7 enforcement, CLI). |
 | `node bin/validate-framework-contract-fixtures.mjs` | Run the permanent clean and broken fixtures for the deterministic contract audit. |
 | `node bin/validate-jsonl-contract-parity.mjs` | Validate JSONL log contract declarations against static registration evidence. |
@@ -996,15 +1066,19 @@ _Rule documents are not published in this repository — see the local environme
 | `node bin/validate-provider-gateway-isolation-fixtures.mjs` | CI runner for the WP7 provider gateway isolation gate (Node port of R-GW-8). |
 | `node bin/validate-provider-gateway-isolation.mjs` | WP7 — prohibit direct provider orchestration from vertical plugins. |
 | `node bin/validate-safe-loader-bootstrap.mjs` | R-SAFE-LOADER bootstrap enforcement. |
+| `node bin/validate-schema-owner.mjs` | R-DCL schema-owner validator (WP-13 DL-2, D-35). |
 | `node bin/validate-sdk-release.mjs` | Validate TypeScript SDK release metadata (version, tag and build parity) before publishing. |
 | `node bin/validate-sender-ownership-fixtures.mjs` | CI runner for the WP4 canonical sender ownership gate. |
 | `node bin/validate-sender-ownership.mjs` | WP4 — Canonical sender ownership and duplicate-send prevention. |
 | `node bin/validate-twinbrain-vertical-bridge-ownership-fixtures.mjs` | CI runner for the WP7 vertical bridge registry ownership gate. |
 | `node bin/validate-twinbrain-vertical-bridge-ownership.mjs` | WP7 — vertical registration through the canonical Brain bridge registry. |
+| `node bin/validate-zalo-transport-neutral-fixtures.mjs` | PHASE-0.82-A7 — fixture runner for the transport-neutrality validator. |
+| `node bin/validate-zalo-transport-neutral.mjs` | PHASE-0.82-A7 — reject transport-id comparisons outside the transport owner boundary. |
 
 ## 6. Tests & validation
 
-- Resolve the PHP binary first and record it in your validation notes.
+- PHP, Composer and WP-CLI are installed on this machine (verify with `where php` / `where composer` / `where wp`, or PowerShell `Get-Command`) — do not report a tool as missing without checking first. A silent, zero-output, exit-0 run of a `bin/*.php` or `vendor/bin/phpunit` script is almost always a missing required flag (see the next bullet for PHPUnit's), never proof the interpreter or vendor install is broken; re-run with `-d display_errors=1` before concluding the environment is broken.
+- PHPUnit needs `-d auto_prepend_file=tests/phpunit-prepend.php` (see the `composer test` mapping below) — without it, PHPUnit exits silently with no output and code 0, which is easy to misread as a broken `vendor/` install.
 - Test directories: `tests/fixtures`, `tests/mcp`, `tests/unit`.
 - Composer scripts:
   - `composer doctor` → `php bin/twin doctor`
@@ -1023,44 +1097,83 @@ _Rule documents are not published in this repository — see the local environme
   - `node bin/sync-agent-instructions.mjs --check`
   - `node bin/sync-agent-instructions-fixtures.mjs`
   - `node bin/framework-contract-audit.mjs`
+  - `node bin/validate-framework-contract-fixtures.mjs`
+  - `node bin/validate-legacy-table-lifecycle.mjs`
   - `node bin/validate-safe-loader-bootstrap.mjs --base="$base" --head="$HEAD_SHA"`
   - `php bin/twin diagnostics plugin examples/bizcity-reference-plugin --json > build/plugin-diagnostics/reference.json`
+  - `php bin/twin diagnostics plugin tests/fixtures/plugin-diagnostics/broken-plugin --json > build/plugin-diagnostics/broken.json`
   - `php bin/twin diagnostics plugin "$plugin" --json > "$result"`
   - `composer validate --strict --no-check-lock`
   - `composer install --no-progress --prefer-dist --no-interaction`
+  - `composer test -- --testdox`
   - `php bin/bizcity-manifest-validate.php --plugin=examples/bizcity-reference-plugin`
+  - `php bin/bizcity-manifest-validate.php --plugin=tests/fixtures/manifest-adoption-valid-side-effect`
+  - `php bin/bizcity-manifest-validate.php --plugin=tests/fixtures/manifest-adoption-invalid-side-effect`
   - `node bin/validate-jsonl-contract-parity.mjs --strict`
+  - `node bin/validate-jsonl-contract-parity.mjs --fixture-root=tests/fixtures/jsonl-contract-parity/valid`
+  - `node bin/validate-jsonl-contract-parity.mjs --fixture-root=tests/fixtures/jsonl-contract-parity/invalid`
+  - `node bin/validate-manifest-capability-parity.mjs --strict`
+  - `node bin/validate-manifest-capability-parity.mjs --fixture-root=tests/fixtures/manifest-capability-parity/valid`
+  - `node bin/validate-manifest-capability-parity.mjs --fixture-root=tests/fixtures/manifest-capability-parity/invalid`
+  - `node bin/validate-ddl-table-parity.mjs --strict`
+  - `node bin/validate-ddl-table-parity-fixtures.mjs`
+  - `node bin/validate-capability-receipts.mjs --strict`
+  - `node bin/validate-capability-receipts-fixtures.mjs`
+  - `node bin/validate-channel-zone-identity.mjs --strict`
+  - `node bin/validate-channel-zone-identity-fixtures.mjs`
+  - `node bin/validate-crm-ownership.mjs --strict`
+  - `node bin/validate-crm-ownership-fixtures.mjs`
+  - `node bin/validate-crm-contracts.mjs --strict`
+  - `node bin/validate-crm-contracts-fixtures.mjs`
+  - `node bin/validate-channel-file-first-logging.mjs --strict`
+  - `node bin/validate-channel-file-first-logging-fixtures.mjs`
+  - `node bin/validate-sender-ownership.mjs --strict`
+  - `node bin/validate-sender-ownership-fixtures.mjs`
+  - `node bin/validate-context-bank-kg-ownership.mjs --strict`
+  - `node bin/validate-context-bank-kg-ownership-fixtures.mjs`
+  - `node bin/validate-twinbrain-vertical-bridge-ownership.mjs --strict`
+  - `node bin/validate-twinbrain-vertical-bridge-ownership-fixtures.mjs`
+  - `node bin/validate-provider-gateway-isolation.mjs --strict`
+  - `node bin/validate-provider-gateway-isolation-fixtures.mjs`
+  - `node bin/validate-brain-retrieval-facade-ownership.mjs --strict`
+  - `node bin/validate-brain-retrieval-facade-ownership-fixtures.mjs`
+  - `node bin/validate-kg-reranker-ownership.mjs --strict`
+  - `node bin/validate-kg-reranker-ownership-fixtures.mjs`
+  - `node bin/validate-schema-owner.mjs`
+  - `node bin/validate-dev-only-boundary.mjs`
+  - `php core/diagnostics/validate-schema-changelog.php`
+  - `composer install --no-dev --no-progress --prefer-dist`
+  - `php bin/diagnostics-run.php --host=cli.local --skip-network --filter='core.module-registry' > build/canonical-diagnostics.txt`
+  - `php bin/diagnostics-run.php \`
 
-## 7. Area docs folders (57) — open the module's folder before changing the module
+## 7. Area docs folders (54) — open the module's folder before changing the module
 
 | Folder | published .md | internal .md |
 |---|---|---|
 | `core/automation/docs` | 16 | 12 |
 | `core/bizcity-llm/docs` | 2 | 1 |
-| `core/channel-gateway/docs` | 5 | 61 |
+| `core/channel-gateway/docs` | 82 | 62 |
 | `core/cron/docs` | 0 | 5 |
-| `core/diagnostics/docs` | 3 | 7 |
-| `core/docs` | 4 | 0 |
+| `core/diagnostics/docs` | 0 | 10 |
 | `core/helper/docs` | 2 | 0 |
 | `core/intent/docs` | 8 | 2 |
 | `core/kg-hub/docs` | 1 | 4 |
-| `core/knowledge/docs` | 16 | 1 |
+| `core/knowledge/docs` | 20 | 1 |
 | `core/mcp/docs` | 0 | 2 |
 | `core/membership/docs` | 4 | 3 |
 | `core/memory/docs` | 0 | 3 |
 | `core/persona/docs` | 1 | 0 |
 | `core/scheduler/docs` | 0 | 4 |
-| `core/skills/docs` | 2 | 1 |
 | `core/twin-core/docs` | 1 | 0 |
 | `core/twinbrain/docs` | 22 | 13 |
 | `docs/analysis` | 0 | 20 |
 | `docs/api` | 1 | 0 |
 | `docs/architecture` | 3 | 0 |
-| `docs/audits` | 0 | 3 |
+| `docs/audits` | 0 | 4 |
 | `docs/automation` | 1 | 0 |
 | `docs/channels` | 5 | 0 |
 | `docs/clients` | 4 | 0 |
-| `docs/contracts` | 15 | 1 |
+| `docs/contracts` | 16 | 1 |
 | `docs/cutover` | 0 | 1 |
 | `docs/decisions` | 0 | 1 |
 | `docs/developer` | 1 | 0 |
@@ -1074,7 +1187,7 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/mcp` | 1 | 0 |
 | `docs/reference` | 5 | 0 |
 | `docs/roadmaps` | 0 | 158 |
-| `docs/rules` | 0 | 77 |
+| `docs/rules` | 0 | 86 |
 | `docs/scheduler` | 1 | 0 |
 | `docs/skills` | 1 | 0 |
 | `docs/tools` | 0 | 0 |
@@ -1086,7 +1199,6 @@ _Rule documents are not published in this repository — see the local environme
 | `modules/twinshell/docs` | 1 | 12 |
 | `modules/twinweb/docs` | 1 | 34 |
 | `plugins/bizcity-pagebuilder/docs` | 8 | 3 |
-| `plugins/bizcity-profile/docs` | 1 | 4 |
 | `plugins/bizcity-twin-crm/docs` | 13 | 44 |
 | `plugins/bizcity-video-kling/docs` | 0 | 8 |
 | `plugins/bizcity-zalo-bot/docs` | 1 | 0 |
@@ -1102,6 +1214,14 @@ applyTo: "**/PHASE-*-VPS-EVIDENCE-PLAYBOOK.md,**/docs/*VPS*.md,**/docs/*vps*.md"
 ---
 
 # Generic VPS diagnostics runbook
+
+> **SUPERSEDED by R-DIAG-LOCAL (D-35, 2026-09-28).** `core/diagnostics/` and
+> `bin/diagnostics-run.php` probes are no longer installed on servers, so this runbook
+> no longer applies to a VPS. Run probes in the local development workspace instead.
+> Take server evidence from production surfaces: JSONL logs, browser self-checks, and
+> `wp bizcity health`, which answers `skip` on a server. Do not propose uploading
+> Diagnostics to run this runbook. The text below is kept only as the history of the
+> redaction contract (operator-supplied host, paths and run ids).
 
 This instruction is the safe, shareable command contract for diagnostics over SSH.
 It intentionally contains no production host, username, domain, filesystem path,

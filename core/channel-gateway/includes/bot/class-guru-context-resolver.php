@@ -62,7 +62,7 @@ final class BizCity_Guru_Context_Resolver {
 		'max_blocks'        => 5,
 		'contact_block'     => 'on',
 		'compose_prefer'    => 'guru',
-		'providers'         => array( 'zca', 'zalo_hub' ),
+		'providers'         => array(),
 	);
 
 	/**
@@ -291,6 +291,7 @@ final class BizCity_Guru_Context_Resolver {
 
 	public static function sanitize_scope( array $raw ): array {
 		$s = self::SCOPE_DEFAULTS;
+		$s['providers'] = self::registered_guru_providers();
 		if ( isset( $raw['knowledge'] ) && in_array( $raw['knowledge'], array( 'base', 'base+notebooks' ), true ) ) { $s['knowledge'] = $raw['knowledge']; }
 		if ( isset( $raw['notebook_ids'] ) && is_array( $raw['notebook_ids'] ) ) {
 			$s['notebook_ids'] = array_values( array_unique( array_filter( array_map( 'intval', $raw['notebook_ids'] ), static function ( $v ) { return $v > 0; } ) ) );
@@ -300,10 +301,26 @@ final class BizCity_Guru_Context_Resolver {
 		if ( isset( $raw['contact_block'] ) && in_array( $raw['contact_block'], array( 'on', 'off' ), true ) ) { $s['contact_block'] = $raw['contact_block']; }
 		if ( isset( $raw['compose_prefer'] ) && in_array( $raw['compose_prefer'], array( 'guru', 'engine_default' ), true ) ) { $s['compose_prefer'] = $raw['compose_prefer']; }
 		if ( isset( $raw['providers'] ) && is_array( $raw['providers'] ) ) {
-			$p = array_values( array_intersect( array( 'zca', 'zalo_hub' ), $raw['providers'] ) );
-			$s['providers'] = $p ? $p : self::SCOPE_DEFAULTS['providers'];
+			// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A1 — project Guru context only to registered transports that support it.
+			$providers = self::registered_guru_providers();
+			$p = array_values( array_intersect( $providers, $raw['providers'] ) );
+			$s['providers'] = $p ? $p : self::registered_guru_providers();
 		}
 		return $s;
+	}
+
+	/** Return registered transports that expose the Guru projection surface. */
+	private static function registered_guru_providers(): array {
+		if ( ! class_exists( 'BizCity_Zalo_Transport_Capability' ) ) {
+			return array();
+		}
+		$providers = array();
+		foreach ( BizCity_Zalo_Transport_Capability::transport_ids() as $transport_id ) {
+			if ( BizCity_Zalo_Transport_Capability::supports( BizCity_Zalo_Transport_Capability::descriptor( (string) $transport_id ), 'guru_projection' ) ) {
+				$providers[] = (string) $transport_id;
+			}
+		}
+		return $providers;
 	}
 
 	/* ================================================================
@@ -328,7 +345,7 @@ final class BizCity_Guru_Context_Resolver {
 			$text = self::default_instruction( self::site() ); // a blanked default Guru still speaks for the tenant
 		}
 		$faq   = $cid > 0 ? self::faq( $cid ) : array();
-		$scope = $cid > 0 ? self::scope( $cid ) : self::SCOPE_DEFAULTS;
+		$scope = $cid > 0 ? self::scope( $cid ) : array_merge( self::SCOPE_DEFAULTS, array( 'providers' => self::registered_guru_providers() ) );
 		$bot   = $cid > 0 ? self::bot_settings( $cid ) : array();
 		// [2026-09-28 Claude Sonnet 5] PHASE-0.81 S-1 (peer review) — engine_rules_version must be in the hash: a code deploy that
 		// changes ENGINE_RULES is not a Guru edit, so without this the etag never moves and a cell that cached the old profile gets
@@ -391,7 +408,7 @@ final class BizCity_Guru_Context_Resolver {
 	public static function context( int $character_id, array $opts = array() ): array {
 		$g      = self::resolve_guru( $character_id );
 		$cid    = (int) $g['character_id'];
-		$scope  = $cid > 0 ? self::scope( $cid ) : self::SCOPE_DEFAULTS;
+		$scope  = $cid > 0 ? self::scope( $cid ) : array_merge( self::SCOPE_DEFAULTS, array( 'providers' => self::registered_guru_providers() ) );
 		$max_b  = min( (int) $scope['max_blocks'], max( 1, (int) ( $opts['max_blocks'] ?? $scope['max_blocks'] ) ) );
 		$max_c  = min( (int) $scope['max_context_chars'], max( 500, (int) ( $opts['max_chars'] ?? $scope['max_context_chars'] ) ) );
 		$blocks = array();

@@ -171,7 +171,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-DGm-NmZi.js",
+    "file": "assets/index-D08N0qTa.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -188,7 +188,7 @@
       "src/components/KGGraphViewNexus.tsx"
     ],
     "css": [
-      "assets/index-C7FRzItQ.css"
+      "assets/index-DnObuzMD.css"
     ]
   },
   "node_modules/mermaid/dist/chunks/mermaid.core/architectureDiagram-Q4EWVU46.mjs": {
@@ -593,7 +593,7 @@
     ]
   },
   "src/components/KGGraphViewNexus.tsx": {
-    "file": "assets/KGGraphViewNexus-QVIZksOs.js",
+    "file": "assets/KGGraphViewNexus-DKZy6m4R.js",
     "name": "KGGraphViewNexus",
     "src": "src/components/KGGraphViewNexus.tsx",
     "isDynamicEntry": true,

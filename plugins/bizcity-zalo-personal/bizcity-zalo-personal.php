@@ -3,7 +3,7 @@
  * Plugin Name: BizCity Zalo Personal & OA Gateway
  * Plugin URI:  https://bizcity.vn/
  * Description: Kết nối tài khoản Zalo cá nhân (QR login qua zca-bridge sidecar) và Zalo Official Account (OAuth v4 + webhook MAC) vào Channel Gateway + bizcity-twin-crm Inbox.
- * Version:     1.0.0
+ * Version:     1.1.0
  * Author:      Johnny Chu / BizCity
  * Author URI:  https://bizcity.vn/
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
  */
 
 defined( 'ABSPATH' ) || exit;
-
+define( 'BIZCITY_ZALO_REMOTE_HUB_ENABLED', true );
 // Guard: must run after bizcity-twin-ai core is loaded (channel-gateway bootstrap).
 if ( ! defined( 'BIZCITY_CHANNEL_GATEWAY_LOADED' ) ) {
 	add_action( 'admin_notices', static function () {

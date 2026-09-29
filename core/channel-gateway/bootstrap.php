@@ -451,6 +451,10 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/documents/class-bot-doc-text.php'        => 'channel.bot.doc_text',
 	$gateway_dir . 'bot/documents/class-bot-documents.php'       => 'channel.bot.documents',
 	$gateway_dir . 'bot/class-bot-tools.php'          => 'channel.bot.tools',
+	// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A4 — load the transport port before the capability-aware bot consumers.
+	$gateway_dir . 'includes/transport/interface-zalo-transport.php'       => 'channel.zalo_transport.interface',
+	$gateway_dir . 'includes/transport/class-zalo-transport-bridge-legacy.php' => 'channel.zalo_transport.legacy',
+	$gateway_dir . 'includes/transport/class-zalo-transport-registry.php'   => 'channel.zalo_transport.registry',
 	// [2026-09-28 Claude Opus 5] PHASE-0.82 doc 07 — what each Zalo transport can do, as data; loaded before the bot classes that query it.
 	$gateway_dir . 'class-zalo-transport-capability.php' => 'channel.zalo_transport_capability',
 	// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — Zalo action tools (sticker, poll, group admin…) via zca-bridge ≥ 0.40.0.

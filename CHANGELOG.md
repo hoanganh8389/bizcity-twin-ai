@@ -18,6 +18,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Module diagnostic pages are dev-only - 2026-09-28
+
+> Stamp: `[2026-09-28 Claude Opus 5.5]` · docs: `core/knowledge/docs/CORE-REDUCTION-WP-13-DIAGNOSTICS-DEV-LOCAL.md` §20
+
+The Channel Gateway and CRM sprint diagnostic pages, the Channel Gateway phase-0.37 page, the TwinChat pro-learning page and the nine TwinWeb probes are now local-development only: they are listed in `bin/dev-only-paths.txt` and `.gitignore`. The two sprint pages ran smoke actions that insert and delete rows in production tables.
+
+**Fixes:**
+- TwinChat checks that its diagnostic page exists before loading it, so servers do not log `missing_file` on every admin request.
+- The CRM Settings page shows the "Sprint Diagnostic" link only when that page is installed.
+
+**Behaviour change:** the KG public API token (`bizcity_kg_public_api_token`) could only be set from the Channel Gateway sprint page. On servers it is now set with `wp option update`.
+
+Not deployed.
+
+### Dev-only boundary is now checked mechanically; TwinChat report button removed - 2026-09-28
+
+> Stamp: `[2026-09-28 Claude Opus 5.5]` · docs: `core/knowledge/docs/CORE-REDUCTION-WP-13-DIAGNOSTICS-DEV-LOCAL.md` §19
+
+**New checks:**
+- `bin/validate-dev-only-boundary.mjs`, which also runs in CI, fails when production code loads a Diagnostics or test file without checking that it exists, or uses a Diagnostics-only class without `class_exists()`.
+- `bin/simulate-production-tree.mjs` checks the tree a server receives before a deploy.
+
+**Fixes:**
+- `uninstall.php` checks that the Diagnostics registry exists before loading it.
+- TwinChat's "Gửi báo cáo" button in the Add Source dialog posted to the Diagnostics endpoint, which does not exist on servers. It is removed. Error messages now say to contact the administrator.
+
+Not deployed.
+
+### Diagnostics is a local development tool only (R-DIAG-LOCAL) - 2026-09-28
+
+> Stamp: `[2026-09-28 Claude Opus 5.5]` · docs: `docs/rules/PHASE-0-RULE-DIAGNOSTICS-DEV-LOCAL.md`, `core/knowledge/docs/DEPLOY-WP13-WP14-20260928.md`
+
+`core/diagnostics/`, `tests/` and `_notes/` stay in the local development workspace. They are never uploaded to a server and never committed.
+
+**Where it is recorded:**
+- `bin/dev-only-paths.txt` lists these paths as the upload exclusion list.
+- `.gitignore` now also ignores `/_notes/`.
+- `.github/copilot-instructions.md` has a new "R-DIAG-LOCAL" section. It reaches Copilot directly, Codex through `AGENTS.md`, and Claude Code through `CLAUDE.md`.
+
+**Also updated:**
+- The public R-DCL instructions now point at `core/helper/schema/changelog/`.
+- The VPS SSH diagnostics runbook is marked superseded.
+- The WP-13 deploy no longer uploads shims into `core/diagnostics/`. Instead, the VPS copy is moved out inside a maintenance window.
+
+### Channel Gateway only connects channels: Marketing and Hệ thống screens removed - 2026-09-28
+
+> Stamp: `[2026-09-28 Claude Opus 5.5]` · docs: `core/channel-gateway/docs/CORE-REDUCTION-WP-14-CHANNEL-GATEWAY-SCOPE.md` §9
+
+**Removed from the Channel Gateway admin app:**
+- The whole Marketing group: Campaigns, QR Link, Broadcast, Công việc, Tự động hoá CSKH and Community Gallery. CRM and Automation own these features, or the owner retired them.
+- The whole Hệ thống group: Thông báo, the duplicate "Cài đặt chung" (Bot Studio's "Cấu hình vận hành" is the same screen), Sprint Diagnostic, and the dead Webhook Inspector and "Phase plan" links.
+- Result: the bundle is 156 KB smaller. Old bookmarks land on the overview.
+
+**Also retired:**
+- The Notification Center (settings screen, REST and dispatcher). Admin alerts for Woo orders and stock, CF7, new users, comments, published posts and Zalo bridge state stop.
+- The Zalo bridge `/health-alert` route now answers `200 notifications_retired` instead of failing with 503.
+- `/web/ai-compose` and `/web/publisher/force`, which were used only by Công việc.
+
+**Kept or moved:**
+- The broadcast engine stays in Channel Gateway, because CRM Broadcast runs on it. Its two tables are now declared in the schema changelog (1.9.0).
+- The Flow → Campaign auto-import now runs when the CRM page opens, not when a channel screen opens.
+- TwinBrain's progress-notice settings keep working.
+
+Harness 30/30 with mutation proofs. Not deployed.
+
+### Bot-document fonts subset to Latin + Vietnamese (−64 %) - 2026-09-28
+
+> Stamp: `[2026-09-28 Claude Opus 5.5]` · docs: `core/channel-gateway/docs/CORE-REDUCTION-WP-14-CHANNEL-GATEWAY-SCOPE.md` §5
+
+`core/channel-gateway/assets/fonts/NotoSans-{Regular,Bold}.ttf` are read by the server-side tFPDF renderer that produces bot-document PDFs. Browsers never load them, and Google Fonts cannot replace them. They were subset to Latin, Vietnamese, punctuation, currency and common symbols: 1.25 MB → 453 KB. Per-character widths through tFPDF are identical for 233 Vietnamese business characters in both styles. Greek and Cyrillic glyphs are no longer included. `OFL.txt` is kept. No code changed. The originals are in `_notes/core-reduction-snapshot-20260928-wp14-f1-fonts.tar.gz`. Not deployed.
+
+### Two tables were quarantined only through core/diagnostics - 2026-09-28
+
+> Stamp: `[2026-09-28 Claude Sonnet 5]` · docs: `core/knowledge/docs/CORE-REDUCTION-WP-13-DIAGNOSTICS-DEV-LOCAL.md` §17–§18
+
+`bizcity_webchat_sessions` and `bizcity_webchat_conversations` were marked quarantine-only (install blocked, writes refused) only in the Diagnostics table catalog; `BizCity_Legacy_Table_Policy`'s own lists did not carry them, and its `is_legacy()` reached the catalog through a `class_exists` fallback. Deleting `core/diagnostics` (D-35) would have silently removed that protection. Fixed by adding both tables to the policy's own `$quarantine`/`$writer_stop_defaults` arrays — same behavior, no dependency on Diagnostics. Static and harness evidence only; not deployed.
+
+### REST errors recorded to JSONL; TwinSearch report button removed; CI follows D-35 - 2026-09-28
+
+> Stamp: `[2026-09-28 Claude Opus 5.5]` · docs: `core/knowledge/docs/CORE-REDUCTION-WP-13-DIAGNOSTICS-DEV-LOCAL.md` §15–§16
+
+- **Error reports go to the JSONL log.** `BizCity_Error_Reporter` (same class and API) moved to `core/helper` and writes the log contract `core.helper.error_reports` (Tools → BizCity Logs, 7-day retention) instead of rewriting the wp_option `bizcity_error_reports` on every error. It now loads on every request type, so REST errors outside wp-admin are recorded for the first time. Fix hints no longer link to the Diagnostics page when it is not installed.
+- **TwinSearch:** the "Gửi báo cáo" button and the links into Diagnostics are gone; error messages point to the administrator instead.
+- **CI:** removed the checks for the archived `plugins/bizcity-profile`; the schema-owner check runs on public GitHub; a new guard fails the build if `core/diagnostics/` or `tests/` are ever committed.
+
+Static and harness evidence only; not deployed.
+
+### Schema owner leaves Diagnostics; Health Wizard removed from TwinChat - 2026-09-28
+
+> Stamp: `[2026-09-28 Claude Opus 5.5]` · docs: `core/knowledge/docs/CORE-REDUCTION-WP-13-DIAGNOSTICS-DEV-LOCAL.md` §13–§14, `docs/diagnostics/PHASE-0-RULE-DIAGNOSTICS-CHANGELOG.md` v1.1
+
+Decision D-35: Diagnostics runs in local development only. Two steps towards it:
+
+- **Schema owner moved to `core/helper/schema/`.** The schema changelog (`changelog/*.json`, 148 tables), `BizCity_Diagnostics_Changelog_Loader` and `BizCity_Diagnostics_Auto_Create` create and upgrade production tables, so they are runtime, not diagnostics. Class names are unchanged; the old files in `core/diagnostics/includes/` are shims. The changelog is now committed to GitHub, so 5 phrases carrying production blog ids, a DB host name and a tenant domain were redacted. Auto-create now refuses DDL when the legacy table policy is not loaded (fail-closed). New checks: `bin/validate-schema-owner.mjs`, `bin/scan-private-identity.mjs`. **Edit schema JSON only in `core/helper/schema/changelog/`.**
+- **TwinChat Health Wizard removed** (component, three mount points, rebuilt `ui/dist`). It called `bizcity-diagnostics/v1` and showed a mock probe list when that failed.
+
+Static and harness evidence only; not deployed. Deploy order for the schema move: the two `core/diagnostics/includes` shims first, then `core/helper/schema/`, then `core/helper/bootstrap.php` and the two installers.
+
+### Production code survives without Diagnostics (WP-13 DL-1) - 2026-09-27
+
+> Stamp: `[2026-09-27 Claude Opus 5.5]` · doc: `core/knowledge/docs/CORE-REDUCTION-WP-13-DIAGNOSTICS-DEV-LOCAL.md` §12
+
+- **Fixed a latent fatal** in the automation installer: it declared the Diagnostics folder present whether or not it existed, then required a missing file. Harmless while the folder is deployed; an HTTP 500 on the first schema check without it. Reproduced on the old code, gone on the new.
+- The REST error trait loads from its owner (`core/helper`), no longer through a Diagnostics shim.
+- Channel Gateway and CRM diagnostic pages are optional: loaded only when present, through `BizCity_Safe_Loader`.
+- `wp bizcity health` without the Diagnostics engine reports `skip` / `diagnostics_package_absent` instead of failing.
+- Admin links and cards to the Diagnostics page appear only when the page exists (`bizcity_diagnostics_available()`, new in `core/helper`).
+
+No behaviour changes while `core/diagnostics/` is present. Evidence: new harness 20/20 against a mirror without the folder, 233/233 across all harnesses, 36/36 validators. Not deployed; `core/diagnostics/` must stay on the VPS until WP-13 DL-6.
+
+### Diagnostics becomes a dev-only tool (plan) and WP-12 is deployed - 2026-09-27
+
+> Stamp: `[2026-09-27 Claude Opus 5.5]` · docs: `core/knowledge/docs/CORE-REDUCTION-WP-13-DIAGNOSTICS-DEV-LOCAL.md`, `core/knowledge/docs/CORE-REDUCTION-WP-12-ARCHIVE-CONTENT-TOOLS-SKILLS-LEGACY.md` §24–§25
+
+- **WP-12 deployed to the VPS** (owner report). Runtime checks are not yet recorded, so its status is `DEPLOYED`, not `RUNTIME_PASS`. Since the manifest, D-33 retired the Telegram customer channel and the dead Skills tab was removed from the TwinShell ActivityBar.
+- **Owner decision D-35:** Diagnostics (engine, probes, diagnostic admin pages, `bizcity-diagnostics/v1`) runs only in local development — not on GitHub, not on the VPS — and produces simulated results against the framework contracts and rules. This supersedes the 2026-09-25 entry below where Diagnostics stayed on the VPS, and WP-06's plan for a package installed on sites.
+- **Not yet safe to remove from the VPS.** Measured: seven production installers create and upgrade their tables through the Diagnostics auto-create service (removing it would silently stop table creation on new blogs), and the automation installer has a latent fatal when the folder is missing. WP-13 orders the work: guard fixes, move the schema owner into runtime code, a production-tree simulation gate, a staging proof, and only then removal.
+
+No code changed in this entry.
+
 ### CORE-REDUCTION WP-12 — archive the four legacy core folders, shape `core/` around the BizTwin CRM axis, and codify the sweep protocol - 2026-09-27
 
 > Stamp: `[2026-09-27 Claude Sonnet 5]` · docs: `core/knowledge/docs/CORE-REDUCTION-WP-12-ARCHIVE-CONTENT-TOOLS-SKILLS-LEGACY.md`, `docs/rules/PHASE-0-RULE-ONE-AXIS.md`, `docs/rules/PHASE-0-RULE-BIZTWIN-CRM-AXIS.md`, `docs/rules/PHASE-0-RULE-REDUCTION-AUDIT-PROTOCOL.md`, `docs/audits/CORE-REDUCTION-FINDINGS-LEDGER.md`

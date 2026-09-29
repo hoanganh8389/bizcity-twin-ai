@@ -1,6 +1,6 @@
 <?php
 /**
- * Zalo transport capability descriptor — `zalo-transport-capability@1.0.0`.
+ * Zalo transport capability descriptor — `zalo-transport-capability@1.1.0`.
  *
  * PHASE-0.82 doc 07 §5. The Zalo Personal channel has more than one transport underneath it
  * (`zca`, `zalo_hub`, and a third-party API branch later). They do NOT have the same abilities,
@@ -20,22 +20,20 @@
  *   2. An unregistered transport id supports NOTHING. A transport that has not published a
  *      descriptor must not inherit another transport's abilities by accident.
  *
- * The 1.0.0 descriptor is deliberately MINIMAL: it declares only `group_actions`, the one
- * capability that has a real consumer today (doc 07 §6 — "a capability key nobody reads is not
- * released"). Further keys from doc 07 §5 (can_send_image, can_initiate_thread, rate limits…)
- * are added when the code that reads them lands, which rule 1 makes a non-breaking change.
+ * Version 1.1.0 adds the transport-port capability keys and a limits map. An empty limits map
+ * means the transport has not published a limit; it does not mean unlimited.
  *
  * @package BizCity_Twin_AI
  * @subpackage Channel_Gateway
  */
 
-// [2026-09-28 Claude Opus 5] PHASE-0.82 doc 07 §9 step 1 — publish transport capability as data.
+	// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A0 — publish the transport capability contract used by the port consumers.
 defined( 'ABSPATH' ) || exit;
 
 final class BizCity_Zalo_Transport_Capability {
 
 	const CONTRACT = 'zalo-transport-capability';
-	const VERSION  = '1.0.0';
+	const VERSION  = '1.1.0';
 
 	/** @var array|null test seam: descriptor map override (null = built-ins + filter). */
 	public static $descriptors = null;
@@ -54,16 +52,35 @@ final class BizCity_Zalo_Transport_Capability {
 			'zca'      => array(
 				'label'        => 'zca-bridge',
 				'capabilities' => array(
+					// Existing Personal bridge composer and Bot Studio paths support these operations.
+					'can_initiate_thread'         => true,
+					'can_send_text'               => true,
+					'can_send_image'              => true,
+					'can_send_file'               => true,
+					'can_quote_reply'             => true,
+					'delivers_owner_app_messages' => true,
+					'guru_projection'             => true,
+					'config_sync_check'           => false,
 					// The sidecar advertises its own action list (GET /wp/actions); whether a SPECIFIC
 					// action is available is still resolved there. This says only that the transport
 					// has an action surface at all.
 					'group_actions' => true,
 				),
 				'hints'        => array(),
+				'limits'       => array(),
 			),
 			'zalo_hub' => array(
 				'label'        => 'zalo-hub',
 				'capabilities' => array(
+					// Existing managed Hub paths preserve the current Personal composer behaviour.
+					'can_initiate_thread'         => true,
+					'can_send_text'               => true,
+					'can_send_image'              => true,
+					'can_send_file'               => true,
+					'can_quote_reply'             => true,
+					'delivers_owner_app_messages' => true,
+					'guru_projection'             => true,
+					'config_sync_check'           => true,
 					'group_actions' => false,
 				),
 				'hints'        => array(
@@ -71,6 +88,7 @@ final class BizCity_Zalo_Transport_Capability {
 					// wording is the transport's own, and moving it must not change what a user reads.
 					'group_actions' => 'Số này đang chạy zalo-hub — nhóm công cụ hành động Zalo (kick, bổ nhiệm, bình chọn, đổi tên nhóm…) hiện CHƯA phát triển cho zalo-hub, chỉ có ở zca-bridge (legacy). Không phải do thiếu cấu hình hay cần build lại — cần làm thêm mã cho zalo-hub trước.',
 				),
+				'limits'       => array(),
 			),
 		);
 
@@ -102,6 +120,8 @@ final class BizCity_Zalo_Transport_Capability {
 				'label'        => (string) ( $row['label'] ?? $transport_id ),
 				'capabilities' => is_array( $row['capabilities'] ?? null ) ? $row['capabilities'] : array(),
 				'hints'        => is_array( $row['hints'] ?? null ) ? $row['hints'] : array(),
+				'limits'       => is_array( $row['limits'] ?? null ) ? $row['limits'] : array(),
+				'contract_version' => self::VERSION,
 			);
 		}
 		return array(
@@ -109,6 +129,8 @@ final class BizCity_Zalo_Transport_Capability {
 			'label'        => '' === $transport_id ? '' : $transport_id,
 			'capabilities' => array(),
 			'hints'        => array(),
+			'limits'       => array(),
+			'contract_version' => self::VERSION,
 		);
 	}
 
@@ -135,5 +157,14 @@ final class BizCity_Zalo_Transport_Capability {
 	/** The transport's own explanation for a capability it lacks; '' when it published none. */
 	public static function hint( ?array $descriptor, string $key ): string {
 		return is_array( $descriptor ) ? (string) ( $descriptor['hints'][ $key ] ?? '' ) : '';
+	}
+
+	/** Return a published integer limit, or null when the transport did not publish one. */
+	public static function limit( ?array $descriptor, string $key ): ?int {
+		if ( ! is_array( $descriptor ) || ! array_key_exists( $key, $descriptor['limits'] ?? array() ) ) {
+			return null;
+		}
+		$value = $descriptor['limits'][ $key ];
+		return is_int( $value ) ? $value : null;
 	}
 }

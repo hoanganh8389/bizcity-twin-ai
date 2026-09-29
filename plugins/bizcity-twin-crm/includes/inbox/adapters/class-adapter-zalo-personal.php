@@ -160,6 +160,39 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 		if ( '' === $attachment_name && '' !== $attachment_url ) {
 			$attachment_name = sanitize_file_name( basename( (string) wp_parse_url( $attachment_url, PHP_URL_PATH ) ) );
 		}
+		// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A5 — route only non-legacy account transports through the LC-2 port.
+		if ( class_exists( 'BizCity_Zalo_Transport_Registry' ) ) {
+			$transport = BizCity_Zalo_Transport_Registry::for_account( $bridge_account_id );
+			if ( null === $transport ) {
+				self::log_send_result( 'transport_unavailable', false, $conversation, $bridge_account_id );
+				return array( 'success' => false, 'external_source_id' => null, 'error' => 'transport_unavailable' );
+			}
+			if ( ! $transport instanceof BizCity_Zalo_Transport_Bridge_Legacy ) {
+				$transport_result = $transport->send(
+					array(
+						'bridge_account_id' => $bridge_account_id,
+						'peer_thread_id'    => $recipient,
+						'thread_kind'       => 'group' === $thread_kind ? 'group' : 'personal',
+						'conversation_id'   => (int) ( $conversation['id'] ?? 0 ),
+						'inbox_id'          => (int) ( $inbox['id'] ?? 0 ),
+					),
+					array(
+						'text'         => $text,
+						'content_type' => $type,
+						'attachments'  => $type !== 'text' ? array( array( 'url' => $attachment_url, 'name' => $attachment_name ) ) : array(),
+						'mentions'     => $mentions,
+						'quote'        => $quote,
+					),
+					array(
+						'trace_id'        => sanitize_text_field( (string) ( $message['trace_id'] ?? '' ) ),
+						'idempotency_key' => $idempotency_key,
+						'actor_user_id'   => (int) get_current_user_id(),
+						'pause_minutes'   => 0,
+					)
+				);
+				return self::transport_result( $transport_result, $conversation, $bridge_account_id );
+			}
+		}
 		$bridge       = class_exists( 'BizCity_Zalo_Bridge_Client' ) ? BizCity_Zalo_Bridge_Client::instance() : null;
 		if ( ! $bridge ) {
 			self::log_send_result( 'zalo_personal_bridge_missing', false, $conversation, $bridge_account_id );
@@ -191,6 +224,21 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			'external_source_id' => (string) ( $result['message_id'] ?? ( $result['job_id'] ?? '' ) ),
 			'error'              => $accepted ? null : (string) ( $result['message'] ?? 'zalo_personal_send_failed' ),
 			'retryable'          => ! empty( $result['retryable'] ),
+		);
+	}
+
+	private static function transport_result( array $result, array $conversation, string $account_id ): array {
+		$accepted = ! empty( $result['ok'] ) && in_array( (string) ( $result['outcome'] ?? '' ), array( 'sent', 'queued', 'throttled' ), true );
+		$outcome  = $accepted ? (string) $result['outcome'] : 'failed';
+		self::log_send_result( $accepted ? 'outbound_' . $outcome : 'outbound_failed', $accepted, $conversation, $account_id );
+		$external = (string) ( $result['external_ids'][0] ?? '' );
+		return array(
+			'success'            => $accepted,
+			'outcome'            => $outcome,
+			'code'               => $accepted ? $outcome : (string) ( $result['error']['code'] ?? 'transport_unavailable' ),
+			'external_source_id' => $external !== '' ? 'zalo:' . $external : null,
+			'error'              => $accepted ? null : (string) ( $result['error']['code'] ?? 'transport_unavailable' ),
+			'retryable'          => ! empty( $result['error']['retryable'] ),
 		);
 	}
 

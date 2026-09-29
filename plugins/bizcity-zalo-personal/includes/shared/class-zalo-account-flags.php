@@ -36,10 +36,25 @@ final class BizCity_Zalo_Account_Flags {
 	const DEFAULT_PROVIDER_OPTION = 'bizcity_zalo_default_provider';
 	const PROVIDER_ZCA            = 'zca';
 	const PROVIDER_ZALO_HUB       = 'zalo_hub';
+	/**
+	 * PHASE-0.82 branch 3 — third-party-operated "Remote Zalo Hub API" (04-IMPLEMENTATION-FRAMEWORK-ROADMAP.md
+	 * §0.1/§0.3: separate provider value, not folded under `zalo_hub`, so the commercial boundary between
+	 * BizCity-exclusive B2B2C and a customer-brought third-party transport stays visible in the data).
+	 * Tier 1 prep only (05-TIER-1-ENUM-SIZING.md): no branch-3 row is ever written by this class yet —
+	 * `observe_*()` below never produce this value, so it can only appear once the branch-3 adapter starts
+	 * calling `record()` directly in a later tier.
+	 */
+	const PROVIDER_REMOTE_ZALO_HUB = 'remote_zalo_hub';
+	/** 05-TIER-1-ENUM-SIZING.md F1: any value outside the three above. Never silently treated as `zca`. */
+	const PROVIDER_UNKNOWN         = 'unknown';
 	/** Hub → site relay header, present only when the account's AI is off. */
 	const AI_HEADER               = 'X-BizCity-Account-AI';
 	const GATE_ZALO_HUB           = 'replier_is_zalo_hub';
 	const GATE_AI_DISABLED        = 'ai_disabled';
+	/** 05-TIER-1-ENUM-SIZING.md F5/F6: branch-3's own bot until the §3.4 handshake confirms it is off. */
+	const GATE_REMOTE_BOT_UNCONFIRMED = 'remote_bot_unconfirmed';
+	/** 05-TIER-1-ENUM-SIZING.md F1: fail-closed gate for a provider value this class does not recognize. */
+	const GATE_UNKNOWN_PROVIDER   = 'unknown_provider';
 	const MAX_ACCOUNTS            = 500;
 
 	/** @var array|null request memo */
@@ -79,10 +94,20 @@ final class BizCity_Zalo_Account_Flags {
 			return '';
 		}
 		$flags = self::get( $bridge_id );
-		if ( self::PROVIDER_ZALO_HUB === $flags['provider'] ) {
-			return self::GATE_ZALO_HUB;
+		switch ( $flags['provider'] ) {
+			case self::PROVIDER_ZALO_HUB:
+				return self::GATE_ZALO_HUB;
+			case self::PROVIDER_REMOTE_ZALO_HUB:
+				// 05-TIER-1-ENUM-SIZING.md F5/F6, Tier 1: no §3.4 handshake exists yet to confirm the
+				// remote nick's own bot is off, so fail closed unconditionally. Tier 3 replaces this
+				// with a verified `botEnabled` check before Bot Studio may answer a branch-3 account.
+				return self::GATE_REMOTE_BOT_UNCONFIRMED;
+			case self::PROVIDER_ZCA:
+				return $flags['ai_enabled'] ? '' : self::GATE_AI_DISABLED;
+			default:
+				// F1: an unrecognized provider value must never silently permit an auto-reply.
+				return self::GATE_UNKNOWN_PROVIDER;
 		}
-		return $flags['ai_enabled'] ? '' : self::GATE_AI_DISABLED;
 	}
 
 	/** Filter callback: keep an earlier gate, otherwise answer for Zalo Cá nhân accounts. */
@@ -123,8 +148,25 @@ final class BizCity_Zalo_Account_Flags {
 		$new['source']     = sanitize_key( $source );
 		$all[ $bridge_id ] = $new;
 		if ( count( $all ) > self::MAX_ACCOUNTS ) {
-			uasort( $all, static function ( $a, $b ) { return (int) ( $b['updated_at'] ?? 0 ) <=> (int) ( $a['updated_at'] ?? 0 ); } );
-			$all = array_slice( $all, 0, self::MAX_ACCOUNTS, true );
+			// 05-TIER-1-ENUM-SIZING.md F8: a branch-3 row has no Hub re-seed path, so evicting one
+			// here would silently revert it to remote_bot_unconfirmed with no recovery but a fresh
+			// §3.4 handshake. Only zca/zalo_hub rows (which the Hub can always re-seed) are evictable.
+			$branch3 = array();
+			$rest    = array();
+			foreach ( $all as $key => $row ) {
+				$provider = is_array( $row ) ? ( $row['provider'] ?? '' ) : '';
+				if ( self::PROVIDER_REMOTE_ZALO_HUB === $provider ) {
+					$branch3[ $key ] = $row;
+				} else {
+					$rest[ $key ] = $row;
+				}
+			}
+			$rest_cap = max( 0, self::MAX_ACCOUNTS - count( $branch3 ) );
+			if ( count( $rest ) > $rest_cap ) {
+				uasort( $rest, static function ( $a, $b ) { return (int) ( $b['updated_at'] ?? 0 ) <=> (int) ( $a['updated_at'] ?? 0 ); } );
+				$rest = array_slice( $rest, 0, $rest_cap, true );
+			}
+			$all = $rest + $branch3;
 		}
 		self::$memo = $all;
 		update_option( self::OPTION, $all, false );
@@ -153,7 +195,14 @@ final class BizCity_Zalo_Account_Flags {
 	 * cell events carry `provider:"zalo_hub"`, zca payloads carry none; the AI header is present only when AI is off.
 	 */
 	public static function observe_inbound( string $bridge_id, array $body, string $ai_header = '' ): void {
-		$provider = self::PROVIDER_ZALO_HUB === (string) ( $body['provider'] ?? '' ) ? self::PROVIDER_ZALO_HUB : self::PROVIDER_ZCA;
+		$raw_provider = (string) ( $body['provider'] ?? '' );
+		if ( self::PROVIDER_REMOTE_ZALO_HUB === self::normalize_provider( $raw_provider ) ) {
+			// 05-TIER-1-ENUM-SIZING.md F3: branch-3 traffic arrives from our own poller, never the Hub
+			// relay. A stray `remote_zalo_hub` value here is unexpected — refuse to record rather than
+			// misclassify it as `zca` (the old binary ternary below would have done exactly that).
+			return;
+		}
+		$provider = self::PROVIDER_ZALO_HUB === $raw_provider ? self::PROVIDER_ZALO_HUB : self::PROVIDER_ZCA;
 		self::record( $bridge_id, array( 'provider' => $provider, 'ai_enabled' => 'off' !== strtolower( trim( $ai_header ) ) ), 'inbound' );
 	}
 
@@ -165,7 +214,12 @@ final class BizCity_Zalo_Account_Flags {
 			}
 			$fields = array();
 			if ( isset( $account['provider'] ) ) {
-				$fields['provider'] = $account['provider'];
+				$incoming = self::normalize_provider( $account['provider'] );
+				// 05 F2/F3: the Hub has no visibility into branch-3 accounts, so it is never
+				// authoritative for that value — drop the field rather than let it overwrite one.
+				if ( self::PROVIDER_REMOTE_ZALO_HUB !== $incoming ) {
+					$fields['provider'] = $incoming;
+				}
 			}
 			if ( array_key_exists( 'ai_enabled', $account ) ) {
 				$fields['ai_enabled'] = (bool) $account['ai_enabled'];
@@ -188,16 +242,25 @@ final class BizCity_Zalo_Account_Flags {
 			}
 		}
 		foreach ( $off as $id => $item ) {
+			// 05 F2: a routine capability refresh must never touch a branch-3 account — the Hub does
+			// not track it, so anything the Hub says about this id cannot be about that account.
+			if ( self::PROVIDER_REMOTE_ZALO_HUB === self::provider( (string) $id ) ) {
+				continue;
+			}
 			$fields = array( 'ai_enabled' => false );
 			if ( isset( $item['provider'] ) ) {
-				$fields['provider'] = $item['provider'];
+				$incoming = self::normalize_provider( $item['provider'] );
+				if ( self::PROVIDER_REMOTE_ZALO_HUB !== $incoming ) {
+					$fields['provider'] = $incoming;
+				}
 			}
 			self::record( (string) $id, $fields, 'capability' );
 		}
 		foreach ( array_keys( self::all() ) as $id ) {
-			if ( ! isset( $off[ (string) $id ] ) ) {
-				self::record( (string) $id, array( 'ai_enabled' => true ), 'capability' );
+			if ( isset( $off[ (string) $id ] ) || self::PROVIDER_REMOTE_ZALO_HUB === self::provider( (string) $id ) ) {
+				continue;
 			}
+			self::record( (string) $id, array( 'ai_enabled' => true ), 'capability' );
 		}
 	}
 
@@ -209,16 +272,40 @@ final class BizCity_Zalo_Account_Flags {
 	 * default never blocks creating a number. Existing numbers keep the provider recorded at creation.
 	 */
 	public static function default_provider(): string {
-		return self::normalize_provider( get_option( self::DEFAULT_PROVIDER_OPTION, self::PROVIDER_ZALO_HUB ) );
+		$stored = self::normalize_provider( get_option( self::DEFAULT_PROVIDER_OPTION, self::PROVIDER_ZALO_HUB ) );
+		// This option only ever chooses between the two BizCity-operated connections (PHASE-0.80
+		// "two connections only"); branch-3 provisioning is a separate future flow
+		// (04-IMPLEMENTATION-FRAMEWORK-ROADMAP.md §0.1), so anything else falls back to the
+		// documented default rather than ever handing out branch 3 or an unknown value here.
+		return in_array( $stored, array( self::PROVIDER_ZCA, self::PROVIDER_ZALO_HUB ), true ) ? $stored : self::PROVIDER_ZALO_HUB;
 	}
 
-	/** Explicit request value wins; empty → the site default. Never anything but zca|zalo_hub. */
+	/** Explicit request value wins; empty → the site default. Never anything but zca|zalo_hub — this
+	 * path provisions a BizCity-operated number only; branch-3 accounts are created by the future
+	 * branch-3 adapter, not here. */
 	public static function requested_provider( $raw ): string {
 		$raw = is_string( $raw ) ? sanitize_key( $raw ) : '';
-		return '' === $raw ? self::default_provider() : self::normalize_provider( $raw );
+		if ( '' === $raw ) {
+			return self::default_provider();
+		}
+		// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-X0.3 — preserve the legacy zca fallback for explicit unknown create requests.
+		$normalized = self::normalize_provider( $raw );
+		return in_array( $normalized, array( self::PROVIDER_ZCA, self::PROVIDER_ZALO_HUB ), true ) ? $normalized : self::PROVIDER_ZCA;
 	}
 
+	/**
+	 * 05-TIER-1-ENUM-SIZING.md F1: explicit three-value allowlist with a fail-closed unknown case.
+	 * An empty value (never recorded) keeps the pre-existing legacy default of `zca` — that case is
+	 * "not yet set", not "corrupt". Anything else that isn't one of the three recognized providers
+	 * returns PROVIDER_UNKNOWN and must never silently become `zca` the way the old binary
+	 * normalizer did for every non-`zalo_hub` string.
+	 */
 	public static function normalize_provider( $value ): string {
-		return self::PROVIDER_ZALO_HUB === ( is_string( $value ) ? strtolower( trim( $value ) ) : '' ) ? self::PROVIDER_ZALO_HUB : self::PROVIDER_ZCA;
+		$value = is_string( $value ) ? strtolower( trim( $value ) ) : '';
+		if ( '' === $value ) {
+			return self::PROVIDER_ZCA;
+		}
+		$known = array( self::PROVIDER_ZCA, self::PROVIDER_ZALO_HUB, self::PROVIDER_REMOTE_ZALO_HUB );
+		return in_array( $value, $known, true ) ? $value : self::PROVIDER_UNKNOWN;
 	}
 }

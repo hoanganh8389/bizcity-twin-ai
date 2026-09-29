@@ -145,7 +145,8 @@ BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-p
 // Phase 0.7 / Wave D0 — Pro Learning Diagnostic (admin Tools page).
 // Loads in admin context only; safe at all times since the class self-registers
 // its admin_menu hook only when first accessed (singleton).
-if ( is_admin() ) {
+// [2026-09-28 Claude Opus 5.5] WP-13 DL-5 / R-DIAG-LOCAL — dev-only page, absent on servers: is_file() first.
+if ( is_admin() && is_file( BIZCITY_TWINCHAT_INCLUDES . 'diagnostics/class-pro-learning-diagnostic.php' ) ) {
 	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'diagnostics/class-pro-learning-diagnostic.php', 'twinchat.pro_learning_diagnostic' );
 }
 

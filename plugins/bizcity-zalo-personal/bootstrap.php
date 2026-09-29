@@ -23,6 +23,11 @@ defined( 'ABSPATH' ) || exit;
 
 if ( defined( 'BIZCITY_ZALO_PERSONAL_BOOTSTRAP_LOADED' ) ) {
 	return;
+	BizCity_Safe_Loader::require_file( BIZCITY_ZALO_PERSONAL_DIR . 'includes/remote/class-remote-zalo-normalizer.php', 'zalo_personal.remote.normalizer' );
+	BizCity_Safe_Loader::require_file( BIZCITY_ZALO_PERSONAL_DIR . 'includes/remote/class-remote-zalo-poller.php', 'zalo_personal.remote.poller' );
+	if ( defined( 'WP_CLI' ) && WP_CLI ) {
+		BizCity_Safe_Loader::require_file( BIZCITY_ZALO_PERSONAL_DIR . 'includes/remote/class-remote-zalo-cli.php', 'zalo_personal.remote.cli' );
+	}
 }
 define( 'BIZCITY_ZALO_PERSONAL_BOOTSTRAP_LOADED', true );
 
@@ -82,6 +87,12 @@ if ( ! $_bizcity_zp_ready ) {
 }
 unset( $_bizcity_zp_ready );
 
+// [2026-09-29 12:00 PM GitHub Copilot] PHASE-0.82-C0 — load the cheap feature gate and delegate all optional remote artifacts to its safe loader.
+if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+	BizCity_Safe_Loader::require_file( BIZCITY_ZALO_PERSONAL_DIR . 'includes/remote/class-remote-zalo-feature.php', 'zalo_personal.remote.feature' );
+	BizCity_Safe_Loader::require_file( BIZCITY_ZALO_PERSONAL_DIR . 'includes/remote/loader.php', 'zalo_personal.remote.loader' );
+}
+
 // [2026-09-19] PHASE-0.60 — register cron at file-load time (matches Broadcast Dispatcher's R-CR.1
 // convention); no-ops (unschedules) unless `bizcity_zp_reconcile_enabled` is turned on per site.
 BizCity_Zalo_Personal_Reconciler::init_cron();
@@ -136,6 +147,10 @@ add_filter( 'bizcity_cg_boot_data', static function ( array $boot ): array {
 	$boot['zaloBridge'] = array(
 		'ready'      => $bridge_ok,
 		'restPrefix' => 'zalo-bridge',
+	);
+	$boot['remoteZalo'] = array(
+		'available' => class_exists( 'BizCity_Remote_Zalo_Feature' ) && BizCity_Remote_Zalo_Feature::enabled(),
+		'actorId'  => (int) get_current_user_id(),
 	);
 	return $boot;
 } );

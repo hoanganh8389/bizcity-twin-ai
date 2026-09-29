@@ -21,6 +21,7 @@
  *
  * Commands (CLI / ?cmd= / method):
  *   • audit              — schema presence per blog (KG core, vector store, brain).
+ *   • schema             — report declared runtime tables vs physical tables; no writes.
  *   • repair             — force run BizCity_KG_Database::create_tables() on blog.
  *   • clean-cron         — unschedule stale cron hooks on blogs missing required schema.
  *   • bin-store          — stat .bin file count vs kg_passages row count.
@@ -208,6 +209,138 @@ final class BizCity_Diagnostics {
 			$rows[] = $this->audit_blog( (int) $bid );
 		}
 		return [ 'multisite' => true, 'count' => count( $rows ), 'blogs' => $rows ];
+	}
+
+	/**
+	 * Report declared runtime tables against the selected blog without repair.
+	 *
+	 * @param int  $blog_id Target blog, or current blog when zero.
+	 * @param bool $network  Whether to walk every site in the network.
+	 * @return array
+	 */
+	// [2026-09-29 GitHub Copilot] CORE-REDUCTION-L2 — compare schema declarations with physical tables and fail closed when the owner is unavailable.
+	public function schema_report( int $blog_id = 0, bool $network = false ): array {
+		if ( ! class_exists( 'BizCity_Diagnostics_Changelog_Loader', false ) ) {
+			return [
+				'ok'      => false,
+				'code'    => 'schema_owner_unavailable',
+				'message' => 'The runtime schema owner is unavailable.',
+				'hint'    => 'Load core/helper/schema before running the report.',
+				'blogs'   => [],
+			];
+		}
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy', false ) ) {
+			return [
+				'ok'      => false,
+				'code'    => 'legacy_policy_unavailable',
+				'message' => 'The legacy table policy is unavailable.',
+				'hint'    => 'Load the runtime legacy-table policy before auditing schema.',
+				'blogs'   => [],
+			];
+		}
+
+		$ids = [ $blog_id > 0 ? $blog_id : (int) get_current_blog_id() ];
+		if ( $network && is_multisite() ) {
+			$ids = array_map( 'intval', (array) get_sites( [ 'fields' => 'ids', 'number' => 0 ] ) );
+		}
+		$rows = [];
+		foreach ( $ids as $id ) {
+			$rows[] = $this->schema_report_blog( (int) $id );
+		}
+		$ok = true;
+		foreach ( $rows as $row ) {
+			if ( empty( $row['ok'] ) ) {
+				$ok = false;
+				break;
+			}
+		}
+		return [
+			'ok'        => $ok,
+			'command'   => 'schema',
+			'network'   => $network && is_multisite(),
+			'declared'  => count( BizCity_Diagnostics_Changelog_Loader::tables() ),
+			'blogs'     => $rows,
+		];
+	}
+
+	/**
+	 * @param int $blog_id
+	 * @return array
+	 */
+	private function schema_report_blog( int $blog_id ): array {
+		global $wpdb;
+		$switched = false;
+		if ( $blog_id > 0 && is_multisite() && get_current_blog_id() !== $blog_id ) {
+			switch_to_blog( $blog_id );
+			$switched = true;
+		}
+		$tables = BizCity_Diagnostics_Changelog_Loader::tables();
+		$all    = BizCity_Diagnostics_Changelog_Loader::all();
+		$present = [];
+		$missing = [];
+		$retired = [];
+		$unresolved = [];
+		foreach ( $tables as $suffix => $definition ) {
+			$scope = $this->schema_table_scope( $suffix, $all );
+			if ( in_array( $scope, [ 'site_option', 'network_option' ], true ) ) {
+				continue;
+			}
+			if ( ! in_array( $scope, [ 'prefix', 'base_prefix' ], true ) ) {
+				$unresolved[] = [ 'table' => $suffix, 'reason' => 'scope_unresolved' ];
+				continue;
+			}
+			$prefix = 'base_prefix' === $scope ? $wpdb->base_prefix : $wpdb->prefix;
+			$physical = $prefix . $suffix;
+			$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $physical ) );
+			$exists = $found === $physical;
+			if ( BizCity_Legacy_Table_Policy::is_legacy( $suffix ) ) {
+				$retired[] = [ 'table' => $suffix, 'physical' => $physical, 'present' => $exists ];
+			} elseif ( $exists ) {
+				$present[] = [ 'table' => $suffix, 'physical' => $physical, 'scope' => $scope ];
+			} else {
+				$missing[] = [ 'table' => $suffix, 'physical' => $physical, 'scope' => $scope ];
+			}
+		}
+		if ( $switched ) {
+			restore_current_blog();
+		}
+		return [
+			'ok'            => empty( $missing ) && empty( $unresolved ),
+			'blog_id'       => $blog_id,
+			'prefix'        => $wpdb->prefix,
+			'present'       => $present,
+			'missing'       => $missing,
+			'retired'       => $retired,
+			'scope_unresolved' => $unresolved,
+		];
+	}
+
+	/**
+	 * Resolve only an explicit storage declaration; never guess a shard scope.
+	 *
+	 * @param string $suffix
+	 * @param array  $modules
+	 * @return string
+	 */
+	private function schema_table_scope( string $suffix, array $modules ): string {
+		foreach ( $modules as $module ) {
+			foreach ( (array) ( $module['tables'] ?? [] ) as $name => $definition ) {
+				if ( (string) $name !== $suffix || ! is_array( $definition ) ) {
+					continue;
+				}
+				$value = strtolower( (string) ( $definition['scope'] ?? $definition['storage'] ?? '' ) );
+				if ( in_array( $value, [ 'prefix', 'tenant', 'tenant_prefix' ], true ) ) {
+					return 'prefix';
+				}
+				if ( in_array( $value, [ 'base_prefix', 'global', 'network', 'network_prefix' ], true ) ) {
+					return 'base_prefix';
+				}
+				if ( in_array( $value, [ 'site_option', 'network_option' ], true ) ) {
+					return $value;
+				}
+			}
+		}
+		return '';
 	}
 
 	/* ============================================================
@@ -996,9 +1129,13 @@ final class BizCity_Diagnostics {
 		$cmd     = $args[0] ?? 'audit';
 		$network = isset( $assoc_args['network'] );
 		$blog_id = isset( $assoc_args['blog'] ) ? (int) $assoc_args['blog'] : 0;
+		$format  = isset( $assoc_args['format'] ) && 'table' === strtolower( (string) $assoc_args['format'] ) ? 'table' : 'json';
 
 		// Special-case the brain-* / history-smoke commands that take their own args.
 		switch ( $cmd ) {
+			case 'schema':
+				$result = $this->schema_report( $blog_id, $network );
+				break;
 			case 'brain-smoke':
 				$prompt = isset( $assoc_args['prompt'] ) ? (string) $assoc_args['prompt'] : 'Có nên thuê thêm 5 nhân viên không?';
 				$result = $this->brain_smoke_turn( $prompt, $blog_id );
@@ -1040,11 +1177,22 @@ final class BizCity_Diagnostics {
 			default:
 				$result = $this->dispatch( $cmd, $network, $blog_id );
 		}
-		\WP_CLI::log( wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) );
+		if ( 'schema' === $cmd && 'table' === $format ) {
+			foreach ( (array) ( $result['blogs'] ?? [] ) as $row ) {
+				\WP_CLI::log( sprintf( 'blog=%d ok=%s present=%d missing=%d retired=%d unresolved=%d', (int) ( $row['blog_id'] ?? 0 ), ! empty( $row['ok'] ) ? 'yes' : 'no', count( (array) ( $row['present'] ?? [] ) ), count( (array) ( $row['missing'] ?? [] ) ), count( (array) ( $row['retired'] ?? [] ) ), count( (array) ( $row['scope_unresolved'] ?? [] ) ) ) );
+			}
+		} else {
+			\WP_CLI::log( wp_json_encode( $result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ) );
+		}
+		if ( 'schema' === $cmd && empty( $result['ok'] ) ) {
+			\WP_CLI::halt( 1 );
+		}
 	}
 
 	public function dispatch( string $cmd, bool $network = false, int $blog_id = 0 ): array {
 		switch ( $cmd ) {
+			case 'schema':
+				return $this->schema_report( $blog_id, $network );
 			case 'audit':
 				return $network ? $this->audit_network() : $this->audit_blog( $blog_id );
 			case 'repair':

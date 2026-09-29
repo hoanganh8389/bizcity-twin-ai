@@ -536,6 +536,11 @@ jobs:
       # no live require of the Diagnostics copies, no private identity in the public changelog.
       - name: Validate schema owner (public, always runs)
         run: node bin/validate-schema-owner.mjs
+      # [2026-09-28 WP-13 DL-4] R-DIAG-LOCAL: bin/dev-only-paths.txt entries are git-ignored and untracked, and
+      # production PHP never requires a dev-only path without an is_file() guard. The class check SKIPs here
+      # (core/diagnostics is not in the checkout); it runs on the dev machine.
+      - name: Validate dev-only boundary (public, always runs)
+        run: node bin/validate-dev-only-boundary.mjs
       - name: Setup PHP 7.4
         if: hashFiles('core/diagnostics/validate-schema-changelog.php') != ''
         uses: shivammathur/setup-php@v2

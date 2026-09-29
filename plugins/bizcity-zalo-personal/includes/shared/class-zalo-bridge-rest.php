@@ -409,7 +409,8 @@ class BizCity_Zalo_Bridge_REST {
 	}
 
 	/**
-	 * Receive a signed state transition from a VPS/Hub monitor and email operators.
+	 * Receive a signed state transition from a VPS/Hub monitor. Since WP-14 (2026-09-28) nothing is
+	 * delivered to operators: the Notification Center was retired; the route answers `notifications_retired`.
 	 *
 	 * @return WP_REST_Response
 	 */
@@ -417,7 +418,6 @@ class BizCity_Zalo_Bridge_REST {
 		// [2026-08-23 Johnny Chu] PHASE-0.39E — verify the existing inbound M2M credential before notification.
 		$body = $request->get_json_params();
 		$body = is_array( $body ) ? $body : array();
-		$instance = sanitize_text_field( (string) ( $body['bridge_instance_id'] ?? 'default' ) );
 		$account_id = (string) ( $body['account_id'] ?? '' );
 		$token = BizCity_Zalo_Bridge_Client::instance()->expected_inbound_token( $account_id );
 		$header = (string) $request->get_header( 'authorization' );
@@ -430,18 +430,17 @@ class BizCity_Zalo_Bridge_REST {
 		if ( ! in_array( $state, $allowed, true ) ) {
 			return new WP_REST_Response( array( 'success' => false, 'code' => 'invalid_param', 'message' => 'Trạng thái bridge không hợp lệ.', 'hint' => 'Gửi một state đã có trong contract diagnostics.', 'help_code' => 'invalid_param_generic' ), 400 );
 		}
-		if ( ! class_exists( 'BizCity_Notify_Dispatcher' ) ) {
-			return new WP_REST_Response( array( 'success' => false, 'code' => 'module_not_loaded', 'message' => 'Notification Center chưa sẵn sàng.', 'hint' => 'Nạp lại Channel Gateway rồi gửi lại alert.', 'help_code' => 'module_not_loaded' ), 503 );
-		}
-		BizCity_Notify_Dispatcher::on_bridge_state_changed( array(
-			'state'              => $state,
-			'bridge_instance_id' => $instance !== '' ? $instance : 'default',
-			'account_id_hash'    => substr( hash( 'sha256', $account_id ), 0, 12 ),
-			'reason'             => sanitize_key( (string) ( $body['reason'] ?? $state ) ),
-			'trace_id'           => sanitize_text_field( (string) ( $body['trace_id'] ?? '' ) ),
-			'dedupe_key'         => sanitize_key( (string) ( $body['dedupe_key'] ?? '' ) ),
-		) );
-		return new WP_REST_Response( array( 'success' => true, 'accepted' => true, 'state' => $state ), 200 );
+		// [2026-09-28 Claude Opus 5.5] WP-14 W5 — the Notification Center (CG dispatcher) was retired by the owner.
+		// Accept the alert (auth and state checks above still apply) and say it was not delivered, so the
+		// monitor does not treat a missing module as an outage and retry. Before WP-14 this answered 503.
+		return new WP_REST_Response( array(
+			'success'   => true,
+			'accepted'  => true,
+			'delivered' => false,
+			'code'      => 'notifications_retired',
+			'state'     => $state,
+			'message'   => 'Đã nhận alert; Thông báo đã ngừng nên không gửi cho quản trị viên.',
+		), 200 );
 	}
 
 	/**
@@ -1645,18 +1644,7 @@ class BizCity_Zalo_Bridge_REST {
 			'reason' => $normalized['reason_bucket'],
 			'upstream' => (string) ( $normalized['upstream_code'] ?? '' ),
 		) );
-		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1B-Q — do not open an outage incident for an account that already has an active session.
-		if ( class_exists( 'BizCity_Notify_Dispatcher' ) && (string) ( $normalized['operation_status'] ?? '' ) !== 'blocked' ) {
-			BizCity_Notify_Dispatcher::on_qr_operation_result( array(
-				'state' => ! empty( $normalized['ok'] ) ? 'qr_operation_success' : 'qr_operation_failed',
-				'account_id_hash' => $account_hash,
-				'operation_id' => $operation_id,
-				'request_id' => $request_id,
-				'stage' => $normalized['stage'],
-				'reason' => $normalized['reason_bucket'],
-				'status_code' => 200,
-			) );
-		}
+		// [2026-09-28 Claude Opus 5.5] WP-14 W5 — QR outcome notification removed with the Notification Center.
 		return new WP_REST_Response( $normalized, 200 );
 	}
 
@@ -1690,17 +1678,7 @@ class BizCity_Zalo_Bridge_REST {
 			'reason' => $normalized['reason_bucket'],
 			'upstream' => (string) ( $normalized['upstream_code'] ?? '' ),
 		) );
-		if ( class_exists( 'BizCity_Notify_Dispatcher' ) && (string) ( $normalized['operation_status'] ?? '' ) !== 'blocked' ) {
-			BizCity_Notify_Dispatcher::on_qr_operation_result( array(
-				'state' => ! empty( $normalized['ok'] ) ? 'qr_operation_success' : 'qr_operation_failed',
-				'account_id_hash' => $account_hash,
-				'operation_id' => $operation_id,
-				'request_id' => $request_id,
-				'stage' => $normalized['stage'],
-				'reason' => $normalized['reason_bucket'],
-				'status_code' => 200,
-			) );
-		}
+		// [2026-09-28 Claude Opus 5.5] WP-14 W5 — QR outcome notification removed with the Notification Center.
 		return new WP_REST_Response( $normalized, 200 );
 	}
 

@@ -112,6 +112,14 @@ class BizCity_CRM_Admin_Menu {
 		$url = BIZCITY_CRM_URL . '/assets/dist/';
 		$style_handle = 'bizcity-crm-inbox-app';
 		$script_handle = 'bizcity-crm-inbox-app';
+		// [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — reuse the compiled Channel Gateway utility/sheet CSS without compiling its source Tailwind config inside CRM.
+		$quicksetup_css = defined( 'BIZCITY_TWIN_AI_URL' ) ? BIZCITY_TWIN_AI_URL . 'core/channel-gateway/assets/dist/channel-gateway-app.css' : '';
+		$quicksetup_css_path = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR . 'core/channel-gateway/assets/dist/channel-gateway-app.css' : '';
+		$crm_style_deps = array();
+		if ( $quicksetup_css && is_readable( $quicksetup_css_path ) ) {
+			wp_enqueue_style( 'bizcity-channel-gateway-quicksetup', $quicksetup_css, array(), (string) filemtime( $quicksetup_css_path ) );
+			$crm_style_deps[] = 'bizcity-channel-gateway-quicksetup';
+		}
 
 		// [2026-08-04 Johnny Chu] PHASE-0.48-HOTFIX — built mode requires both assets; never silently load JS without CSS.
 		$has_built = is_dir( $dir )
@@ -124,7 +132,7 @@ class BizCity_CRM_Admin_Menu {
 				wp_enqueue_style(
 					$style_handle,
 					$url . 'inbox-app.css',
-					 array(),
+					$crm_style_deps,
 					self::asset_version( $css_path )
 				);
 			}
@@ -171,6 +179,10 @@ class BizCity_CRM_Admin_Menu {
 			'channelRestUrl'   => esc_url_raw( rest_url( 'bizcity-channel/v1/' ) ),
 			// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.41A — expose the canonical Channel Gateway admin target for CRM quick-config links.
 			'channelGatewayAdminUrl' => esc_url_raw( admin_url( 'admin.php?page=bizchat-gateway-spa' ) ),
+			// [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — setup UI reuses the Channel Gateway owners and gated capabilities.
+			'canManageSetup'  => class_exists( 'BizCity_Zalo_Bridge_REST' ) ? BizCity_Zalo_Bridge_REST::can_manage() : current_user_can( 'manage_options' ),
+			'gatewayAdminUrl' => esc_url_raw( admin_url( 'admin.php?page=bizcity-start' ) ),
+			'canManageGateway' => class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' ),
 			// [2026-06-14 Johnny Chu] PHASE-0.41 CRM-PATH-3 — expose automation engine base for care recipe calls
 			'automationRestUrl' => esc_url_raw( rest_url( 'bizcity-automation/v1/' ) ),
 			'bzdocRestUrl'     => esc_url_raw( rest_url( 'bzdoc/v1/' ) ),
@@ -277,6 +289,23 @@ class BizCity_CRM_Admin_Menu {
 	/* ------- pages ------- */
 
 	public function render_inbox_page(): void {
+		// [2026-09-28 Claude Opus 5.5] WP-14 B-1 — the Flow → Campaign auto-import used to run when the
+		// Channel Gateway SPA rendered; the Campaigns screen now lives only here, so the trigger moved with it.
+		// Version-gated in the importer: after the first run this is one get_option() per page load.
+		if ( class_exists( 'BizCity_CRM_Flow_Importer' ) ) {
+			$mig = BizCity_CRM_Flow_Importer::maybe_auto_import_all();
+			if ( ! empty( $mig['processed'] ) && ( $mig['created'] + $mig['updated'] ) > 0 ) {
+				echo '<div class="notice notice-success is-dismissible"><p>'
+					. '<b>Đã import</b> ' . (int) $mig['created'] . ' tạo mới · '
+					. (int) $mig['updated'] . ' cập nhật · ' . (int) $mig['failed'] . ' fail'
+					. ' (flow cũ) sang <code>wp_bizcity_crm_campaigns</code>.'
+					. '</p></div>';
+			} elseif ( ! empty( $mig['failed'] ) ) {
+				echo '<div class="notice notice-warning is-dismissible"><p>'
+					. '<b>Flow → Campaign import:</b> ' . (int) $mig['failed'] . ' fail. Reason: '
+					. esc_html( (string) ( $mig['reason'] ?? '' ) ) . '</p></div>';
+			}
+		}
 		echo '<div class="wrap">';
 		echo '<div id="bizcity-crm-inbox-root" style="min-height:600px;"></div>';
 		echo '</div>';
@@ -673,7 +702,10 @@ class BizCity_CRM_Admin_Menu {
 		echo '<p>' . esc_html__( 'Auto-reply per inbox, business hours và default notebook sẽ có ở M3.', 'bizcity-twin-crm' ) . '</p>';
 		$this->render_zalo_bot_notify_setting();
 		$this->render_training_seed_setting();
-		echo '<p><a class="button" href="' . esc_url( admin_url( 'tools.php?page=bizcity-crm-sprint-diag' ) ) . '">→ Sprint Diagnostic</a></p>';
+		// [2026-09-28 Claude Opus 5.5] WP-13 DL-5 / R-DIAG-LOCAL — the sprint diagnostic page is dev-only; link only when loaded.
+		if ( class_exists( 'BizCity_CRM_Sprint_Diagnostic', false ) ) {
+			echo '<p><a class="button" href="' . esc_url( admin_url( 'tools.php?page=bizcity-crm-sprint-diag' ) ) . '">→ Sprint Diagnostic</a></p>';
+		}
 		echo '</div>';
 	}
 

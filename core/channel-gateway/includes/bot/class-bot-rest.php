@@ -156,8 +156,12 @@ final class BizCity_Bot_REST {
 			// never had this split (no Hub in its reply path); say so instead of silently omitting `sync`.
 			$account_id = sanitize_text_field( (string) $req->get_param( 'account_id' ) );
 			if ( '' !== $account_id && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
-				$provider = BizCity_Zalo_Account_Flags::provider( $account_id );
-				if ( 'zalo_hub' === $provider && class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
+				$descriptor = class_exists( 'BizCity_Zalo_Transport_Capability' )
+					? BizCity_Zalo_Transport_Capability::for_account( $account_id )
+					: null;
+				if ( class_exists( 'BizCity_Zalo_Transport_Capability' )
+					&& BizCity_Zalo_Transport_Capability::supports( $descriptor, 'config_sync_check' )
+					&& class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
 					$ref  = (string) ( $profile['guru']['ref'] ?? ( 'guru:' . $character_id ) );
 					$sync = BizCity_Zalo_Personal_Hub_Client::instance()->guru_sync_check( $account_id, $ref, $data['guru_etag'] );
 					$data['sync'] = array(
@@ -168,7 +172,7 @@ final class BizCity_Bot_REST {
 						'checked_at'     => $sync['checked_at'] ?? null,
 						'code'           => (string) ( $sync['code'] ?? '' ),
 					);
-				} elseif ( '' !== $provider ) {
+				} elseif ( null !== $descriptor ) {
 					$data['sync'] = array( 'not_applicable' => true, 'checked' => false );
 				}
 			}

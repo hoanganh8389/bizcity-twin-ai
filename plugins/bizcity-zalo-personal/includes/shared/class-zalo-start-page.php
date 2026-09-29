@@ -35,9 +35,43 @@ class BizCity_Zalo_Start_Page {
 		add_action( 'admin_init', array( __CLASS__, 'maybe_redirect' ), 2 );
 		add_action( 'admin_menu', array( __CLASS__, 'menu' ), 5 );
 		add_action( 'wp_dashboard_setup', array( __CLASS__, 'dashboard_widget' ) );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_setup_assets' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'notice' ) );
 		add_action( 'wp_ajax_bizcity_start_done', array( __CLASS__, 'ajax_done' ) );
 		add_filter( 'bizcity_zalo_personal_account_created', array( __CLASS__, 'first_number_bot' ), 10, 4 );
+	}
+
+	/** [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — register the compiled shared four-step UI on WP Dashboard and Quicksetup. */
+	public static function register_setup_assets(): void {
+		$relative = 'core/channel-gateway/assets/dist/';
+		$plugin_dir = dirname( __DIR__, 4 );
+		$js_path = $plugin_dir . '/core/channel-gateway/assets/dist/quicksetup-app.js';
+		$css_path = $plugin_dir . '/core/channel-gateway/assets/dist/quicksetup-app.css';
+		$base_url = defined( 'BIZCITY_TWIN_AI_URL' ) ? trailingslashit( BIZCITY_TWIN_AI_URL ) . $relative : plugins_url( $relative, $plugin_dir . '/bizcity-twin-ai.php' );
+
+		if ( is_readable( $css_path ) ) {
+			wp_enqueue_style( 'bizcity-quicksetup-app', $base_url . 'quicksetup-app.css', array(), (string) filemtime( $css_path ) );
+		}
+		if ( is_readable( $js_path ) ) {
+			wp_enqueue_script( 'bizcity-quicksetup-app', $base_url . 'quicksetup-app.js', array(), (string) filemtime( $js_path ), true );
+			$can_manage_gateway = class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' );
+			$boot = array(
+				'restUrl' => '/wp-json/bizcity-channel/v1/',
+				'restNonce' => wp_create_nonce( 'wp_rest' ),
+				'adminUrl' => admin_url( 'admin.php?page=bizcity-start' ),
+				'siteUrl' => home_url( '/' ),
+				'caps' => array( 'manage' => $can_manage_gateway, 'send' => $can_manage_gateway ),
+			);
+			wp_add_inline_script( 'bizcity-quicksetup-app', 'window.BIZCITY_CG_BOOT = ' . wp_json_encode( $boot ) . ';', 'before' );
+		}
+	}
+
+	/** [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — limit the Quicksetup bundle to the Dashboard and this page. */
+	public static function enqueue_setup_assets( string $hook ): void {
+		if ( 'index.php' !== $hook && false === strpos( (string) $hook, self::SLUG ) ) {
+			return;
+		}
+		self::register_setup_assets();
 	}
 
 	public static function can(): bool {
@@ -71,24 +105,44 @@ class BizCity_Zalo_Start_Page {
 		exit;
 	}
 
-	/** Top-level "🚀 Bắt đầu" until the three steps are done once; afterwards it lives under Bảng tin. */
+	/** [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — keep Quicksetup reachable under Dashboard. */
 	public static function menu(): void {
 		$cap = class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::menu_cap() : 'manage_options';
-		if ( get_option( self::DONE_OPTION ) ) {
-			add_submenu_page( 'index.php', 'BizCity — Bắt đầu', 'BizCity — Bắt đầu', $cap, self::SLUG, array( __CLASS__, 'render' ) );
-		} else {
-			add_menu_page( 'BizCity — Bắt đầu', '🚀 Bắt đầu', $cap, self::SLUG, array( __CLASS__, 'render' ), 'dashicons-flag', 2 );
-		}
+		add_submenu_page( 'index.php', 'Quicksetup', 'Quicksetup', $cap, self::SLUG, array( __CLASS__, 'render' ) );
 	}
 
+	/** [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — register the immediate setup widget. */
 	public static function dashboard_widget(): void {
-		if ( ! self::can() ) {
-			return;
+		if ( self::can() ) {
+			wp_add_dashboard_widget( 'bizcity_start_widget', 'Quicksetup · Zalo', array( __CLASS__, 'render_dashboard_widget' ) );
 		}
-		wp_add_dashboard_widget( 'bizcity_start_widget', 'Zalo · BizCity', array( __CLASS__, 'render_widget' ) );
 	}
 
-	/** "Ẩn" on the notice: a site that does not use Zalo is not reminded again (the page stays reachable). */
+	/** [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — mount the canonical Quicksetup surface in the Dashboard widget. */
+	public static function render_dashboard_widget(): void {
+		self::mount_react( 'dashboard' );
+	}
+
+	/** [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — render the shared four-step React setup at bizcity-start. */
+	public static function render(): void {
+		if ( ! self::can() ) {
+			wp_die( esc_html__( 'Permission denied.', 'bizcity-twin-ai' ) );
+		}
+		echo '<div class="wrap"><h1>Quicksetup</h1><p style="max-width:720px">Thiết lập Zalo trong 4 bước. Mỗi bước tự kiểm tra; bước nào xanh là xong.</p>';
+		self::mount_react( 'start-page' );
+		echo '</div>';
+	}
+
+	public static function render_widget(): void {
+		self::render_dashboard_widget();
+	}
+
+	/** [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — mount the standalone React app on wp-admin surfaces. */
+	private static function mount_react( string $surface ): void {
+		echo '<div id="bizcity-channel-gateway-root" data-quicksetup-surface="' . esc_attr( $surface ) . '"></div>';
+	}
+
+	/** "Ẩn" on the notice: a site that does not use Zalo is not reminded again. */
 	public static function maybe_dismiss(): void {
 		if ( empty( $_GET['bizcity_start_dismiss'] ) || ! self::can() ) { // phpcs:ignore WordPress.Security.NonceVerification
 			return;
@@ -108,7 +162,8 @@ class BizCity_Zalo_Start_Page {
 		if ( $screen && ( strpos( (string) $screen->id, self::SLUG ) !== false || $screen->id === 'dashboard' ) ) {
 			return;
 		}
-		echo '<div class="notice notice-info"><p><strong>Zalo chưa sẵn sàng.</strong> Làm 3 bước (kết nối BizCity, quét QR, nhắn thử) để bot trả lời khách qua Zalo. <a class="button button-primary" style="margin-left:8px" href="' . esc_url( self::url() ) . '">Mở trang Bắt đầu</a> <a style="margin-left:8px" href="' . esc_url( wp_nonce_url( add_query_arg( 'bizcity_start_dismiss', '1' ), 'bizcity_start_dismiss' ) ) . '">Ẩn (website không dùng Zalo)</a></p></div>';
+		// [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — use the four-step Quicksetup wording in the persistent reminder.
+		echo '<div class="notice notice-info"><p><strong>Zalo chưa sẵn sàng.</strong> Hoàn tất 4 bước Quicksetup để kết nối tài khoản BizCity, máy chủ Zalo, số Zalo và Agent Guru. <a class="button button-primary" style="margin-left:8px" href="' . esc_url( self::url() ) . '">Mở Quicksetup</a> <a style="margin-left:8px" href="' . esc_url( wp_nonce_url( add_query_arg( 'bizcity_start_dismiss', '1' ), 'bizcity_start_dismiss' ) ) . '">Ẩn (website không dùng Zalo)</a></p></div>';
 	}
 
 	/* ================================================================
@@ -219,26 +274,13 @@ class BizCity_Zalo_Start_Page {
 			'connectUrl' => class_exists( 'BizCity_LLM_Connect_Flow' ) ? BizCity_LLM_Connect_Flow::start_url() : '',
 			'notice'     => ( $mode === 'page' && class_exists( 'BizCity_LLM_Connect_Flow' ) ) ? BizCity_LLM_Connect_Flow::pop_notice() : null,
 			'qrUrl'      => admin_url( 'admin.php?page=bizchat-gateway-spa#/p/zalo_personal' ),
-			'testUrl'    => admin_url( 'admin.php?page=bizchat-gateway-spa#/p/zalo_personal/test' ),
+			'testUrl'    => admin_url( 'admin.php?page=bizchat-gateway-spa#/gateway/connections/test' ),
 			// [2026-09-27] OB-6 — inline "add number + QR" in step ② and the 24 h band after the first number went live.
 			'guruUrl'    => admin_url( 'admin.php?page=bizchat-gateway-spa#/gateway/agents' ),
 			'firstBot'   => self::first_bot_banner(),
 			'crmUrl'     => home_url( '/crm/?tab=inbox' ),
 			'site'       => (string) wp_parse_url( home_url(), PHP_URL_HOST ),
 		);
-	}
-
-	public static function render(): void {
-		if ( ! self::can() ) {
-			wp_die( esc_html__( 'Permission denied.', 'bizcity-twin-ai' ) );
-		}
-		echo '<div class="wrap"><h1>Bắt đầu với BizCity</h1><p style="max-width:720px">Ba bước để khách nhắn Zalo là bot trả lời và tin nhắn về hộp thư CRM. Mỗi bước tự kiểm tra; bước nào xanh là xong.</p>';
-		self::mount( 'page' );
-		echo '</div>';
-	}
-
-	public static function render_widget(): void {
-		self::mount( 'widget' );
 	}
 
 	private static function mount( string $mode ): void {
