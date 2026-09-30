@@ -81,13 +81,15 @@ class BizCity_Twin_Shell_REST {
 			}
 			$plugins[] = $p;
 		}
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-1/D-84-2 — same order and default as the /twin/ page.
+		$plugins = BizCity_Twin_Shell_Registry::sort_for_activity_bar( $plugins );
 
 		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — stable response shape
 		// to keep FE parser resilient in fail-open mode.
 		return new WP_REST_Response( array(
 			'success' => true,
 			'plugins' => $plugins,
-			'default' => $registry->default_id(),
+			'default' => $registry->default_id( $plugins ),
 		), 200 );
 	}
 

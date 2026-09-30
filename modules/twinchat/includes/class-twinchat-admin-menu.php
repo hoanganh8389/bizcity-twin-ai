@@ -367,7 +367,12 @@ class BizCity_TwinChat_Admin_Menu {
 			'ssoGoogleUrl'  => esc_url_raw( site_url( '?auth=sso' ) ),
 			'ssoBizcityUrl' => '',
 			// [2026-06-07 Johnny Chu] PHASE-D — My Astro link vào bizcoach-pro /astro/ page.
-			'myAstroUrl'    => esc_url_raw( home_url( '/astro/' ) ),
+			// [2026-09-30 12:23 AM Johnny Chu - Chu Hoàng Anh] R-BA-10 — was
+			// unconditional home_url(); now '' unless bizcoach-pro is actually
+			// registered, so FE hides every "My Astro" entry point when absent.
+			'myAstroUrl'    => class_exists( 'BizCity_TwinChat_Public_Page' )
+				? BizCity_TwinChat_Public_Page::resolve_my_astro_url()
+				: '',
 			// [2026-06-07 Johnny Chu] PHASE-D R-BIZ-MODEL — Local membership plan (không phụ thuộc hub).
 			// PlanBadge.tsx đọc userPlan thay vì gọi entitlement API hub.
 			'userPlan'      => self::resolve_user_plan( $user_id ),

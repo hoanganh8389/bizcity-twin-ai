@@ -334,5 +334,33 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// reachable via direct /learning-hub/ URL when needed).
 	];
 
+	// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-12 — module-access@1.0.0: who may use each icon is
+	// answered by BizCity_Twin_Module_Access (meta cap bizcity_use_<id>). Grantable entries keep today's
+	// audience through a one-time seed from the capability each entry declared above.
+	$access = [
+		'gateway'        => [ 'mode' => 'admin_only', 'owner' => 'core/channel-gateway' ],
+		'crm'            => [ 'mode' => 'delegated', 'owner' => 'plugins/bizcity-twin-crm', 'manage' => [ 'plugin' => 'crm', 'r' => '/staff' ] ],
+		'twinchat'       => [ 'mode' => 'grantable', 'owner' => 'modules/twinchat' ],
+		'workflow'       => [ 'mode' => 'grantable', 'owner' => 'core/automation' ],
+		'scheduler'      => [ 'mode' => 'grantable', 'owner' => 'core/scheduler' ],
+		'settings'       => [ 'mode' => 'admin_only', 'owner' => 'modules/twinshell' ],
+		'marketplace'    => [ 'mode' => 'grantable', 'owner' => 'marketplace' ],
+		'web'            => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-pagebuilder' ],
+		'personal'       => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-personal' ],
+		'profile-public' => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-personal' ],
+		'qr'             => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-tool-image' ],
+		'creator'        => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-content-creator' ],
+		'astro'          => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcoach-pro' ],
+		'doc'            => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-doc' ],
+		'image'          => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-tool-image' ],
+		'video'          => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-video-kling' ],
+		'profile'        => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-tool-image' ],
+	];
+	foreach ( $defaults as $i => $entry ) {
+		if ( isset( $access[ $entry['id'] ] ) ) {
+			$defaults[ $i ]['access'] = $access[ $entry['id'] ];
+		}
+	}
+
 	return array_merge( $defaults, $plugins );
 }, 5 );

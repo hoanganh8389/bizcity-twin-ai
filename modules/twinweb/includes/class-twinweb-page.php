@@ -76,7 +76,6 @@ class BizCity_TwinWeb_Page {
 			'mycontent'   => array( 'slug' => 'mycontent',   'path' => '/gpt/mycontent/',   'query_var' => self::QUERY_VAR, 'query' => 'mycontent' ),
 			'myplan'      => array( 'slug' => 'myplan',      'path' => '/gpt/myplan/',      'query_var' => self::QUERY_VAR, 'query' => 'myplan' ),
 			'mymcp'       => array( 'slug' => 'mymcp',       'path' => '/gpt/mymcp/',       'query_var' => self::QUERY_VAR, 'query' => 'mymcp' ),
-			'twinchat'    => array( 'slug' => 'twinchat',    'path' => '/gpt/twinchat/',    'query_var' => self::QUERY_VAR, 'query' => 'twinchat' ),
 			'astro'       => array( 'slug' => 'astro',       'path' => '/gpt/astro/',       'query_var' => self::QUERY_VAR, 'query' => 'astro' ),
 			'creator'     => array( 'slug' => 'creator',     'path' => '/gpt/creator/',     'query_var' => self::QUERY_VAR, 'query' => 'creator' ),
 			'doc'         => array( 'slug' => 'doc',         'path' => '/gpt/doc/',         'query_var' => self::QUERY_VAR, 'query' => 'doc' ),
@@ -126,6 +125,11 @@ class BizCity_TwinWeb_Page {
 	 * [2026-06-18 Johnny Chu] PHASE-TWINWEB — detect by post_content, not QUERY_VAR.
 	 */
 	public function maybe_render() {
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — Twin Chat left Twin GPT; old /gpt/twinchat/ links land on /gpt/.
+		if ( self::is_retired_twinchat_request() ) {
+			wp_safe_redirect( home_url( '/gpt/' ), 301 );
+			exit;
+		}
 		// [2026-09-07 03:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — accept any route from the public contract before singular-page detection.
 		if ( self::is_public_rewrite_request() ) {
 			add_filter( 'show_admin_bar', '__return_false' );
@@ -247,6 +251,13 @@ class BizCity_TwinWeb_Page {
 		$query_skin = isset( $_GET['skin'] )
 			? self::normalize_skin( sanitize_text_field( wp_unslash( (string) $_GET['skin'] ) ) )
 			: '';
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-03 — shown inside /twin/ (ActivityBar `gpt`): compact
+		// chrome + shell bridge. `surface` stays 'full'; the surface class is decided on the server (R-TWEB §3).
+		$shell_bridge = ( class_exists( 'BizCity_Twin_Shell_Bridge' ) && method_exists( 'BizCity_Twin_Shell_Bridge', 'inline_tags_for' ) )
+			? BizCity_Twin_Shell_Bridge::instance()
+			: null;
+		$embedded     = $shell_bridge ? $shell_bridge->is_embedded_request() : false;
+		$bridge_tags  = ( $shell_bridge && $embedded ) ? $shell_bridge->inline_tags_for( 'gpt' ) : '';
 		// [2026-07-29 Johnny Chu] HOTFIX — JSON-encode runtime config so quoted site metadata cannot create invalid inline JavaScript.
 		$twinweb_config_json = wp_json_encode(
 			array(
@@ -264,6 +275,10 @@ class BizCity_TwinWeb_Page {
 				'displayName'  => $display,
 				'avatarUrl'    => $avatar,
 				'surface'      => 'full',
+				'embedded'     => $embedded,
+				'shellSettingsUrl' => class_exists( 'BizCity_Twin_Shell_Page' )
+					? (string) BizCity_Twin_Shell_Page::shell_url( array( 'plugin' => 'settings' ) )
+					: (string) home_url( '/twin/?plugin=settings' ),
 				'skin'         => $query_skin,
 				'mountId'      => 'bizcity-twinweb-root',
 			),
@@ -299,6 +314,7 @@ class BizCity_TwinWeb_Page {
 window.twinwebConfig =
 {$twinweb_config_json};
 </script>
+{$bridge_tags}
 </head>
 <body>
 <div id="bizcity-twinweb-root" class="bizcity-twin-embed bizcity-twin-embed-full" data-tw-surface="full" data-tw-skin="{$query_skin}"></div>
@@ -739,6 +755,24 @@ window.twinwebMounts[' . $root_id_json . '] = Object.assign({}, window.twinwebCo
 			return true;
 		}
 		return (bool) preg_match( '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $tail );
+	}
+
+	/**
+	 * Detect /gpt/twinchat (any trailing slash or query) after Twin Chat was removed from Twin GPT.
+	 *
+	 * @return bool
+	 */
+	private static function is_retired_twinchat_request() {
+		$uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+		if ( $uri === '' ) {
+			return false;
+		}
+		$request_path = (string) parse_url( $uri, PHP_URL_PATH );
+		$retired_path = (string) parse_url( home_url( '/gpt/twinchat/' ), PHP_URL_PATH );
+		if ( $request_path === '' || $retired_path === '' ) {
+			return false;
+		}
+		return self::normalize_path( $request_path ) === self::normalize_path( $retired_path );
 	}
 
 	/**

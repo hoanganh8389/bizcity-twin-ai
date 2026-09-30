@@ -819,7 +819,9 @@ class BizCity_TwinChat_Stream_Handler {
 		// would never match the numeric id loaded after F5 → BE dedup query
 		// fails and the user can re-pin the same message.
 		if ( $assistant_id > 0 ) {
-			$sse->emit( 'assistant_persisted', [ 'message_id' => (int) $assistant_id ] );
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 X-1 — was `$sse->emit()` with `$sse` undefined in this path: the Error
+			// was caught by handle(), so KG xref, auto-promote, Cost Guard, Memory_Writer and `complete` were all skipped.
+			$this->emit( 'assistant_persisted', [ 'message_id' => (int) $assistant_id ] );
 		}
 		// KG sources that were retrieved/cited. Non-blocking; failures are logged.
 		try {

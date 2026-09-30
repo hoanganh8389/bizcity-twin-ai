@@ -435,6 +435,32 @@ class BizCity_TwinWeb_REST {
 				'permission_callback' => '__return_true',
 			),
 		) );
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-08 D-84-5 — member Agent Guru projection: site default + the Gurus this user owns (user_id rule, R-LM-1).
+		register_rest_route( $ns, '/me/agent-gurus', array(
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_me_agent_gurus' ),
+				'permission_callback' => '__return_true',
+			),
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'create_me_agent_guru' ),
+				'permission_callback' => '__return_true',
+			),
+		) );
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-09 D-84-14 — "Nhờ quản trị viên" goes only to the admin's bound Zalo Bot (R-LM-8).
+		register_rest_route( $ns, '/me/ask-admin', array(
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_me_ask_admin' ),
+				'permission_callback' => '__return_true',
+			),
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'post_me_ask_admin' ),
+				'permission_callback' => '__return_true',
+			),
+		) );
 		register_rest_route( $ns, '/mychannels/zalo-personal/conversations', array(
 			'methods'             => 'GET',
 			'callback'            => array( $this, 'get_mychannels_zalo_personal_conversations' ),
@@ -4467,6 +4493,9 @@ class BizCity_TwinWeb_REST {
 			'enabled'        => in_array( $mode, array( 'auto', 'hybrid' ), true ),
 			'mode'           => $mode,
 			'character_name' => $character_name,
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-08 — step ④ reads which Agent Guru answers this number.
+			'character_id'    => is_array( $binding ) ? (int) ( $binding['character_id'] ?? 0 ) : 0,
+			'agent_guru_name' => $character_name,
 			'office_hours'   => array(
 				'enabled' => ! empty( $policy['enabled'] ) && ! empty( $policy['days']['mon'] ),
 				'start'   => (string) ( $first['start'] ?? '08:00' ),
@@ -4501,12 +4530,18 @@ class BizCity_TwinWeb_REST {
 		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Channel_Binding' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Channel Gateway chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
 		$bridge_id = (string) ( $account['bridge_account_id'] ?? '' );
 		$binding   = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $bridge_id );
-		if ( ! is_array( $binding ) || (int) ( $binding['character_id'] ?? 0 ) <= 0 ) {
-			return $this->mychannels_error( 'bot_not_configured', 'Số Zalo này chưa được gắn trợ lý.', 'Nhờ quản trị viên gắn trợ lý trong Channel Gateway → Zalo Cá nhân; sau đó bạn bật/tắt ở đây.', 'bot_binding_missing' );
-		}
 		$body = $request->get_json_params();
 		$body = is_array( $body ) ? $body : array();
-		$policy = class_exists( 'BizCity_Bot_Turn_Claim' ) ? BizCity_Bot_Turn_Claim::decode_office_hours( $binding['office_hours_json'] ?? '' ) : array();
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-08 D-84-5 — the member may pick the site default or their OWN active Agent Guru; the id is only a selector.
+		$requested_character = isset( $body['character_id'] ) ? absint( $body['character_id'] ) : 0;
+		if ( isset( $body['character_id'] ) && ! $this->agent_guru_selectable( $requested_character, (int) $identity['user_id'] ) ) {
+			return $this->agent_guru_error( 'agent_guru_not_yours', 'Bạn chỉ chọn được Agent Guru mặc định hoặc Agent Guru của chính bạn.', 'Chọn lại trong danh sách "Chọn Agent Guru", hoặc tạo Agent Guru của bạn.', 403 );
+		}
+		if ( $requested_character <= 0 && ( ! is_array( $binding ) || (int) ( $binding['character_id'] ?? 0 ) <= 0 ) ) {
+			return $this->mychannels_error( 'bot_not_configured', 'Số Zalo này chưa được gắn trợ lý.', 'Nhờ quản trị viên gắn trợ lý trong Channel Gateway → Zalo Cá nhân; sau đó bạn bật/tắt ở đây.', 'bot_binding_missing' );
+		}
+		$exact_binding = is_array( $binding ) && (string) ( $binding['account_id'] ?? '' ) === $bridge_id;
+		$policy = class_exists( 'BizCity_Bot_Turn_Claim' ) ? BizCity_Bot_Turn_Claim::decode_office_hours( is_array( $binding ) ? ( $binding['office_hours_json'] ?? '' ) : '' ) : array();
 		if ( isset( $body['office_hours'] ) && is_array( $body['office_hours'] ) ) {
 			$oh    = $body['office_hours'];
 			$start = (string) ( $oh['start'] ?? '08:00' );
@@ -4525,23 +4560,289 @@ class BizCity_TwinWeb_REST {
 		if ( isset( $body['pause_on_manual_reply'] ) ) {
 			$policy['pause_on_manual_reply'] = ! empty( $body['pause_on_manual_reply'] );
 		}
-		$mode = (string) ( $binding['mode'] ?? 'manual' );
+		$mode = is_array( $binding ) ? (string) ( $binding['mode'] ?? 'manual' ) : 'auto';
 		if ( isset( $body['enabled'] ) ) {
 			$mode = ! empty( $body['enabled'] ) ? ( 'hybrid' === $mode ? 'hybrid' : 'auto' ) : 'manual';
 		}
-		$id = BizCity_Channel_Binding::upsert( array(
+		$upsert = array(
 			'platform'     => 'ZALO_PERSONAL',
 			'account_id'   => $bridge_id,
-			'character_id' => (int) $binding['character_id'],
+			'character_id' => $requested_character > 0 ? $requested_character : (int) $binding['character_id'],
 			'mode'         => $mode,
 			'auto_reply'   => in_array( $mode, array( 'auto', 'hybrid' ), true ) ? 1 : 0,
 			'office_hours' => $policy,
-		) );
+		);
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-08 — upsert() rewrites meta/pool/fallback when omitted; carry the exact row's values over.
+		if ( $exact_binding ) {
+			$meta = json_decode( (string) ( $binding['meta_json'] ?? '' ), true );
+			if ( is_array( $meta ) ) {
+				$upsert['meta'] = $meta;
+			}
+			$pool = json_decode( (string) ( $binding['responder_pool_json'] ?? '' ), true );
+			if ( is_array( $pool ) && $pool ) {
+				$upsert['responder_pool'] = $pool;
+			}
+			if ( isset( $binding['fallback_assignee'] ) && '' !== (string) $binding['fallback_assignee'] ) {
+				$upsert['fallback_assignee'] = (int) $binding['fallback_assignee'];
+			}
+		}
+		$id = BizCity_Channel_Binding::upsert( $upsert );
 		if ( $id <= 0 ) {
 			return $this->mychannels_error( 'write_failed', 'Không lưu được cấu hình trợ lý.', 'Thử lại; nếu vẫn lỗi hãy liên hệ quản trị viên.', 'bot_binding_write_failed' );
 		}
 		$binding = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $bridge_id );
 		return rest_ensure_response( array( 'success' => true, 'bot' => $this->mychannels_zalo_personal_bot_shape( $account, $binding ) ) );
+	}
+
+	/* ── [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-08 D-84-5 — member Agent Guru projection ──────────── */
+
+	const AGENT_GURU_PERSONAL_LIMIT = 20;
+	const AGENT_GURU_GLOBAL_SLUG    = '__global_memory__';
+	const ASK_ADMIN_TTL             = 600;
+
+	/** R-ERROR-UX envelope for the /me/* routes: Vietnamese message + hint, real HTTP status. */
+	private function agent_guru_error( $code, $message, $hint, $status ) {
+		return new WP_Error( (string) $code, (string) $message, array( 'status' => (int) $status, 'hint' => (string) $hint ) );
+	}
+
+	private function agent_guru_default_id(): int {
+		if ( ! class_exists( 'BizCity_Guru_Context_Resolver' ) || ! method_exists( 'BizCity_Guru_Context_Resolver', 'default_character_id' ) ) {
+			return 0;
+		}
+		return (int) BizCity_Guru_Context_Resolver::default_character_id( false );
+	}
+
+	/** Column whitelist (R-GP-3): id, name, a short description, two flags. Never the instruction, notebooks or other columns. */
+	private function agent_guru_item( $character, int $default_id, int $user_id ): array {
+		$id          = (int) ( $character->id ?? 0 );
+		$description = trim( preg_replace( '/\s+/u', ' ', wp_strip_all_tags( (string) ( $character->description ?? '' ) ) ) );
+		if ( function_exists( 'mb_strlen' ) && mb_strlen( $description ) > 140 ) {
+			$description = rtrim( mb_substr( $description, 0, 139 ) ) . '…';
+		} elseif ( ! function_exists( 'mb_strlen' ) && strlen( $description ) > 140 ) {
+			$description = rtrim( substr( $description, 0, 139 ) ) . '…';
+		}
+		return array(
+			'id'         => $id,
+			'name'       => sanitize_text_field( (string) ( $character->name ?? '' ) ),
+			'summary'    => $description,
+			'is_default' => $default_id > 0 && $id === $default_id,
+			'is_mine'    => $user_id > 0 && (int) ( $character->author_id ?? 0 ) === $user_id,
+		);
+	}
+
+	/** Server-side ownership check: the site default, or an active Guru authored by this user. */
+	private function agent_guru_selectable( int $character_id, int $user_id ): bool {
+		if ( $character_id <= 0 || $user_id <= 0 || ! class_exists( 'BizCity_Knowledge_Database' ) ) {
+			return false;
+		}
+		$default_id = $this->agent_guru_default_id();
+		if ( $default_id > 0 && $character_id === $default_id ) {
+			return true;
+		}
+		$character = BizCity_Knowledge_Database::instance()->get_character( $character_id );
+		return $character
+			&& (int) ( $character->author_id ?? 0 ) === $user_id
+			&& 'active' === (string) ( $character->status ?? '' )
+			&& self::AGENT_GURU_GLOBAL_SLUG !== (string) ( $character->slug ?? '' );
+	}
+
+	/** @return object[] Gurus authored by the user (any status when $status is ''), global memory excluded. */
+	private function agent_guru_owned( int $user_id, string $status ): array {
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_Knowledge_Database' ) ) {
+			return array();
+		}
+		$rows = BizCity_Knowledge_Database::instance()->get_characters( array(
+			'author_id' => $user_id,
+			'status'    => $status,
+			'orderby'   => 'created_at',
+			'order'     => 'DESC',
+			'limit'     => 100,
+		) );
+		$out = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			if ( is_object( $row ) && self::AGENT_GURU_GLOBAL_SLUG !== (string) ( $row->slug ?? '' ) ) {
+				$out[] = $row;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * GET /me/agent-gurus → { success, items:[{ id, name, summary, is_default, is_mine }] }
+	 * Site default Agent Guru first, then the active Gurus the current user owns.
+	 */
+	public function get_me_agent_gurus( WP_REST_Request $request ) {
+		unset( $request );
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->agent_guru_error( 'auth_required', 'Bạn cần đăng nhập để xem Agent Guru.', 'Đăng nhập vào Twin GPT rồi thử lại.', 401 );
+		}
+		if ( ! class_exists( 'BizCity_Knowledge_Database' ) ) {
+			return $this->agent_guru_error( 'module_not_loaded', 'Agent Guru chưa sẵn sàng trên website này.', 'Tải lại trang; nếu vẫn lỗi hãy báo quản trị viên website.', 503 );
+		}
+		$user_id    = (int) $identity['user_id'];
+		$default_id = $this->agent_guru_default_id();
+		$items      = array();
+		if ( $default_id > 0 ) {
+			$default = BizCity_Knowledge_Database::instance()->get_character( $default_id );
+			if ( $default ) {
+				$items[] = $this->agent_guru_item( $default, $default_id, $user_id );
+			}
+		}
+		foreach ( $this->agent_guru_owned( $user_id, 'active' ) as $row ) {
+			if ( (int) $row->id === $default_id ) {
+				continue;
+			}
+			$items[] = $this->agent_guru_item( $row, $default_id, $user_id );
+		}
+		return rest_ensure_response( array( 'success' => true, 'items' => $items ) );
+	}
+
+	/**
+	 * POST /me/agent-gurus { name, role? } → { success, item }
+	 * Quick-create a personal Agent Guru: author = current user, active (a draft cannot be bound — R-GCB-7), private.
+	 */
+	public function create_me_agent_guru( WP_REST_Request $request ) {
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->agent_guru_error( 'auth_required', 'Bạn cần đăng nhập để tạo Agent Guru.', 'Đăng nhập vào Twin GPT rồi thử lại.', 401 );
+		}
+		if ( ! class_exists( 'BizCity_Knowledge_Database' ) ) {
+			return $this->agent_guru_error( 'module_not_loaded', 'Agent Guru chưa sẵn sàng trên website này.', 'Tải lại trang; nếu vẫn lỗi hãy báo quản trị viên website.', 503 );
+		}
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : array();
+		$name = trim( sanitize_text_field( (string) ( $body['name'] ?? '' ) ) );
+		$role = trim( sanitize_textarea_field( (string) ( $body['role'] ?? '' ) ) );
+		$len  = function_exists( 'mb_strlen' ) ? 'mb_strlen' : 'strlen';
+		if ( '' === $name ) {
+			return $this->agent_guru_error( 'invalid_param', 'Tên Agent Guru không được để trống.', 'Nhập một tên ngắn, ví dụ "Trợ lý bán hàng của Hà".', 422 );
+		}
+		if ( $len( $name ) > 80 ) {
+			return $this->agent_guru_error( 'invalid_param', 'Tên Agent Guru dài quá 80 ký tự.', 'Rút gọn tên rồi lưu lại.', 422 );
+		}
+		if ( $len( $role ) > 1000 ) {
+			return $this->agent_guru_error( 'invalid_param', 'Mô tả vai trò dài quá 1000 ký tự.', 'Viết ngắn gọn vai trò trong vài câu rồi lưu lại.', 422 );
+		}
+		$user_id = (int) $identity['user_id'];
+		if ( count( $this->agent_guru_owned( $user_id, '' ) ) >= self::AGENT_GURU_PERSONAL_LIMIT ) {
+			return $this->agent_guru_error( 'agent_guru_limit', sprintf( 'Bạn đã có %d Agent Guru — mức tối đa cho mỗi người.', self::AGENT_GURU_PERSONAL_LIMIT ), 'Chọn một Agent Guru có sẵn, hoặc nhờ quản trị viên xoá bớt Agent Guru không dùng.', 409 );
+		}
+		$data = array(
+			'name'       => $name,
+			'slug'       => 'agent-guru-' . $user_id . '-' . strtolower( wp_generate_password( 8, false, false ) ),
+			'status'     => 'active',
+			'author_id'  => $user_id,
+			'visibility' => 'private',
+		);
+		if ( '' !== $role ) {
+			$data['system_prompt'] = $role;
+		}
+		$db     = BizCity_Knowledge_Database::instance();
+		$result = $db->create_character( $data );
+		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
+			return $this->agent_guru_error( 'agent_guru_create_failed', 'Chưa tạo được Agent Guru.', 'Thử lại sau ít phút; nếu vẫn lỗi hãy báo quản trị viên website.', 500 );
+		}
+		$character = $db->get_character( (int) $result );
+		if ( ! $character ) {
+			return $this->agent_guru_error( 'agent_guru_create_failed', 'Chưa tạo được Agent Guru.', 'Tải lại danh sách rồi thử lại.', 500 );
+		}
+		return new WP_REST_Response( array(
+			'success' => true,
+			'item'    => $this->agent_guru_item( $character, $this->agent_guru_default_id(), $user_id ),
+		), 201 );
+	}
+
+	/* ── [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-09 D-84-14 — "Nhờ quản trị viên" (R-LM-8: admin's bound Zalo Bot only) ── */
+
+	/** First site administrator with a linked Zalo Bot, as a server-side chat target. Never returned to the browser (R-LM-8.5). */
+	private function ask_admin_target( int $requester_id ): string {
+		if ( ! class_exists( 'BizCity_Channel_User_Linker' ) || ! method_exists( 'BizCity_Channel_User_Linker', 'zalo_bot_target_for_user' ) ) {
+			return '';
+		}
+		$admin_ids = get_users( array(
+			'role'    => 'administrator',
+			'fields'  => 'ID',
+			'number'  => 20,
+			'orderby' => 'ID',
+			'order'   => 'ASC',
+		) );
+		$admin_ids = array_map( 'intval', is_array( $admin_ids ) ? $admin_ids : array() );
+		$owner     = get_user_by( 'email', (string) get_option( 'admin_email', '' ) );
+		if ( $owner && in_array( (int) $owner->ID, $admin_ids, true ) ) {
+			$admin_ids = array_values( array_unique( array_merge( array( (int) $owner->ID ), $admin_ids ) ) );
+		}
+		foreach ( $admin_ids as $admin_id ) {
+			if ( $admin_id <= 0 || $admin_id === $requester_id ) {
+				continue;
+			}
+			$target = BizCity_Channel_User_Linker::zalo_bot_target_for_user( $admin_id );
+			if ( ! empty( $target['chat_id'] ) ) {
+				return (string) $target['chat_id'];
+			}
+		}
+		return '';
+	}
+
+	/** GET /me/ask-admin → { success, available } — whether a request can reach an administrator at all. */
+	public function get_me_ask_admin( WP_REST_Request $request ) {
+		unset( $request );
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->agent_guru_error( 'auth_required', 'Bạn cần đăng nhập.', 'Đăng nhập vào Twin GPT rồi thử lại.', 401 );
+		}
+		$available = class_exists( 'BizCity_Gateway_Sender' ) && '' !== $this->ask_admin_target( (int) $identity['user_id'] );
+		return rest_ensure_response( array( 'success' => true, 'available' => $available ) );
+	}
+
+	/**
+	 * POST /me/ask-admin { topic: bizcity_key|zalo_server|module_access, module_id? } → { success, sent, reason? }
+	 * One internal message to the admin's bound Zalo Bot; 1 per user per topic per 10 minutes.
+	 */
+	public function post_me_ask_admin( WP_REST_Request $request ) {
+		$identity = $this->mychannels_identity();
+		if ( is_wp_error( $identity ) ) {
+			return $this->agent_guru_error( 'auth_required', 'Bạn cần đăng nhập.', 'Đăng nhập vào Twin GPT rồi thử lại.', 401 );
+		}
+		$body   = $request->get_json_params();
+		$body   = is_array( $body ) ? $body : array();
+		$topic  = sanitize_key( (string) ( $body['topic'] ?? '' ) );
+		$topics = array(
+			'bizcity_key'   => 'kết nối tài khoản BizCity cho website (bước 1 của "Bắt đầu nhanh")',
+			'zalo_server'   => 'kiểm tra kết nối máy chủ Zalo của website (bước 2 của "Bắt đầu nhanh")',
+			'module_access' => 'cấp quyền dùng một mục trong Twin',
+		);
+		if ( ! isset( $topics[ $topic ] ) ) {
+			return $this->agent_guru_error( 'invalid_param', 'Chưa rõ bạn cần quản trị viên giúp việc gì.', 'Tải lại trang rồi bấm lại "Nhờ quản trị viên".', 422 );
+		}
+		$user_id = (int) $identity['user_id'];
+		$key     = 'bizcity_tw_ask_admin_' . md5( $user_id . '|' . $topic );
+		if ( false !== get_transient( $key ) ) {
+			return $this->agent_guru_error( 'ask_admin_rate_limited', 'Bạn vừa nhờ quản trị viên việc này rồi.', 'Đợi khoảng 10 phút rồi nhắc lại, hoặc báo trực tiếp quản trị viên website.', 429 );
+		}
+		$chat_id = class_exists( 'BizCity_Gateway_Sender' ) ? $this->ask_admin_target( $user_id ) : '';
+		if ( '' === $chat_id ) {
+			return rest_ensure_response( array(
+				'success' => true,
+				'sent'    => false,
+				'reason'  => 'admin_bot_unbound',
+				'message' => 'Hãy báo quản trị viên website.',
+				'hint'    => 'Quản trị viên chưa liên kết Zalo Bot nên Twin chưa gửi nhắn được.',
+			) );
+		}
+		$what = $topics[ $topic ];
+		if ( 'module_access' === $topic && ! empty( $body['module_id'] ) ) {
+			$what .= ' (' . sanitize_key( (string) $body['module_id'] ) . ')';
+		}
+		$user = get_userdata( $user_id );
+		$who  = $user ? sanitize_text_field( (string) $user->display_name ) : 'Một thành viên';
+		$text = sprintf( '%s nhờ bạn: %s. Mở %s', $who, $what, esc_url_raw( home_url( '/twin/?plugin=settings' ) ) );
+		$sent = BizCity_Gateway_Sender::instance()->send( $chat_id, $text, 'text', array( 'source' => 'twinweb_ask_admin' ) );
+		if ( ! is_array( $sent ) || empty( $sent['sent'] ) ) {
+			return $this->agent_guru_error( 'ask_admin_send_failed', 'Chưa gửi được lời nhắn tới quản trị viên.', 'Thử lại sau ít phút, hoặc báo trực tiếp quản trị viên website.', 502 );
+		}
+		set_transient( $key, time(), self::ASK_ADMIN_TTL );
+		return rest_ensure_response( array( 'success' => true, 'sent' => true ) );
 	}
 
 	public function delete_mychannels_zalo_personal_account( WP_REST_Request $request ) {
@@ -6686,20 +6987,7 @@ class BizCity_TwinWeb_REST {
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),
-			// [2026-07-18 Johnny Chu] SPRINT-16 GAP-REVIEW — expose legacy TwinChat workspace in configurable sidebar apps.
-			array(
-				'id'            => 'twinchat',
-				'label'         => 'My Brain',
-				'icon'          => 'chat',
-				// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — parent URL stays /gpt/{app}/ while iframe opens the legacy workspace.
-				'href'          => home_url( '/gpt/twinchat/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/twinchat/' ) ),
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				'dependency_ok' => defined( 'BIZCITY_TWINCHAT_VERSION' ),
-				'auth_required' => true,
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			),
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — the "My Brain" (Twin Chat) card left Twin GPT.
 			array(
 				'id'            => 'astro',
 				'label'         => 'My Astro',
@@ -6833,6 +7121,10 @@ class BizCity_TwinWeb_REST {
 		$normalized_apps = array();
 		foreach ( $apps as $app ) {
 			if ( ! is_array( $app ) || empty( $app['id'] ) ) {
+				continue;
+			}
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — a stored or filtered 'twinchat' app is ignored.
+			if ( 'twinchat' === sanitize_key( (string) $app['id'] ) ) {
 				continue;
 			}
 			$state = isset( $app['state'] ) ? (string) $app['state'] : 'available';
@@ -10098,7 +10390,7 @@ class BizCity_TwinWeb_REST {
 	 * Order defines the default display order.
 	 */
 	private static function all_known_app_ids() {
-		return array( 'mychannels', 'twinchat', 'astro', 'creator', 'doc', 'image', 'profile', 'profile_card_qr', 'video', 'workflow' );
+		return array( 'mychannels', 'astro', 'creator', 'doc', 'image', 'profile', 'profile_card_qr', 'video', 'workflow' );
 	}
 
 	/**
@@ -10119,7 +10411,8 @@ class BizCity_TwinWeb_REST {
 		$ids[] = 'mychannels';
 		foreach ( $raw as $item ) {
 			$id = sanitize_key( (string) $item );
-			if ( $id !== '' && $id !== 'chat' && $id !== 'mychannels' ) {
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — drop a stored 'twinchat' id.
+			if ( $id !== '' && $id !== 'chat' && $id !== 'mychannels' && $id !== 'twinchat' ) {
 				$ids[] = $id;
 			}
 		}
@@ -10139,6 +10432,8 @@ class BizCity_TwinWeb_REST {
 		$known      = self::all_known_app_ids();
 		$visible    = is_array( $stored ) && ! empty( $stored ) ? $stored : $known;
 		$visible    = array_values( array_filter( array_map( 'sanitize_key', $visible ) ) );
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — retired ids (twinchat) never come back as rows.
+		$visible    = array_values( array_intersect( $visible, $known ) );
 
 		$rows = array();
 		// Merge: configured order first, then remaining known apps
@@ -13961,7 +14256,9 @@ class BizCity_TwinWeb_REST {
 			'policy'      => $policy,
 		);
 
-		if ( ! $is_guest && current_user_can( 'manage_options' ) ) {
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-13 — evaluate the identity's own user, so the same
+		// rules answer for another user (Twin Shell module access); identical for the current identity.
+		if ( ! $is_guest && $user_id > 0 && user_can( $user_id, 'manage_options' ) ) {
 			return $resp;
 		}
 
@@ -14072,6 +14369,141 @@ class BizCity_TwinWeb_REST {
 		}
 
 		return $resp;
+	}
+
+	/* ── Twin Shell module access (module-access@1.0.0, delegated owner of `gpt`) ── */
+
+	/**
+	 * Whether a signed-in user may use Twin GPT under this blog's access policy.
+	 *
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-13 — the Twin Shell resolver asks here instead of
+	 * keeping its own copy of the rule (R-SETTINGS-4L-6).
+	 *
+	 * @param int $user_id WordPress user id on the current blog.
+	 * @return bool
+	 */
+	public function module_access_allows_user( $user_id ) {
+		$user_id = (int) $user_id;
+		if ( $user_id <= 0 ) {
+			return false;
+		}
+		$tier     = (string) apply_filters( 'bizcity_twinweb_user_tier', 'free', $user_id );
+		$identity = array( 'is_guest' => false, 'user_id' => $user_id );
+		$eval     = $this->resolve_access_for_identity( $identity, $tier );
+		return ! empty( $eval['allowed'] );
+	}
+
+	/**
+	 * Role cells of the Twin GPT row: which roles this policy lets in (core WordPress roles only —
+	 * the policy cannot name other roles; they reach Twin GPT through `bizcity_twinweb_access_bypass`).
+	 *
+	 * @return array{editable_roles:string[],allowed_roles:string[],minimum_role:string}
+	 */
+	public function module_access_role_state() {
+		$policy = $this->get_access_policy( (int) get_current_blog_id() );
+		$min    = (string) ( $policy['member']['minimum_role'] ?? 'subscriber' );
+		$ladder = array( 'subscriber', 'contributor', 'author', 'editor', 'administrator' );
+		$floor  = array_search( $min, $ladder, true );
+		$floor  = false === $floor ? 0 : (int) $floor;
+		$on     = array();
+		foreach ( (array) ( $policy['member']['allowed_roles'] ?? array() ) as $role ) {
+			$rank = array_search( $role, $ladder, true );
+			if ( false !== $rank && $rank >= $floor ) {
+				$on[] = (string) $role;
+			}
+		}
+		return array(
+			'editable_roles' => $ladder,
+			'allowed_roles'  => $on,
+			'minimum_role'   => $min,
+		);
+	}
+
+	/**
+	 * Turn one core role on/off for Twin GPT. Turning a role on below the current minimum role
+	 * lowers the minimum to that role, so the switch means what it shows.
+	 *
+	 * @param string $role    Core WordPress role.
+	 * @param bool   $allowed New state.
+	 * @return true|WP_Error
+	 */
+	public function module_access_set_role( $role, $allowed ) {
+		$ladder = array( 'subscriber', 'contributor', 'author', 'editor', 'administrator' );
+		$role   = sanitize_key( (string) $role );
+		if ( ! in_array( $role, $ladder, true ) || 'administrator' === $role ) {
+			return new WP_Error( 'module_access_write_failed', 'Vai trò này không đổi được ở Twin GPT.', array( 'status' => 409, 'reason' => 'not_grantable' ) );
+		}
+		$blog_id = (int) get_current_blog_id();
+		$policy  = $this->get_access_policy( $blog_id );
+		$roles   = (array) ( $policy['member']['allowed_roles'] ?? array() );
+		if ( $allowed ) {
+			$roles[] = $role;
+			$min     = array_search( (string) ( $policy['member']['minimum_role'] ?? 'subscriber' ), $ladder, true );
+			if ( false === $min || array_search( $role, $ladder, true ) < $min ) {
+				$policy['member']['minimum_role'] = $role;
+			}
+		} else {
+			$roles = array_diff( $roles, array( $role ) );
+			if ( empty( $roles ) ) {
+				$roles = array( 'administrator' );
+			}
+		}
+		$policy['member']['allowed_roles'] = array_values( array_unique( $roles ) );
+		$this->module_access_save_policy( $blog_id, $policy );
+		return true;
+	}
+
+	/**
+	 * Per-user override for Twin GPT: 'inherit' | 'allow' | 'deny' (policy allow/deny lists).
+	 *
+	 * @param int    $user_id User id on the current blog.
+	 * @param string $state   New override state.
+	 * @return true|WP_Error
+	 */
+	public function module_access_set_user( $user_id, $state ) {
+		$user_id = (int) $user_id;
+		if ( $user_id <= 0 || ! in_array( $state, array( 'inherit', 'allow', 'deny' ), true ) ) {
+			return new WP_Error( 'module_access_write_failed', 'Yêu cầu không hợp lệ.', array( 'status' => 400 ) );
+		}
+		$blog_id = (int) get_current_blog_id();
+		$policy  = $this->get_access_policy( $blog_id );
+		$allow   = array_diff( (array) ( $policy['users']['allow_user_ids'] ?? array() ), array( $user_id ) );
+		$deny    = array_diff( (array) ( $policy['users']['deny_user_ids'] ?? array() ), array( $user_id ) );
+		if ( 'allow' === $state ) {
+			$allow[] = $user_id;
+		} elseif ( 'deny' === $state ) {
+			$deny[] = $user_id;
+		}
+		$policy['users']['allow_user_ids'] = array_values( $allow );
+		$policy['users']['deny_user_ids']  = array_values( $deny );
+		$this->module_access_save_policy( $blog_id, $policy );
+		return true;
+	}
+
+	/**
+	 * Current per-user override for Twin GPT.
+	 *
+	 * @param int $user_id User id.
+	 * @return string 'inherit' | 'allow' | 'deny'
+	 */
+	public function module_access_user_state( $user_id ) {
+		$policy = $this->get_access_policy( (int) get_current_blog_id() );
+		if ( in_array( (int) $user_id, (array) ( $policy['users']['deny_user_ids'] ?? array() ), true ) ) {
+			return 'deny';
+		}
+		if ( in_array( (int) $user_id, (array) ( $policy['users']['allow_user_ids'] ?? array() ), true ) ) {
+			return 'allow';
+		}
+		return 'inherit';
+	}
+
+	private function module_access_save_policy( $blog_id, $policy ) {
+		$policy               = $this->normalize_access_policy( $policy );
+		$policy['updated_at'] = current_time( 'mysql', true );
+		$policy['updated_by'] = (int) get_current_user_id();
+		update_option( 'bizcity_twinweb_access_policy_' . (int) $blog_id, $policy, false );
+		$this->bump_control_plane_version( $blog_id );
+		$this->flush_effective_config_cache( $blog_id );
 	}
 
 	/**

@@ -81,6 +81,12 @@ class BizCity_TwinChat_Public_Page {
 		// unless the page is being loaded inside the shell iframe
 		// (?bizcity_iframe=1 — legacy convention shared with webchat / intent /
 		// twin-core templates) or the caller explicitly opts out (?shell=0).
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-15 / D-84-13 — Twin GPT no longer embeds this page, so a
+		// signed-in user needs the Twin Chat module; the guest page and public token pages are unchanged.
+		if ( is_user_logged_in() && class_exists( 'BizCity_Twin_Module_Access' ) ) {
+			BizCity_Twin_Module_Access::require_page( 'twinchat' );
+		}
+
 		$is_embed = ! empty( $_GET['bizcity_iframe'] );
 		$opt_out  = isset( $_GET['shell'] )  && '0' === (string) $_GET['shell'];
 		// [2026-07-21 Johnny Chu] PHASE-TWINCHAT-PUBLIC — do not send guests into /twin/ because TwinShell is still login-gated; render this public TwinChat page directly.
@@ -254,6 +260,9 @@ class BizCity_TwinChat_Public_Page {
 			'debug'        => class_exists( 'BizCity_Twin_Debug' ) ? BizCity_Twin_Debug::is_enabled() : false,
 			'bzdesignEmbedUrl' => $bzdesign_embed_url,
 			'bzdesignRestUrl'  => $bzdesign_rest_url,
+			// [2026-09-30 12:23 AM Johnny Chu - Chu Hoàng Anh] R-BA-10 — '' when
+			// bizcoach-pro isn't registered; FE hides every "My Astro" entry point.
+			'myAstroUrl'     => self::resolve_my_astro_url(),
 			// R-1API — Webchat AJAX (admin-ajax) bridge for ApiKey/Usage workspaces.
 			'ajaxUrl'        => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
 			'webchatNonce'   => wp_create_nonce( 'bizcity_webchat' ),
@@ -481,6 +490,8 @@ class BizCity_TwinChat_Public_Page {
 			// Wave D — BizDesign embed integration (resolved by helper for consistency).
 			'bzdesignEmbedUrl' => self::resolve_bzdesign_embed_url(),
 			'bzdesignRestUrl'  => esc_url_raw( rest_url( 'bzdesign/v1' ) ),
+			// [2026-09-30 12:23 AM Johnny Chu - Chu Hoàng Anh] R-BA-10 — '' when bizcoach-pro isn't registered.
+			'myAstroUrl'     => self::resolve_my_astro_url(),
 			// 2026-05-21 — API key health for the React setup dialog.
 			'apiKeyStatus'   => self::get_api_key_status(),
 			'settingsUrl'    => esc_url_raw( admin_url( 'admin.php?page=bizcity-twinchat-settings' ) ),
@@ -635,6 +646,27 @@ class BizCity_TwinChat_Public_Page {
 			}
 		}
 		return '';
+	}
+
+	/**
+	 * [2026-09-30 12:23 AM Johnny Chu - Chu Hoàng Anh] R-BA-10 — Astro
+	 * (bizcoach-pro) is an extension plugin, not on the BizTwin CRM axis;
+	 * only surface "My Astro" UI (header button, drawer, AskBrain nudge card)
+	 * when bizcoach-pro is actually registered.
+	 *
+	 * Detection: bizcoach-pro registers its `bizcoach_pro` persona/tool
+	 * provider into BizCity_Persona_Registry on load. If that lookup misses,
+	 * the plugin isn't active and `/astro/` would 404 — return '' so the FE
+	 * hides every Astro entry point (same convention as resolve_bzdesign_embed_url()).
+	 */
+	public static function resolve_my_astro_url(): string {
+		if ( ! class_exists( 'BizCity_Persona_Registry' ) ) {
+			return '';
+		}
+		if ( ! BizCity_Persona_Registry::instance()->get( 'bizcoach_pro' ) ) {
+			return '';
+		}
+		return esc_url_raw( home_url( '/astro/' ) );
 	}
 
 	/**

@@ -117,7 +117,7 @@ final class BizCity_Probe_TwinWeb_Document_Search implements BizCity_Diagnostics
 			'detail' => ( $core_ok && $method_ok )
 				? 'Class loaded; search_documents() + resolve_scope() present.'
 				: ( ! $core_ok
-					? 'BizCity_TwinSearch_Core not loaded — check core/twinsearch/bootstrap.php.'
+					? 'BizCity_TwinSearch_Core not loaded — check core/kg-hub/includes/class-twinsearch-core.php.'
 					: 'Method search_documents() or resolve_scope() missing in class.' ),
 		);
 		$steps[] = $step;

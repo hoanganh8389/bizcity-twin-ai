@@ -14,7 +14,9 @@
  *   mode           string   'embed' (default) | 'home' | 'workspace' | 'route' | 'link'
  *   public_slug    string   Front-end URL fragment for the plugin page (e.g. '/twinchat/')
  *   target_url     string   Absolute URL for `mode = 'link'` entries (admin pages etc.)
- *   capability     string   WP capability required (default 'read')
+ *   capability     string   WP capability required (default 'read'); forced to 'bizcity_use_<id>' when `access` is set
+ *   access         array    module-access@1.0.0: { mode: grantable|delegated|admin_only, owner, manage{plugin,r},
+ *                           default_roles[] } — resolved by BizCity_Twin_Module_Access (PHASE-0.84)
  *   section        string   'top' | 'bottom'
  *   params         array    Whitelisted query keys forwarded into the iframe URL
  *   desc           string   Optional one-line description
@@ -38,6 +40,28 @@ class BizCity_Twin_Shell_Registry {
 
 	/** Reserved query keys never forwarded to the iframe URL. */
 	const RESERVED_KEYS = [ 'plugin', '_view', '_t', 'bizcity_iframe', 'r' ];
+
+	/**
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-1 — the one ActivityBar order (server picks the
+	 * default plugin from it, the shell JS renders `cfg.plugins` in the order sent). Ids not listed
+	 * keep their registration order after these.
+	 */
+	const ACTIVITY_ORDER = [
+		'gpt'            => 10,
+		'gateway'        => 20,
+		'crm'            => 30,
+		'twinchat'       => 40,
+		'workflow'       => 50,
+		'scheduler'      => 60,
+		'twinkg'         => 70,
+		'personal'       => 110,
+		'qr'             => 120,
+		'web'            => 130,
+		'creator'        => 140,
+		'profile-public' => 150,
+		'marketplace'    => 900,
+		'settings'       => 910,
+	];
 
 	private static $instance = null;
 	private $cache = null;
@@ -130,6 +154,16 @@ class BizCity_Twin_Shell_Registry {
 					? array_map( 'sanitize_text_field', $entry['legacy_params'] )
 					: [],
 			];
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-11 — module-access@1.0.0: an entry that declares
+			// `access` is gated by the meta capability `bizcity_use_<id>` (MA-1); the capability it declared
+			// is kept as `legacy_capability` for the one-time seed and for rollback.
+			$last   = count( $out ) - 1;
+			$access = self::normalize_access( isset( $entry['access'] ) ? $entry['access'] : null );
+			if ( null !== $access ) {
+				$access['legacy_capability']  = $out[ $last ]['capability'];
+				$out[ $last ]['capability'] = 'bizcity_use_' . $id;
+			}
+			$out[ $last ]['access'] = $access;
 		}
 
 		// Compute is_core / available / locked AFTER normalization so external
@@ -148,6 +182,34 @@ class BizCity_Twin_Shell_Registry {
 
 		$this->cache = $out;
 		return $out;
+	}
+
+	/**
+	 * Normalize an entry's `access` descriptor (module-access@1.0.0). Null when absent.
+	 *
+	 * @param mixed $raw
+	 * @return array|null
+	 */
+	private static function normalize_access( $raw ) {
+		if ( ! is_array( $raw ) ) {
+			return null;
+		}
+		$mode   = isset( $raw['mode'] ) ? sanitize_key( (string) $raw['mode'] ) : 'grantable';
+		$manage = null;
+		if ( isset( $raw['manage'] ) && is_array( $raw['manage'] ) && ! empty( $raw['manage']['plugin'] ) ) {
+			$manage = [
+				'plugin' => sanitize_key( (string) $raw['manage']['plugin'] ),
+				'r'      => isset( $raw['manage']['r'] ) ? sanitize_text_field( (string) $raw['manage']['r'] ) : '',
+			];
+		}
+		return [
+			'mode'          => in_array( $mode, [ 'grantable', 'delegated', 'admin_only' ], true ) ? $mode : 'grantable',
+			'owner'         => isset( $raw['owner'] ) ? sanitize_text_field( (string) $raw['owner'] ) : '',
+			'manage'        => $manage,
+			'default_roles' => isset( $raw['default_roles'] ) && is_array( $raw['default_roles'] )
+				? array_values( array_filter( array_map( 'sanitize_key', $raw['default_roles'] ) ) )
+				: [],
+		];
 	}
 
 	/**
@@ -226,23 +288,42 @@ class BizCity_Twin_Shell_Registry {
 	}
 
 	/**
-	 * Get the default plugin id. CRM is the default operating surface; TwinChat
-	 * remains available as an explicit ActivityBar/deep-link destination.
+	 * Sort entries by ACTIVITY_ORDER; ties and unlisted ids keep their input order.
 	 *
+	 * @param array<int, array<string, mixed>> $plugins
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function sort_for_activity_bar( array $plugins ) {
+		$rows = [];
+		foreach ( array_values( $plugins ) as $i => $p ) {
+			$id     = isset( $p['id'] ) ? (string) $p['id'] : '';
+			$rows[] = [ isset( self::ACTIVITY_ORDER[ $id ] ) ? self::ACTIVITY_ORDER[ $id ] : 1000, $i, $p ];
+		}
+		usort( $rows, static function ( $a, $b ) {
+			return $a[0] === $b[0] ? $a[1] - $b[1] : $a[0] - $b[0];
+		} );
+		return array_map( static function ( $row ) {
+			return $row[2];
+		}, $rows );
+	}
+
+	/**
+	 * Default plugin for `/twin/` without `?plugin=`: the first top-section entry of the given
+	 * (already capability-filtered) list in ActivityBar order — Twin GPT for most users.
+	 *
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-2 — replaces the hardcoded 'crm' default.
+	 *
+	 * @param array<int, array<string, mixed>>|null $visible Entries the current user may open; null = all.
 	 * @return string
 	 */
-	public function default_id() {
-		$plugins = $this->all();
+	public function default_id( $visible = null ) {
+		$plugins = self::sort_for_activity_bar( is_array( $visible ) ? $visible : $this->all() );
 		foreach ( $plugins as $p ) {
-			// [2026-09-21 10:00 PM OpenAI GPT-5.6 Luna] PHASE-0.63B C-08 — open `/twin/` directly on CRM; keep TwinChat explicit, not implicit.
-			if ( 'crm' === $p['id'] ) {
-				return 'crm';
+			if ( 'bottom' !== ( isset( $p['section'] ) ? $p['section'] : 'top' ) ) {
+				return (string) $p['id'];
 			}
 		}
-		if ( ! empty( $plugins ) ) {
-			return $plugins[0]['id'];
-		}
-		return '';
+		return empty( $plugins ) ? '' : (string) $plugins[0]['id'];
 	}
 
 	/**

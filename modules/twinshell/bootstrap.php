@@ -22,7 +22,8 @@ if ( ! defined( 'BIZCITY_TWIN_SHELL_URL' ) ) {
 }
 if ( ! defined( 'BIZCITY_TWIN_SHELL_VERSION' ) ) {
 	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G5 — bump to flush the new /twin/panel/ rewrite rule via the central registry.
-	define( 'BIZCITY_TWIN_SHELL_VERSION', '0.13.39' );
+	// [2026-09-30 Claude Opus 5.5] PHASE-0.84 — ActivityBar order + module access; bump busts shell JS/CSS caches.
+	define( 'BIZCITY_TWIN_SHELL_VERSION', '0.13.40' );
 }
 
 // [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — bootstrap idempotency guard
@@ -46,6 +47,15 @@ if ( class_exists( 'BizCity_Twin_Shell_Appearance' ) ) {
 }
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-bridge.php';
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-primitives.php';
+// [2026-09-30 Claude Opus 5.5] PHASE-0.84 — module-access@1.0.0 resolver (meta cap bizcity_use_<id>) + its admin REST.
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-module-access.php';
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-module-access-rest.php';
+if ( class_exists( 'BizCity_Twin_Module_Access' ) ) {
+	BizCity_Twin_Module_Access::register();
+}
+if ( class_exists( 'BizCity_Twin_Module_Access_REST' ) ) {
+	BizCity_Twin_Module_Access_REST::instance()->register();
+}
 
 // [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — load Learning Hub stack only
 // in relevant contexts to reduce baseline bootstrap cost on unrelated requests.
@@ -126,6 +136,33 @@ if ( ! defined( 'BIZCITY_TWIN_SHELL_SETTING_PANEL_REGISTERED' )
 					'dependency_ids' => array( 'modules.twinshell' ),
 				),
 				'position'        => 330,
+			),
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-18 — "Phân quyền module" in the Settings destination.
+			array(
+				'contract'        => 'setting-panel-registration',
+				'version'         => '1.0.0',
+				'id'              => 'core.twinshell.module_access',
+				'owner'           => 'modules/twinshell',
+				'origin'          => 'module',
+				'destination'     => 'settings',
+				'group'           => 'access',
+				'label_key'       => 'settings.module_access.label',
+				'description_key' => 'settings.module_access.description',
+				'icon'            => 'cil-lock-locked',
+				'capability'      => 'manage_options',
+				'scope'           => 'site',
+				'surface'         => 'admin_shell',
+				'renderer'        => array(
+					'type'  => 'route',
+					'id'    => 'core.twinshell.module_access',
+					'route' => '/settings/module-access',
+				),
+				'availability'    => array(
+					'policy'         => 'registered-owner',
+					'dependency_ids' => array( 'modules.twinshell' ),
+				),
+				'position'        => 250,
+				'keywords'        => array( 'permission', 'role', 'access', 'phan quyen', 'quyen' ),
 			),
 		),
 	) );

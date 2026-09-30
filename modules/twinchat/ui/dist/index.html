@@ -3,18 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <title>TwinChat Workspace</title>
-    <!-- KaTeX CDN — fonts & JS loaded from jsDelivr, off-bundle -->
-    <link rel="preload" as="style" href="https://cdn.jsdelivr.net/npm/katex@0.16.45/dist/katex.min.css" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.45/dist/katex.min.css" crossorigin="anonymous">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.45/dist/katex.min.js" crossorigin="anonymous"></script>
-    <script type="module" crossorigin src="./assets/index-D08N0qTa.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/vendor-query-CmcMXlZA.js">
-    <link rel="modulepreload" crossorigin href="./assets/vendor-react-CRvGZXpf.js">
-    <link rel="modulepreload" crossorigin href="./assets/vendor-graph-C2U_okeF.js">
-    <link rel="modulepreload" crossorigin href="./assets/vendor-mermaid-CMiqNC-m.js">
-    <link rel="modulepreload" crossorigin href="./assets/vendor-md-BaslGdeI.js">
-    <link rel="modulepreload" crossorigin href="./assets/vendor-katex-B4G8pnx0.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-DnObuzMD.css">
+    <!-- [2026-09-30 12:25 AM Johnny Chu - Chu Hoàng Anh] UI-SLIM — KaTeX CDN tags removed: math
+         rendering (remark-math/rehype-katex) was dropped from ChatPanel, and
+         this dist/index.html was never served by PHP anyway (production
+         reads .vite/manifest.json and emits its own <script>/<link> tags). -->
+    <script type="module" crossorigin src="./assets/index-BRWtK73H.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/vendor-query-CNfRqp1d.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-react-B-HsRkKV.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-md-t2v7wdgC.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-graph-DhzIIu-y.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-B5D85rjs.css">
   </head>
   <body>
     <div id="bizcity-twinchat-root"></div>

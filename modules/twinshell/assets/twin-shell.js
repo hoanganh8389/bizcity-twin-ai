@@ -48,6 +48,7 @@
   // ── SVG icon map (Lucide-compatible, 24×24 viewBox) ────────────────────
   var ICON_PATHS = {
     home:      '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    sparkles:  '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
     brain:     '<path d="M12 5a3 3 0 1 0-5.997.125"/><path d="M12 5a3 3 0 1 1 5.997.125"/><path d="M15 13a3 3 0 1 0-6 0"/><path d="M12 8v8"/><path d="M12 19a3 3 0 1 0 5.997-.125"/><path d="M12 19a3 3 0 1 1-5.997-.125"/><path d="M5.5 9A3.5 3.5 0 1 0 5 16"/><path d="M18.5 9A3.5 3.5 0 1 1 19 16"/>',
     // [2026-07-04 Johnny Chu] PHASE-FAA2-FE — astro (crescent moon) icon for bizcoach-pro /astro/
     astro:     '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
@@ -413,7 +414,7 @@
     if (!base) return '';
     var sep = base.indexOf('?') === -1 ? '?' : '&';
     if (p.route_mode === 'path') {
-      // TRC §4.3: origin + public_slug + route (+ bizcity_iframe=1). Not exercised by any
+      // TRC §4.3: origin + public_slug + route (+ bizcity_iframe=1). First user: `gpt` (PHASE-0.84); was not exercised by any
       // registered plugin yet (only `crm` has opted in, at 'hash') — kept faithful to the
       // contract table for the next plugin that migrates.
       var qIdx = (route || '').indexOf('?');
@@ -437,10 +438,40 @@
   // Best-effort route extraction from a legacy `_iurl` bookmark, so an old saved/shared link to
   // a plugin that has since opted into `route_mode` still opens at the right place instead of
   // the plugin's default screen.
-  function routeFromLegacyIurl(iurl) {
+  function routeFromLegacyIurl(iurl, pluginId) {
     if (!iurl) return '';
+    if (pluginId && pluginRouteMode(pluginId) !== 'hash') {
+      return routeFromChildUrl(pluginId, iurl);
+    }
     var hashIdx = iurl.indexOf('#');
     return hashIdx === -1 ? '' : iurl.slice(hashIdx + 1);
+  }
+
+  // [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-04 — plugin-relative route of a child URL for every
+  // `route_mode` (TRC §4.3): hash ⇒ fragment; path ⇒ path below `public_slug` + own query (+ hash);
+  // query ⇒ own query. The shell-only `bizcity_iframe` marker never enters `r`.
+  function routeFromChildUrl(pluginId, rawUrl) {
+    var p = findPlugin(pluginId);
+    var mode = pluginRouteMode(pluginId);
+    var u;
+    try { u = new URL(rawUrl, window.location.origin); } catch (e) { return ''; }
+    if (mode === 'hash' || !p) return u.hash ? u.hash.replace(/^#/, '') : '';
+    var sp = new URLSearchParams(u.search);
+    sp.delete('bizcity_iframe');
+    var qs = sp.toString();
+    if (mode === 'query') return qs ? '?' + qs : '';
+    var slug = '/' + String(p.public_slug || '').replace(/^\/+|\/+$/g, '');
+    var path = u.pathname;
+    if (slug !== '/' && path.indexOf(slug) === 0) path = path.slice(slug.length);
+    if (!path || path.charAt(0) !== '/') path = '/' + path;
+    return path + (qs ? '?' + qs : '') + (u.hash || '');
+  }
+
+  // Query params to mirror on the shell URL for a child URL. `path`/`query` routes already carry
+  // the child's own query inside `r`, so nothing is mirrored for them.
+  function paramsForChildUrl(pluginId, rawUrl) {
+    var mode = pluginRouteMode(pluginId);
+    return (mode === 'path' || mode === 'query') ? {} : paramsFromIframeUrl(rawUrl);
   }
 
   // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — translate a plugin's
@@ -606,8 +637,7 @@
       // a physical `_iurl`, so a later change to how the plugin is hosted cannot break the link.
       var mode = pluginRouteMode(pid);
       if (mode !== 'legacy') {
-        var route = loc.hash ? loc.hash.replace(/^#/, '') : '';
-        writeShellUrl(pid, paramsFromIframeUrl(href), undefined, route);
+        writeShellUrl(pid, paramsForChildUrl(pid, href), undefined, routeFromChildUrl(pid, href));
       } else {
         writeShellUrl(pid, paramsFromIframeUrl(href), href);
       }
@@ -676,7 +706,11 @@
           var pid = pluginIdFromWindow(w) || current.pluginId;
           if (pid) {
             iframe.__lastSyncedHref = clickedHref;
-            writeShellUrl(pid, paramsFromIframeUrl(clickedHref), clickedHref);
+            if (pluginRouteMode(pid) !== 'legacy') {
+              writeShellUrl(pid, paramsForChildUrl(pid, clickedHref), undefined, routeFromChildUrl(pid, clickedHref));
+            } else {
+              writeShellUrl(pid, paramsFromIframeUrl(clickedHref), clickedHref);
+            }
           }
         } catch (e) {}
       }
@@ -883,50 +917,32 @@
     return btn;
   }
 
-  // [2026-09-20 Johnny Chu] PHASE-TWINSHELL-NAV — keep the five primary
-  // work surfaces predictable even when extensions append registrations to
-  // the shared registry. Remaining entries retain their registration order.
-  // `qr` is the primary QR Studio button; the separate public-profile QR
-  // surface stays after the requested primary group when it is available.
-  var ACTIVITY_PRIORITY = {
-    crm: 10,
-    personal: 20,
-    gateway: 30,
-    qr: 40,
-    web: 50,
-    'profile-public': 60,
-    // [2026-09-24 Johnny Chu] PHASE-TWINSHELL-NAV — Automation + Reminders follow the Twin Chat (brain) icon.
-    twinchat: 70,
-    workflow: 71,
-    scheduler: 72,
-    settings: 910,
-  };
-
+  // [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-1 — the server sends `cfg.plugins` already sorted by
+  // BizCity_Twin_Shell_Registry::ACTIVITY_ORDER; this only splits it into the two sections.
   function orderedActivityPlugins(section) {
-    var items = [];
-    cfg.plugins.forEach(function (plugin, index) {
-      if ((plugin.section === 'bottom' ? 'bottom' : 'top') !== section) return;
-      items.push({ plugin: plugin, index: index });
+    return cfg.plugins.filter(function (plugin) {
+      return (plugin.section === 'bottom' ? 'bottom' : 'top') === section;
     });
-
-    items.sort(function (a, b) {
-      var aPriority = Object.prototype.hasOwnProperty.call(ACTIVITY_PRIORITY, a.plugin.id)
-        ? ACTIVITY_PRIORITY[a.plugin.id]
-        : 1000;
-      var bPriority = Object.prototype.hasOwnProperty.call(ACTIVITY_PRIORITY, b.plugin.id)
-        ? ACTIVITY_PRIORITY[b.plugin.id]
-        : 1000;
-      return aPriority === bPriority ? a.index - b.index : aPriority - bPriority;
-    });
-
-    return items.map(function (item) { return item.plugin; });
   }
 
   function renderActivityBar() {
     var top = root.querySelector('.ts-ab-top');
     var bottom = root.querySelector('.ts-ab-bottom');
+    var sawPrimary = false;
+    var separated = false;
 
     orderedActivityPlugins('top').concat(orderedActivityPlugins('bottom')).forEach(function (p) {
+      if (p.section !== 'bottom') {
+        if (p.activity_primary) {
+          sawPrimary = true;
+        } else if (sawPrimary && !separated) {
+          var sep = document.createElement('div');
+          sep.className = 'ts-ab-sep';
+          sep.setAttribute('role', 'separator');
+          top.appendChild(sep);
+          separated = true;
+        }
+      }
       var item = buildItem(p);
       if (p.section === 'bottom') bottom.appendChild(item);
       else top.appendChild(item);
@@ -1098,7 +1114,7 @@
     // opted into `route_mode` may still be reached via an OLD bookmarked `_iurl` link (from
     // before it migrated, or from a client that hasn't refreshed its saved link) — fall back to
     // extracting a route from it so the plugin opens at the right place instead of its default.
-    var effectiveRoute = (mode !== 'legacy' && !route && iurl) ? routeFromLegacyIurl(iurl) : route;
+    var effectiveRoute = (mode !== 'legacy' && !route && iurl) ? routeFromLegacyIurl(iurl, pluginId) : route;
     // An EXPLICIT deep link (popstate restoring a specific `_iurl`/`r`, or a cross-plugin link
     // that names a route) is the only thing allowed to force-navigate an already-cached iframe.
     // A plain re-click never carries one.
@@ -1243,7 +1259,7 @@
         try {
           var reusedLoc = iframe.contentWindow && iframe.contentWindow.location;
           if (reusedLoc && reusedLoc.origin === window.location.origin) {
-            currentRoute = reusedLoc.hash ? reusedLoc.hash.replace(/^#/, '') : '';
+            currentRoute = routeFromChildUrl(pluginId, reusedLoc.href);
           }
         } catch (e) {}
       }
@@ -1307,12 +1323,7 @@
       // route as the hash portion of `data.url`, same as the poll-based path above.
       var navMode = pluginRouteMode(senderPluginId);
       if (navMode !== 'legacy') {
-        var navRoute = '';
-        try {
-          var navU = new URL(data.url, window.location.origin);
-          navRoute = navU.hash ? navU.hash.replace(/^#/, '') : '';
-        } catch (e) {}
-        writeShellUrl(senderPluginId, params, undefined, navRoute);
+        writeShellUrl(senderPluginId, paramsForChildUrl(senderPluginId, data.url), undefined, routeFromChildUrl(senderPluginId, data.url));
       } else {
         writeShellUrl(senderPluginId, params, data.url);
       }
@@ -1327,8 +1338,11 @@
       // Sync _iurl whenever the iframe finishes loading (covers full-page
       // navigations via window.location.href, e.g. BrainHome → notebook).
       if (senderPluginId && data.url && typeof data.url === 'string') {
-        var rparams = paramsFromIframeUrl(data.url);
-        writeShellUrl(senderPluginId, rparams, data.url);
+        if (pluginRouteMode(senderPluginId) !== 'legacy') {
+          writeShellUrl(senderPluginId, paramsForChildUrl(senderPluginId, data.url), undefined, routeFromChildUrl(senderPluginId, data.url));
+        } else {
+          writeShellUrl(senderPluginId, paramsFromIframeUrl(data.url), data.url);
+        }
       }
     } else if (data.type === 'navigate-shell' && typeof data.pluginId === 'string') {
       navigate(data.pluginId, data.params || {});
@@ -1512,7 +1526,7 @@
     // [PHASE-0-RULE-URL-ROUTE P1] — best-effort compat: an old bookmarked `_iurl` link to a
     // plugin that has since opted into `route_mode` still opens at the right route; the URL is
     // then rewritten to the canonical `r` form.
-    writeShellUrl(initial.pluginId, initial.params, undefined, initial.route || routeFromLegacyIurl(initial.iurl));
+    writeShellUrl(initial.pluginId, initial.params, undefined, initial.route || routeFromLegacyIurl(initial.iurl, initial.pluginId));
   } else {
     var initIurlFull = initial.iurl ? (window.location.origin + initial.iurl) : '';
     writeShellUrl(initial.pluginId, initial.params, initIurlFull);

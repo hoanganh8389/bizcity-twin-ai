@@ -31,7 +31,7 @@ define( 'BIZCITY_TWINWEB_VERSION', '1.0.0' );
 // [2026-06-18 Johnny Chu] PHASE-TWINWEB — bumped to 1.0.1 to flush old ^twin(?:/.*)? rule
 // that was hijacking /twin/ (twinshell's URL). Version bump triggers one-time flush via
 // BizCity_Rewrite_Flush_Registry on next admin_init. (NEVER use time() here)
-define( 'BIZCITY_TWINWEB_REWRITE_VERSION', '1.0.9' ); // [2026-09-18] PHASE-0.52 — add /gpt/myspace/ + /gpt/mycustomers/ (1.0.8: /gpt/mytasks/). Previously: [2026-09-07 03:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — catalog all static Twin GPT public subpaths in one route contract.
+define( 'BIZCITY_TWINWEB_REWRITE_VERSION', '1.0.10' ); // [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — drop /gpt/twinchat/ rewrite. Previously: [2026-09-18] PHASE-0.52 — add /gpt/myspace/ + /gpt/mycustomers/ (1.0.8: /gpt/mytasks/). Previously: [2026-09-07 03:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.48D — catalog all static Twin GPT public subpaths in one route contract.
 
 // ── Includes ──────────────────────────────────────────────────────────────────
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-installer.php';
@@ -118,6 +118,41 @@ if ( class_exists( 'BizCity_TwinWeb_Page' ) ) {
 if ( class_exists( 'BizCity_TwinWeb_Profile_Grounding' ) ) {
 	BizCity_TwinWeb_Profile_Grounding::init();
 }
+
+// ── Twin Shell ActivityBar entry ──────────────────────────────────────────────
+// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-02 — the site owner and staff open Twin GPT inside /twin/.
+// The iframe still loads /gpt/, so every request stays the C surface (R-LM §1.1: the URL decides the role).
+add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
+	if ( ! is_array( $plugins ) ) {
+		$plugins = array();
+	}
+	$plugins[] = array(
+		'id'          => 'gpt',
+		'label'       => __( 'Twin GPT', 'bizcity-twin-ai' ),
+		'icon'        => 'sparkles',
+		'emoji'       => '✦',
+		'mode'        => 'embed',
+		'public_slug' => '/gpt/',
+		'capability'  => 'read',
+		'section'     => 'top',
+		'route_mode'  => 'path',
+		'desc'        => __( 'Your personal AI workspace: chat, your Zalo numbers and your tasks.', 'bizcity-twin-ai' ),
+		'requires'    => array( 'class' => 'BizCity_TwinWeb_Page' ),
+		'access'      => array(
+			'mode'  => 'delegated',
+			'owner' => 'modules/twinweb',
+		),
+	);
+	return $plugins;
+} );
+
+// Delegated owner of the `gpt` icon: the Twin GPT access policy answers, never a copy of it.
+add_filter( 'bizcity_module_access_delegate', static function ( $allowed, $module_id, $user_id ) {
+	if ( 'gpt' !== $module_id || ! class_exists( 'BizCity_TwinWeb_REST' ) ) {
+		return $allowed;
+	}
+	return BizCity_TwinWeb_REST::instance()->module_access_allows_user( (int) $user_id );
+}, 10, 3 );
 
 // ── REST routes ───────────────────────────────────────────────────────────────
 add_action( 'rest_api_init', function () {

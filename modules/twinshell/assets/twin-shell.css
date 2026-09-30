@@ -100,6 +100,14 @@
   color: var(--ts-fg);
 }
 
+/* PHASE-0.84 — divider between the seven primary icons and the other top-group entries. */
+.ts-ab-sep {
+  width: 24px;
+  height: 1px;
+  margin: 6px auto;
+  background: var(--ts-bar-border);
+}
+
 /* Context-toggle (admin ⇄ standalone) — sits at very top, visually separated. */
 .ts-ab-context-toggle {
   margin-bottom: 6px;
