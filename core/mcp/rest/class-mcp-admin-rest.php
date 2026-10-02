@@ -64,7 +64,10 @@ final class BizCity_MCP_Admin_REST {
 
 	public static function can_manage() {
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP — key material is restricted to site administrators.
-		if ( current_user_can( 'manage_options' ) ) {
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( $can_manage ) {
 			return true;
 		}
 		// [2026-07-28 Johnny Chu] R-ERROR-UX — permission failures carry an actionable catalog payload.
@@ -167,7 +170,11 @@ final class BizCity_MCP_Admin_REST {
 		if ( defined( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED' ) && BIZCITY_MCP_COMMERCE_TOOLS_ENABLED ) {
 			$allowed[] = 'commerce.read';
 		}
-		$scopes  = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) $raw ) ) ) );
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 — admin may grant the one-MCP-standard scopes to a key explicitly (never by default).
+		if ( class_exists( 'BizCity_MCP_Delegation' ) ) {
+			$allowed = array_values( array_unique( array_merge( $allowed, array_diff( BizCity_MCP_Delegation::STANDARD_SCOPES, array( 'commerce.read' ) ) ) ) );
+		}
+		$scopes  =array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) $raw ) ) ) );
 		return array_values( array_intersect( $scopes, $allowed ) );
 	}
 

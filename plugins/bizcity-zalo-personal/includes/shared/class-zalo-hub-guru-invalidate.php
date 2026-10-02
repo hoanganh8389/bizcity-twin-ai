@@ -187,18 +187,19 @@ final class BizCity_Zalo_Hub_Guru_Invalidate {
 		$answering = self::answering();
 		$refs = array();
 		$notebooks = array();
+		$pairs = array(); // [2026-10-01 Claude Opus 5.5] PHASE-0.88 L2-4 — ref|notebook, for uris[]
 		foreach ( $answering as $cid => $ref ) {
 			$used = self::used_notebooks( (int) $cid );
 			if ( $p['all'] || in_array( (int) $cid, $p['gurus'], true ) ) { $refs[ $ref ] = true; }
 			foreach ( $p['notebooks'] as $nb ) {
-				if ( in_array( (int) $nb, $used, true ) ) { $refs[ $ref ] = true; $notebooks[ (int) $nb ] = true; }
+				if ( in_array( (int) $nb, $used, true ) ) { $refs[ $ref ] = true; $notebooks[ (int) $nb ] = true; $pairs[ $ref . '|' . (int) $nb ] = true; }
 			}
 		}
 		foreach ( $p['uuids'] as $uuid ) {
 			$cid = self::character_of_uuid( $uuid );
 			if ( $cid > 0 && isset( $answering[ $cid ] ) ) {
 				$refs[ $answering[ $cid ] ] = true;
-				foreach ( $p['notebooks'] as $nb ) { $notebooks[ (int) $nb ] = true; } // attach or detach: the cell must re-list either way
+				foreach ( $p['notebooks'] as $nb ) { $notebooks[ (int) $nb ] = true; $pairs[ $answering[ $cid ] . '|' . (int) $nb ] = true; } // attach or detach: the cell must re-list either way
 			}
 		}
 		foreach ( $p['deleted'] as $cid ) { $refs[ 'guru:' . (int) $cid ] = true; }
@@ -213,12 +214,34 @@ final class BizCity_Zalo_Hub_Guru_Invalidate {
 		sort( $refs );
 		$nbs = array_map( 'intval', array_keys( $notebooks ) );
 		sort( $nbs );
-		$body = array( 'contract' => self::CONTRACT, 'refs' => array_slice( $refs, 0, self::MAX_ITEMS ), 'notebooks' => array_slice( $nbs, 0, self::MAX_ITEMS ), 'reason' => $reason );
+		$body = array( 'contract' => self::CONTRACT, 'refs' => array_slice( $refs, 0, self::MAX_ITEMS ), 'notebooks' => array_slice( $nbs, 0, self::MAX_ITEMS ), 'reason' => $reason, 'uris' => self::uris( $refs, array_keys( $pairs ) ) );
 		$result = self::send( $body );
 		$ok = ! empty( $result['ok'] ) || ! empty( $result['success'] );
 		$code = $ok ? 'sent' : (string) ( $result['code'] ?? 'managed_bridge_unavailable' );
 		update_option( self::STATE_OPTION, array( 'at' => self::now(), 'ok' => $ok, 'code' => $code, 'refs' => count( $body['refs'] ), 'notebooks' => count( $body['notebooks'] ), 'reason' => $reason, 'cells' => (int) ( $result['cells'] ?? 0 ) ), false );
 		return array( 'ok' => $ok, 'code' => $code, 'body' => $body );
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L2-4 — additive `uris[]` (bizcity-resource-uri@1): `bizcity://guru/<n>` per wire ref
+	 * (`guru:0` ⇒ 0) and `bizcity://guru/<n>/notebook/<nb>` per changed notebook of that Guru. The Hub ignores unknown fields.
+	 *
+	 * @param string[] $refs  wire refs
+	 * @param string[] $pairs "<wire ref>|<notebook id>"
+	 * @return string[]
+	 */
+	public static function uris( array $refs, array $pairs = array() ): array {
+		$n   = static function ( string $wire ): int { return preg_match( '/^guru:(\d{1,18})$/', $wire, $m ) ? (int) $m[1] : -1; };
+		$out = array();
+		foreach ( $refs as $ref ) {
+			if ( $n( (string) $ref ) >= 0 ) { $out[] = 'bizcity://guru/' . $n( (string) $ref ); }
+		}
+		foreach ( $pairs as $pair ) {
+			list( $ref, $nb ) = array_pad( explode( '|', (string) $pair, 2 ), 2, '' );
+			if ( $n( $ref ) >= 0 && (int) $nb > 0 ) { $out[] = 'bizcity://guru/' . $n( $ref ) . '/notebook/' . (int) $nb; }
+		}
+		sort( $out );
+		return array_slice( array_values( array_unique( $out ) ), 0, self::MAX_ITEMS );
 	}
 
 	/* ================================================================

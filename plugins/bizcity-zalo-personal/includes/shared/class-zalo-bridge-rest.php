@@ -545,8 +545,13 @@ class BizCity_Zalo_Bridge_REST {
 	 * zalo_hub is offered only when the Hub says this exact key may use it (P-5). `default_provider` is the stored site default
 	 * as-is (the Settings screen edits it); a UI pre-selects zalo_hub only when BOTH say so, as ZaloPersonalMembers.jsx does.
 	 *
+	 * [2026-09-29 Claude Sonnet 5] PHASE-0.82 D82-40/D82-41 — `zalo_hub_allowed`/`zalo_hub_reason` are kept
+	 * as-is for existing callers; `options[]` is the new additive shape every add-number surface (Bot
+	 * Studio, CRM, `/gpt/crm/`) should read going forward so a third connection choice (or a future one)
+	 * does not need a new pair of top-level keys each time.
+	 *
 	 * @param array|null $capability `BizCity_Zalo_Personal_Hub_Client::capability()` result, or null to read it now (managed mode only).
-	 * @return array{default_provider:string,zalo_hub_allowed:bool,zalo_hub_reason:string}
+	 * @return array{default_provider:string,zalo_hub_allowed:bool,zalo_hub_reason:string,options:list<array{id:string,label:string,allowed:bool,reason:string}>}
 	 */
 	public static function provider_choice( $capability = null ): array {
 		if ( null === $capability && 'managed_1api' === BizCity_Zalo_Bridge_Client::instance()->get_mode() && class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
@@ -555,11 +560,43 @@ class BizCity_Zalo_Bridge_REST {
 		$hub = is_array( $capability ) && isset( $capability['capability']['providers']['zalo_hub'] ) && is_array( $capability['capability']['providers']['zalo_hub'] ) ? $capability['capability']['providers']['zalo_hub'] : array();
 		$allowed = ! empty( $hub['allowed'] );
 		$default = class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::default_provider() : 'zca';
+		$zalo_hub_reason = $allowed ? '' : sanitize_key( (string) ( $hub['reason'] ?? ( is_array( $capability ) && empty( $capability['success'] ) ? 'hub_unavailable' : 'feature_not_enabled' ) ) );
+		$options = array(
+			array( 'id' => 'zalo_hub', 'label' => 'Zalo Hub', 'allowed' => $allowed, 'reason' => $zalo_hub_reason ),
+		);
+		if ( class_exists( 'BizCity_Remote_Zalo_Feature' ) && BizCity_Remote_Zalo_Feature::enabled() ) {
+			$options[] = array( 'id' => 'remote_zalo_hub', 'label' => 'Remote Zalo Hub API' ) + self::remote_zalo_hub_readiness();
+		}
+		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) && in_array( 'zca', BizCity_Zalo_Account_Flags::new_number_providers(), true ) ) {
+			$options[] = array( 'id' => 'zca', 'label' => 'zca-bridge', 'allowed' => true, 'reason' => '' );
+		}
 		return array(
 			'default_provider' => $default,
 			'zalo_hub_allowed' => $allowed,
-			'zalo_hub_reason'  => $allowed ? '' : sanitize_key( (string) ( $hub['reason'] ?? ( is_array( $capability ) && empty( $capability['success'] ) ? 'hub_unavailable' : 'feature_not_enabled' ) ) ),
+			'zalo_hub_reason'  => $zalo_hub_reason,
+			'options'          => $options,
 		);
+	}
+
+	/**
+	 * [2026-09-29 Claude Sonnet 5] PHASE-0.82 D82-41/E2 — a `remote_zalo_hub` default is only meaningful
+	 * once the branch-3 connection itself is configured AND the last "Lưu và kiểm tra" did not fail; this
+	 * is deliberately independent of the BizCity Hub capability check above (a third-party transport has
+	 * no BizCity entitlement to check).
+	 */
+	private static function remote_zalo_hub_readiness(): array {
+		if ( ! class_exists( 'BizCity_Remote_Zalo_Credentials' ) ) {
+			return array( 'allowed' => false, 'reason' => 'remote_not_loaded' );
+		}
+		$conn = BizCity_Remote_Zalo_Credentials::public_view();
+		if ( empty( $conn['key_set'] ) || '' === (string) ( $conn['base_url_host'] ?? '' ) ) {
+			return array( 'allowed' => false, 'reason' => 'remote_not_configured' );
+		}
+		$last_check = class_exists( 'BizCity_Remote_Zalo_Last_Check' ) ? BizCity_Remote_Zalo_Last_Check::get() : array();
+		if ( 'fail' === (string) ( $last_check['status'] ?? '' ) ) {
+			return array( 'allowed' => false, 'reason' => 'remote_last_check_failed' );
+		}
+		return array( 'allowed' => true, 'reason' => '' );
 	}
 
 	public static function handle_save_settings( WP_REST_Request $request ): WP_REST_Response {
@@ -586,8 +623,20 @@ class BizCity_Zalo_Bridge_REST {
 		}
 		update_option( BizCity_Zalo_Bridge_Client::OPTION_MODE, $mode, false );
 		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-2/4a-9 (P-5) — zalo_hub may only become the default when the Hub says this key may use it.
+		// [2026-09-29 Claude Sonnet 5] PHASE-0.82 D82-40/D82-41 — the default must be a NEW-number-eligible
+		// value (`new_number_providers()`); `remote_zalo_hub` additionally needs a configured + last-check-ok
+		// branch-3 connection (E3), checked independently of the BizCity Hub capability above.
 		if ( isset( $body['default_provider'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
 			$wanted = BizCity_Zalo_Account_Flags::normalize_provider( (string) $body['default_provider'] );
+			if ( ! in_array( $wanted, BizCity_Zalo_Account_Flags::new_number_providers(), true ) ) {
+				return new WP_REST_Response( array(
+					'ok'        => false,
+					'code'      => 'provider_retired',
+					'message'   => 'Kết nối zca-bridge đã ngừng cho số mới.',
+					'hint'      => 'Chọn Zalo Hub hoặc Remote Zalo Hub.',
+					'help_code' => 'provider_retired',
+				), 200 );
+			}
 			if ( BizCity_Zalo_Account_Flags::PROVIDER_ZALO_HUB === $wanted ) {
 				$cap = 'managed_1api' === $mode && class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ? BizCity_Zalo_Personal_Hub_Client::instance()->capability() : array();
 				if ( empty( $cap['capability']['providers']['zalo_hub']['allowed'] ) ) {
@@ -595,11 +644,21 @@ class BizCity_Zalo_Bridge_REST {
 						'ok'        => false,
 						'code'      => 'zalo_hub_not_enabled',
 						'message'   => 'Gói hiện tại của website chưa dùng được zalo-hub.',
-						'hint'      => 'Giữ zca làm mặc định; zalo-hub mở khi BizCity bật cho API key này.',
+						'hint'      => 'Zalo Hub mở khi BizCity bật cho API key này.',
 						'help_code' => 'zalo_hub_not_enabled',
 						'reason'    => (string) ( $cap['capability']['providers']['zalo_hub']['reason'] ?? '' ),
 					), 200 );
 				}
+			}
+			if ( BizCity_Zalo_Account_Flags::PROVIDER_REMOTE_ZALO_HUB === $wanted && empty( self::remote_zalo_hub_readiness()['allowed'] ) ) {
+				return new WP_REST_Response( array(
+					'ok'        => false,
+					'code'      => 'remote_not_ready',
+					'message'   => 'Remote Zalo Hub chưa sẵn sàng làm kết nối mặc định.',
+					'hint'      => 'Lưu và kiểm tra Base URL + khóa Remote Zalo Hub trước.',
+					'help_code' => 'remote_not_ready',
+					'reason'    => (string) ( self::remote_zalo_hub_readiness()['reason'] ?? '' ),
+				), 200 );
 			}
 			update_option( BizCity_Zalo_Account_Flags::DEFAULT_PROVIDER_OPTION, $wanted, false );
 		}
@@ -743,6 +802,26 @@ class BizCity_Zalo_Bridge_REST {
 				}
 			}
 			return new WP_REST_Response( self::with_error_contract( $response ) );
+		}
+		// [2026-09-29 Claude Sonnet 5] PHASE-0.82 D82-40 — the Hub (or the local client, for `provider_retired`)
+		// explicitly refused the create (e.g. `zalo_hub_not_enabled`, `cell_capacity_full`, `provider_retired`)
+		// without a `_degraded` transport failure and without an `account` payload. Now that the silent
+		// zca fallback is removed, this is the normal shape of "operator picked a connection the site cannot
+		// use right now" — surface it as-is instead of falling through to the generic mapping-error branch
+		// below, which used to be unreachable here because the fallback always retried and succeeded first.
+		if ( empty( $result['success'] ) && empty( $result['account']['id'] ?? null ) && ! empty( $result['code'] ) ) {
+			self::trace_create_step( 'create_refused', array( 'code' => sanitize_key( (string) $result['code'] ) ) );
+			$refusal = array(
+				'ok'        => false,
+				'code'      => (string) $result['code'],
+				'message'   => (string) ( $result['message'] ?? 'Không tạo được tài khoản Zalo.' ),
+				'hint'      => (string) ( $result['hint'] ?? 'Chọn kết nối khác hoặc thử lại sau.' ),
+				'help_code' => (string) ( $result['help_code'] ?? 'zalo_bridge_bad_response' ),
+			);
+			if ( isset( $result['reason'] ) ) {
+				$refusal['reason'] = (string) $result['reason'];
+			}
+			return new WP_REST_Response( self::with_error_contract( $refusal ), 200 );
 		}
 		$bridge_account = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : $result;
 		$bridge_id      = (string) ( $bridge_account['id'] ?? '' );
@@ -1020,6 +1099,11 @@ class BizCity_Zalo_Bridge_REST {
 	 */
 	public static function handle_hub_config_status( $request = null ): WP_REST_Response {
 		$out = array( 'ok' => true, 'sync' => BizCity_Zalo_Hub_Config_Sync::status() );
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-11 — last owner-pack invalidation sent to the Hub (counts and codes only).
+		if ( class_exists( 'BizCity_Zalo_Pack_Invalidate' ) ) {
+			$pi = get_option( BizCity_Zalo_Pack_Invalidate::STATE_OPTION, array() );
+			$out['packs_invalidate'] = is_array( $pi ) && $pi ? array_intersect_key( $pi, array_flip( array( 'at', 'ok', 'code', 'accounts', 'reason', 'cells' ) ) ) : null;
+		}
 		if ( is_object( $request ) && method_exists( $request, 'get_param' ) && ! empty( $request->get_param( 'cell' ) ) ) {
 			$accounts = BizCity_Zalo_Hub_Config_Sync::accounts();
 			$bridge   = $accounts ? (string) $accounts[0]['bridge_id'] : '';

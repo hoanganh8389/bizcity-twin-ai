@@ -56,6 +56,9 @@ class BizCity_Guru_Bridge_Installer {
 			) {$charset};"
 		);
 
+		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-2 (R-LEAN-4) — the provider-binding table is quarantined (no reader/writer since R13c-a):
+		// new sites no longer create it; existing copies stay until the owner signs the drop.
+		if ( false ) {
 		dbDelta(
 			"CREATE TABLE {$tbl_p} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -69,6 +72,7 @@ class BizCity_Guru_Bridge_Installer {
 				KEY idx_guru (guru_id, enabled)
 			) {$charset};"
 		);
+		}
 	}
 
 	public static function table_skills(): string {

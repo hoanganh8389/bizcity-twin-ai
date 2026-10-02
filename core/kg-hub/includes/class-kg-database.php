@@ -852,6 +852,9 @@ class BizCity_KG_Database {
 			KEY idx_grantee (grantee_type, grantee_ref, revoked_at)
 		) {$cs};" );
 
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 (R-LEAN-4) — bizcity_kg_acl_log is quarantined;
+		// BizCity_KG_Access::log() now writes the shared JSONL logger (contract core.kg_hub.acl_log) instead.
+		if ( false ) {
 		dbDelta( "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}bizcity_kg_acl_log (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			object_type VARCHAR(16) NOT NULL,
@@ -864,6 +867,7 @@ class BizCity_KG_Database {
 			KEY idx_object (object_type, object_id, created_at),
 			KEY idx_actor (actor_id, created_at)
 		) {$cs};" );
+		}
 	}
 
 	/**

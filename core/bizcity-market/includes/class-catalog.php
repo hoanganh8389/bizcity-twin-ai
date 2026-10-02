@@ -223,7 +223,7 @@ class BizCity_Market_Catalog {
    */
   public static function sync_agent_plugins( $force = false ) {
     // Throttle: chỉ chạy 1 lần / 24h (bump version to force re-sync)
-    $sync_ver  = '3';  // ← tăng lên khi cần force re-sync
+    $sync_ver  = '6';  // tăng lên khi cần force re-sync
     $cache_key = 'bizcity_agent_plugins_synced_v' . $sync_ver;
     if ( ! $force && get_site_transient( $cache_key ) ) return;
 
@@ -277,7 +277,8 @@ class BizCity_Market_Catalog {
         // Chỉ xử lý plugin có Role: agent hoặc tool
         if ( ! in_array( $role, [ 'agent', 'tool' ], true ) ) continue;
 
-        $slug = sanitize_key( dirname( $plugin_file ) );
+        $plugin_dir = dirname( $plugin_file );
+        $slug = sanitize_key( basename( $plugin_dir ) );
         if ( $slug === '.' ) $slug = sanitize_key( basename( $plugin_file, '.php' ) );
 
         // Kiểm tra đã tồn tại trong marketplace chưa
@@ -303,7 +304,7 @@ class BizCity_Market_Catalog {
         $plugin_data = [
             'plugin_slug'  => $slug,
             'plugin_file'  => $plugin_file,
-            'directory'    => sanitize_text_field( dirname( $plugin_file ) ),
+            'directory'    => sanitize_text_field( $plugin_dir ),
             'title'        => sanitize_text_field( $data['Name'] ?? $slug ),
             'author_name'  => sanitize_text_field( $data['Author'] ?? 'BizCity' ),
             'author_url'   => esc_url_raw( $data['AuthorURI'] ?? '' ),

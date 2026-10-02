@@ -352,8 +352,8 @@ class BizCity_TwinChat_Settings_Page {
 			array( 'id' => 'bizcity-openrouter-mu','label' => '🔌 BizCity OpenRouter (mu-plugin)',           'desc' => 'Thin proxy: BizCity_LLM/Search/Video Client.',           'status' => 'ok' ),
 			array( 'id' => 'bizcity-tool-image',   'label' => '🎨 BizCity Tool — Image',                     'desc' => 'Tiện ích Pro cho Image Studio; không thuộc framework must-load.', 'status' => 'pro' ),
 			array( 'id' => 'bizcity-video-kling',  'label' => '🎬 BizCity Video Kling',                      'desc' => 'Tiện ích Pro cho video; không thuộc framework must-load.', 'status' => 'pro' ),
-			array( 'id' => 'core-automation',      'label' => '🤖 Core Automation (canonical)',              'desc' => 'Workflow runner sống ở core/automation/ — dùng BizCity_LLM_Client.', 'status' => 'ok' ),
-			array( 'id' => 'bizcity-automation',   'label' => '🗑 BizCity Automation (DEPRECATED)',          'desc' => 'Plugin deprecate 2026-06-02 — logic chuyển sang core/automation/. Chờ delete.', 'status' => 'migrating' ),
+			array( 'id' => 'core-automation',      'label' => '🤖 Core Automation (canonical)',              'desc' => 'Workflow runner sống ở add-on bizcity-twin-brain-addon/automation/ — dùng BizCity_LLM_Client.', 'status' => 'ok' ),
+			array( 'id' => 'bizcity-automation',   'label' => '🗑 BizCity Automation (DEPRECATED)',          'desc' => 'Plugin deprecate 2026-06-02 — logic chuyển sang add-on bizcity-twin-brain-addon/automation/. Chờ delete.', 'status' => 'migrating' ),
 			array( 'id' => 'bizcity-zalo-bot',     'label' => '💬 BizCity Zalo Bot',                         'desc' => 'Memory extraction qua BizCity_LLM_Client::chat() (fixed 2026-06-02).', 'status' => 'ok' ),
 		);
 		$list = apply_filters( 'bizcity_llm_consumer_plugins', $default );

@@ -1905,8 +1905,11 @@ class BizCity_CRM_DB_Installer_V2 {
 		) {$charset};" );
 	}
 
-	// [2026-06-07 Johnny Chu] PHASE-3.5-WC — Wave C: NEW bizcity_crm_admin_chat_audit (v1.22.0).
+	// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 (R-LEAN-4) — bizcity_crm_admin_chat_audit is
+	// quarantined; BizCity_CRM_AdminChat_Audit now writes/reads the shared JSONL logger
+	// (contract core.twin_crm.admin_chat_audit).
 	public static function migrate_phase_047(): void {
+		if ( false ) {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		global $wpdb;
 		$charset = $wpdb->get_charset_collate();
@@ -1929,6 +1932,7 @@ class BizCity_CRM_DB_Installer_V2 {
 			KEY idx_action_status (action, status),
 			KEY idx_guru (guru_id)
 		) {$charset};" );
+		}
 	}
 
 	/**

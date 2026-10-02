@@ -322,6 +322,8 @@ class BizCity_Zalo_Bridge_Client {
 		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — preserve one caller-owned idempotency key across custom and managed transports.
 		$idempotency_key = sanitize_key( $idempotency_key );
 		if ( $this->is_managed_mode() ) {
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D1 — a staff/automation send from the site never enters the daily
+			// notebook any more; the only entry point is BizCity_Zalo_Owner_Capture_REST (contract owner-capture@1, R-TAA-15).
 			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->enqueue_outbound( $account_id, $recipient, $text, $type, $attachments, $thread_kind, $mentions, $idempotency_key, $quote ) : $this->degraded( 'managed_client_missing' );
 		}
 		return $this->post( 'wp/outbound', array(

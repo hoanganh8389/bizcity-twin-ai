@@ -105,13 +105,7 @@ class BizCity_Twin_Snapshot_Builder {
             }
         }
 
-        // Enrich bond from Companion Emotional Memory
-        if ( class_exists( 'BizCity_Emotional_Memory' ) ) {
-            $bond = BizCity_Emotional_Memory::instance()->get_bond_score( $user_id );
-            if ( $bond ) {
-                $identity['bond_score'] = $bond;
-            }
-        }
+        // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14d / R-VERTICAL-AXIS R-VA-6 (CUT, owner 2026-09-30) — companion bond score retired; bond_score keeps its default.
 
         // Enrich preferences from explicit user memory
         if ( class_exists( 'BizCity_User_Memory' ) ) {
@@ -132,6 +126,17 @@ class BizCity_Twin_Snapshot_Builder {
     /* ================================================================
      * FOCUS — What is the user currently focused on
      * ================================================================ */
+    /**
+     * [2026-09-25 Claude Opus 5.5] WP-11 C3b — focus only (active TwinBrain goal), for callers that do not need a full snapshot.
+     */
+    public static function focus( int $user_id, string $session_id = '' ): array {
+        $key = $user_id . '_' . $session_id;
+        if ( isset( self::$cache[ $key ]['focus'] ) ) {
+            return self::$cache[ $key ]['focus'];
+        }
+        return self::build_focus( $user_id, $session_id );
+    }
+
     private static function build_focus( int $user_id, string $session_id ): array {
         $focus = [
             'current_focus'     => null,
@@ -140,47 +145,47 @@ class BizCity_Twin_Snapshot_Builder {
             'next_best_actions' => [],
         ];
 
-        // From active intent conversations
-        if ( class_exists( 'BizCity_Intent_Database' ) ) {
-            global $wpdb;
-            $table = $wpdb->prefix . 'bizcity_intent_conversations';
-            // [2026-06-28 Johnny Chu] R-SHOW-TABLES — information_schema + wp_cache dual cache
-            $_ck_ic = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
-            $_p_ic  = wp_cache_get( $_ck_ic, 'bizcity_tbl' );
-            if ( false === $_p_ic ) {
-                $_p_ic = (int) (bool) $wpdb->get_var( $wpdb->prepare(
-                    'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-                    $table
-                ) );
-                wp_cache_set( $_ck_ic, $_p_ic, 'bizcity_tbl', HOUR_IN_SECONDS );
+        // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b (D-26, R-IM-4) — focus comes from the TwinBrain
+        // goal loop (event-sourced in twin_event_stream), not from bizcity_intent_conversations, which nothing writes
+        // any more. Read-only: identity resolve + one cached, bounded goal scan.
+        if ( $user_id <= 0
+            || ! class_exists( 'BizCity_Identity_Hub' )
+            || ! method_exists( 'BizCity_TwinBrain_Goal_Loop_Repository', 'latest_active_by_identity' ) ) {
+            return $focus;
+        }
+        $blog_id  = (int) get_current_blog_id();
+        $identity = BizCity_Identity_Hub::resolve_from_opts( [ 'user_id' => $user_id ], $blog_id );
+        $uuid     = is_array( $identity ) ? (string) ( $identity['identity_uuid'] ?? '' ) : '';
+        if ( $uuid === '' ) {
+            return $focus;
+        }
+        $goal = BizCity_TwinBrain_Goal_Loop_Repository::latest_active_by_identity( $blog_id, $uuid );
+        if ( empty( $goal ) || ! is_array( $goal ) ) {
+            return $focus;
+        }
+        $goal_id = (string) ( $goal['goal_id'] ?? '' );
+        $primary = (string) ( $goal['goal_title'] ?? '' );
+        $primary = $primary !== '' ? $primary : (string) ( $goal['primary_goal'] ?? '' );
+        if ( $primary !== '' ) {
+            $focus['open_loops'][] = [ 'type' => 'twin_goal', 'label' => $primary, 'id' => $goal_id ];
+        }
+        foreach ( array_slice( (array) ( $goal['open_loops'] ?? [] ), 0, 4 ) as $item ) {
+            $label = is_array( $item ) ? (string) ( $item['label'] ?? '' ) : (string) $item;
+            if ( $label !== '' ) {
+                $focus['open_loops'][] = [ 'type' => 'twin_goal_loop', 'label' => $label, 'id' => $goal_id ];
             }
-            if ( $_p_ic ) {
-                $active = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT id, goal, status, created_at
-                     FROM {$table}
-                     WHERE user_id = %d AND status IN ('active','pending_slots')
-                     ORDER BY updated_at DESC LIMIT 5",
-                    $user_id
-                ) );
-                foreach ( $active as $conv ) {
-                    if ( ! empty( $conv->goal ) ) {
-                        $focus['open_loops'][] = [
-                            'type'  => 'intent_goal',
-                            'label' => $conv->goal,
-                            'id'    => $conv->id,
-                        ];
-                    }
-                }
-                if ( ! empty( $focus['open_loops'] ) ) {
-                    $top = $focus['open_loops'][0];
-                    $focus['current_focus'] = [
-                        'type'    => $top['type'],
-                        'label'   => $top['label'],
-                        'score'   => 0.8,
-                        'why_now' => [ 'most_recent_active_intent' ],
-                    ];
-                }
-            }
+        }
+        if ( ! empty( $goal['next_best_action'] ) && is_array( $goal['next_best_action'] ) && ! empty( $goal['next_best_action']['label'] ) ) {
+            $focus['next_best_actions'][] = [ 'label' => (string) $goal['next_best_action']['label'], 'source' => 'twin_goal' ];
+        }
+        if ( ! empty( $focus['open_loops'] ) ) {
+            $top = $focus['open_loops'][0];
+            $focus['current_focus'] = [
+                'type'    => $top['type'],
+                'label'   => $top['label'],
+                'score'   => 0.8,
+                'why_now' => [ ( $goal['session_id'] ?? '' ) === $session_id && $session_id !== '' ? 'active_goal_this_session' : 'active_goal_other_session' ],
+            ];
         }
 
         return $focus;
@@ -229,19 +234,8 @@ class BizCity_Twin_Snapshot_Builder {
             }
         }
 
-        // Emotional threads as active_threads
-        if ( class_exists( 'BizCity_Emotional_Memory' ) ) {
-            $em_instance = BizCity_Emotional_Memory::instance();
-            $threads = $em_instance->get_emotional(
-                $user_id, '', BizCity_Emotional_Memory::TYPE_THREAD, 4
-            );
-            foreach ( $threads as $t ) {
-                $timeline['active_threads'][] = [
-                    'topic'  => $t->memory_text ?? '',
-                    'status' => 'open',
-                ];
-            }
-        }
+        // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14d / R-VERTICAL-AXIS R-VA-6 (CUT, owner 2026-09-30) — emotional threads retired (this block also used the undefined
+        // constant TYPE_THREAD on the emotional-memory class, a latent fatal).
 
         return $timeline;
     }

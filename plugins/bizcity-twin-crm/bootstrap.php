@@ -220,6 +220,10 @@ final class BizCity_CRM_Plugin {
 		BizCity_CRM_Attribution_Backfill::register();
 		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 UID-02 — `GET/POST /crm-settings/personal-phone-quota`.
 		add_action( 'rest_api_init', array( 'BizCity_CRM_Personal_Quota_REST', 'register_routes' ) );
+		// [2026-09-30] PHASE-0.85 §K1 (C85-7) — `GET ai-usage/overview|by-tool|by-account|by-customer|turns|limits`.
+		if ( class_exists( 'BizCity_CRM_AI_Usage_REST' ) ) {
+			add_action( 'rest_api_init', array( 'BizCity_CRM_AI_Usage_REST', 'register_routes' ) );
+		}
 
 		// Bump grants version on any mutation so /version endpoint and cache invalidate.
 		$bump = array( 'BizCity_CRM_REST_Controller', 'bump_grants_version' );
@@ -230,7 +234,10 @@ final class BizCity_CRM_Plugin {
 		// Admin menu + script enqueue.
 		if ( is_admin() ) {
 			BizCity_CRM_Admin_Menu::instance();
-			BizCity_CRM_Sprint_Diagnostic::instance();
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 B-6 — dev-only page (D-35), absent in production.
+			if ( class_exists( 'BizCity_CRM_Sprint_Diagnostic', false ) ) {
+				BizCity_CRM_Sprint_Diagnostic::instance();
+			}
 		}
 	}
 
@@ -306,6 +313,17 @@ final class BizCity_CRM_Plugin {
 			BizCity_Safe_Loader::require_file( $inc . 'service/class-service-rest.php', 'crm.service.service_rest' );
 			BizCity_Safe_Loader::require_file( $inc . 'service/class-location-link-handler.php', 'crm.service.location_link_handler' );
 			BizCity_Safe_Loader::require_file( $inc . 'service/class-service-sla-listener.php', 'crm.service.service_sla_listener' );
+			// [2026-09-30] PHASE-0.85 §K1 (C85-7) — "Chi phí AI" report: depends on the Hub client living in
+			// plugins/bizcity-zalo-personal (K0) and on BizCity_Zalo_Mapping_Repo for scope=mine account lookup;
+			// neither is guaranteed active on every site, so this loads through Safe Loader like its siblings above.
+			BizCity_Safe_Loader::require_file( $inc . 'ai-usage/class-ai-usage-scope.php', 'crm.ai_usage.scope' );
+			// [2026-09-30] PHASE-0.85 §K2 — nối thread cell -> hội thoại CRM cho by_customer/turns; đọc thẳng
+			// `BizCity_CRM_DB_Installer_V2::tbl_*()` (đã require_once phía trên, không phải Safe Loader).
+			BizCity_Safe_Loader::require_file( $inc . 'ai-usage/class-ai-usage-thread-map.php', 'crm.ai_usage.thread_map' );
+			BizCity_Safe_Loader::require_file( $inc . 'ai-usage/class-ai-usage-service.php', 'crm.ai_usage.service' );
+			// [2026-09-30] PHASE-0.85 §K3 — cảnh báo gộp Hub+cell, ack/mute/prefs trong user meta.
+			BizCity_Safe_Loader::require_file( $inc . 'ai-usage/class-ai-usage-alerts.php', 'crm.ai_usage.alerts' );
+			BizCity_Safe_Loader::require_file( $inc . 'ai-usage/class-ai-usage-rest.php', 'crm.ai_usage.rest' );
 		}
 		if ( class_exists( 'BizCity_CRM_Location_Service' ) ) {
 			BizCity_CRM_Location_Service::register();
@@ -374,6 +392,8 @@ final class BizCity_CRM_Plugin {
 			'class-crm-authority.php'     => 'crm.contract.authority',
 			'class-crm-zone-registry.php' => 'crm.contract.zone_registry',
 			'crm-surfaces.php'            => 'crm.contract.surfaces',
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-13 — CRM answers the business agent modes (agent-mode-access@1 §4).
+			'class-crm-agent-mode-delegate.php' => 'crm.contract.agent_mode_delegate',
 		);
 		foreach ( $crm_contract_files as $contract_file => $contract_label ) {
 			$contract_path = $inc . 'contracts/' . $contract_file;
@@ -382,6 +402,17 @@ final class BizCity_CRM_Plugin {
 			}
 		}
 		unset( $crm_contract_files, $contract_file, $contract_label, $contract_path );
+		if ( class_exists( 'BizCity_CRM_Agent_Mode_Delegate' ) ) {
+			BizCity_CRM_Agent_Mode_Delegate::register();
+		}
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-2 / CL-12 — sales/orders/stock (Woo) + customers (CRM) projection packs.
+		// Loaded outside the Woo bridge: `customers` needs only the CRM; each kind says itself whether its source exists.
+		if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+			BizCity_Safe_Loader::require_file( $inc . 'woo/class-business-pack-exporter.php', 'crm.business_pack_exporter' );
+		}
+		if ( class_exists( 'BizCity_CRM_Business_Pack_Exporter' ) ) {
+			BizCity_CRM_Business_Pack_Exporter::register();
+		}
 		// [2026-08-24 Johnny Chu] PHASE-0.39F-F6 — load read-only Kanban projections after repository ownership is available.
 		require_once $inc . 'class-kanban-manager.php';
 		// [2026-08-25 Johnny Chu] PHASE-1.24-LOADER-GUARD — tolerate stale/partial assignment-manager artifacts without fatal activation.
@@ -441,7 +472,7 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'inbox/adapters/class-adapter-zalo-personal.php';
 		require_once $inc . 'inbox/adapters/class-adapter-instagram.php';
 		require_once $inc . 'inbox/adapters/class-adapter-whatsapp-cloud.php';
-		require_once $inc . 'inbox/adapters/class-adapter-telegram.php';
+		// [2026-09-27 Claude Sonnet 5] CORE-REDUCTION WP-12 D-33 — Telegram customer channel retired (one axis).
 		require_once $inc . 'inbox/adapters/class-adapter-email-imap.php';
 		require_once $inc . 'inbox/adapters/class-adapter-web-widget.php';
 		require_once $inc . 'inbox/adapters/class-adapter-webchat.php';
@@ -494,12 +525,16 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 UID-02 — site-level cap on Zalo Personal numbers per user.
 		require_once $inc . 'class-personal-quota-rest.php';
 		require_once $inc . 'class-admin-menu.php';
-		require_once $inc . 'class-sprint-diagnostic.php';
 		// PHASE-0.35 / 2026-05-14 — Phase C/D diagnostic sections extracted into
 		// sibling class to keep main file < 5.5kLOC. Loaded after main so
 		// BizCity_CRM_Sprint_Diagnostic::render_phase_c_dispatch_section()
 		// can delegate to BizCity_CRM_Sprint_Diagnostic_Phase_CD::render().
-		require_once $inc . 'class-sprint-diagnostic-phase-cd.php';
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 B-6 — both are dev-only (D-35) and may be absent.
+		foreach ( array( 'class-sprint-diagnostic.php', 'class-sprint-diagnostic-phase-cd.php' ) as $crm_diag_file ) {
+			if ( is_file( $inc . $crm_diag_file ) && is_readable( $inc . $crm_diag_file ) && class_exists( 'BizCity_Safe_Loader', false ) ) {
+				BizCity_Safe_Loader::require_file( $inc . $crm_diag_file, 'crm.diagnostics.' . basename( $crm_diag_file, '.php' ) );
+			}
+		}
 		// Wave F7.0d (R-MPRT-12 + R-DDV) — Tool Taxonomy diagnostic merged
 		// into BizCity_CRM_Sprint_Diagnostic::render_tool_taxonomy_section()
 		// (standalone class-tool-taxonomy-diagnostic.php removed 2026-05-14
@@ -707,6 +742,16 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 			return (bool) $can || current_user_can( BizCity_CRM_Capabilities::CAP_MANAGE_TEAMS );
 		} );
 
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-13 — CRM is the delegated owner of the Twin Shell `crm`
+		// icon (module-access@1.0.0): same answer as the /crm/ page gate (`crm.inbox.open`), for any user.
+		add_filter( 'bizcity_module_access_delegate', static function ( $allowed, $module_id, $user_id ) {
+			if ( 'crm' !== $module_id || ! class_exists( 'BizCity_CRM_Authority' ) || ! class_exists( 'BizCity_CRM_Actor' ) ) {
+				return $allowed;
+			}
+			$actor = BizCity_CRM_Actor::for_user( (int) $user_id, 'be' );
+			return ! empty( BizCity_CRM_Authority::can( 'crm.inbox.open', array(), $actor )['ok'] );
+		}, 10, 3 );
+
 		// PHASE 0.35 M-CRM.M2 — hourly overdue-invoice scanner.
 		BizCity_CRM_Invoice_Cron::register();
 
@@ -775,9 +820,6 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 			}
 			if ( ! isset( $adapters['whatsapp_cloud'] ) && class_exists( 'BizCity_CRM_Adapter_WhatsApp_Cloud' ) ) {
 				$adapters['whatsapp_cloud'] = new BizCity_CRM_Adapter_WhatsApp_Cloud();
-			}
-			if ( ! isset( $adapters['telegram'] ) && class_exists( 'BizCity_CRM_Adapter_Telegram' ) ) {
-				$adapters['telegram'] = new BizCity_CRM_Adapter_Telegram();
 			}
 			if ( ! isset( $adapters['email_imap'] ) && class_exists( 'BizCity_CRM_Adapter_Email_IMAP' ) ) {
 				$adapters['email_imap'] = new BizCity_CRM_Adapter_Email_IMAP();

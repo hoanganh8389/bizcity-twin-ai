@@ -2376,6 +2376,7 @@ class BizCity_KG_Channel_Notebook_Bridge {
 			'telegram'  => 'Telegram hằng ngày',
 			'messenger' => 'Messenger hằng ngày',
 			'webchat'   => 'WebChat hằng ngày',
+			'zalo_personal' => __( 'Zalo Personal daily', 'bizcity-twin-ai' ), // [2026-09-30 06:40 PM Claude Opus 5.5] PHASE-0.86 S86-1 (R-LANG: English source)
 		);
 		$label = isset( $labels[ $channel ] ) ? $labels[ $channel ] : ( ucfirst( $channel ) . ' hằng ngày' );
 

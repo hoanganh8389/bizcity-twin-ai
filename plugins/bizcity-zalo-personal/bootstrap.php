@@ -50,6 +50,19 @@ $_bizcity_zp_files = array(
 	$_shared . 'class-zalo-bridge-client.php',
 	$_shared . 'class-zalo-hook-log.php',
 	$_shared . 'class-zalo-inbound-emitter.php',
+	// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D1 — owner's own 1-1 message (owner-capture@1) → per-number daily KG notebook.
+	$_shared . 'class-zalo-personal-knowledge-capture.php',
+	$_shared . 'class-zalo-owner-capture-rest.php',
+	// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-1 / CL-D4 — projection packs (Hub → site) + pack invalidation (site → Hub).
+	$_shared . 'class-zalo-pack-rest.php',
+	$_shared . 'class-zalo-pack-invalidate.php',
+	$_shared . 'class-zalo-mcp-bridge-rest.php', // [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — POST zalo-bridge/mcp (cell → Hub → core/mcp, delegated principal)
+	$_shared . 'class-zalo-owner-contact.php', // [2026-09-30] PHASE-0.87 CL-D2 — owner 1-1 contact ⇒ role:owner
+	// [2026-10-01 Claude Opus 5.5] PHASE-0.87 W2-1 — staff who may use the Agent on a number (doc 50) + Bot Studio REST.
+	$_shared . 'class-zalo-agent-principals.php',
+	$_shared . 'class-zalo-staff-principals-rest.php',
+	$_shared . 'class-zalo-uid-verify.php', // [2026-10-01] PHASE-0.87 CL-14 — verify a UID by a one-time link (D-TAA-6)
+	$_shared . 'class-zalo-deep-analysis.php', // [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-8 — deep-analysis-job@1 (SEAM-6): 202 + TwinBrain MPR in cron
 	// [2026-09-18] PHASE-0.48F U10 — one phone / one Zalo login = one Personal account per site (R-ZP-DUP).
 	$_shared . 'class-zalo-duplicate-guard.php',
 	// [2026-09-18] R-ZP-ERR — canonical session-state + error catalog (contract zalo-personal-session-errors@1).
@@ -110,6 +123,15 @@ add_filter( 'bizcity_bot_studio_account_gate', array( 'BizCity_Zalo_Account_Flag
 // [2026-09-26] PHASE-0.80 Lane C 4a-8 — debounced on `bizcity_bot_config_changed`, plus a 5-minute fingerprint tick; no-ops on sites without a zalo-hub number.
 BizCity_Zalo_Hub_Config_Sync::boot();
 BizCity_Zalo_Hub_Guru_Invalidate::boot(); // [2026-09-27] PHASE-0.81 C1.4/C2.2 — debounced; no-op on sites without a zalo-hub number
+BizCity_Zalo_Personal_Knowledge_Capture::boot(); // [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D1 — cron handler; capture is scheduled only from BizCity_Zalo_Owner_Capture_REST
+BizCity_Zalo_Owner_Capture_REST::init(); // [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D1 — POST zalo-bridge/owner-capture (contract owner-capture@1)
+BizCity_Zalo_Pack_REST::init(); // [2026-09-30] PHASE-0.87 CL-1 — GET zalo-bridge/packs[/{kind}]
+BizCity_Zalo_MCP_Bridge_REST::init(); // [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — POST zalo-bridge/mcp?account_id= (bizcity-mcp-bridge@1.0.0)
+BizCity_Zalo_Pack_Invalidate::boot(); // [2026-09-30] PHASE-0.87 CL-2 / CL-D4 — notebook change ⇒ Hub packs/invalidate (60 s debounce)
+BizCity_Zalo_Agent_Principals::boot(); // [2026-10-01] PHASE-0.87 W2-1 — CRM suspend/reactivate re-projects the bundle
+BizCity_Zalo_Staff_Principals_REST::init(); // [2026-10-01] PHASE-0.87 W2-1 — bot/policy/{binding_id}/staff routes
+BizCity_Zalo_Uid_Verify::init(); // [2026-10-01] PHASE-0.87 CL-14 — POST bot/policy/{binding_id}/verify-uid + ?bizcity_uid_verify= landing
+BizCity_Zalo_Deep_Analysis::init(); // [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-8 — POST zalo-bridge/deep-analysis + cron worker → Hub zalo-hub/deep-analysis/result
 
 // Register channel integrations with Gateway Bridge + Integration Registry.
 add_action( 'bizcity_register_integrations', static function ( $registry ) {

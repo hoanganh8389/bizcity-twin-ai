@@ -40,6 +40,9 @@ final class BizCity_Zalo_Hub_Config_Sync {
 	// 1.1; the filter `bizcity_zalo_hub_bundle_contract` returning CONTRACT_V10 is the way back while such a cell is still serving.
 	const CONTRACT     = 'zalo-hub-bridge/1.1';
 	const CONTRACT_V10 = 'zalo-hub-bridge/1.0';
+	// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-4b (handoff BC §7) — a bundle carrying `owner_agent` is 1.2: a cell that only knows
+	// 1.0/1.1 answers `400 invalid_bundle` instead of silently dropping the block ⇒ the deploy order (cell first) is enforced.
+	const CONTRACT_V12 = 'zalo-hub-bridge/1.2';
 	const DEBOUNCE     = 5;
 	const RETRY_AFTER  = 60;
 	const MAX_ATTEMPTS = 10;
@@ -102,7 +105,11 @@ final class BizCity_Zalo_Hub_Config_Sync {
 	const CELL_DEBOUNCE_MAX_S = 15;
 
 	/** Saves that fire no `bizcity_bot_config_changed` but change what the cell must know (Guru persona/FAQ, site tuning, provider). */
-	const EXTRA_HOOKS = array( 'bizcity_knowledge_character_saved', 'bizcity_knowledge_character_deleted', 'bizcity_zalo_account_flags_changed', 'update_option_bizcity_bot_tuning' );
+	// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-4 — + agent-mode-access@1 changes (role, per-user grant, CRM staff role): AMA-6 ≤ 60 s.
+	const EXTRA_HOOKS = array( 'bizcity_knowledge_character_saved', 'bizcity_knowledge_character_deleted', 'bizcity_zalo_account_flags_changed', 'update_option_bizcity_bot_tuning', 'bizcity_agent_modes_changed' );
+
+	/** Filter: return false to leave `owner_agent` out of the bundle (a cell older than BC-2 that rejects unknown blocks). */
+	const FILTER_OWNER_AGENT = 'bizcity_zalo_hub_bundle_owner_agent';
 
 	/* ================================================================
 	 *  Wiring
@@ -250,6 +257,9 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			$pol['auto_react']       = ! empty( $policy['auto_react'] );
 			if ( '' !== (string) ( $policy['react_icon'] ?? '' ) ) { $pol['react_icon'] = sanitize_key( (string) $policy['react_icon'] ); }
 			$row['policy'] = $pol;
+			if ( ! function_exists( 'apply_filters' ) || apply_filters( self::FILTER_OWNER_AGENT, true ) ) {
+				$row['owner_agent'] = self::owner_agent( (int) $acc['owner_user_id'], (string) ( $pol['owner_uid'] ?? '' ), $policy );
+			}
 			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C0.1 (D-S81-3, G-22) — the cell has no "suggest only" mode; sending `hybrid` let it
 			// answer like `auto`. The number goes manual (silent, messages still reach CRM) and `mode_source` lets Bot Studio say why.
 			if ( 'hybrid' === $mode ) {
@@ -274,8 +284,12 @@ final class BizCity_Zalo_Hub_Config_Sync {
 				if ( null !== $agent ) { $agents[ $ref ] = $agent; }
 			}
 		}
+		$has_owner_agent = false;
+		foreach ( $accounts as $a ) {
+			if ( array_key_exists( 'owner_agent', $a ) ) { $has_owner_agent = true; break; }
+		}
 		$bundle = array(
-			'contract'     => self::contract(),
+			'contract'     => self::contract( $has_owner_agent ),
 			'version'      => max( 1, $version ),
 			'generated_at' => gmdate( 'c', self::now() ),
 			'accounts'     => $accounts,
@@ -286,8 +300,41 @@ final class BizCity_Zalo_Hub_Config_Sync {
 		return array( 'bundle' => $bundle, 'warnings' => array_values( array_unique( $warnings ) ) );
 	}
 
-	private static function contract(): string {
-		$c = function_exists( 'apply_filters' ) ? (string) apply_filters( 'bizcity_zalo_hub_bundle_contract', self::CONTRACT ) : self::CONTRACT;
+	/**
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-4 / CL-D8 — owner-agent-block@1.2 §4. The principal exists only when the number
+	 * has a WordPress owner (`owner_user_id`) AND a "UID chủ tài khoản"; modes = agent-mode-access@1 of that owner. Capture needs
+	 * the `notebook` mode (it writes into the owner's own notebooks). Switches default ON (key absent).
+	 *
+	 * // @axis twin-agent-axis@1 seam SEAM-2
+	 */
+	public static function owner_agent( int $owner_user_id, string $owner_uid, array $policy ): array {
+		$on = static function ( string $k ) use ( $policy ): bool { return ! isset( $policy[ $k ] ) || (bool) $policy[ $k ]; };
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 W2-2 — owner-agent-block@1.3: `staff[]` (doc 50 §5.1) is sent even when the owner's own
+		// Agent is off or the number has no owner yet: staff are separate principals of the number.
+		$staff = class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::bundle_staff( $policy ) : array();
+		if ( ! $on( 'owner_agent_enabled' ) || $owner_user_id <= 0 || '' === trim( $owner_uid ) ) {
+			return array( 'enabled' => false, 'principal' => null, 'capture' => array( 'files' => false, 'remember' => false ), 'owner_knowledge_ref' => '', 'staff' => $staff );
+		}
+		$hash  = isset( self::$readers['user_hash'] ) ? (string) call_user_func( self::$readers['user_hash'], $owner_user_id ) : ( class_exists( 'BizCity_Agent_Mode_Access' ) ? BizCity_Agent_Mode_Access::user_hash( $owner_user_id ) : '' );
+		$modes = isset( self::$readers['modes'] ) ? (array) call_user_func( self::$readers['modes'], $owner_user_id ) : ( class_exists( 'BizCity_Agent_Mode_Access' ) ? BizCity_Agent_Mode_Access::modes_for_user( $owner_user_id ) : array() );
+		$modes = array_values( array_map( 'strval', $modes ) );
+		$nb    = in_array( 'notebook', $modes, true );
+		return array(
+			'enabled'             => true,
+			// CL-14 (D-TAA-6): verified only for the CURRENT owner UID.
+			'principal'           => array( 'user_hash' => $hash, 'modes' => $modes, 'uid_verified_at' => class_exists( 'BizCity_Zalo_Uid_Verify' ) ? BizCity_Zalo_Uid_Verify::owner_verified_at( array( 'owner_uid' => $owner_uid ) + $policy ) : null ),
+			'capture'             => array( 'files' => $nb && $on( 'owner_capture_files' ), 'remember' => $nb && $on( 'owner_capture_remember' ) ),
+			'owner_knowledge_ref' => '' !== $hash ? 'u:' . $hash : '',
+			'staff'               => $staff,
+		);
+	}
+
+	private static function contract( bool $with_owner_agent = false ): string {
+		$default = $with_owner_agent ? self::CONTRACT_V12 : self::CONTRACT;
+		$c = function_exists( 'apply_filters' ) ? (string) apply_filters( 'bizcity_zalo_hub_bundle_contract', $default ) : $default;
+		if ( $with_owner_agent ) {
+			return self::CONTRACT_V12; // the block exists only in 1.2; the way back is the `owner_agent` filter, not an older label
+		}
 		return in_array( $c, array( self::CONTRACT, self::CONTRACT_V10 ), true ) ? $c : self::CONTRACT;
 	}
 

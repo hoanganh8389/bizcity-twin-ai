@@ -174,6 +174,9 @@ if ( ! class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
 				'settings.master_plan.description' => array( 'Current plan, quota and entitlements (read-only)', 'Gói hiện tại, hạn mức và quyền lợi (chỉ đọc)' ),
 				'settings.appearance' => array( 'Appearance', 'Giao diện' ),
 				'settings.appearance.description' => array( 'Theme, layout and TwinShell chrome', 'Chủ đề, bố cục và khung hiển thị TwinShell' ),
+				// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-18 — Module access item.
+				'settings.module_access' => array( 'Module access', 'Phân quyền module' ),
+				'settings.module_access.description' => array( 'Who can use each Twin icon', 'Ai dùng được biểu tượng nào' ),
 				'settings.user_preferences' => array( 'User Preferences', 'Tùy chọn cá nhân' ),
 				'settings.user_preferences.description' => array( 'Language, notifications and per-user defaults', 'Ngôn ngữ, thông báo và mặc định theo người dùng' ),
 				'settings.workspace_brain' => array( 'Twin Workspace', 'Không gian Twin' ),

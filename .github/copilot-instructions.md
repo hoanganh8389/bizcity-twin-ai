@@ -186,6 +186,13 @@ extension contract.
 └─────────────────────────────────────┘        └──────────────────────────────┘
 ```
 
+**Where the data plane lives in this workspace (2026-09-30).** The Node cell repo — zalo-cell `:3901`, ai-gateway
+`:3902`, brain-core — is `zalo-hub/` at the plugin root (moved from `core/channel-gateway/_library/zalo-hub`; it is no
+longer a read-only `_library` snapshot, it is code we study and change). It is its own deploy unit (Docker on the VPS)
+and is listed in `bin/dev-only-paths.txt`, so it never ships inside the WordPress plugin. PHP never `require`s it;
+PHP tests may read its contract fixtures (`zalo-hub/contracts/`). Contracts shared by both sides live in
+`zalo-hub/contracts/` and are the single copy.
+
 **R-GW-8 · client standalone.** The router/gateway plugin exists only on the
 vendor's servers. A client site installs `bizcity-twin-ai` alone and must keep
 working that way.
@@ -286,11 +293,13 @@ try {
 Before any `dbDelta`, `CREATE TABLE` or `ALTER TABLE`, and before any probe that
 checks or repairs schema:
 
-1. Update `core/diagnostics/changelog/<module_id>.json`: bump `current_version`
-   and push a `{version, date, change}` row; every new column/index carries a
-   matching `since`.
-2. Run the validator: `php core/diagnostics/validate-schema-changelog.php`
-   (must exit `0`).
+1. Update `core/helper/schema/changelog/<module_id>.json` (the schema owner moved
+   out of Diagnostics, R-DCL v1.1): bump `current_version` and push a
+   `{version, date, change}` row; every new column/index carries a matching `since`.
+   This folder is public: no blog ids, tenant domains or database hosts.
+2. Run the validators: `node bin/validate-schema-owner.mjs` (everywhere) and, in the
+   local workspace, `php core/diagnostics/validate-schema-changelog.php` (must exit `0`;
+   Diagnostics is local-only, see R-DIAG-LOCAL).
 3. Repairs must be idempotent. `DROP`/`MODIFY`/`CHANGE` is a hand-written
    migration run through the site provisioner, never an auto-create.
 
@@ -537,6 +546,51 @@ lowest layer that fits the person who uses it:
 Spec, reference components per app and known debt:
 `docs/rules/PHASE-0-RULE-SETTINGS-4-LAYERS-SHEET-STANDARD.md` (extends `PHASE-0-RULE-ACTION-SHEET-UX.md`).
 
+### R-VERTICAL-AXIS · zalo-hub receives and thinks, the client supplies context (supreme)
+
+On the vertical axis, zalo-hub (Docker: cell + brain-core) receives 100 % of inbound messages and does 100 % of
+the AI work of a reply turn. The client site holds only the context and hands it over:
+
+- **KEEP on the client:** Guru RAG (instruction/prompt + quick FAQ, thin `core/knowledge`), KG-Hub notebooks and
+  graph (`core/kg-hub`, primary), the context export (config bundle + notebook pack, R-GS-7c), the configuration UI
+  (R-SETUP-4, Bot Studio, CRM) and the CRM record of conversations received as events.
+- **Reduction compass.** Every reduction/refactor wave classifies each file it touches as KEEP, MOVE (AI work that
+  belongs in zalo-hub) or CUT; client code on a reply path with no KEEP role is CUT by default.
+- **Realtime is Node's job (R-VA-9).** Long-lived streams — the Twin event stream SSE and token streaming or
+  realtime sockets to LLM providers — move to the Node data plane (ai-gateway / brain-core). PHP keeps the event
+  contract (taxonomy, schemas), issues a short-lived stream token, stores the finished record and exports context.
+  The wire format stays the typed Twin SSE events. ❌ New PHP code that holds a request open to relay provider tokens.
+- Not in this phase: non-reply AI (Automation, TwinBrain) and other channels (Facebook, Zalo OA, webchat).
+- ❌ A new client-side model call, prompt builder, retriever or reply loop for channel messages. Put it in zalo-hub
+  and export the context field instead. Legacy paths (zca, `get_ai_response()`, `BIZCITY_LEGACY_PATH_C`) are frozen.
+
+Code: the data plane is `zalo-hub/` (plugin root, own deploy unit). Spec: `docs/rules/PHASE-0-RULE-VERTICAL-AXIS-ZALO-HUB.md`.
+
+### R-SETUP-4 · four-step setup is the entry of the vertical axis (supreme)
+
+Every channel setup surface (Channel Gateway dashboard, `/crm/`, `/gpt/crm/`, wp-admin "Bắt đầu") shows the same four
+steps, in this order, with these labels:
+
+| Step | Label | Passes when (server check only) |
+|---|---|---|
+| ① | Kết nối tài khoản BizCity | the site's 1API key is saved and tested (connection report: no `fail` in L0–L5) |
+| ② | Kết nối máy chủ Zalo | Zalo Hub (default) is checked automatically; other branches are a secondary choice |
+| ③ | Đăng nhập số Zalo | QR shown only after ①② pass; after login, pick the WordPress user who owns the number |
+| ④ | Chọn Agent Guru | the default Agent Guru is preselected; quick create/edit in place; auto-reply on |
+
+- **Five states per step.** Each step is Khoá, Đang kiểm tra, Đạt, Chưa đạt (R-ERROR-UX message + a hint that starts
+  with a verb) or Không có quyền. A step unlocks only when the previous one passes.
+- **One skeleton for every channel.** The four slots are: ① account, ② transport, ③ identity + owner, ④ Agent Guru.
+- **Name.** "Agent Guru" is the user-facing name of a Guru everywhere. Code identifiers stay `character`/`guru`.
+- **Sheets.** Per-item settings open in `ActionSheet`. "Quản lý Agent Guru" lists Agent Gurus with create and edit;
+  it is never a create-only dialog.
+- **Axis and packaging.** The path is channel ⇒ CRM Inbox ⇒ Agent Guru ⇒ knowledge. A channel package ships only when
+  its four steps pass end to end (FRAMEWORK-GUIDE §14.1).
+- ❌ Reaching the QR code before the key and the Zalo server are checked. Showing words like bridge, binding, cell,
+  character id or provider on a step. A step marked "Đạt" from client state.
+
+Spec: `docs/rules/PHASE-0-RULE-FOUR-STEP-SETUP-AXIS.md`. Design: `core/channel-gateway/docs/PHASE-0.83-FOUR-STEP-SETUP/`.
+
 ### R-ROUTE · the URL is the only source of location
 
 Anything a user navigates *to* — the ActivityBar plugin, a tab or menu, the record being viewed, a
@@ -622,6 +676,40 @@ Read the JSON: `verdict`, `counts`, and each result's `status`, `summary`,
 
 Server deployments often ship only built frontend bundles, so a probe must not
 fail merely because React sources are absent — that step is `SKIP`/`INFO`.
+
+Probes run in the local development workspace only (R-DIAG-LOCAL): a probe `PASS`
+is local evidence, not evidence about a server.
+
+### R-DIAG-LOCAL · Diagnostics is a local development tool (D-35)
+
+`core/diagnostics/` (engine, probes, diagnostic admin pages, the
+`bizcity-diagnostics/v1` REST routes, `validate-schema-changelog.php`), `tests/`,
+`_notes/`, and the module diagnostic pages and probes exist **only in the developer's
+local workspace**. They are never uploaded to a server and never committed to GitHub.
+The full list is `bin/dev-only-paths.txt`. Server operations CLIs and repair classes
+(`wp bizcity diag`, KG-Hub repair) are not diagnostics tooling and stay.
+
+- **No production dependency.** An optional reference checks `is_file()` and then
+  loads through `BizCity_Safe_Loader::require_file()`, or checks `class_exists()` /
+  `bizcity_diagnostics_available()`. Links into Diagnostics appear only when it is
+  present. A missing folder must never cause a fatal, a 500, a missing table or a
+  lost error record.
+- **Runtime owners stay outside it.** The schema changelog, loader and auto-create
+  live in `core/helper/schema/`, and the error reporter and REST error trait live in
+  `core/helper`. Never move runtime logic back into `core/diagnostics/`.
+- **Evidence.** Probes run locally, against the local site, a mirror or a harness.
+  Server evidence comes from production surfaces: JSONL logs, browser self-checks
+  (`<module>/docs/tools/*selfcheck.js`), and `wp bizcity health`, which answers
+  `skip` on a server. Never run probes or `bin/diagnostics-run.php` on a server.
+- **Git and upload.** `.gitignore` ignores these paths, and CI `shipped-tree` fails
+  if `core/diagnostics/` or `tests/` is tracked. Commits are made from the server
+  after an upload, so exclude every `bin/dev-only-paths.txt` entry from the upload,
+  and upload `.gitignore` with every change. A deploy list names production files
+  only and lists dev-only files separately as "do not upload".
+- **Checks.** `node bin/validate-dev-only-boundary.mjs` (dev and CI) fails on an
+  unguarded require of a dev-only path, or an unguarded use of a class declared only
+  there. Before a deploy, `node bin/simulate-production-tree.mjs` also checks that
+  every unguarded require target ships, and runs the mirror harnesses.
 
 ### Resolve the interpreter before claiming a tool is missing
 
@@ -716,6 +804,15 @@ including edits delegated to Claude Code, Codex, Cursor or a VS Code agent. A
 file-level stamp alone is insufficient when one file contains multiple separate
 functional edits.
 
+**Same requirement outside PHP (R-STAMP-JS, 2026-09-30).** A functional edit to
+a `.ts`/`.tsx`/`.js`/`.jsx` file, or a decision recorded in a `.md` doc's own
+body (not its dated changelog line, which already carries author/date), carries
+the same stamp content — author, local time, phase/rule ID, short description —
+written in that file's own comment syntax (`//` or `{/* … */}` for TS/TSX/JS,
+`<!-- … -->` for Markdown/HTML). Never omit the author or the time to save
+space, and never substitute the agent's own name/model for the author: the
+stamp records who directed the change, not which tool typed it.
+
 ```php
 // [YYYY-MM-DD HH:MM Johnny Chu - Chu Hoàng Anh]] <Phase-ID> — <short description>
 ```
@@ -772,6 +869,7 @@ requested, ask for the exact mechanism (remote and branch, or host and path) and
 confirm before every run. Production sites are not a test environment: no write
 SQL, schema repair or migration against a remote host from a development machine,
 and no falling back to production data when local configuration is missing.
+Dev-only paths (`bin/dev-only-paths.txt`, R-DIAG-LOCAL) are never part of a deploy.
 
 ### Editing files from a terminal on Windows
 
@@ -803,6 +901,7 @@ editor tooling to write `.php` files, or write explicitly without a BOM:
 - ❌ A new plugin, module or menu that ships without declaring `route_mode`, planning to add it later.
 - ❌ A cron failure with no reason bucket in its run evidence.
 - ❌ Diagnostics runs that execute production workers, send messages or call providers.
+- ❌ Uploading or committing `core/diagnostics/`, `tests/` or `_notes/`; production code that requires them; probes run on a server.
 - ❌ Marking work done without a probe result, or presenting a `SKIP` as a `PASS`.
 - ❌ A `.php` change with no stamp, or edits inside archived/vendored trees.
 - ❌ Secrets, customer domains, server paths or PII in code, logs, docs or replies.

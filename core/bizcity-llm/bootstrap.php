@@ -140,7 +140,8 @@ require_once BIZCITY_LLM_DIR . '/includes/class-search-client.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-usage-log.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-settings.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-connect-flow.php'; // [2026-09-27] PHASE-0.80 doc 26 OB-5 — "Kết nối BizCity" one-click (site side)
-require_once BIZCITY_LLM_DIR . '/includes/class-smart-gateway.php';
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R15 (core-wide sweep) — BizCity_Smart_Gateway (client-side context collector + resolve stream) had no caller
+// and read the retired webchat store; R-VERTICAL-AXIS R-VA-7. Archived in core/_archived/sweep-20260930/.
 require_once BIZCITY_LLM_DIR . '/includes/class-google-hub.php';
 // [2026-06-10 Johnny Chu] USAGE-ROLLUP-SPEC Phase 3 — same-origin proxy for /account/* analytics
 require_once BIZCITY_LLM_DIR . '/includes/class-usage-proxy-rest.php';

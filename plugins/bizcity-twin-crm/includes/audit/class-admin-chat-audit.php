@@ -54,16 +54,16 @@ class BizCity_CRM_AdminChat_Audit {
 	 * @return int|false Inserted row ID or false on failure.
 	 */
 	public static function log( array $args ) {
-		// [2026-06-07 Johnny Chu] PHASE-3.5-WC — insert audit row
-		global $wpdb;
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 (R-LEAN-4, R-LOG-HYBRID) — moved off
+		// bizcity_crm_admin_chat_audit to the shared JSONL logger (contract core.twin_crm.admin_chat_audit).
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			return false;
+		}
 
 		$status_allowed = array( 'attempted', 'success', 'denied', 'confirm_pending', 'confirm_expired' );
 		$status         = in_array( $args['status'] ?? '', $status_allowed, true )
 			? $args['status']
 			: 'attempted';
-
-		$input  = isset( $args['input_json'] )  ? wp_json_encode( (array) $args['input_json'] )  : null;
-		$result = isset( $args['result_json'] ) ? wp_json_encode( (array) $args['result_json'] ) : null;
 
 		$ip = '';
 		if ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
@@ -72,24 +72,29 @@ class BizCity_CRM_AdminChat_Audit {
 			$ip  = filter_var( $raw, FILTER_VALIDATE_IP ) ? $raw : '';
 		}
 
-		$ok = $wpdb->insert(
-			self::table(),
-			array(
-				'user_id'     => (int) ( $args['user_id'] ?? 0 ),
-				'chat_id'     => (string) ( $args['chat_id'] ?? '' ),
-				'guru_id'     => (int) ( $args['guru_id'] ?? 0 ),
-				'grant_id'    => isset( $args['grant_id'] ) ? (int) $args['grant_id'] : null,
-				'action'      => substr( sanitize_key( (string) ( $args['action'] ?? '' ) ), 0, 80 ),
-				'status'      => $status,
-				'input_json'  => $input,
-				'result_json' => $result,
-				'ip'          => $ip,
-				'created_at'  => current_time( 'mysql' ),
-			),
-			array( '%d', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s' )
+		$action = substr( sanitize_key( (string) ( $args['action'] ?? '' ) ), 0, 80 );
+		$row    = array(
+			'user_id'     => (int) ( $args['user_id'] ?? 0 ),
+			'chat_id'     => (string) ( $args['chat_id'] ?? '' ),
+			'guru_id'     => (int) ( $args['guru_id'] ?? 0 ),
+			'grant_id'    => isset( $args['grant_id'] ) ? (int) $args['grant_id'] : null,
+			'action'      => $action,
+			'status'      => $status,
+			'input_json'  => isset( $args['input_json'] ) ? (array) $args['input_json'] : null,
+			'result_json' => isset( $args['result_json'] ) ? (array) $args['result_json'] : null,
+			'ip'          => $ip,
+			'created_at'  => current_time( 'mysql' ),
 		);
 
-		return $ok ? (int) $wpdb->insert_id : false;
+		$ok = BizCity_JSONL_File_Logger::write_contract(
+			'core.twin_crm.admin_chat_audit',
+			'denied' === $status ? 'warn' : 'info',
+			$action !== '' ? $action : 'admin_chat_action',
+			$row['chat_id'] !== '' ? $row['chat_id'] : 'admin-chat',
+			$row
+		);
+
+		return $ok ? 1 : false;
 	}
 
 	/**
@@ -107,40 +112,52 @@ class BizCity_CRM_AdminChat_Audit {
 	 * @return array
 	 */
 	public static function find( array $filters = array() ) {
-		global $wpdb;
-		$table  = self::table();
-		$where  = array( '1=1' );
-		$params = array();
-
-		if ( ! empty( $filters['user_id'] ) ) {
-			$where[]  = 'user_id = %d';
-			$params[] = (int) $filters['user_id'];
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 — reads the shared JSONL logger instead of
+		// bizcity_crm_admin_chat_audit. No SQL OFFSET on JSONL; emulated by over-fetching and slicing (acceptable:
+		// this endpoint was never exercised with real data — the writer's class name typo, fixed in the same
+		// wave, meant the table was always empty).
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			return array();
 		}
-		if ( ! empty( $filters['chat_id'] ) ) {
-			$where[]  = 'chat_id = %s';
-			$params[] = (string) $filters['chat_id'];
-		}
-		if ( ! empty( $filters['guru_id'] ) ) {
-			$where[]  = 'guru_id = %d';
-			$params[] = (int) $filters['guru_id'];
-		}
-		if ( ! empty( $filters['action'] ) ) {
-			$where[]  = 'action = %s';
-			$params[] = sanitize_key( (string) $filters['action'] );
-		}
-		if ( ! empty( $filters['status'] ) ) {
-			$where[]  = 'status = %s';
-			$params[] = sanitize_text_field( (string) $filters['status'] );
-		}
-
 		$limit  = max( 1, min( 200, (int) ( $filters['limit'] ?? 50 ) ) );
 		$offset = max( 0, (int) ( $filters['offset'] ?? 0 ) );
 
-		$sql = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where ) . ' ORDER BY created_at DESC LIMIT %d OFFSET %d';
-		$params[] = $limit;
-		$params[] = $offset;
+		$want = array();
+		foreach ( array( 'user_id', 'guru_id' ) as $k ) {
+			if ( ! empty( $filters[ $k ] ) ) {
+				$want[ $k ] = (int) $filters[ $k ];
+			}
+		}
+		if ( ! empty( $filters['chat_id'] ) ) {
+			$want['chat_id'] = (string) $filters['chat_id'];
+		}
+		if ( ! empty( $filters['action'] ) ) {
+			$want['action'] = sanitize_key( (string) $filters['action'] );
+		}
+		if ( ! empty( $filters['status'] ) ) {
+			$want['status'] = sanitize_text_field( (string) $filters['status'] );
+		}
 
-		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
-		return is_array( $rows ) ? $rows : array();
+		$rows = BizCity_JSONL_File_Logger::query_contract( 'core.twin_crm.admin_chat_audit', array(
+			'days'   => 90,
+			'limit'  => $limit + $offset,
+			'filter' => static function ( $row ) use ( $want ) {
+				$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				foreach ( $want as $k => $v ) {
+					if ( (string) ( $ctx[ $k ] ?? '' ) !== (string) $v ) {
+						return false;
+					}
+				}
+				return true;
+			},
+		) );
+		// Shape each row like the old SQL columns (flatten ctx, drop the JSONL envelope fields).
+		$rows = array_map( static function ( $row ) {
+			$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+			$ctx['created_at'] = $ctx['created_at'] ?? str_replace( array( 'T', 'Z' ), array( ' ', '' ), (string) ( $row['ts'] ?? '' ) );
+			return $ctx;
+		}, $rows );
+
+		return $offset > 0 ? array_slice( $rows, $offset, $limit ) : array_slice( $rows, 0, $limit );
 	}
 }

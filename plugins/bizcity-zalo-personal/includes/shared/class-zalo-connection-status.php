@@ -121,6 +121,18 @@ class BizCity_Zalo_Connection_Status {
 			'callback'            => array( __CLASS__, 'handle_bot_test' ),
 			'permission_callback' => array( __CLASS__, 'can_view' ),
 		) );
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 — "Thử bot" as the owner or one staff member (cell `as_role`/`as_user_hash`).
+		register_rest_route( self::NS, '/zalo-connection/bot-test/personas', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'handle_bot_test_personas' ),
+			'permission_callback' => array( __CLASS__, 'can_view' ),
+		) );
+		// [2026-10-01 Claude Sonnet 5.5] owner request "Kiểm tra gói quyền" — next to "Bot: BẬT" on the card: the cell's plan gate for ONE number.
+		register_rest_route( self::NS, '/zalo-connection/plan-check', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'handle_plan_check' ),
+			'permission_callback' => array( __CLASS__, 'can_view' ),
+		) );
 	}
 
 	/** Site admins by default; CRM can widen it for its leaders through the filter. */
@@ -157,7 +169,80 @@ class BizCity_Zalo_Connection_Status {
 	}
 
 	public static function handle_bot_test( $request ) {
-		return rest_ensure_response( self::bot_test( (string) $request->get_param( 'account_id' ), (string) $request->get_param( 'text' ), (string) $request->get_param( 'conversation_id' ) ) );
+		$as = array( 'role' => (string) $request->get_param( 'as_role' ), 'user_id' => (int) $request->get_param( 'as_user_id' ) );
+		return rest_ensure_response( self::bot_test( (string) $request->get_param( 'account_id' ), (string) $request->get_param( 'text' ), (string) $request->get_param( 'conversation_id' ), $as ) );
+	}
+
+	/**
+	 * "Kiểm tra gói quyền" (owner request 2026-10-01): the cell's plan view for ONE number, relayed read-only through
+	 * BizCity_Zalo_Staff_Principals_REST (brain/overview `plan` block). R-ERROR-UX errors; zca numbers have no cell plan.
+	 */
+	public static function handle_plan_check( $request ) {
+		$account_id = preg_replace( '/[^0-9]/', '', (string) $request->get_param( 'account_id' ) );
+		if ( '' === $account_id || 'zalo_hub' !== (string) self::read( 'provider', $account_id ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_zalo_hub', 'message' => 'Chỉ số chạy Zalo Hub mới có gói quyền theo công cụ.', 'hint' => 'Số này vẫn trả lời khách bình thường.', 'help_code' => 'S88-PLAN-409' ), 409 );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_Staff_Principals_REST' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'plan_cell_unreachable', 'message' => 'Chưa hỏi được gói quyền từ máy chủ Zalo.', 'hint' => 'Tải lại trang rồi thử lại.', 'help_code' => 'S88-PLAN-502' ), 502 );
+		}
+		return BizCity_Zalo_Staff_Principals_REST::plan_check_response( $account_id );
+	}
+
+	public static function handle_bot_test_personas( $request ) {
+		return rest_ensure_response( self::bot_test_personas( (string) $request->get_param( 'account_id' ) ) );
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.87 — who "Thử bot" may speak as on a Zalo Hub number: customer (default), the owner
+	 * (when the number has an owner principal) and each ACTIVE staff member (doc 50). Names only — no UID, no hash reaches the
+	 * browser; the server resolves the hash when the test runs. zca numbers: customer only.
+	 *
+	 * @return array{success:bool,items:list<array{key:string,label:string}>}
+	 */
+	public static function bot_test_personas( string $account_id ): array {
+		$account_id = preg_replace( '/[^0-9]/', '', $account_id );
+		$items      = array( array( 'key' => 'customer', 'label' => 'Khách' ) );
+		if ( '' === $account_id || 'zalo_hub' !== (string) self::read( 'provider', $account_id ) || ! class_exists( 'BizCity_Zalo_Agent_Principals' ) ) {
+			return array( 'success' => true, 'items' => $items );
+		}
+		foreach ( BizCity_Zalo_Agent_Principals::principals( $account_id ) as $p ) {
+			if ( empty( $p['active'] ) ) {
+				continue;
+			}
+			$user  = BizCity_Zalo_Agent_Principals::user( (int) $p['user_id'] );
+			$name  = $user ? (string) $user['display_name'] : '#' . (int) $p['user_id'];
+			$items[] = 'owner' === $p['role']
+				? array( 'key' => 'owner', 'label' => 'Chủ số · ' . $name )
+				: array( 'key' => 'staff:' . (int) $p['user_id'], 'label' => 'Nhân sự · ' . $name );
+		}
+		return array( 'success' => true, 'items' => $items );
+	}
+
+	/**
+	 * The cell fields for a chosen persona (`as_role`, `as_user_hash`); [] = the default customer turn. A staff member that is
+	 * not an active principal of THIS number is refused here (the cell would fall back to customer anyway).
+	 *
+	 * @param array{role?:string,user_id?:int} $as
+	 * @return array|null null = refused
+	 */
+	public static function bot_test_as( string $account_id, array $as ): ?array {
+		$role = sanitize_key( (string) ( $as['role'] ?? '' ) );
+		if ( '' === $role || 'customer' === $role ) {
+			return '' === $role ? array() : array( 'as_role' => 'customer' );
+		}
+		if ( 'owner' === $role ) {
+			return array( 'as_role' => 'owner' );
+		}
+		if ( 'staff' !== $role || ! class_exists( 'BizCity_Zalo_Agent_Principals' ) ) {
+			return null;
+		}
+		$uid = (int) ( $as['user_id'] ?? 0 );
+		foreach ( BizCity_Zalo_Agent_Principals::principals( $account_id ) as $p ) {
+			if ( 'staff' === $p['role'] && ! empty( $p['active'] ) && (int) $p['user_id'] === $uid && preg_match( '/^[a-f0-9]{64}$/', (string) $p['user_hash'] ) ) {
+				return array( 'as_role' => 'staff', 'as_user_hash' => (string) $p['user_hash'] );
+			}
+		}
+		return null;
 	}
 
 	/* ================================================================
@@ -477,7 +562,7 @@ class BizCity_Zalo_Connection_Status {
 	 * claim, no typing indicator, no tool execution, no CRM/memory write (doc 26 §15, OB-7b).
 	 * Billing: a normal AI turn on the site key (D-OB-5), same as the zalo_hub branch.
 	 */
-	public static function bot_test( string $account_id, string $text, string $conversation_id = '' ): array {
+	public static function bot_test( string $account_id, string $text, string $conversation_id = '', array $as = array() ): array {
 		$account_id = preg_replace( '/[^0-9]/', '', $account_id );
 		$text = trim( sanitize_textarea_field( $text ) );
 		if ( $account_id === '' || $text === '' ) {
@@ -492,6 +577,11 @@ class BizCity_Zalo_Connection_Status {
 			return self::bot_test_zca( $account_id, $text );
 		}
 		$body = array( 'account_id' => (int) $account_id, 'text' => $text );
+		$as_fields = self::bot_test_as( $account_id, $as );
+		if ( null === $as_fields ) {
+			return self::test_error( 'persona_unknown', 'Người này không còn trong danh sách dùng Agent của số.', 'Tải lại danh sách vai rồi chọn lại.' );
+		}
+		$body += $as_fields;
 		$conversation_id = preg_replace( '/[^A-Za-z0-9_\-]/', '', $conversation_id );
 		if ( $conversation_id !== '' ) { $body['conversation_id'] = $conversation_id; }
 		$r = (array) self::read( 'hub_post', '/zalo-personal-bridge/brain/test-turn', $body, 50 );

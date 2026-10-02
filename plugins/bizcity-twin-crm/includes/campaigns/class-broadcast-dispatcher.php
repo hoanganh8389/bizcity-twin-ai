@@ -536,6 +536,12 @@ final class BizCity_CRM_Broadcast_Dispatcher {
 		if ( $broadcast_id <= 0 ) {
 			return array( 'enqueued' => 0, 'skipped' => count( $contact_ids ) );
 		}
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D2 — the number's owner (`role:owner`) is never a campaign recipient.
+		if ( class_exists( 'BizCity_CRM_Contact_Roles' ) ) {
+			$before      = count( $contact_ids );
+			$contact_ids = BizCity_CRM_Contact_Roles::without_role( $contact_ids, BizCity_CRM_Contact_Roles::INTERNAL );
+			$skipped    += $before - count( $contact_ids );
+		}
 
 		// Fetch delay_sec from broadcast row (default 5s)
 		$bc_tbl    = $wpdb->prefix . 'bizcity_crm_broadcasts';

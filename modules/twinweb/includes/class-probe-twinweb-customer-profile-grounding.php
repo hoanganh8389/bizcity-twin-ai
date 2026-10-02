@@ -46,9 +46,9 @@ final class BizCity_Probe_TwinWeb_Customer_Profile_Grounding implements BizCity_
 		$root  = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/';
 
 		// [2026-07-21 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — use loaded class file paths when deploy layout differs from dev source tree.
-		$core_file     = $this->class_file_or_fallback( 'BizCity_TwinBrain_Subject_Profile_Layer', $root . 'core/twinbrain/includes/class-twinbrain-subject-profile-layer.php' );
-		$runtime_file  = $this->class_file_or_fallback( 'BizCity_TwinBrain_Runtime', $root . 'core/twinbrain/includes/class-twinbrain-runtime.php' );
-		$composer_file = $this->class_file_or_fallback( 'BizCity_TwinBrain_Final_Composer', $root . 'core/twinbrain/includes/class-twinbrain-final-composer.php' );
+		$core_file     = $this->class_file_or_fallback( 'BizCity_TwinBrain_Subject_Profile_Layer', dirname( $root ) . '/bizcity-twin-brain-addon/twinbrain/includes/class-twinbrain-subject-profile-layer.php' );
+		$runtime_file  = $this->class_file_or_fallback( 'BizCity_TwinBrain_Runtime', dirname( $root ) . '/bizcity-twin-brain-addon/twinbrain/includes/class-twinbrain-runtime.php' );
+		$composer_file = $this->class_file_or_fallback( 'BizCity_TwinBrain_Final_Composer', dirname( $root ) . '/bizcity-twin-brain-addon/twinbrain/includes/class-twinbrain-final-composer.php' );
 		$surface_file  = $this->class_file_or_fallback( 'BizCity_TwinWeb_Profile_Grounding', __DIR__ . '/class-twinweb-profile-grounding.php' );
 		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — DDV covers CRM operator visibility for mirrored customer profile summaries.
 		$crm_contacts_file = $root . 'plugins/bizcity-twin-crm/frontend/src/routes/contacts/ContactsTab.jsx';

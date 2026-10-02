@@ -102,6 +102,11 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		'params'      => array( 'view', 'notebook', 'notebook_id', 'guru' ),
 		'desc'        => __( 'Configure knowledge: notebooks, sources, graph, Gurus and access.', 'bizcity-twin-ai' ),
 		'requires'    => array( 'const' => 'BIZCITY_TWINKG_VERSION' ),
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-12 — Gurus and KG-Hub are internal (R-GURU-PRIVATE R-GP-3/7).
+		'access'      => array(
+			'mode'  => 'admin_only',
+			'owner' => 'modules/twinkg',
+		),
 	);
 	return $plugins;
 } );

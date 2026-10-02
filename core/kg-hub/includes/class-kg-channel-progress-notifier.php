@@ -372,6 +372,11 @@ class BizCity_KG_Channel_Progress_Notifier {
 	 * the generic Gateway Sender when their chat_id is already prefixed.
 	 */
 	private static function send_channel_reply( array $inbound, string $text ): void {
+		// [2026-09-30 06:40 PM Claude Opus 5.5] PHASE-0.86 S86-1 — a capture that must stay silent (Zalo Cá nhân: Bot Studio owns
+		// the turn, D-H7) says so explicitly; it also carries no chat_id, the guard below.
+		if ( array_key_exists( 'notify', $inbound ) && false === $inbound['notify'] ) {
+			return;
+		}
 		$platform = strtoupper( (string) ( $inbound['platform'] ?? '' ) );
 		$chat_id  = (string) ( $inbound['chat_id'] ?? '' );
 		if ( $chat_id === '' ) {

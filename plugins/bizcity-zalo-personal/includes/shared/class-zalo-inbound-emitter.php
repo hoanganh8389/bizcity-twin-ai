@@ -130,6 +130,8 @@ class BizCity_Zalo_Inbound_Emitter {
 			if ( $msg_id > 0 ) {
 				BizCity_Zalo_Mapping_Repo::link_crm_message( $local_account_id, $zalo_msg_id, $msg_id );
 			}
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D1 — a self-echo/group message never enters the daily notebook any
+			// more; the only entry point is BizCity_Zalo_Owner_Capture_REST (contract owner-capture@1, R-TAA-15).
 			return $msg_id > 0 ? $msg_id : 0;
 		}
 
@@ -210,6 +212,11 @@ class BizCity_Zalo_Inbound_Emitter {
 		do_action( 'bizcity_zalo_message_received', $trigger_data );
 
 		$mapped = BizCity_Zalo_Mapping_Repo::find_by_zalo_msg_id( $local_account_id, $zalo_msg_id );
-		return (int) ( $mapped['crm_message_id'] ?? 0 );
+		$crm_message_id = (int) ( $mapped['crm_message_id'] ?? 0 );
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D2 — the owner's own 1-1 chat stays one CRM conversation; its contact gets role:owner.
+		if ( class_exists( 'BizCity_Zalo_Owner_Contact' ) ) {
+			BizCity_Zalo_Owner_Contact::maybe_tag( $account_id, $from_user_id, $is_group, $crm_message_id );
+		}
+		return $crm_message_id;
 	}
 }

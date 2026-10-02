@@ -193,8 +193,12 @@ class BizCity_Knowledge_API {
         }
         
         $knowledge = BizCity_Knowledge_Source::get_knowledge_for_character($id);
+        // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 — BizCity_Intent_Parser moved to the add-on.
+        if ( ! class_exists( 'BizCity_Intent_Parser' ) ) {
+            return new WP_Error( 'intent_parser_unavailable', 'Cần add-on BizCity Twin Brain (bizcity-twin-brain-addon).', [ 'status' => 503 ] );
+        }
         $parser = BizCity_Intent_Parser::instance();
-        
+
         $result = $parser->parse($text, $character, $knowledge);
         
         return rest_ensure_response([

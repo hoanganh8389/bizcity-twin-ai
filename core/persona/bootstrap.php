@@ -35,8 +35,9 @@ require_once BIZCITY_PERSONA_INCLUDES . 'class-twin-guru-context.php';
 // + admin REST). Schema auto-migrates on plugins_loaded.
 require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-bridge-installer.php';
 require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-skill-bridge.php';
-require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-provider-bridge.php';
-require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-bridge-rest.php';
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R13c-a — the admin REST bizcity-guru/v1 (skill/provider binding) had no
+// caller in live code or dist bundles, and the provider bridge served only that REST; both are in
+// core/_archived/persona-bridge-rest/. The installer (both tables) and the skill bridge TwinBrain reads stay.
 
 // Phase C.1 (F7.C1) — Pre-rules @guru / #tool token parser. Pure helper, no
 // auto-hook; TwinBrain runtime + Intent Engine call ::parse() as needed.
@@ -51,7 +52,6 @@ require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-citation-formatter.php';
 require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-runtime.php';
 
 add_action( 'plugins_loaded', array( 'BizCity_Guru_Bridge_Installer', 'maybe_install' ), 7 );
-BizCity_Guru_Bridge_REST::init();
 
 // Wave 0.18.5 — wire 3-layer Twin Guru context (L1 instruction / L2 guru
 // knowledge / L3 personal artifacts) into the chat system-prompt chain.

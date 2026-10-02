@@ -146,7 +146,7 @@ if ( class_exists( 'BizCity_File_Contract_Registry' ) ) {
 	) );
 	// [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — WebChat session-memory extraction records are canonicalized in contract-backed filestore.
 	BizCity_File_Contract_Registry::register( 'modules.webchat.session_memory', array(
-		'owner_module'       => 'core/memory', // WP-11 C4a — class moved to core/memory/includes/class-session-memory.php
+		'owner_module'       => 'bizcity-twin-brain-addon/memory', // [2026-10-01 Claude Opus 5.5] WP-16 B-4 S3b — class-session-memory.php moved to the add-on (was core/memory, WP-11 C4a)
 		'label'              => 'WebChat session memory business records',
 		'folder'             => 'bizcity-memory-data',
 		'module'             => 'session',
@@ -295,6 +295,29 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'retention_days'     => 7,
 		'indexed'            => true,
 	) );
+	// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 (R-LEAN-4, R-LOG-HYBRID) — write-only (or write + an
+	// unreachable reader) audit trails; moved to the shared JSONL logger, same pattern as the contracts above.
+	// Each one's SQL CREATE TABLE is retired and the table quarantined. (bizcity_crm_shipment_status_log was
+	// census'd as a third candidate but is read — BizCity_CRM_Order_Adapter builds an order timeline from it —
+	// so it stays in SQL; see WP-16 §5c for the corrected census.)
+	BizCity_Log_Contract_Registry::register( 'core.kg_hub.acl_log', array(
+		'owner_module'       => 'core/kg-hub',
+		'label'              => 'KG-Hub access-control log',
+		'jsonl_folder'       => 'bizcity-kg-logs',
+		'jsonl_module'       => 'acl-log',
+		'related_sql_tables' => array( 'bizcity_kg_acl_log' ),
+		'retention_days'     => 90,
+		'indexed'            => true,
+	) );
+	BizCity_Log_Contract_Registry::register( 'core.twin_crm.admin_chat_audit', array(
+		'owner_module'       => 'plugins/bizcity-twin-crm',
+		'label'              => 'CRM admin chat (TwinChat grant) audit',
+		'jsonl_folder'       => 'bizcity-crm-logs',
+		'jsonl_module'       => 'admin-chat-audit',
+		'related_sql_tables' => array( 'bizcity_crm_admin_chat_audit' ),
+		'retention_days'     => 90,
+		'indexed'            => true,
+	) );
 	// [2026-09-28 Claude Opus 5.5] CORE-REDUCTION WP-13 DL-3 (Q-3) — user-facing REST/FE errors, written by
 	// BizCity_Error_Reporter::record(); replaces the capped wp_option `bizcity_error_reports`.
 	BizCity_Log_Contract_Registry::register( 'core.helper.error_reports', array(
@@ -337,7 +360,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 	) );
 	// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — register bundled Google usage audit contract for active-quarantine dual-write/read parity.
 	BizCity_Log_Contract_Registry::register( 'plugins.bizgpt_tool_google.usage_audit', array(
-		'owner_module'       => 'plugins/bizgpt-tool-google',
+		'owner_module'       => 'core/channel-gateway/integrations/google', // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b-G — moved from plugins/bizgpt-tool-google
 		'label'              => 'Google usage audit',
 		'jsonl_folder'       => 'bizcity-google-logs',
 		'jsonl_module'       => 'usage',

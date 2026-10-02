@@ -2156,7 +2156,8 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 	private function locate_block( $code ) {
 		// [2026-06-10 Johnny Chu] PHASE-0.31 — search core/automation (new engine) FIRST,
 		// then fall back to archived bizcity-automation (legacy WaicFrame blocks).
-		$base_new = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/automation/includes/blocks/';
+		// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S2 (R-LEAN-4, Q-W16-1) — blocks moved to the add-on.
+		$base_new = WP_PLUGIN_DIR . '/bizcity-twin-brain-addon/automation/includes/blocks/';
 		$bases = array(
 			$base_new . 'actions/',
 			$base_new . 'triggers/',

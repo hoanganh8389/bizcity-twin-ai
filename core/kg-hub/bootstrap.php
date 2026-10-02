@@ -51,6 +51,11 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-database.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-identity-extractor.php';
 // PHASE-0.3 Wave 2 — backfill engine + WP-CLI + REST. Loaded after database.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-identity-backfill.php';
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 (R-LEAN-4) — moved here from core/knowledge/lib/ (same
+// class names). class-kg-vector-index.php and the bin diagnostic page call BizCity_Knowledge_Embedding behind a
+// class_exists guard; KG-Hub is now its real owner instead of relying on core/knowledge having loaded it first.
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-embedding.php';
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-file-parser.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-vector-index.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-vector-file-store.php';
 // PHASE-0.7-LEARN-VECTOR-FILE (Wave F0-F2, 2026-05-20) — content filestore companion.
@@ -100,10 +105,22 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-source-service.php';
 // [2026-07-25 Johnny Chu] PHASE-0.46 W4.5 — dedicated JSONL logger for notebook bridge capture lifecycle.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-notebook-bridge-file-logger.php';
 BizCity_KG_Notebook_Bridge_File_Logger::init();
+// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R3 — Journal Entry storage moved here from core/skills (archived);
+// the Zalo Bot capture refuses to learn ("Không thể lưu nhật ký") without it.
+if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+	BizCity_Safe_Loader::require_file( BIZCITY_KG_HUB_INCLUDES . 'class-journal-database.php', 'kg_hub.journal_database' );
+}
 // [2026-07-24 Johnny Chu] PHASE-0.46 W1 — channel -> notebook capture bridge shared by Zalo/Telegram/Messenger/WebChat/Twin surfaces.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-notebook-bridge.php';
 // [2026-07-25 Johnny Chu] PHASE-0.46 W4.5.3 — dispatch non-text notebook capture ingest via cron single events.
 BizCity_KG_Channel_Notebook_Bridge::bind_async_dispatch();
+// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-1 / CL-D3 — owner_knowledge + notebook_meta packs (the owner's own daily notebooks of one number).
+if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+	BizCity_Safe_Loader::require_file( BIZCITY_KG_HUB_INCLUDES . 'class-kg-owner-pack-exporter.php', 'kg_hub.owner_pack_exporter' );
+}
+if ( class_exists( 'BizCity_KG_Owner_Pack_Exporter' ) ) {
+	BizCity_KG_Owner_Pack_Exporter::register();
+}
 // [2026-07-26 Johnny Chu] PHASE-0.46 W6 — channel-agnostic instant upload-link
 // capability-URL service (fallback capture path for unsupported/no-URL events).
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-upload-link-service.php';

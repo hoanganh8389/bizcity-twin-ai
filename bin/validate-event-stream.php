@@ -49,7 +49,8 @@ $strict_fe   = array_key_exists( 'strict-fe', $opts );
 
 // ── Allow-list anchors (paths are *relative* to plugin root, forward slash) ─
 $event_stream_dir   = 'core/twin-core/event-stream/';
-$memory_projector   = 'core/memory/includes/class-memory-log-projector.php';
+// [2026-10-01 Claude Opus 5.5] WP-16 B-4 S3b — the projector moved to the add-on plugin; this main-plugin anchor no longer matches a file.
+$memory_projector   = '../bizcity-twin-brain-addon/memory/includes/class-memory-log-projector.php';
 $canonical_table    = 'bizcity_twin_event_stream';
 
 // FE — only this SSE event_name is sanctioned.

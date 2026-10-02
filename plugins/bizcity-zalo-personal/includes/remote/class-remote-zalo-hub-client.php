@@ -16,6 +16,20 @@ final class BizCity_Remote_Zalo_Hub_Client {
 
 	const PROFILE_VERSION = 'client-v1@2026-09-28';
 
+	/** @var array{base_url:string,key:string}|null Candidate credentials for E3 (probe-before-persist); null reads the saved store. */
+	private $override = null;
+
+	/**
+	 * [2026-09-29 Claude Sonnet 5] PHASE-0.82 E3 — build a client that authenticates with a CANDIDATE base
+	 * URL + key, never with what is currently saved. Used by the settings REST owner to probe an in-flight
+	 * "save and check" attempt before persisting it, so a failed probe never touches the working credentials.
+	 */
+	public static function with_credentials( string $base_url, string $key ): self {
+		$client = new self();
+		$client->override = array( 'base_url' => rtrim( $base_url, '/' ), 'key' => $key );
+		return $client;
+	}
+
 	public function list_accounts(): array {
 		$result = $this->request( 'GET', '/accounts' );
 		if ( ! empty( $result['ok'] ) && ( ! is_array( $result['data'] ?? null ) || ! is_array( $result['data']['items'] ?? null ) ) ) {
@@ -54,6 +68,29 @@ final class BizCity_Remote_Zalo_Hub_Client {
 		return $this->request( 'GET', '/accounts/' . rawurlencode( $this->account_id( $account ) ) . '/login' );
 	}
 
+	/**
+	 * [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS4 (51 G1) — read the nick's bot config (needs scope agents:config).
+	 * The envelope carries 'etag'; the body carries 'version' + 'editableFields'.
+	 */
+	public function get_agent( string $account ): array {
+		return $this->request( 'GET', '/accounts/' . rawurlencode( $this->account_id( $account ) ) . '/agent' );
+	}
+
+	/**
+	 * [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS4 (51 G1) — change ONLY the given fields, guarded by If-Match.
+	 * Refused locally (no HTTP) without a version or with nothing to send: the provider would answer 428.
+	 */
+	public function patch_agent( string $account, array $fields, string $version ): array {
+		if ( '' === trim( $version ) || ! $fields ) {
+			return self::local_error( 'remote_contract_rejected', false );
+		}
+		return $this->request( 'PATCH', '/accounts/' . rawurlencode( $this->account_id( $account ) ) . '/agent', array(
+			'body'          => $fields,
+			'if_match'      => $version,
+			'rzh_operation' => 'send',
+		) );
+	}
+
 	public function send_message( string $account, string $thread, array $body, string $idempotency_key, string $request_id = '' ): array {
 		// [2026-09-29 12:15 PM GitHub Copilot] PHASE-0.82-B3 — preserve the caller's stable idempotency key exactly and reject missing/oversized keys before HTTP.
 		if ( '' === $idempotency_key || strlen( $idempotency_key ) > 200 ) {
@@ -75,8 +112,8 @@ final class BizCity_Remote_Zalo_Hub_Client {
 		if ( ! class_exists( 'BizCity_Remote_Zalo_Credentials' ) || ! class_exists( 'BizCity_Remote_Zalo_Http' ) ) {
 			return self::local_error( 'remote_client_unavailable', false );
 		}
-		$base = rtrim( BizCity_Remote_Zalo_Credentials::base_url(), '/' );
-		$key  = BizCity_Remote_Zalo_Credentials::key();
+		$base = null !== $this->override ? $this->override['base_url'] : rtrim( BizCity_Remote_Zalo_Credentials::base_url(), '/' );
+		$key  = null !== $this->override ? $this->override['key'] : BizCity_Remote_Zalo_Credentials::key();
 		if ( '' === $base || '' === $key ) { return self::local_error( 'remote_not_configured', false ); }
 		$query = is_array( $options['query'] ?? null ) ? $options['query'] : array();
 		$url = $base . $path . ( $query ? '?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 ) : '' );
@@ -89,10 +126,17 @@ final class BizCity_Remote_Zalo_Hub_Client {
 			),
 			'rzh_operation' => $options['rzh_operation'] ?? '',
 		);
-		if ( 'POST' === strtoupper( $method ) ) {
+		$verb = strtoupper( $method );
+		if ( in_array( $verb, array( 'POST', 'PATCH' ), true ) ) {
 			$args['headers']['Content-Type'] = 'application/json';
-			$args['headers']['Idempotency-Key'] = (string) ( $options['idempotency_key'] ?? '' );
 			$args['body'] = wp_json_encode( $options['body'] ?? array() );
+		}
+		if ( 'POST' === $verb ) {
+			$args['headers']['Idempotency-Key'] = (string) ( $options['idempotency_key'] ?? '' );
+		}
+		// [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS4 — optimistic concurrency for PATCH /agent (guide (2) §3.3).
+		if ( isset( $options['if_match'] ) && '' !== (string) $options['if_match'] ) {
+			$args['headers']['If-Match'] = '"' . trim( (string) $options['if_match'], '"' ) . '"';
 		}
 		$response = BizCity_Remote_Zalo_Http::request( $method, $url, $args );
 		if ( empty( $response['ok'] ) ) {
@@ -107,11 +151,13 @@ final class BizCity_Remote_Zalo_Hub_Client {
 		$replayed = 'true' === strtolower( self::header( $headers, 'Idempotency-Replayed' ) );
 		$reply_id = self::header( $headers, 'X-Request-Id' );
 		$request_id = '' !== $reply_id ? substr( $reply_id, 0, 100 ) : $request_id;
+		// [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS4 — additive: the ETag of GET/PATCH /agent (quotes stripped).
+		$etag = trim( self::header( $headers, 'ETag' ), " \"" );
 		if ( $status >= 200 && $status < 300 ) {
-			return self::envelope( true, $status, $data, null, $request_id, $replayed );
+			return array( 'etag' => $etag ) + self::envelope( true, $status, $data, null, $request_id, $replayed );
 		}
 		$upstream = is_array( $data['error'] ?? null ) ? (string) ( $data['error']['code'] ?? '' ) : '';
-		return self::envelope( false, $status, $data, self::error( $upstream, $status, self::header( $headers, 'Retry-After' ) ), $request_id, $replayed );
+		return array( 'etag' => $etag ) + self::envelope( false, $status, $data, self::error( $upstream, $status, self::header( $headers, 'Retry-After' ) ), $request_id, $replayed );
 	}
 
 	private function account_id( string $account ): string { return 0 === strpos( $account, 'rzh:' ) ? substr( $account, 4 ) : $account; }
@@ -128,6 +174,10 @@ final class BizCity_Remote_Zalo_Hub_Client {
 			'remote_unreachable' => array( 'remote_unreachable', true ), 'remote_response_too_large' => array( 'remote_unreachable', true ), 'remote_redirect_refused' => array( 'remote_unreachable', false ),
 			'invalid_api_key' => array( 'remote_auth_failed', false ), 'invalid_key' => array( 'remote_auth_failed', false ), 'missing_api_key' => array( 'remote_auth_failed', false ), 'bad_api_key' => array( 'remote_auth_failed', false ),
 			'invalid_body' => array( 'remote_contract_rejected', false ), 'invalid_query' => array( 'remote_contract_rejected', false ), 'invalid_request' => array( 'remote_contract_rejected', false ),
+			// [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS4 — agent config errors (guide (2) §3.3/§8, 51 §2).
+			'field_not_editable' => array( 'remote_agent_field_locked', false ), 'agent_shared' => array( 'remote_agent_shared', false ),
+			'version_conflict' => array( 'remote_agent_version_conflict', true ), 'precondition_required' => array( 'remote_contract_rejected', false ),
+			'412' => array( 'remote_agent_version_conflict', true ), '428' => array( 'remote_contract_rejected', false ),
 			'bad_request' => array( 'remote_contract_rejected', false ), 'remote_host_blocked' => array( 'remote_host_blocked', false ), 'remote_dns_failed' => array( 'remote_host_blocked', false ), 'remote_host_unsafe' => array( 'remote_host_blocked', false ),
 		);
 		$chosen = $map[ $upstream ] ?? $map[ (string) $status ] ?? ( 400 === $status ? array( 'remote_contract_rejected', false ) : array( 'remote_unknown_error', false ) );

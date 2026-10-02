@@ -660,6 +660,12 @@ class BizCity_Webhook_Inspector {
 		if ( ! $id ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'Upsert failed' ), 500 );
 		}
+		// [2026-09-30 Claude Sonnet 5] PHASE-0.82 XS6 follow-up — generic, additive hook: this is the ONE binding
+		// owner for every platform, so any consumer that needs to react to "this account's Guru just changed"
+		// (e.g. pushing the projection to a remote agent) hooks here instead of a second bespoke write path.
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'bizcity_channel_binding_upserted', $args['platform'], $args['account_id'], $args['character_id'], $id );
+		}
 		return new WP_REST_Response( array( 'ok' => true, 'data' => array( 'id' => $id ) ), 200 );
 	}
 

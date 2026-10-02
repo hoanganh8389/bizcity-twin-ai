@@ -593,6 +593,27 @@ class BizCity_KG_Retriever {
 			empty( $like_params ) ? $sql : $wpdb->prepare( $sql, $like_params ),
 			ARRAY_A
 		);
+		$rows = is_array( $rows ) ? $rows : [];
+
+		// [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 E1 (G-08) — `content LIKE` cannot see a passage whose SQL body file-primary
+		// scrubbed to '' (default ON), so this degraded mode found nothing for them. Add the newest scrubbed storage_ver=2 passages of
+		// the same scope as extra candidates: hydrated from their shard below, and kept only when they really contain a token
+		// (the `_shard_candidate` flag). Inline rows keep the previous behaviour exactly, including a zero score.
+		$scrub_sql = "SELECT id, content, source_id, metadata, notebook_id, storage_ver, file_shard, file_offset, file_length
+		              FROM {$db->tbl_passages()}
+		              WHERE ({$merge_where}) AND storage_ver = 2 AND content = ''
+		              ORDER BY id DESC LIMIT 200";
+		$scrubbed = $wpdb->get_results( $scrub_sql, ARRAY_A );
+		if ( is_array( $scrubbed ) && $scrubbed ) {
+			$seen = [];
+			foreach ( $rows as $r ) { $seen[ (int) $r['id'] ] = true; }
+			foreach ( $scrubbed as $r ) {
+				if ( ! isset( $seen[ (int) $r['id'] ] ) ) {
+					$r['_shard_candidate'] = true;
+					$rows[] = $r;
+				}
+			}
+		}
 		if ( empty( $rows ) ) {
 			return [];
 		}
@@ -620,6 +641,12 @@ class BizCity_KG_Retriever {
 				if ( $cnt > 0 ) {
 					$score += 1.0 + log( 1 + $cnt ); // diminishing returns per term
 				}
+			}
+			if ( ! empty( $row['_shard_candidate'] ) ) {
+				if ( $score <= 0.0 ) {
+					continue; // a scrubbed passage is only a candidate when its shard body really has a token
+				}
+				unset( $row['_shard_candidate'] );
 			}
 			$row['score']     = $score;
 			$row['id']        = (int) $row['id'];

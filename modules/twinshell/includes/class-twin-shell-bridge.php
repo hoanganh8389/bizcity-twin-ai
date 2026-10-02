@@ -42,6 +42,14 @@ class BizCity_Twin_Shell_Bridge {
 	}
 
 	public function maybe_enqueue() {
+		// [2026-09-30 Claude Sonnet 5] R-SAFE-LOADER — this runs on every admin AND frontend page
+		// (admin_enqueue_scripts + wp_enqueue_scripts). A momentarily missing class (partial deploy,
+		// stale opcache) must not fatal the whole site — the exact "/twin/ 500s" class of bug this
+		// rule exists for. Every other call to BizCity_Twin_Shell_Page:: in this file is already
+		// guarded (see shellUrl below); this one was not.
+		if ( ! class_exists( 'BizCity_Twin_Shell_Page' ) ) {
+			return;
+		}
 		// Skip if we're rendering the shell itself.
 		if ( get_query_var( BizCity_Twin_Shell_Page::QUERY_VAR ) ) {
 			return;

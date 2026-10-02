@@ -46,20 +46,24 @@ require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-artifact-jobs.php';
 // [2026-07-19 Johnny Chu] PHASE-TWINWEB-THREADS — unified thread registry foundation for TwinWeb/TwinChat convergence.
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-thread-registry.php';
 // [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — load core subject profile layer before TwinWeb REST/profile surfaces.
-$_bizcity_twinweb_subject_profile_layer = defined( 'BIZCITY_TWIN_AI_DIR' )
-	? BIZCITY_TWIN_AI_DIR . 'core/twinbrain/includes/class-twinbrain-subject-profile-layer.php'
-	: dirname( __DIR__, 2 ) . '/core/twinbrain/includes/class-twinbrain-subject-profile-layer.php';
-if ( is_readable( $_bizcity_twinweb_subject_profile_layer ) ) {
+// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3a (R-LEAN-4, Q-W16-1) — the layer moved with TwinBrain into the add-on.
+$_bizcity_twinweb_subject_profile_layer = class_exists( 'BizCity_Addon_Locator', false )
+	? BizCity_Addon_Locator::file( 'twinbrain/includes/class-twinbrain-subject-profile-layer.php' )
+	: '';
+if ( '' !== $_bizcity_twinweb_subject_profile_layer && is_readable( $_bizcity_twinweb_subject_profile_layer ) ) {
 	require_once $_bizcity_twinweb_subject_profile_layer;
 }
 unset( $_bizcity_twinweb_subject_profile_layer );
 // [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — load lightweight My Content artifact service for /gpt/ even when full Automation bootstrap is gated.
-$_bizcity_twinweb_content_artifact_service = defined( 'BIZCITY_TWIN_AI_DIR' )
-	? BIZCITY_TWIN_AI_DIR . 'core/automation/includes/class-content-artifact-service.php'
-	: dirname( __DIR__, 2 ) . '/core/automation/includes/class-content-artifact-service.php';
-if ( is_readable( $_bizcity_twinweb_content_artifact_service ) ) {
+// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S2 (R-LEAN-4, Q-W16-1) — the service moved with Automation into the add-on.
+$_bizcity_twinweb_content_artifact_service = class_exists( 'BizCity_Addon_Locator', false )
+	? BizCity_Addon_Locator::file( 'automation/includes/class-content-artifact-service.php' )
+	: '';
+if ( '' !== $_bizcity_twinweb_content_artifact_service && is_readable( $_bizcity_twinweb_content_artifact_service ) ) {
 	require_once $_bizcity_twinweb_content_artifact_service;
-	BizCity_Content_Artifact_Service::init();
+	if ( class_exists( 'BizCity_Content_Artifact_Service', false ) ) {
+		BizCity_Content_Artifact_Service::init();
+	}
 }
 unset( $_bizcity_twinweb_content_artifact_service );
 // [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — prompt input can reuse ZaloBot keyword workflow matching.

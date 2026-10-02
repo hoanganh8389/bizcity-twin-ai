@@ -126,6 +126,132 @@ final class BizCity_CRM_Contact_Roles {
 	}
 
 	/**
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D2 — the number's own owner (the UID in "UID chủ tài khoản", chatting 1-1 with
+	 * the bot). Not in CATALOG: nobody picks it by hand; it is set by the Zalo Personal inbound path and keeps the owner out
+	 * of the customer pipeline (a `role:owner` contact is not a customer of their own shop).
+	 */
+	const OWNER = 'owner';
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.87 W2-5 — a staff member on a number's "Người dùng Agent" list chatting 1-1 with the
+	 * bot (doc 50 §6.5). Same treatment as `owner`: internal, never a customer.
+	 */
+	const STAFF = 'staff';
+
+	/** Internal people: never in the customer pipeline, reports, rollup or broadcasts. Every exclusion passes this list. */
+	const INTERNAL = array( self::OWNER, self::STAFF );
+
+	/** Add one role, keeping the others; `customer` is dropped when the role is internal. No write when already there. */
+	public static function add( int $contact_id, string $role ): bool {
+		$role    = self::sanitize_role( $role );
+		$current = self::get( $contact_id );
+		if ( '' === $role || in_array( $role, $current, true ) ) {
+			return '' !== $role;
+		}
+		if ( in_array( $role, self::INTERNAL, true ) ) {
+			$current = array_values( array_diff( $current, array( 'customer' ) ) );
+		}
+		$current[] = $role;
+		return self::set( $contact_id, $current );
+	}
+
+	/**
+	 * SQL fragment excluding contacts that carry `role:<role>` (`$alias` = the contacts table alias).
+	 * `$role` may be one role or a list (e.g. self::INTERNAL): excluded when the contact carries ANY of them.
+	 *
+	 * @param string|string[] $role
+	 */
+	public static function sql_without_role( string $alias, $role ): string {
+		$alias = preg_replace( '/[^a-z0-9_]/i', '', $alias );
+		$not   = array();
+		foreach ( self::role_list( $role ) as $r ) {
+			$not[] = "{$alias}.tags_json NOT LIKE '%\"" . self::PREFIX . $r . "\"%'";
+		}
+		$not = $not ? $not : array( '1=1' );
+		return "({$alias}.tags_json IS NULL OR " . ( 1 === count( $not ) ? $not[0] : '(' . implode( ' AND ', $not ) . ')' ) . ')';
+	}
+
+	/** @param string|string[] $role @return string[] sanitized, non-empty, unique */
+	private static function role_list( $role ): array {
+		$out = array();
+		foreach ( is_array( $role ) ? $role : array( $role ) as $r ) {
+			$r = self::sanitize_role( (string) $r );
+			if ( '' !== $r && ! in_array( $r, $out, true ) ) {
+				$out[] = $r;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Conversation-level filter: `$column` is a conversations `contact_inbox_id` column; keeps conversations whose contact
+	 * does NOT carry `role:<role>`. NULL-safe (a conversation without a contact_inbox stays).
+	 */
+	public static function sql_conversations_without_role( string $column, $role ): string {
+		$column = preg_replace( '/[^a-z0-9_.]/i', '', $column );
+		return "({$column} IS NULL OR {$column} NOT IN (" . self::sql_contact_inboxes_with_role( $role ) . '))';
+	}
+
+	/** Filter on a `conversation_id` column (messages, applied SLAs): drops rows of conversations whose contact carries the role. */
+	public static function sql_conversation_ids_without_role( string $column, $role ): string {
+		$column = preg_replace( '/[^a-z0-9_.]/i', '', $column );
+		$conv   = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		return "({$column} IS NULL OR {$column} NOT IN (SELECT cv_r.id FROM {$conv} cv_r WHERE cv_r.contact_inbox_id IN (" . self::sql_contact_inboxes_with_role( $role ) . ')))';
+	}
+
+	/**
+	 * The given contact ids minus those carrying `role:<role>` (one query; order kept).
+	 *
+	 * @param int[] $contact_ids
+	 * @return int[]
+	 */
+	public static function without_role( array $contact_ids, $role ): array {
+		$ids   = array_values( array_filter( array_map( 'intval', $contact_ids ), static function ( $v ) { return $v > 0; } ) );
+		$roles = self::role_list( $role );
+		if ( ! $ids || ! $roles || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			return $ids;
+		}
+		global $wpdb;
+		$ct    = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$in    = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$likes = array();
+		foreach ( $roles as $r ) {
+			$likes[] = '%' . $wpdb->esc_like( '"' . self::PREFIX . $r . '"' ) . '%';
+		}
+		$any = implode( ' OR ', array_fill( 0, count( $likes ), 'tags_json LIKE %s' ) );
+		$hit = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( "SELECT id FROM `{$ct}` WHERE id IN ({$in}) AND ({$any})", array_merge( $ids, $likes ) ) ) );
+		return array_values( array_diff( $ids, $hit ) );
+	}
+
+	/** @var array<string,bool> per-request memo of conversation_has_role() */
+	private static $conversation_memo = array();
+
+	/** Does the contact of this conversation carry `role:<role>` (any of a list)? Memoized per request (reporting calls it per event). */
+	public static function conversation_has_role( int $conversation_id, $role ): bool {
+		$roles = self::role_list( $role );
+		if ( $conversation_id <= 0 || ! $roles || ! class_exists( 'BizCity_CRM_Repository' ) ) {
+			return false;
+		}
+		$key = $conversation_id . '|' . implode( ',', $roles );
+		if ( ! isset( self::$conversation_memo[ $key ] ) ) {
+			$contact = BizCity_CRM_Repository::get_conversation_contact_id( $conversation_id );
+			self::$conversation_memo[ $key ] = $contact > 0 && array() !== array_intersect( $roles, self::get( $contact ) );
+		}
+		return self::$conversation_memo[ $key ];
+	}
+
+	private static function sql_contact_inboxes_with_role( $role ): string {
+		$ci  = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$ct  = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$any = array();
+		foreach ( self::role_list( $role ) as $r ) {
+			$any[] = "ct_r.tags_json LIKE '%\"" . self::PREFIX . $r . "\"%'";
+		}
+		$any = $any ? $any : array( '1=0' );
+		return "SELECT ci_r.id FROM {$ci} ci_r INNER JOIN {$ct} ct_r ON ct_r.id = ci_r.contact_id WHERE " . ( 1 === count( $any ) ? $any[0] : '(' . implode( ' OR ', $any ) . ')' );
+	}
+
+	/**
 	 * The role a NEW contact should default to when it first attaches through an inbox whose
 	 * `settings_json.purpose` is `$purpose` (0.63C GC-6 acceptance: "vai suy diễn mặc định khi
 	 * contact mới vào... nhân viên không phải gán tay"). Never overwrites a role an existing

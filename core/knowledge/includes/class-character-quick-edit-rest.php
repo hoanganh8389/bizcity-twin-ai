@@ -335,6 +335,9 @@ class BizCity_Character_Quick_Edit_REST {
 				return new WP_Error( 'notebook_attach_failed', implode( ' ', $attach_errors ), array( 'status' => 400 ) );
 			}
 			$updated['attached_notebooks'] = $attached;
+			if ( $attached && self::enable_notebook_scope( $id ) ) {
+				$updated['scope_knowledge'] = 'base+notebooks';
+			}
 		}
 
 		// 4) Notebook detach (only when notebook is currently bound to THIS character).
@@ -370,6 +373,25 @@ class BizCity_Character_Quick_Edit_REST {
 	}
 
 	/* ────────────────────────── Helpers ────────────────────────── */
+
+	/**
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C3.1 — attaching a notebook from the Bot Studio sheet means "answer from it": the Guru's
+	 * scope (settings.bot.scope.knowledge, R-GS-3) moves to base+notebooks. The notebook list itself is read from the kg-hub attachments
+	 * (bizcity_guru_notebook_ids, C1.0), so there is nothing else to write. Detaching never switches it back; the owner does that.
+	 *
+	 * @return bool true when the scope was switched now.
+	 */
+	public static function enable_notebook_scope( int $character_id ): bool {
+		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			return false;
+		}
+		if ( 'base+notebooks' === BizCity_Guru_Context_Resolver::scope( $character_id )['knowledge'] ) {
+			return false;
+		}
+		$saved = BizCity_Bot_Config_Repo::save( $character_id, array( 'scope' => array( 'knowledge' => 'base+notebooks' ) ) );
+		BizCity_Guru_Context_Resolver::reset();
+		return ! is_wp_error( $saved );
+	}
 
 	private static function get_guru_uuid( $character_id ) {
 		global $wpdb;

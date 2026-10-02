@@ -23,6 +23,30 @@ final class BizCity_MCP_Tool_Registry {
 	private static $tools  = array();
 	private static $booted = false;
 
+	// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-3 — descriptor contract of the one MCP standard (fixture bridge.tools_list.owner.json).
+	const TOOL_CONTRACT = 'bizcity-mcp-tool@1.0.0';
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-3 — mirror of docs/contracts/BIZCITY-MCP-STANDARD-v1.json
+	 * "existing_tool_modes": modes for tools registered before 0.88 so a delegated (cell) principal can reach them by mode.
+	 * Keep in sync with the JSON (bin/validate-mcp-standard.mjs checks every pair). Tools not listed (document.*, page.*,
+	 * content.*, brain.context.*) have no mode and are never offered to delegated principals.
+	 */
+	const EXISTING_TOOL_MODES = array(
+		'brain.order.summary'           => 'orders',
+		'business.get_customer_metrics' => 'sales',
+		'report.list_templates'         => 'sales',
+		'report.build_dataset'          => 'sales',
+		'pipeline.get_metrics'          => 'sales',
+		'commerce.list_products'        => 'stock',
+		'commerce.get_product'          => 'stock',
+		'commerce.list_orders'          => 'orders',
+		'commerce.get_order'            => 'orders',
+		'commerce.list_customers'       => 'customers',
+		'commerce.get_customer'         => 'customers',
+		'brain.get_citation_pack'       => 'notebook',
+	);
+
 	public static function boot() {
 		if ( self::$booted ) {
 			return;
@@ -37,10 +61,23 @@ final class BizCity_MCP_Tool_Registry {
 		self::register_report_brain_tools();
 		self::register_pipeline_brain_tools();
 		self::register_commerce_tools();
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 — other services (CRM, orders, inventory, booking, automation: lane CL-B)
+		// register their canonical tools here through self::register() with the same descriptor keys.
+		do_action( 'bizcity_mcp_register_tools' );
 	}
 
+	/**
+	 * Descriptor keys (all optional except handler):
+	 *  title, description, input_schema, read_only, destructive, idempotent, required_scope, handler(args, ctx);
+	 *  [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-3 —
+	 *  mode (agent mode or '*business'; null = not offered to delegated principals), scopes (default [required_scope]),
+	 *  confirm ('never'|'always'), preview(args, ctx) → array|WP_Error (REQUIRED when confirm = always), llm_alias,
+	 *  fallback_pack, output_schema, open_world, alias_of (canonical name when this entry is a deprecated alias), since.
+	 *
+	 * @return bool false when the descriptor is refused (confirm=always without a preview).
+	 */
 	public static function register( $name, array $descriptor ) {
-		self::$tools[ $name ] = array_merge( array(
+		$tool = array_merge( array(
 			'name'           => $name,
 			'title'          => $name,
 			'description'    => '',
@@ -50,37 +87,125 @@ final class BizCity_MCP_Tool_Registry {
 			'idempotent'     => true,
 			'required_scope' => 'brain.read',
 			'handler'        => null,
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-3 — one-MCP-standard keys.
+			'mode'           => null,
+			'scopes'         => null,
+			'confirm'        => 'never',
+			'llm_alias'      => null,
+			'fallback_pack'  => null,
+			'output_schema'  => null,
+			'open_world'     => false,
+			'preview'        => null,
+			'alias_of'       => null,
+			'since'          => null,
 		), $descriptor );
+		if ( null === $tool['mode'] && isset( self::EXISTING_TOOL_MODES[ $name ] ) ) {
+			$tool['mode'] = self::EXISTING_TOOL_MODES[ $name ];
+		}
+		$tool['scopes']  = array_values( array_unique( array_filter( array_map( 'strval', is_array( $tool['scopes'] ) && $tool['scopes'] ? $tool['scopes'] : array( $tool['required_scope'] ) ) ) ) );
+		$tool['confirm'] = 'always' === $tool['confirm'] ? 'always' : 'never';
+		if ( 'always' === $tool['confirm'] && ! is_callable( $tool['preview'] ) ) {
+			// A write that must be confirmed cannot be offered without a side-effect-free preview (Q88-1).
+			error_log( '[bizcity-mcp] tool ' . $name . ' refused: confirm=always needs a preview callable.' );
+			return false;
+		}
+		self::$tools[ $name ] = $tool;
+		return true;
 	}
 
 	/**
-	 * @param bool $apply_policy When true (default, used by the real `tools/list`
+	 * @param bool  $apply_policy When true (default, used by the real `tools/list`
 	 * protocol response), tools the site admin has turned off via
 	 * BizCity_MCP_Tool_Policy are omitted. Diagnostics passes false to inspect
 	 * the full wave-level registered catalog regardless of the admin policy.
+	 * @param array $ctx [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — auth context; a delegated (cell) principal sees the
+	 * tools whose mode is one of its modes (no deprecated aliases) and the admin allowlist does not apply (Q88-6).
 	 * @return array Tool descriptors for the MCP `tools/list` response.
 	 */
-	public static function list_descriptors( $apply_policy = true ) {
+	public static function list_descriptors( $apply_policy = true, array $ctx = array() ) {
 		self::boot();
+		$delegated = class_exists( 'BizCity_MCP_Delegation' ) && BizCity_MCP_Delegation::is_delegated( $ctx );
 		$out = array();
 		foreach ( self::$tools as $name => $t ) {
-			// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — hide tools the admin disabled from the advertised catalog.
-			if ( $apply_policy && class_exists( 'BizCity_MCP_Tool_Policy' ) && ! BizCity_MCP_Tool_Policy::is_enabled( $name ) ) {
+			if ( $delegated ) {
+				if ( ! BizCity_MCP_Delegation::tool_listed( $t, $ctx ) ) {
+					continue;
+				}
+			} elseif ( $apply_policy && ! self::policy_allows( $name, $ctx ) ) {
+				// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — hide tools the admin disabled from the advertised catalog.
 				continue;
 			}
-			$out[] = array(
-				'name'        => $name,
-				'title'       => $t['title'],
-				'description' => $t['description'],
-				'inputSchema' => $t['input_schema'],
-				'annotations' => array(
-					'readOnlyHint'    => (bool) $t['read_only'],
-					'destructiveHint' => (bool) $t['destructive'],
-					'idempotentHint'  => (bool) $t['idempotent'],
-				),
-			);
+			$out[] = self::descriptor( $name, $t );
 		}
 		return $out;
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-3 — the public descriptor (bizcity-mcp-tool@1): outputSchema when set,
+	 * annotations incl. openWorldHint, `_meta.bizcity`. Key order follows fixture bridge.tools_list.owner.json.
+	 */
+	private static function descriptor( $name, array $t ) {
+		$d = array(
+			'name'        => $name,
+			'title'       => $t['title'],
+			'description' => $t['description'],
+			'inputSchema' => $t['input_schema'],
+		);
+		// bizcity-mcp-tool@1 makes outputSchema mandatory: a tool without its own schema advertises the generic envelope
+		// (success + data.as_of), which every result now satisfies.
+		$d['outputSchema'] = is_array( $t['output_schema'] ) && $t['output_schema'] ? $t['output_schema'] : self::envelope_schema( array() );
+		$d['annotations'] = array(
+			'readOnlyHint'    => (bool) $t['read_only'],
+			'destructiveHint' => (bool) $t['destructive'],
+			'idempotentHint'  => (bool) $t['idempotent'],
+			'openWorldHint'   => (bool) $t['open_world'],
+		);
+		$meta = array(
+			'contract'         => self::TOOL_CONTRACT,
+			'mode'             => null === $t['mode'] ? null : (string) $t['mode'],
+			'scopes'           => array_values( $t['scopes'] ),
+			'confirm'          => $t['confirm'],
+			'llm_alias'        => null === $t['llm_alias'] ? null : (string) $t['llm_alias'],
+			'fallback_pack'    => null === $t['fallback_pack'] ? null : (string) $t['fallback_pack'],
+			'deprecated_alias' => null,
+			'since'            => null === $t['since'] ? null : (string) $t['since'],
+		);
+		if ( ! empty( $t['alias_of'] ) ) {
+			$meta['deprecated_alias_of'] = (string) $t['alias_of'];
+		}
+		$d['_meta'] = array( 'bizcity' => $meta );
+		return $d;
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-4 — admin allowlist for external clients. A canonical tool the admin has
+	 * never decided on inherits the state of its deprecated alias (brain.search ON ⇒ knowledge.search ON), so renaming does
+	 * not silently close a tool ChatGPT/Claude already use, nor open one the admin closed.
+	 */
+	private static function policy_allows( $name, array $ctx ) {
+		if ( ! class_exists( 'BizCity_MCP_Tool_Policy' ) ) {
+			return true;
+		}
+		if ( BizCity_MCP_Tool_Policy::is_enabled( $name, $ctx ) ) {
+			return true;
+		}
+		if ( array_key_exists( $name, BizCity_MCP_Tool_Policy::get_enabled_map() ) ) {
+			return false;
+		}
+		foreach ( self::$tools as $other => $t ) {
+			if ( (string) $t['alias_of'] === (string) $name && BizCity_MCP_Tool_Policy::is_enabled( $other, $ctx ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Tests only: forget every registered tool so a test can boot a clean catalog.
+	 */
+	public static function reset() {
+		self::$tools  = array();
+		self::$booted = false;
 	}
 
 	/**
@@ -128,6 +253,16 @@ final class BizCity_MCP_Tool_Registry {
 			'content'  => 'Content (đăng/quản lý bài viết)',
 			'report'   => 'Report (báo cáo)',
 			'commerce' => 'WooCommerce (sản phẩm/đơn hàng/khách hàng)',
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 — groups of the canonical one-MCP-standard names.
+			'knowledge' => 'Tri thức (sổ ghi chú)',
+			'sales'     => 'Doanh số',
+			'order'     => 'Đơn hàng',
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 CL-B — groups of the action tools.
+			'crm'        => 'Khách hàng (CRM)',
+			'staff'      => 'Nhân sự',
+			'inventory'  => 'Tồn kho',
+			'booking'    => 'Lịch hẹn',
+			'automation' => 'Tự động hoá',
 		);
 		return isset( $labels[ $prefix ] ) ? $labels[ $prefix ] : $prefix;
 	}
@@ -151,20 +286,83 @@ final class BizCity_MCP_Tool_Registry {
 		if ( ! isset( self::$tools[ $name ] ) ) {
 			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::TOOL_NOT_FOUND, 'Tool không tồn tại trong catalog.', false, array(), array(), $ctx ), $t0 );
 		}
-		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — admin tool allowlist gate, independent from and enforced before the scope check.
-		if ( class_exists( 'BizCity_MCP_Tool_Policy' ) && ! BizCity_MCP_Tool_Policy::is_enabled( $name, $ctx ) ) {
+		$tool = self::$tools[ $name ];
+		if ( class_exists( 'BizCity_MCP_Delegation' ) && BizCity_MCP_Delegation::is_delegated( $ctx ) ) {
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 (Q88-6) — a delegated (cell) principal is gated by the tool's mode,
+			// not by the admin allowlist for external clients; tools without a mode are never available to it.
+			if ( ! BizCity_MCP_Delegation::tool_allowed( $tool, $ctx ) ) {
+				return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::MODE_NOT_ALLOWED, 'Người này chưa được dùng mục này qua Agent.', false, array( 'mode' => (string) $tool['mode'] ), array(), $ctx ), $t0 );
+			}
+		} elseif ( ! self::policy_allows( $name, $ctx ) ) {
+			// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — admin tool allowlist gate, independent from and enforced before the scope check.
 			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::TOOL_DISABLED, 'Tool này đã bị quản trị viên tắt trong MCP Settings.', false, array(), array(), $ctx ), $t0 );
 		}
 
-		$tool = self::$tools[ $name ];
-		if ( ! BizCity_MCP_Auth::has_scope( $ctx, $tool['required_scope'] ) ) {
-			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::SCOPE_DENIED, 'Client thiếu scope: ' . $tool['required_scope'] . '.', false, array(), array(), $ctx ), $t0 );
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-3 — every scope of the tool is required (default [required_scope]).
+		foreach ( $tool['scopes'] as $scope ) {
+			if ( ! BizCity_MCP_Auth::has_scope( $ctx, $scope ) ) {
+				return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::SCOPE_DENIED, 'Client thiếu scope: ' . $scope . '.', false, array(), array(), $ctx ), $t0 );
+			}
 		}
 		if ( ! is_callable( $tool['handler'] ) ) {
 			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::INTERNAL_ERROR, 'Tool chưa được triển khai.', false, array(), array( 'duration_ms' => (int) ( ( microtime( true ) - $t0 ) * 1000 ) ), $ctx ), $t0 );
 		}
 
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — write.idempotency.json site_rules: a write retried with the same
+		// idempotency_key replays the stored envelope BEFORE the confirm wrapper (a consumed token is never re-checked).
+		$idem = self::idempotency_transient( $name, $tool, $ctx );
+		if ( '' === $idem ) {
+			return self::run_tool( $name, $tool, $args, $ctx, $t0 );
+		}
+		$stored = get_transient( $idem );
+		if ( is_array( $stored ) && ! empty( $stored['__running'] ) ) {
+			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::WRITE_IN_PROGRESS, 'Thao tác này đang được xử lý, chưa có kết quả.', true, array(), array(), $ctx ), $t0 );
+		}
+		if ( is_array( $stored ) && isset( $stored['success'] ) ) {
+			$stored['meta']['replayed'] = true;
+			return self::finish_call( $name, $args, $ctx, $stored, $t0 );
+		}
+		set_transient( $idem, array( '__running' => 1 ), self::IDEM_RUNNING_TTL );
+		$envelope = self::run_tool( $name, $tool, $args, $ctx, $t0 );
+		if ( ! empty( $envelope['success'] ) && is_array( $envelope['data'] ?? null ) && 'needs_confirmation' === ( $envelope['data']['status'] ?? '' ) ) {
+			delete_transient( $idem ); // A preview is not the result of the write: never replay it.
+		} else {
+			set_transient( $idem, $envelope, self::IDEM_RESULT_TTL ); // success or failure (failed_envelope_cached).
+		}
+		return $envelope;
+	}
+
+	/** [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — write.idempotency.json site_rules TTLs (seconds). */
+	const IDEM_RESULT_TTL  = 900;
+	const IDEM_RUNNING_TTL = 120;
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — transient name for a write call carrying an idempotency_key, '' when
+	 * the rule does not apply (read-only tool or no key). Only the hash is stored in the name; arguments are never stored.
+	 */
+	private static function idempotency_transient( $name, array $tool, array $ctx ) {
+		$key = isset( $ctx['idempotency_key'] ) ? substr( (string) preg_replace( '/[^A-Za-z0-9._:\-]/', '', (string) $ctx['idempotency_key'] ), 0, 200 ) : '';
+		if ( '' === $key || ! empty( $tool['read_only'] ) ) {
+			return '';
+		}
+		return 'bizcity_mcp_idem_' . hash( 'sha256', get_current_blog_id() . '|' . (int) ( $ctx['user_id'] ?? 0 ) . '|' . $name . '|' . $key );
+	}
+
+	/** Confirm wrapper + handler → envelope (audited through finish_call). */
+	private static function run_tool( $name, array $tool, array $args, array $ctx, $t0 ) {
+		$confirm = 'always' === $tool['confirm'];
 		try {
+			if ( $confirm ) {
+				// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-7 (Q88-1) — "xem trước → cam kết": the wrapper owns the token, handlers never do.
+				$gate = self::confirm_gate( $name, $tool, $args, $ctx );
+				if ( is_wp_error( $gate ) ) {
+					return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::from_wp_error( $name, $gate, array( 'duration_ms' => (int) ( ( microtime( true ) - $t0 ) * 1000 ) ), $ctx ), $t0 );
+				}
+				if ( isset( $gate['preview_result'] ) ) {
+					return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::success( $name, $gate['preview_result'], array( 'duration_ms' => (int) ( ( microtime( true ) - $t0 ) * 1000 ) ), '', $ctx ), $t0 );
+				}
+				$args = $gate['args'];
+			}
 			$result = call_user_func( $tool['handler'], $args, $ctx );
 		} catch ( \Throwable $e ) {
 			// PHP 7.4-safe: \Throwable catches both Exception and Error.
@@ -177,7 +375,59 @@ final class BizCity_MCP_Tool_Registry {
 		if ( is_wp_error( $result ) ) {
 			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::from_wp_error( $name, $result, $extra, $ctx ), $t0 );
 		}
-		return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::success( $name, $result, $extra, '', $ctx ), $t0 );
+		if ( $confirm && is_array( $result ) && ! isset( $result['status'] ) ) {
+			$result['status'] = 'done';
+		}
+		return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::success( $name, self::with_as_of( $result ), $extra, '', $ctx ), $t0 );
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-3 — every 0.88 result carries `as_of` (UTC ISO 8601) unless the handler
+	 * already set it (e.g. a cached dataset with its own freshness). Lists are left alone (adding a key would turn them
+	 * into objects).
+	 */
+	private static function with_as_of( $data ) {
+		if ( ! is_array( $data ) || isset( $data['as_of'] ) ) {
+			return $data;
+		}
+		if ( array() !== $data && array_keys( $data ) === range( 0, count( $data ) - 1 ) ) {
+			return $data;
+		}
+		$data['as_of'] = gmdate( 'c' );
+		return $data;
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-7 — confirm.flow.json. No confirm_token ⇒ run preview() (no write), issue a
+	 * one-time token bound to tool + client + user + args_hash and return {preview_result}. With a token ⇒ consume it (args
+	 * mismatch ⇒ MCP_CONFIRM_ARGS_CHANGED, token kept; invalid / used / expired / other identity ⇒ MCP_CONFIRM_INVALID) and
+	 * return {args} without confirm_token for the handler.
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function confirm_gate( $name, array $tool, array $args, array $ctx ) {
+		$token = isset( $args['confirm_token'] ) ? (string) $args['confirm_token'] : '';
+		unset( $args['confirm_token'] );
+		$hash = BizCity_MCP_Action_Confirmation::args_hash( $args );
+		if ( '' === $token ) {
+			$preview = call_user_func( $tool['preview'], $args, $ctx );
+			if ( is_wp_error( $preview ) ) {
+				return $preview;
+			}
+			$issued = BizCity_MCP_Action_Confirmation::issue( $name, 0, $ctx, $hash );
+			return array( 'preview_result' => array(
+				'as_of'         => gmdate( 'c' ),
+				'status'        => 'needs_confirmation',
+				'preview'       => is_array( $preview ) ? $preview : array( 'summary' => (string) $preview ),
+				'confirm_token' => (string) $issued['confirmation_token'],
+				'expires_at'    => (string) $issued['expires_at'],
+			) );
+		}
+		$ok = BizCity_MCP_Action_Confirmation::consume( $token, $name, 0, $ctx, $hash );
+		if ( is_wp_error( $ok ) ) {
+			return $ok;
+		}
+		return array( 'args' => $args );
 	}
 
 	private static function finish_call( $name, array $args, array $ctx, array $envelope, $started_at ) {
@@ -229,6 +479,28 @@ final class BizCity_MCP_Tool_Registry {
 		// path removed; the JSONL write above is the sole audit persistence path.
 	}
 
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-3 — outputSchema of the core/mcp envelope (structuredContent): success +
+	 * data with the required `as_of` and the tool's own data properties. Public so other services (CL-B) reuse it.
+	 *
+	 * @param array    $data_properties JSON-schema properties of `data` besides as_of
+	 * @param string[] $data_required   required keys of `data` besides as_of
+	 */
+	public static function envelope_schema( array $data_properties, array $data_required = array() ) {
+		return array(
+			'type'       => 'object',
+			'required'   => array( 'success', 'data' ),
+			'properties' => array(
+				'success' => array( 'type' => 'boolean' ),
+				'data'    => array(
+					'type'       => 'object',
+					'required'   => array_values( array_unique( array_merge( array( 'as_of' ), $data_required ) ) ),
+					'properties' => array_merge( array( 'as_of' => array( 'type' => 'string' ) ), $data_properties ),
+				),
+			),
+		);
+	}
+
 	private static function evaluation_meta( array $envelope, $error_code ) {
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP-TWINWEB — summarize citation/claim validation outcomes without storing draft text.
 		$data   = isset( $envelope['data'] ) && is_array( $envelope['data'] ) ? $envelope['data'] : array();
@@ -275,43 +547,119 @@ final class BizCity_MCP_Tool_Registry {
 		}
 		$svc = BizCity_Brain_MCP_Service::instance();
 
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-4 — knowledge.* are the canonical names; brain.* stay one version as
+		// deprecated aliases (same handler, same schema). Delegated callers only read notebooks they own
+		// (BizCity_MCP_Client_Scope_Resolver honours ctx.allowed_notebook_ids for delegated contexts).
+		$list_notebooks_schema = array(
+			'type' => 'object',
+			'properties' => array(
+				'query'           => array( 'type' => 'string' ),
+				'limit'           => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 200, 'default' => 50 ),
+				'cursor'          => array( 'type' => array( 'string', 'null' ) ),
+				'include_counts'  => array( 'type' => 'boolean', 'default' => true ),
+				'include_archived'=> array( 'type' => 'boolean', 'default' => false ),
+			),
+		);
+		$search_schema = array(
+			'type' => 'object',
+			'required' => array( 'query' ),
+			'properties' => array(
+				'query'              => array( 'type' => 'string', 'minLength' => 1 ),
+				'notebook_ids'       => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ) ),
+				'retrieval_profile'  => array( 'type' => 'string', 'default' => 'kg-rag-strict-v1' ),
+				'top_k'              => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 8 ),
+				'graph_depth'        => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 3, 'default' => 2 ),
+				'deterministic'      => array( 'type' => 'boolean', 'default' => true ),
+				'citation_mode'      => array( 'type' => 'string', 'enum' => array( 'strict' ), 'default' => 'strict' ),
+				'include_entities'   => array( 'type' => 'boolean', 'default' => true ),
+				'include_relations'  => array( 'type' => 'boolean', 'default' => true ),
+				'include_full_content'=> array( 'type' => 'boolean', 'default' => false ),
+				'snapshot_ttl_seconds'=> array( 'type' => 'integer', 'minimum' => 60, 'default' => 3600 ),
+			),
+		);
+		$passage_schema = array(
+			'type' => 'object',
+			'properties' => array(
+				'retrieval_snapshot_id' => array( 'type' => 'string' ),
+				'citation_id'          => array( 'type' => 'string', 'pattern' => '^src:\\d+#p\\d+$' ),
+				'source_id'            => array( 'type' => 'integer', 'minimum' => 1 ),
+				'passage_id'           => array( 'type' => 'integer', 'minimum' => 1 ),
+			),
+		);
+
+		// @mcp bizcity-mcp-standard@1 tool knowledge.search
+		self::register( 'knowledge.search', array(
+			'title'          => 'Tìm trong sổ tri thức',
+			'description'    => 'Tìm đoạn trích liên quan trong các sổ tri thức (notebook) của chính người dùng, kèm citation_id để trích dẫn. Dùng khi cần trả lời dựa trên ghi chú, tài liệu đã lưu.',
+			'input_schema'   => $search_schema,
+			'output_schema'  => self::envelope_schema( array(
+				'retrieval_snapshot_id' => array( 'type' => 'string' ),
+				'passages'              => array( 'type' => 'array' ),
+				'allowed_citations'     => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+			) ),
+			'read_only'      => true,
+			'idempotent'     => false, // snapshot creation is a side effect, same as brain.search
+			'required_scope' => 'brain.read',
+			'handler'        => array( $svc, 'search' ),
+			'mode'           => 'notebook',
+			'scopes'         => array( 'brain.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'notebook_search',
+			'fallback_pack'  => 'owner_knowledge',
+			'since'          => '0.88.2',
+		) );
+
+		// @mcp bizcity-mcp-standard@1 tool knowledge.get_passage
+		self::register( 'knowledge.get_passage', array(
+			'title'          => 'Lấy đoạn trích tri thức',
+			'description'    => 'Lấy toàn văn một đoạn trích theo citation_id (trong một lần tìm) hoặc theo source_id + passage_id.',
+			'input_schema'   => $passage_schema,
+			'output_schema'  => self::envelope_schema( array( 'passage' => array( 'type' => 'object' ) ) ),
+			'required_scope' => 'brain.read',
+			'handler'        => array( $svc, 'get_passage' ),
+			'mode'           => 'notebook',
+			'scopes'         => array( 'brain.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'knowledge_get_passage',
+			'fallback_pack'  => null,
+			'since'          => '0.88.2',
+		) );
+
+		// @mcp bizcity-mcp-standard@1 tool knowledge.list_notebooks
+		self::register( 'knowledge.list_notebooks', array(
+			'title'          => 'Danh sách sổ tri thức',
+			'description'    => 'Liệt kê các sổ tri thức (notebook) người dùng được đọc, kèm số nguồn và số đoạn.',
+			'input_schema'   => $list_notebooks_schema,
+			'output_schema'  => self::envelope_schema( array(
+				'notebooks'   => array( 'type' => 'array' ),
+				'next_cursor' => array( 'type' => array( 'string', 'null' ) ),
+			) ),
+			'required_scope' => 'brain.read',
+			'handler'        => array( $svc, 'list_notebooks' ),
+			'mode'           => 'notebook',
+			'scopes'         => array( 'brain.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'knowledge_list_notebooks',
+			'fallback_pack'  => 'notebook_meta',
+			'since'          => '0.88.2',
+		) );
+
 		self::register( 'brain.list_notebooks', array(
 			'title'          => 'List notebooks',
 			'description'    => 'Trả danh sách notebook mà client hiện tại được quyền đọc (ACL qua BizCity_KG_Notebook_Service).',
-			'input_schema'   => array(
-				'type' => 'object',
-				'properties' => array(
-					'query'           => array( 'type' => 'string' ),
-					'limit'           => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 200, 'default' => 50 ),
-					'cursor'          => array( 'type' => array( 'string', 'null' ) ),
-					'include_counts'  => array( 'type' => 'boolean', 'default' => true ),
-					'include_archived'=> array( 'type' => 'boolean', 'default' => false ),
-				),
-			),
+			'input_schema'   => $list_notebooks_schema,
 			'required_scope' => 'brain.read',
 			'handler'        => array( $svc, 'list_notebooks' ),
+			'mode'           => 'notebook',
+			'alias_of'       => 'knowledge.list_notebooks', // [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-4 — deprecated alias
 		) );
 
 		self::register( 'brain.search', array(
 			'title'          => 'Graph RAG search (canonical retrieval snapshot)',
 			'description'    => 'Chạy BizCity_KG_Retriever::ask() canonical và tạo một immutable retrieval snapshot với citation_id cho từng passage.',
-			'input_schema'   => array(
-				'type' => 'object',
-				'required' => array( 'query' ),
-				'properties' => array(
-					'query'              => array( 'type' => 'string', 'minLength' => 1 ),
-					'notebook_ids'       => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ) ),
-					'retrieval_profile'  => array( 'type' => 'string', 'default' => 'kg-rag-strict-v1' ),
-					'top_k'              => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 8 ),
-					'graph_depth'        => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 3, 'default' => 2 ),
-					'deterministic'      => array( 'type' => 'boolean', 'default' => true ),
-					'citation_mode'      => array( 'type' => 'string', 'enum' => array( 'strict' ), 'default' => 'strict' ),
-					'include_entities'   => array( 'type' => 'boolean', 'default' => true ),
-					'include_relations'  => array( 'type' => 'boolean', 'default' => true ),
-					'include_full_content'=> array( 'type' => 'boolean', 'default' => false ),
-					'snapshot_ttl_seconds'=> array( 'type' => 'integer', 'minimum' => 60, 'default' => 3600 ),
-				),
-			),
+			'mode'           => 'notebook',
+			'alias_of'       => 'knowledge.search', // [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-4 — deprecated alias
+			'input_schema'   => $search_schema,
 			'read_only'      => true,
 			'idempotent'     => false, // snapshot creation is a side effect (new row), even though content is deterministic for unchanged KG state.
 			'required_scope' => 'brain.read',
@@ -321,15 +669,9 @@ final class BizCity_MCP_Tool_Registry {
 		self::register( 'brain.get_passage', array(
 			'title'          => 'Get passage (strict source+passage pair)',
 			'description'    => 'Lấy full nội dung 1 passage theo citation_id (trong 1 snapshot) hoặc theo source_id+passage_id trực tiếp.',
-			'input_schema'   => array(
-				'type' => 'object',
-				'properties' => array(
-					'retrieval_snapshot_id' => array( 'type' => 'string' ),
-					'citation_id'          => array( 'type' => 'string', 'pattern' => '^src:\\d+#p\\d+$' ),
-					'source_id'            => array( 'type' => 'integer', 'minimum' => 1 ),
-					'passage_id'           => array( 'type' => 'integer', 'minimum' => 1 ),
-				),
-			),
+			'input_schema'   => $passage_schema,
+			'mode'           => 'notebook',
+			'alias_of'       => 'knowledge.get_passage', // [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-4 — deprecated alias
 			'required_scope' => 'brain.read',
 			'handler'        => array( $svc, 'get_passage' ),
 		) );
@@ -567,12 +909,35 @@ final class BizCity_MCP_Tool_Registry {
 				'to'   => array( 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2}$' ),
 			),
 		);
+		// @mcp bizcity-mcp-standard@1 tool sales.summary
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-2 (SW-MCP-1) — canonical name of business.get_sales_metrics; same handler,
+		// descriptor = fixture bridge.tools_list.owner.json.
+		self::register( 'sales.summary', array(
+			'title'          => 'Tổng kết doanh số',
+			'description'    => 'Doanh thu, số đơn, hoàn tiền và giá trị đơn trung bình trong một khoảng ngày (mặc định 30 ngày gần nhất; from=to=hôm nay cho \'hôm nay\').',
+			'input_schema'   => $range_schema,
+			'output_schema'  => self::envelope_schema( array(
+				'from'    => array( 'type' => 'string' ),
+				'to'      => array( 'type' => 'string' ),
+				'summary' => array( 'type' => 'object' ),
+			) ),
+			'required_scope' => 'business.read',
+			'handler'        => array( $svc, 'get_sales_metrics' ),
+			'mode'           => 'sales',
+			'scopes'         => array( 'business.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'biz_sales',
+			'fallback_pack'  => 'sales',
+			'since'          => '0.88.1',
+		) );
 		self::register( 'business.get_sales_metrics', array(
 			'title'          => 'Get sales metrics',
 			'description'    => 'Đọc doanh thu, đơn hàng, hoàn tiền và giá trị đơn trung bình qua CRM Woo reports bridge.',
 			'input_schema'   => $range_schema,
 			'required_scope' => 'business.read',
 			'handler'        => array( $svc, 'get_sales_metrics' ),
+			'mode'           => 'sales',
+			'alias_of'       => 'sales.summary', // [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-4 — deprecated alias, one version
 		) );
 		self::register( 'business.get_customer_metrics', array(
 			'title'          => 'Get customer metrics',
@@ -587,6 +952,8 @@ final class BizCity_MCP_Tool_Registry {
 			'input_schema'   => array( 'type' => 'object', 'properties' => array( 'limit' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 500, 'default' => 100 ), 'low_stock_threshold' => array( 'type' => 'integer', 'minimum' => 0, 'default' => 5 ) ) ),
 			'required_scope' => 'business.read',
 			'handler'        => array( $svc, 'get_inventory_metrics' ),
+			'mode'           => 'stock',
+			'alias_of'       => 'inventory.check', // [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-4 (CL-B) — deprecated alias, one version; old shape kept
 		) );
 	}
 
@@ -750,6 +1117,30 @@ final class BizCity_MCP_Tool_Registry {
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'order_id' ), 'properties' => array( 'order_id' => array( 'type' => 'integer', 'minimum' => 1 ) ) ),
 			'required_scope' => 'commerce.read',
 			'handler'        => array( $svc, 'get_order' ),
+		) );
+		// @mcp bizcity-mcp-standard@1 tool order.status
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 wave 2 — one order by id, or the latest orders; customer phone masked.
+		self::register( 'order.status', array(
+			'title'          => 'Trạng thái đơn hàng',
+			'description'    => 'Xem trạng thái một đơn theo order_id (dòng sản phẩm, tổng tiền, trạng thái, SĐT khách che còn 3 số cuối), hoặc không có order_id thì xem các đơn mới nhất (tối đa 20).',
+			'input_schema'   => array( 'type' => 'object', 'properties' => array(
+				'order_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'limit'    => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 20, 'default' => 5 ),
+				'status'   => array( 'type' => 'string' ),
+			) ),
+			'output_schema'  => self::envelope_schema( array(
+				'order'  => array( 'type' => 'object' ),
+				'orders' => array( 'type' => 'array' ),
+				'total'  => array( 'type' => 'integer' ),
+			) ),
+			'required_scope' => 'order.read',
+			'handler'        => array( $svc, 'order_status' ),
+			'mode'           => 'orders',
+			'scopes'         => array( 'order.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'biz_orders',
+			'fallback_pack'  => 'orders',
+			'since'          => '0.88.2',
 		) );
 		self::register( 'commerce.list_customers', array(
 			'title'          => 'List WooCommerce customers',

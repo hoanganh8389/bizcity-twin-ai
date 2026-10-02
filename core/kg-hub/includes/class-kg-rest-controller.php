@@ -39,6 +39,30 @@ class BizCity_KG_Rest_Controller {
 			: current_user_can( 'manage_options' );
 	}
 
+	/**
+	 * `permission_manage()` for routes whose refusal a user can see (cost/settings): a refusal
+	 * carries `hint` + `help_code` (R-ERROR-UX, WP-10 B1) instead of WordPress's bare `rest_forbidden`.
+	 *
+	 * @return true|WP_Error
+	 */
+	public function permission_manage_hinted() {
+		if ( $this->permission_manage() ) {
+			return true;
+		}
+		if ( ! is_user_logged_in() ) {
+			return new WP_Error( 'kg_not_logged_in', 'You are not logged in.', [
+				'status'    => 401,
+				'hint'      => 'Log in again, then retry.',
+				'help_code' => 'kg_not_logged_in',
+			] );
+		}
+		return new WP_Error( 'kg_settings_forbidden', 'Only site administrators can change these settings.', [
+			'status'    => 403,
+			'hint'      => 'Ask a site administrator to make this change.',
+			'help_code' => 'kg_settings_forbidden',
+		] );
+	}
+
 	public function register_routes() {
 		$ns = self::NAMESPACE_V2;
 		$perm = [ $this, 'permission' ];
@@ -204,8 +228,8 @@ class BizCity_KG_Rest_Controller {
 		// of the retired `bizcity-kg-hub-settings` page. Admin-only (U-2), NOT the logged-in gate
 		// above: this reads the site-wide ledger and writes site options.
 		register_rest_route( $ns, '/cost/settings', [
-			[ 'methods' => 'GET',  'callback' => [ $this, 'get_cost_settings' ],  'permission_callback' => [ $this, 'permission_manage' ] ],
-			[ 'methods' => 'POST', 'callback' => [ $this, 'save_cost_settings' ], 'permission_callback' => [ $this, 'permission_manage' ] ],
+			[ 'methods' => 'GET',  'callback' => [ $this, 'get_cost_settings' ],  'permission_callback' => [ $this, 'permission_manage_hinted' ] ],
+			[ 'methods' => 'POST', 'callback' => [ $this, 'save_cost_settings' ], 'permission_callback' => [ $this, 'permission_manage_hinted' ] ],
 		] );
 
 		// ── PHASE-0.13 Wave 10c — Per-source learning evidence trail ──────

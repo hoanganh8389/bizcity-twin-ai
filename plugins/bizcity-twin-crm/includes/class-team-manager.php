@@ -76,6 +76,8 @@ final class BizCity_CRM_Team_Manager {
 		if ( $ok ) {
 			self::flush_cache();
 			if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::CACHE_GROUP ); }
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-13 — a staff role can grant/remove business agent modes (AMA-6).
+			do_action( 'bizcity_crm_staff_role_changed', $user_id );
 		}
 		return $ok;
 	}
@@ -189,6 +191,7 @@ final class BizCity_CRM_Team_Manager {
 		if ( $ok ) {
 			self::flush_cache();
 			if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( self::CACHE_GROUP ); }
+			do_action( 'bizcity_crm_staff_role_changed', $user_id ); // [2026-09-30] PHASE-0.87 CL-13
 		}
 		return $ok;
 	}

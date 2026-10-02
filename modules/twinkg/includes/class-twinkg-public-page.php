@@ -79,6 +79,10 @@ class BizCity_TwinKG_Public_Page {
 			auth_redirect();
 			exit;
 		}
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-15 — admin-only module (R-GP-3); the page no longer relies on REST alone.
+		if ( class_exists( 'BizCity_Twin_Module_Access' ) ) {
+			BizCity_Twin_Module_Access::require_page( 'twinkg' );
+		}
 
 		// Standalone visits join the unified Twin Shell so the operator keeps the
 		// ActivityBar, unless this IS the shell iframe (`?bizcity_iframe=1`) or the

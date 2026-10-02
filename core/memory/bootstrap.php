@@ -44,9 +44,17 @@ if ( ! defined( 'BIZCITY_MEMORY_ENABLED' ) ) {
 // BIZCITY_MEMORY_ENABLED switch on purpose: they never depended on it while they lived in core/intent, so the
 // switch keeps meaning "no Memory Spec / Memory Manager hooks" only. Same class names, tables, contracts
 // (`core.intent.rolling_memory`, `core.intent.episodic_memory` keep their ids) and hook names.
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 (R-LEAN-4) — User Memory ("ghi nhớ") moved here from
+// core/knowledge/includes/ (same class name, same tables: bizcity_memory_users). Loaded in the same unconditional
+// block as rolling/episodic for the same reason: it never depended on BIZCITY_MEMORY_ENABLED while it lived in
+// core/knowledge, so the switch keeps meaning "no Memory Spec / Memory Manager hooks" only. Its callers
+// (CG bot memory, Universal Channel Listener, twin-core context builder/focus gate/snapshot/suggest, LLM
+// client, Zalo bot) all resolve it lazily inside request-time methods, so moving its instantiation into the
+// same deferred `plugins_loaded` bucket as rolling/episodic (instead of the old synchronous call) is safe.
 if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
 	BizCity_Safe_Loader::require_file( BIZCITY_MEMORY_DIR . 'includes/class-rolling-memory.php', 'memory.rolling_memory' );
 	BizCity_Safe_Loader::require_file( BIZCITY_MEMORY_DIR . 'includes/class-episodic-memory.php', 'memory.episodic_memory' );
+	BizCity_Safe_Loader::require_file( BIZCITY_MEMORY_DIR . 'includes/class-user-memory.php', 'memory.user_memory' );
 } else {
 	error_log( '[bizcity] memory_rolling_episodic_skipped: BizCity_Safe_Loader unavailable' );
 }
@@ -67,6 +75,13 @@ add_action( 'plugins_loaded', function () {
 	} else {
 		error_log( '[bizcity] BizCity_Episodic_Memory unavailable — skipping episodic memory boot; verify deployment artifact.' );
 	}
+	if ( class_exists( 'BizCity_User_Memory' ) ) {
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 — constructor hooks `bizcity_chat_system_prompt`
+		// (filter) and `bizcity_intent_mode_processed` (action); both are only applied at request time.
+		BizCity_User_Memory::instance();
+	} else {
+		error_log( '[bizcity] BizCity_User_Memory unavailable — skipping user memory boot; verify deployment artifact.' );
+	}
 }, 5 );
 
 if ( ! BIZCITY_MEMORY_ENABLED ) {
@@ -74,56 +89,13 @@ if ( ! BIZCITY_MEMORY_ENABLED ) {
 }
 
 /* ── Includes ─────────────────────────────────────────────────────── */
-require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-database.php';
-require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-parser.php';
-require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log.php';
 // [2026-07-28 Johnny Chu] R-CH-IDMEM — load the shared identity-scoped owner contract before every memory service.
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-identity-scope.php';
-// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — canonical channel context normalizer for all memory writers.
-require_once BIZCITY_MEMORY_DIR . 'includes/memory-writer-context.php';
-require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log-projector.php';
-require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-manager.php';
-require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-rest-api.php';
-require_once BIZCITY_MEMORY_DIR . 'includes/class-admin-page.php';
-// [2026-09-01 Johnny Chu] PHASE-CB4.4 — retain the obsolete unified installer
-// for migration diagnostics only; it is hard-blocked and cannot create SQL
-// memory payload storage. Context Bank owns the replacement.
-require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-installer.php';
-// [2026-09-01 Johnny Chu] PHASE-CB4.4 — compatibility bridge forwards only
-// filestore receipts to the Context Bank reference adapter hook.
-require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-writer.php';
-// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C4a — session memory owner (moved from the archived webchat module).
-if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
-	BizCity_Safe_Loader::require_file( BIZCITY_MEMORY_DIR . 'includes/class-session-memory.php', 'memory.session_memory' );
-}
-// Wave 2.8d (TBR.MEM-D6.7 2026-05-24) — admin toggle UI for the unified flag
-// + staging timer + D7 readiness checklist (replaces hardcoded filter).
-if ( is_admin() ) {
-	require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-admin.php';
-}
 
-/* ── Initialize ───────────────────────────────────────────────────── */
-BizCity_Memory_Database::instance();
-BizCity_Memory_Log::instance();
-if ( class_exists( 'BizCity_Memory_Log_Projector' ) ) {
-	BizCity_Memory_Log_Projector::instance();
+// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3b (R-LEAN-4, Q-W16-1) — Memory Spec, memory logs, the unified writer bridge, session memory and the
+// memory admin moved to the add-on (bizcity-twin-brain-addon/memory/); the axis keeps identity scope, rolling + episodic memory here.
+$_bizcity_memory_addon = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'memory/bootstrap.php' ) : '';
+if ( '' !== $_bizcity_memory_addon ) {
+	require_once $_bizcity_memory_addon;
 }
-// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — bounded cleanup for the memory_logs projection.
-add_action( 'init', array( 'BizCity_Memory_Log', 'register_retention_cron' ), 20 );
-add_action( BizCity_Memory_Log::RETENTION_HOOK, array( 'BizCity_Memory_Log', 'gc_logs' ) );
-BizCity_Memory_Manager::instance();
-BizCity_Memory_REST_API::instance();
-BizCity_Memory_Unified_Installer::instance();
-BizCity_Memory_Unified_Writer::instance();
-
-// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — load D7 only for cron so scheduled backup purge has a registered handler.
-if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
-	$memory_d7_migration = BIZCITY_MEMORY_DIR . 'migrations/d7-drop-legacy.php';
-	if ( file_exists( $memory_d7_migration ) ) {
-		require_once $memory_d7_migration;
-	}
-}
-
-if ( is_admin() ) {
-	BizCity_Memory_Admin_Page::instance();
-}
+unset( $_bizcity_memory_addon );

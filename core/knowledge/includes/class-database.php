@@ -170,6 +170,12 @@ class BizCity_Knowledge_Database {
         
         dbDelta($sql_chunks);
         
+        // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-3 (R-LEAN-4) — bizcity_character_intents and
+        // bizcity_character_conversations are quarantined (WP-17 K-0): class-intent-provider.php never ran
+        // intent_name lookups against the former (it uses BizCity_Intent_Parser regex matching instead) and only
+        // the legacy Guru editor's views/guru-kpi.php reads the latter (goes with it in K-4). New sites no longer
+        // create either table; existing copies stay until the owner signs the drop (R-ORPHAN-FILE).
+        if ( false ) {
         // Character Intents table
         $table_intents = $wpdb->prefix . 'bizcity_character_intents';
         $sql_intents = "CREATE TABLE IF NOT EXISTS {$table_intents} (
@@ -190,9 +196,9 @@ class BizCity_Knowledge_Database {
             KEY intent_name (intent_name),
             KEY is_active (is_active)
         ) {$charset_collate};";
-        
+
         dbDelta($sql_intents);
-        
+
         // Character Conversations log
         $table_conversations = $wpdb->prefix . 'bizcity_character_conversations';
         $sql_conversations = "CREATE TABLE IF NOT EXISTS {$table_conversations} (
@@ -214,8 +220,9 @@ class BizCity_Knowledge_Database {
             KEY user_id (user_id),
             KEY platform (platform)
         ) {$charset_collate};";
-        
+
         dbDelta($sql_conversations);
+        }
         
         // User Memory table — 2-tier: LLM-extracted + user-explicit
         $table_memory = $wpdb->prefix . 'bizcity_memory_users';

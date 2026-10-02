@@ -179,6 +179,9 @@ break none:
 The canonical downstream order is:
 `Channel → CRM → Context Bank → KG-Hub → Brain/reasoning → Twin Core → MCP/actions`.
 
+For **reply turns** on Zalo Cá nhân, TwinChat and Twin GPT the reasoning step is brain-core in the data plane, fed by
+projection packs from this plugin — see R-TWIN-AGENT-AXIS below.
+
 MCP servers and external tools are consumers behind existing contracts,
 permissions and tenant boundaries. They are never a source of truth and never a
 way around the brain.
@@ -201,6 +204,13 @@ extension contract.
 │  proxy REST routes (same origin)    │        │                              │
 └─────────────────────────────────────┘        └──────────────────────────────┘
 ```
+
+**Where the data plane lives in this workspace (2026-09-30).** The Node cell repo — zalo-cell `:3901`, ai-gateway
+`:3902`, brain-core — is `zalo-hub/` at the plugin root (moved from `core/channel-gateway/_library/zalo-hub`; it is no
+longer a read-only `_library` snapshot, it is code we study and change). It is its own deploy unit (Docker on the VPS)
+and is listed in `bin/dev-only-paths.txt`, so it never ships inside the WordPress plugin. PHP never `require`s it;
+PHP tests may read its contract fixtures (`zalo-hub/contracts/`). Contracts shared by both sides live in
+`zalo-hub/contracts/` and are the single copy.
 
 **R-GW-8 · client standalone.** The router/gateway plugin exists only on the
 vendor's servers. A client site installs `bizcity-twin-ai` alone and must keep
@@ -450,6 +460,13 @@ Zone 1 payload and vice versa. Never create a customer inbox record for an
 admin/command channel, and never render admin-command conversations in the
 customer inbox.
 
+Exception (R-TWIN-AGENT-AXIS v1.2, R-ZONE v1.2): on a Zalo Cá nhân number served by zalo-hub, a 1-1 message whose
+sender UID equals the number's "UID chủ tài khoản" (Bot Studio `policy.owner_uid`) is an owner turn of the number's
+`owner_user_id`, handled by brain-core with the Owner Agent block (read-only Q&A plus saving the owner's files and
+"ghi nhớ" into the daily notebook). It stays one CRM conversation whose contact is tagged `role:owner` (excluded from
+customer pipelines) and is never handled by a Zone 2 listener. Groups and every other sender stay Zone 1; owner tools
+are never used in groups.
+
 ### R-CH-IDMEM · identity-scoped continuity
 
 Every normalized payload carries `platform`, `account_id`, `user_id` and
@@ -554,6 +571,98 @@ lowest layer that fits the person who uses it:
 
 Spec, reference components per app and known debt:
 `docs/rules/PHASE-0-RULE-SETTINGS-4-LAYERS-SHEET-STANDARD.md` (extends `PHASE-0-RULE-ACTION-SHEET-UX.md`).
+
+### R-LEAN-4 · lean, four steps (supreme)
+
+Every job and every screen finishes in at most four steps, and every change leaves the framework lighter or says why not.
+
+- **Work ≤ 4 steps.** A wave, feature slice, fix, deploy or runbook is at most four checkable steps; bigger work is split
+  into small wins that ship alone. Templates: reduction = Census → Cut → Prove → Record; feature = Contract → Code →
+  Self-check → Record; deploy = Snapshot → Upload → Verify → Record.
+- **UI ≤ 4 steps.** Start-to-done in at most four screens / sheet stages / required decisions; a page shows at most four
+  primary steps or sections, the rest goes into ActionSheet / R-SETTINGS-4L layers; multi-step flows show the R-SETUP-4
+  stepper states.
+- **Lean scoreboard.** Report the delta of: core PHP, PHP loaded per `/wp-json/` request, declared tables, REST routes /
+  AJAX actions, PHP-rendered HTML, client reply loops, UI flows over four steps. Growth needs a written reason.
+- **Fewer tables.** A new table must show why an existing owner table, JSON column, file store or option cannot hold it.
+- **Client scope and budgets.** The client is *every channel ⇒ CRM ⇒ notebook (KG-Hub) + Context Bank + vertical
+  models for MCP*; reply turns, LLM streaming and tools live in zalo-hub. Shipped PHP < 10 MB and live client tables < 30 (declared − Hub-owned − retired/quarantined);
+  measure with `node bin/lean-scoreboard.mjs` (contract: `docs/contracts/CLIENT-LEAN-BUDGET-v1.json`; plan: `core/knowledge/docs/CORE-REDUCTION-WP-16-CLIENT-BUDGET.md`).
+  Owner decisions: TwinBrain/MPR + Automation and CRM campaigns/invoices/contracts/SLA/reporting leave as add-on
+  plugins; client tools (video-kling, google tools, pagebuilder, twinsearch, tool image) are cut. Committed-but-not-uploaded
+  paths live in `bin/deploy-exclude-paths.txt`; dev-only (never committed) paths in `bin/dev-only-paths.txt`.
+- **Light by loading.** Code that stays loads only where it is used (axis REST profile, add-ons on their own surfaces).
+- **Ratchet, every session.** Before you finish a change, run `node bin/lean-scoreboard.mjs --check` and report the
+  delta (shipped PHP MB · live client tables). It fails when the plugin got heavier than the ratchet in
+  `docs/contracts/CLIENT-LEAN-BUDGET-v1.json`; when you made it lighter, run `--ratchet` so the gain cannot be lost. CI
+  runs the same check. The execution queue (waves B-3…B-10 and W15-2/3, each planned in ≤ 4 steps) is in
+  `core/knowledge/docs/CORE-REDUCTION-CHECKLIST.md` §3d.
+- ❌ A plan with a fifth step, a page with a fifth primary step, a new table "because it is simpler", a module loaded on
+  every REST request that only one surface uses.
+
+Spec: `docs/rules/PHASE-0-RULE-LEAN-FOUR-STEP.md`. First plan applying it: `core/knowledge/docs/CORE-REDUCTION-WP-15-TWIN-AGENT-AXIS-PROFILE.md`.
+
+### R-VERTICAL-AXIS · zalo-hub receives and thinks, the client supplies context (supreme)
+
+On the vertical axis, zalo-hub (Docker: cell + brain-core) receives 100 % of inbound messages and does 100 % of
+the AI work of a reply turn. The client site holds only the context and hands it over:
+
+- **KEEP on the client:** Guru RAG (instruction/prompt + quick FAQ, thin `core/knowledge`), KG-Hub notebooks and
+  graph (`core/kg-hub`, primary), the context export (config bundle + notebook pack, R-GS-7c), the configuration UI
+  (R-SETUP-4, Bot Studio, CRM) and the CRM record of conversations received as events.
+- **Reduction compass.** Every reduction/refactor wave classifies each file it touches as KEEP, MOVE (AI work that
+  belongs in zalo-hub) or CUT; client code on a reply path with no KEEP role is CUT by default.
+- **Realtime is Node's job (R-VA-9).** Long-lived streams — the Twin event stream SSE and token streaming or
+  realtime sockets to LLM providers — move to the Node data plane (ai-gateway / brain-core). PHP keeps the event
+  contract (taxonomy, schemas), issues a short-lived stream token, stores the finished record and exports context.
+  The wire format stays the typed Twin SSE events. ❌ New PHP code that holds a request open to relay provider tokens.
+- Not in this phase: non-reply AI (Automation, TwinBrain) and other channels (Facebook, Zalo OA, webchat).
+- ❌ A new client-side model call, prompt builder, retriever or reply loop for channel messages. Put it in zalo-hub
+  and export the context field instead. Legacy paths (zca, `get_ai_response()`, `BIZCITY_LEGACY_PATH_C`) are frozen.
+
+Code: the data plane is `zalo-hub/` (plugin root, own deploy unit). Spec: `docs/rules/PHASE-0-RULE-VERTICAL-AXIS-ZALO-HUB.md`.
+
+### R-TWIN-AGENT-AXIS · one agent, one twin stream, two roles, data by packs (supreme)
+
+The canonical axis for every reply turn on **Zalo Cá nhân (zalo-hub numbers), TwinChat and Twin GPT (`/gpt/`)**
+(`twin-agent-axis@1`). Read it before touching any of those reply paths.
+
+- **One agent, surfaces are adapters.** brain-core's `runAgentTurn` (`zalo-hub/src/agent/agent-loop.ts`) answers all
+  three surfaces with one prompt assembly, one tool catalog and one set of packs. A surface does only four things —
+  intake, prove the principal, deliver frames, hand back the record (R-TAA-13,
+  `docs/framework/TWIN-AGENT-SURFACE-ADAPTER-GUIDE-v1.md`). The only surface branch inside the loop is the
+  channel-format block. ❌ A second reply loop, prompt builder, retriever or tool list on the client for a cut-over
+  surface. ❌ An adapter that classifies intent, picks tools, calls a model or rewrites the answer.
+- **One twin stream.** Same input envelope (`twin-agent-turn@1`), same typed frames, one write-back
+  (`twin-agent-turn-complete@1`) into `bizcity_twin_event_stream`.
+- **Two roles.** The server resolves `owner` or `customer` (default). On Zalo the owner is the sender whose UID equals
+  the number's "UID chủ tài khoản" (the existing Bot Studio field, same gate as `list_threads`/`read_thread`), 1-1 only
+  ⇒ `owner_user_id`; on the web it is `get_current_user_id()` — the same `user_id`. Owner tools never in groups. A customer turn is
+  the owner turn with the **Owner Agent block** removed: its tools are absent from the schema and its packs unreadable.
+- **Agent modes.** The owner block holds only the modes granted by `agent-mode-access@1`
+  (`bizcity_agent_mode_<mode>`: `notebook`, `astro_self`, `sales`, `orders`, `customers`, `stock`, `deep_analysis`;
+  editor ⇒ `notebook`; business modes ⇒ CRM `Staff_Policy` admin/supervisor). Notebooks are always the principal's own
+  (first `user_id`), administrators included. Staff are owners of their own number and session — no separate role.
+- **Data by packs.** Business/knowledge data reaches brain-core only as versioned projection packs
+  (`projection-pack@1`, the C-4 relay pattern). ❌ A synchronous cell → Hub → site call inside a reply turn.
+- **Thin client.** The plugin keeps connection (R-SETUP-4), read-only exporters, invalidation hooks, config UI and
+  records. ❌ Client LLM calls or embeddings for the axis. TwinBrain/MPR/Automation are optional custom add-ons; MPR
+  runs only as the asynchronous `deep-analysis-job@1`.
+- **Keep the axis.** A new feature on these surfaces declares its surface, block, packs, tools and role gate in
+  `docs/contracts/TWIN-AGENT-AXIS-v1.json`; code carries `@axis twin-agent-axis@1 …` markers (validator
+  `bin/validate-twin-agent-axis.mjs`, planned).
+
+- **Owner capture (R-TAA-15).** Files the owner sends 1-1 are saved automatically and "ghi nhớ …" goes through
+  `notebook_remember`, both via `owner-capture@1` (cell outbox → Hub → site) into the number's daily notebook, where
+  the KG is built. Nobody else can save; the bot tells them only the account owner can. The owner's notebooks are
+  searched only after the agent offers ("Bạn có muốn mình tra sổ ghi chú…?") or when the owner refers to them.
+- **Deep analysis** (MPR) is asynchronous and its one result is delivered identically on the owner's 1-1 Zalo chat,
+  TwinChat and `/gpt/`. Packs are fresh within 60 s of invalidation.
+
+Spec: `docs/rules/PHASE-0-RULE-TWIN-AGENT-AXIS.md` · guide `docs/framework/TWIN-AGENT-SURFACE-ADAPTER-GUIDE-v1.md` ·
+contracts `docs/contracts/{TWIN-AGENT-AXIS-v1.json, TWIN-AGENT-TURN-CONTRACT-v1.md, PROJECTION-PACK-CONTRACT-v1.md,
+OWNER-AGENT-BLOCK-CONTRACT-v1.md, AGENT-MODE-ACCESS-CONTRACT-v1.md}` · lanes
+`core/channel-gateway/docs/PHASE-0.87-OWNER-AGENT-VERTICAL-TOOLS/` (PHASE-0.86 daily notebook merged as group CL-D).
 
 ### R-SETUP-4 · four-step setup is the entry of the vertical axis (supreme)
 
@@ -793,6 +902,15 @@ including edits delegated to Claude Code, Codex, Cursor or a VS Code agent. A
 file-level stamp alone is insufficient when one file contains multiple separate
 functional edits.
 
+**Same requirement outside PHP (R-STAMP-JS, 2026-09-30).** A functional edit to
+a `.ts`/`.tsx`/`.js`/`.jsx` file, or a decision recorded in a `.md` doc's own
+body (not its dated changelog line, which already carries author/date), carries
+the same stamp content — author, local time, phase/rule ID, short description —
+written in that file's own comment syntax (`//` or `{/* … */}` for TS/TSX/JS,
+`<!-- … -->` for Markdown/HTML). Never omit the author or the time to save
+space, and never substitute the agent's own name/model for the author: the
+stamp records who directed the change, not which tool typed it.
+
 ```php
 // [YYYY-MM-DD HH:MM Johnny Chu - Chu Hoàng Anh]] <Phase-ID> — <short description>
 ```
@@ -916,32 +1034,44 @@ applyTo: "**"
 
 _Rule documents are not published in this repository — see the local environment map if you have the internal docs. The summaries in `.github/copilot-instructions.md` are authoritative_
 
-## 2. Contracts (20) — public/runtime contracts, schemas, registries
+## 2. Contracts (32) — public/runtime contracts, schemas, registries
 
 | File | Summary | Status |
 |---|---|---|
 | `docs/contracts/ADMIN-NAVIGATION-CONTRACT-v1.md` | BizCity Twin Admin Navigation Contract v1 |  |
+| `docs/contracts/AGENT-MODE-ACCESS-CONTRACT-v1.md` | Agent Mode Access Contract v1 — agent-mode-access@1.0.0 | v1.0.0 · 2026-09-30 · coded + unit 2026-09-30/10-01 (site c… |
+| `docs/contracts/BIZCITY-MCP-CAPABILITIES-v1.md` | BizCity MCP Capabilities Contract v1 — bizcity-mcp-capabilities@1.0.0 | v1.0.0 · 2026-10-01 · coded + unit (cell mcp-capabilities-m… |
+| `docs/contracts/BIZCITY-MCP-STANDARD-v1.json` | machine-readable contract data |  |
+| `docs/contracts/BIZCITY-MCP-TOOL-CONTRACT-v1.md` | BizCity MCP Tool Contract v1 — bizcity-mcp-tool@1.0.0 | v1.0.0 · 2026-10-01 · coded + unit (17 tools in core/mcp; c… |
+| `docs/contracts/BIZCITY-RESOURCE-URI-CONTRACT-v1.md` | BizCity Resource URI Contract v1 — bizcity-resource-uri@1.0.0 | v1.0.0 · 2026-10-01 · coded + unit (site class-mcp-resource… |
 | `docs/contracts/BIZTWIN-CRM-AXIS-v1.json` | machine-readable contract data |  |
 | `docs/contracts/CAPABILITY-RECEIPT-v1.md` | Capability Registration Receipt v1 |  |
 | `docs/contracts/CAPABILITY-SECURITY-v1.md` | Capability Security Contract v1 |  |
+| `docs/contracts/CLIENT-LEAN-BUDGET-v1.json` | machine-readable contract data |  |
 | `docs/contracts/CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1.md` | Design owner document: PHASE-1.33D | PROPOSED - contract freeze candidate (documentation only) |
 | `docs/contracts/CONTEXT-BANK-PRODUCER-INVENTORY-v1.md` | Context Bank Producer Inventory v1 | CB0.2 inventory baseline / implementation input |
 | `docs/contracts/CONTEXT-BANK-QUERY-FIXTURES-v1.json` | machine-readable contract data |  |
 | `docs/contracts/CONTEXT-BANK-VERTICAL-BRIDGE-BINDING-MATRIX-v1.md` | Design owner document: PHASE-1.33D | PROPOSED - per-vertical binding freeze candidate (documenta… |
 | `docs/contracts/CONTRACT-TESTING-v1.md` | BizCity Twin Contract Testing v1 |  |
 | `docs/contracts/EXTENSION-STORAGE-CONTEXT-CONTRACT-v1.md` | BizCity Twin Extension Storage & Context Contract v1 | Public contract proposal for catalog v1.x adoption; schema… |
-| `docs/contracts/GURU-CONTEXT-CONTRACT-v1.md` | Guru Context Contract v1 — bizcity-guru-context/1.0 | v1.0 · 2026-09-26 · fixtures _library/zalo-hub/contracts/gu… |
+| `docs/contracts/GURU-CONTEXT-CONTRACT-v1.md` | Guru Context Contract v1 — bizcity-guru-context/1.0 | v1.0 · 2026-09-26 · fixtures zalo-hub/contracts/guru-contex… |
 | `docs/contracts/LEADER-MEMBER-WORKSPACE-CONTRACT-v1.md` | BizCity Leader/Member Workspace Contract v1 | Schema + fixture + catalog entry có (C-01, 2026-09-18, cata… |
 | `docs/contracts/LEGACY-29-CONTEXT-BANK-MANIFEST-v1.json` | machine-readable contract data |  |
+| `docs/contracts/MCP-DELEGATION-CONTRACT-v1.md` | MCP Delegation + Bridge Contract v1 — bizcity-mcp-bridge@1.0.0 | v1.0.0 · 2026-10-01 · coded + unit (site, Hub, cell; not ye… |
+| `docs/contracts/MODULE-ACCESS-CONTRACT-v1.md` | Module Access Contract v1 |  |
+| `docs/contracts/OWNER-AGENT-BLOCK-CONTRACT-v1.md` | Owner Agent Block Contract v1 — owner-agent-block@1.2.0 | v1.2.0 · 2026-09-30 (owner = the Zalo UID of "UID chủ tài k… |
 | `docs/contracts/PLUGIN-CONTRACT-REGISTRY-ADOPTION-v1.md` | Plugin Contract Registry Adoption v1 |  |
 | `docs/contracts/PLUGIN-CONTRACT-REGISTRY-v1.json` | machine-readable contract data |  |
+| `docs/contracts/PROJECTION-PACK-CONTRACT-v1.md` | Projection Pack Contract v1 — projection-pack@1.2.0 | v1.2.0 · 2026-10-01 · coded + unit (site exporters + zalo-b… |
 | `docs/contracts/PUBLIC-CONTRACTS-v1.md` | BizCity Twin Public Contracts v1 |  |
 | `docs/contracts/RUNTIME-PRODUCTION-CONTRACT-v1.md` | Runtime Production Contract v1 |  |
 | `docs/contracts/SETTING-PANEL-REGISTRATION-CONTRACT-v1.md` | Setting Panel Registration Contract v1 |  |
+| `docs/contracts/TWIN-AGENT-AXIS-v1.json` | machine-readable contract data |  |
+| `docs/contracts/TWIN-AGENT-TURN-CONTRACT-v1.md` | Twin Agent Turn Contract v1 — twin-agent-turn@1.2.0 | v1.2.0 · 2026-09-30 (Zalo principal = sender UID equal to "… |
 | `docs/contracts/USER-INBOX-SCOPE-CONTRACT-v1.md` | BizCity User Inbox Scope Contract v1 |  |
 | `docs/contracts/ZALO-PERSONAL-SESSION-ERROR-CONTRACT-v1.md` | Zalo Personal — Session & Error Contract v1 (zalo-personal-session-errors@1.0.0) |  |
 
-## 3. Framework, guides & reference (26)
+## 3. Framework, guides & reference (27)
 
 | File | Summary | Status |
 |---|---|---|
@@ -954,6 +1084,7 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/SUMMARY.md` | Table of Contents |  |
 | `docs/getting-started.md` | Getting Started — BizCity Twin AI Framework |  |
 | `docs/framework/FRAMEWORK-GUIDE-v1.md` | BizCity Twin Framework Guide v1 |  |
+| `docs/framework/TWIN-AGENT-SURFACE-ADAPTER-GUIDE-v1.md` | Twin Agent Surface Adapter Guide v1 — one runAgentTurn, every surface an adapter | v1.0 · 2026-09-30 · Owner: Twin AI Core (text), brain-core… |
 | `docs/getting-started/api-key.md` | Kết nối BizCity API Key |  |
 | `docs/getting-started/quick-install.md` | Cài đặt nhanh — 5 phút |  |
 | `docs/extending/PLUGIN-STANDARD.md` | BizCity Plugin Standard v2.0 — Chuẩn Phát Triển AI Tool Plugin |  |
@@ -972,7 +1103,7 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/api/README.md` | BizCity 1-API — Client Integration Guide (bizcity-twin-ai) |  |
 | `docs/mcp/MCP-AUDIT-BEFORE-IMPLEMENT.md` | MCP Audit Before Implementation / Reflect |  |
 
-## 4. Module / plugin / package READMEs (20)
+## 4. Module / plugin / package READMEs (17)
 
 | File | Summary | Status |
 |---|---|---|
@@ -981,14 +1112,11 @@ _Rule documents are not published in this repository — see the local environme
 | `core/channel-gateway/frontend/README.md` | Channel Gateway — React Admin SPA |  |
 | `core/membership/docs/README.md` | core/membership/docs/ |  |
 | `core/twin-core/event-stream/README.md` | Twin Event Stream — Single Backbone |  |
-| `core/twinbrain/docs/sessions/README.md` | TwinBrain — Brain Sessions Group · Doc Index | ACTIVE · 2026-06-03 · Owner: Twin Core (Johnny Chu) |
 | `modules/twinchat/notebooklm/README.md` | TwinChat — NotebookLM-Parity Surface |  |
 | `modules/twinchat/ui/README.md` | TwinChat Workspace UI |  |
-| `modules/twinsearch/README.md` | TwinSearch — Module |  |
 | `modules/twinshell/docs/README.md` | TwinShell Docs |  |
 | `modules/twinshell/learning-hub/README.md` | TwinShell Learning Hub (Wave C) |  |
 | `plugins/bizcity-facebook-bot/README.md` | BizCity Facebook Bot |  |
-| `plugins/bizcity-pagebuilder/README.md` | BizCity Page Builder |  |
 | `plugins/bizcity-twin-crm/README.md` | BizCity Twin CRM (Inbox Hub) |  |
 | `plugins/bizcity-twin-crm/apps/README.md` | apps/ — nơi ở của Context App, tách khỏi includes/ |  |
 | `plugins/bizcity-twin-crm/frontend/README.md` | BizCity CRM Inbox — Frontend |  |
@@ -997,7 +1125,7 @@ _Rule documents are not published in this repository — see the local environme
 | `packages/twin-ui-sdk/README.md` | @bizcity/twin-ui-sdk |  |
 | `examples/bizcity-reference-plugin/README.md` | BizCity Reference Extension |  |
 
-## 5. bin tools (73) — use the existing tool, do not write an ad-hoc script
+## 5. bin tools (76) — use the existing tool, do not write an ad-hoc script
 
 | Command | Purpose |
 |---|---|
@@ -1020,6 +1148,7 @@ _Rule documents are not published in this repository — see the local environme
 | `node bin/generate-closed-loop-scorecard.mjs` | Generate the closed-loop readiness scorecard from the plugin contract registry. |
 | `node bin/generate-lifecycle-contradiction-report.mjs` | Report contradictions between the diagnostics table registry and active legacy-table callers. |
 | `node bin/generate-reduction-findings-ledger.mjs` | Build the CORE-REDUCTION Findings Ledger from the numbered "N#" lesson rows |
+| `node bin/lean-scoreboard.mjs` | R-LEAN-4 lean scoreboard — shipped PHP and live client tables against docs/contracts/CLIENT-LEAN-BUDGET-v1.json. |
 | `php bin/legacy-table-drop-readiness.php` | Read-only readiness report for explicitly named legacy tables. |
 | `php bin/legacy-table-inventory.php` | Read-only inventory of the deprecated-table catalog for one tenant blog. |
 | `php bin/license-ledger-concurrency-worker.php` | Internal worker for the H4 exact-key concurrency diagnostics probe. |
@@ -1060,6 +1189,7 @@ _Rule documents are not published in this repository — see the local environme
 | `node bin/validate-kg-reranker-ownership.mjs` | WP7 — route rerank through the canonical KG-Hub reranker. |
 | `node bin/validate-legacy-table-lifecycle.mjs` | Enforce legacy table lifecycle gates across the policy class, uninstall matrix and active callers. |
 | `node bin/validate-manifest-capability-parity.mjs` | Reconcile manifest capability declarations with real registration symbols. |
+| `node bin/validate-mcp-standard.mjs` | One MCP standard validator (PHASE-0.88 X1) — keeps site core/mcp, the Hub relay and the zalo-hub cell aligned with |
 | `php bin/validate-php74.php` | Validate the PHP 7.4 syntax floor for active framework source. |
 | `node bin/validate-plugin-adoption-role-fixtures.mjs` | Validate plugin adoption role fixtures against the allowed role vocabulary. |
 | `node bin/validate-plugin-contract-registry.mjs` | Validate the plugin contract registry: ids, kinds, roles, stages and adoption metadata. |
@@ -1070,6 +1200,7 @@ _Rule documents are not published in this repository — see the local environme
 | `node bin/validate-sdk-release.mjs` | Validate TypeScript SDK release metadata (version, tag and build parity) before publishing. |
 | `node bin/validate-sender-ownership-fixtures.mjs` | CI runner for the WP4 canonical sender ownership gate. |
 | `node bin/validate-sender-ownership.mjs` | WP4 — Canonical sender ownership and duplicate-send prevention. |
+| `node bin/validate-twin-agent-axis.mjs` | R-TWIN-AGENT-AXIS validator (PHASE-0.87 CL-10) — keeps the code aligned with docs/contracts/TWIN-AGENT-AXIS-v1.json. |
 | `node bin/validate-twinbrain-vertical-bridge-ownership-fixtures.mjs` | CI runner for the WP7 vertical bridge registry ownership gate. |
 | `node bin/validate-twinbrain-vertical-bridge-ownership.mjs` | WP7 — vertical registration through the canonical Brain bridge registry. |
 | `node bin/validate-zalo-transport-neutral-fixtures.mjs` | PHASE-0.82-A7 — fixture runner for the transport-neutrality validator. |
@@ -1079,7 +1210,7 @@ _Rule documents are not published in this repository — see the local environme
 
 - PHP, Composer and WP-CLI are installed on this machine (verify with `where php` / `where composer` / `where wp`, or PowerShell `Get-Command`) — do not report a tool as missing without checking first. A silent, zero-output, exit-0 run of a `bin/*.php` or `vendor/bin/phpunit` script is almost always a missing required flag (see the next bullet for PHPUnit's), never proof the interpreter or vendor install is broken; re-run with `-d display_errors=1` before concluding the environment is broken.
 - PHPUnit needs `-d auto_prepend_file=tests/phpunit-prepend.php` (see the `composer test` mapping below) — without it, PHPUnit exits silently with no output and code 0, which is easy to misread as a broken `vendor/` install.
-- Test directories: `tests/fixtures`, `tests/mcp`, `tests/unit`.
+- Test directories: `tests/fixtures`, `tests/mcp`, `tests/tools`, `tests/unit`.
 - Composer scripts:
   - `composer doctor` → `php bin/twin doctor`
   - `composer validate` → `php bin/twin validate`
@@ -1099,6 +1230,8 @@ _Rule documents are not published in this repository — see the local environme
   - `node bin/framework-contract-audit.mjs`
   - `node bin/validate-framework-contract-fixtures.mjs`
   - `node bin/validate-legacy-table-lifecycle.mjs`
+  - `node bin/validate-twin-agent-axis.mjs --strict`
+  - `node bin/validate-mcp-standard.mjs`
   - `node bin/validate-safe-loader-bootstrap.mjs --base="$base" --head="$HEAD_SHA"`
   - `php bin/twin diagnostics plugin examples/bizcity-reference-plugin --json > build/plugin-diagnostics/reference.json`
   - `php bin/twin diagnostics plugin tests/fixtures/plugin-diagnostics/broken-plugin --json > build/plugin-diagnostics/broken.json`
@@ -1141,31 +1274,29 @@ _Rule documents are not published in this repository — see the local environme
   - `node bin/validate-kg-reranker-ownership-fixtures.mjs`
   - `node bin/validate-schema-owner.mjs`
   - `node bin/validate-dev-only-boundary.mjs`
+  - `node bin/lean-scoreboard.mjs --check`
   - `php core/diagnostics/validate-schema-changelog.php`
   - `composer install --no-dev --no-progress --prefer-dist`
   - `php bin/diagnostics-run.php --host=cli.local --skip-network --filter='core.module-registry' > build/canonical-diagnostics.txt`
   - `php bin/diagnostics-run.php \`
 
-## 7. Area docs folders (54) — open the module's folder before changing the module
+## 7. Area docs folders (49) — open the module's folder before changing the module
 
 | Folder | published .md | internal .md |
 |---|---|---|
-| `core/automation/docs` | 16 | 12 |
 | `core/bizcity-llm/docs` | 2 | 1 |
-| `core/channel-gateway/docs` | 82 | 62 |
+| `core/channel-gateway/docs` | 107 | 62 |
 | `core/cron/docs` | 0 | 5 |
 | `core/diagnostics/docs` | 0 | 10 |
 | `core/helper/docs` | 2 | 0 |
 | `core/intent/docs` | 8 | 2 |
 | `core/kg-hub/docs` | 1 | 4 |
-| `core/knowledge/docs` | 20 | 1 |
+| `core/knowledge/docs` | 24 | 1 |
 | `core/mcp/docs` | 0 | 2 |
 | `core/membership/docs` | 4 | 3 |
-| `core/memory/docs` | 0 | 3 |
 | `core/persona/docs` | 1 | 0 |
 | `core/scheduler/docs` | 0 | 4 |
 | `core/twin-core/docs` | 1 | 0 |
-| `core/twinbrain/docs` | 22 | 13 |
 | `docs/analysis` | 0 | 20 |
 | `docs/api` | 1 | 0 |
 | `docs/architecture` | 3 | 0 |
@@ -1173,21 +1304,21 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/automation` | 1 | 0 |
 | `docs/channels` | 5 | 0 |
 | `docs/clients` | 4 | 0 |
-| `docs/contracts` | 16 | 1 |
+| `docs/contracts` | 25 | 1 |
 | `docs/cutover` | 0 | 1 |
 | `docs/decisions` | 0 | 1 |
 | `docs/developer` | 1 | 0 |
 | `docs/diagnostics` | 0 | 6 |
 | `docs/extending` | 4 | 0 |
 | `docs/extension` | 1 | 0 |
-| `docs/framework` | 1 | 0 |
+| `docs/framework` | 2 | 0 |
 | `docs/getting-started` | 2 | 0 |
 | `docs/ip-registration` | 0 | 16 |
 | `docs/knowledge` | 1 | 0 |
 | `docs/mcp` | 1 | 0 |
 | `docs/reference` | 5 | 0 |
-| `docs/roadmaps` | 0 | 158 |
-| `docs/rules` | 0 | 86 |
+| `docs/roadmaps` | 0 | 159 |
+| `docs/rules` | 0 | 89 |
 | `docs/scheduler` | 1 | 0 |
 | `docs/skills` | 1 | 0 |
 | `docs/tools` | 0 | 0 |
@@ -1196,11 +1327,9 @@ _Rule documents are not published in this repository — see the local environme
 | `docs/vibe` | 0 | 17 |
 | `modules/twinchat/docs` | 4 | 11 |
 | `modules/twinkg/docs` | 1 | 0 |
-| `modules/twinshell/docs` | 1 | 12 |
+| `modules/twinshell/docs` | 4 | 12 |
 | `modules/twinweb/docs` | 1 | 34 |
-| `plugins/bizcity-pagebuilder/docs` | 8 | 3 |
 | `plugins/bizcity-twin-crm/docs` | 13 | 44 |
-| `plugins/bizcity-video-kling/docs` | 0 | 8 |
 | `plugins/bizcity-zalo-bot/docs` | 1 | 0 |
 | `plugins/bizcity-zalo-personal/docs` | 7 | 1 |
 | `plugins/ibs-hi/docs` | 0 | 19 |

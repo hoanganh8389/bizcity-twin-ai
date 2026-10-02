@@ -1,0 +1,18 @@
+{
+  "_comment": "PHASE 0.37 — R-CH compliance whitelist. Each entry is a relative file path that violates R-CH-1/-2/-4/-5 but is accepted for now (legacy not-yet-migrated). Diag UI shows whitelisted hits separately from real violations. Owners must remove entries as code is migrated. Format: 'path/to/file.php#R-CH-1' or just 'path/to/file.php' to whitelist all rules for that file.",
+  "_updated": "2026-05-13",
+  "_phase": "PHASE-0.37",
+  "whitelist": [
+    "wp-content/mu-plugins/bizcity-admin-hook-zalo/includes/gateway-functions.php#R-CH-2",
+    "wp-content/mu-plugins/bizcity-facebook-bot/includes/class-fb-webhook.php#R-CH-4",
+    "wp-content/plugins/bizcity-twin-ai/plugins/bizcity-zalo-bot/includes/webhook-handler.php#R-CH-4",
+    "wp-content/plugins/bizcity-twin-ai/plugins/bizcity-twin-crm/includes/class-admin-menu.php#R-CH-1",
+    "wp-content/plugins/bizcity-twin-ai/includes/class-admin-menu.php#R-CH-1"
+  ],
+  "owners": {
+    "R-CH-1": "channel-gateway team — to drain in M1.W2/W3",
+    "R-CH-2": "channel-gateway team — to drain in M2.W2",
+    "R-CH-4": "channel-gateway team — to drain in M4.W2",
+    "R-CH-5": "channel-gateway team — to drain in M5.W1"
+  }
+}

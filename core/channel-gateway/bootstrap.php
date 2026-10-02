@@ -142,9 +142,11 @@ if ( class_exists( 'BizCity_Zalo_OA_Hub_REST' ) ) { BizCity_Zalo_OA_Hub_REST::in
 require_once $adapters_dir . 'class-zalo-oa-oauth-rest.php';
 BizCity_Zalo_OA_OAuth_REST::init();
 
-// [2026-06-13 Johnny Chu] ZA-3 — Zalo OA admin CRM REST (recent-users, conversation, admin-send).
-require_once $adapters_dir . 'class-zalo-oa-rest.php';
-BizCity_Zalo_OA_REST::init();
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-18 C-5 (R-LEAN-4) — ZA-3's 3 routes (recent-users, conversation,
+// admin-send) are superseded by the JSONL-based Zalo OA Inbox (`zalo-oa-inbox`, class-channel-rest-api.php);
+// verified zero frontend caller for all three. File archived to core/_archived/channel-gateway-20261001/adapters/
+// (the original at includes/adapters/class-zalo-oa-rest.php is left in place pending owner approval to delete it —
+// see CORE-REDUCTION-WP-18-CHANNEL-GATEWAY-CONFIG-ONLY.md D2).
 
 // [2026-06-13 Johnny Chu] ZA-4 — Zalo OA follow/unfollow CRM contact sync.
 require_once $adapters_dir . 'class-zalo-oa-contact-sync.php';
@@ -420,6 +422,12 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-media-client.php'   => 'channel.bot.media_client',
 	// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 — loaded before class-bot-tools.php, which calls it.
 	$gateway_dir . 'bot/class-bot-apify-client.php'   => 'channel.bot.apify_client',
+	// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-13 — agent-mode-access@1 (modes the Owner Agent may use for a user); before the REST that reads it.
+	$gateway_dir . 'class-agent-mode-access.php'      => 'channel.agent_mode_access',
+	// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-6/CL-7 — TwinChat + /gpt/ as adapters of the cell's runAgentTurn (flag auto|node|php).
+	$gateway_dir . 'class-twin-web-turn.php'          => 'channel.twin_web_turn',
+	// [2026-10-01] PHASE-0.87 CL-2 — astro_self pack (the principal's own chart, read through a filter of the astrology plugin).
+	$gateway_dir . 'class-agent-astro-self-pack.php'  => 'channel.agent_astro_self_pack',
 	$gateway_dir . 'bot/class-bot-rest.php'           => 'channel.bot.rest',
 	// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-1 — loaded after class-bot-rest.php, whose public
 	// policy_defaults_merged() it reuses (read-only projection, doc §4.1).
@@ -452,9 +460,9 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/documents/class-bot-documents.php'       => 'channel.bot.documents',
 	$gateway_dir . 'bot/class-bot-tools.php'          => 'channel.bot.tools',
 	// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A4 — load the transport port before the capability-aware bot consumers.
-	$gateway_dir . 'includes/transport/interface-zalo-transport.php'       => 'channel.zalo_transport.interface',
-	$gateway_dir . 'includes/transport/class-zalo-transport-bridge-legacy.php' => 'channel.zalo_transport.legacy',
-	$gateway_dir . 'includes/transport/class-zalo-transport-registry.php'   => 'channel.zalo_transport.registry',
+	$gateway_dir . 'transport/interface-zalo-transport.php'       => 'channel.zalo_transport.interface',
+	$gateway_dir . 'transport/class-zalo-transport-bridge-legacy.php' => 'channel.zalo_transport.legacy',
+	$gateway_dir . 'transport/class-zalo-transport-registry.php'   => 'channel.zalo_transport.registry',
 	// [2026-09-28 Claude Opus 5] PHASE-0.82 doc 07 — what each Zalo transport can do, as data; loaded before the bot classes that query it.
 	$gateway_dir . 'class-zalo-transport-capability.php' => 'channel.zalo_transport_capability',
 	// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — Zalo action tools (sticker, poll, group admin…) via zca-bridge ≥ 0.40.0.
@@ -480,6 +488,12 @@ foreach ( $_bzc_bot_files as $_bzc_bot_file => $_bzc_bot_label ) {
 	}
 }
 unset( $_bzc_bot_files, $_bzc_bot_file, $_bzc_bot_label );
+if ( class_exists( 'BizCity_Agent_Mode_Access' ) ) {
+	BizCity_Agent_Mode_Access::register(); // [2026-09-30] PHASE-0.87 CL-13
+}
+if ( class_exists( 'BizCity_Agent_Astro_Self_Pack' ) ) {
+	BizCity_Agent_Astro_Self_Pack::register(); // [2026-10-01] PHASE-0.87 CL-2
+}
 if ( class_exists( 'BizCity_Guru_Notebook_Blocks' ) ) {
 	BizCity_Guru_Notebook_Blocks::boot(); // [2026-09-27] PHASE-0.81 S81-R4
 }
@@ -652,10 +666,8 @@ if ( is_admin() ) {
 	unset( $_cg_diag_file );
 }
 
-// Sprint 5.5 (T-S5b.2) — Test-Run single block AJAX endpoint.
-require_once $gateway_dir . 'class-test-run-block-api.php';
-// [2026-06-10 Johnny Chu] PHASE-0.31 T-S5b.2a — register wp_ajax_waic_test_run_block hook (was missing, causing T-S5b.2a FAIL).
-if ( class_exists( 'BizCity_Test_Run_Block_API' ) ) { BizCity_Test_Run_Block_API::init(); }
+// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-18 C-1 (R-LEAN-4) — the WAIC test-run AJAX (wp_ajax_waic_test_run_block) is archived:
+// it only answered "legacy WAIC blocks archived" since 2026-06-01 and no screen called it. File → core/_archived/channel-gateway-20261001/.
 
 // PHASE 0.37 — Channel REST API (bizcity-channel/v1).
 require_once $gateway_dir . 'class-channel-rest-api.php';

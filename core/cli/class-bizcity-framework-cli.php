@@ -153,7 +153,16 @@ if ( ! class_exists( 'BizCity_Framework_CLI' ) ) {
 
 		public static function health( array $args, array $assoc_args ): void {
 			// [2026-08-27 Johnny Chu] PHASE-1.31 — run the bounded local health allowlist.
-			self::require_class( 'BizCity_Diagnostics_Smoke_Runner', 'Diagnostics engine' );
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 B-11 — Diagnostics ships only in local dev (D-35):
+			// without the engine, answer an explicit skip (never pass, never a usage error).
+			if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner' ) ) {
+				$payload = self::aggregate(
+					[ [ 'id' => 'diagnostics.package', 'status' => 'skip', 'error' => 'diagnostics_package_absent', 'skip_reason' => 'diagnostics_package_absent', 'duration_ms' => 0 ] ],
+					[ 'command' => 'health', 'health_degraded' => true, 'health_skip_reasons' => [ 'diagnostics.package:diagnostics_package_absent' ], 'fix' => 'Diagnostics runs in local development only (D-35). Run `wp bizcity health` there.' ]
+				);
+				self::emit( $payload, $assoc_args, self::exit_code( $payload, $assoc_args ) );
+				return;
+			}
 			$origin = self::switch_blog( $assoc_args );
 			try {
 			$ids = [
@@ -1021,7 +1030,7 @@ if ( ! class_exists( 'BizCity_Framework_CLI_Contracts' ) ) {
 				'core/twin-core/includes/interface-twin-tool.php',
 				'core/channel-gateway/includes/interface-channel-adapter.php',
 				'core/channel-gateway/includes/interface-channel-magic-link-capable.php',
-				'core/automation/includes/blocks/interface-block.php',
+				// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S2 (R-LEAN-4, Q-W16-1) — interface-block.php moved to bizcity-twin-brain-addon/automation/.
 				'core/diagnostics/includes/interface-diagnostics-probe.php',
 				'core/kg-hub/includes/adapters/interface-source-adapter.php',
 				'core/runtime/interface-twin-session.php',
@@ -1118,7 +1127,7 @@ if ( ! class_exists( 'BizCity_Framework_CLI_Brain' ) ) {
 			foreach ( $verticals as $vertical ) {
 				$missing = [];
 				foreach ( [ 'id', 'label', 'role', 'owner_plugin', 'output_shape', 'guest_allowed', 'min_plan', 'contract_id', 'mpr_layers', 'automation_mode', 'channel_entry', 'admin_surface' ] as $field ) { if ( ! array_key_exists( $field, $vertical ) || $vertical[ $field ] === '' ) $missing[] = $field; }
-				$checks[] = [ 'id' => 'vertical.' . sanitize_key( (string) ( $vertical['id'] ?? 'unknown' ) ), 'label' => (string) ( $vertical['label'] ?? 'Vertical'), 'status' => empty( $missing ) ? 'pass' : 'fail', 'evidence' => empty( $missing ) ? 'Bridge metadata, MPR layers, automation/channel/admin spine are declared.' : 'Missing: ' . implode( ', ', $missing ), 'fix_hint' => empty( $missing ) ? 'Run the vertical runtime probe before promotion.' : 'Register the vertical with the complete bridge contract fields.', 'file' => 'core/twinbrain/includes/class-twinbrain-vertical-bridge-registry.php', 'severity' => empty( $missing ) ? 'info' : 'critical' ];
+				$checks[] = [ 'id' => 'vertical.' . sanitize_key( (string) ( $vertical['id'] ?? 'unknown' ) ), 'label' => (string) ( $vertical['label'] ?? 'Vertical'), 'status' => empty( $missing ) ? 'pass' : 'fail', 'evidence' => empty( $missing ) ? 'Bridge metadata, MPR layers, automation/channel/admin spine are declared.' : 'Missing: ' . implode( ', ', $missing ), 'fix_hint' => empty( $missing ) ? 'Run the vertical runtime probe before promotion.' : 'Register the vertical with the complete bridge contract fields.', 'file' => 'bizcity-twin-brain-addon/twinbrain/includes/class-twinbrain-vertical-bridge-registry.php', 'severity' => empty( $missing ) ? 'info' : 'critical' ];
 			}
 			$payload = BizCity_Framework_CLI::aggregate( $checks, [ 'command' => 'brain check', 'source' => 'BizCity_TwinBrain_Vertical_Bridge_Registry' ] );
 			BizCity_Framework_CLI::emit( $payload, $assoc_args, BizCity_Framework_CLI::exit_code( $payload, $assoc_args ) );

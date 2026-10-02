@@ -35,6 +35,11 @@ final class BizCity_TwinWeb_Profile_Grounding {
 	 * Register REST routes.
 	 */
 	public static function register_routes() {
+		// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3a — the profile layer lives in the TwinBrain add-on;
+		// without it these routes are not registered (404) instead of fataling inside a handler.
+		if ( null === self::layer() ) {
+			return;
+		}
 		register_rest_route( self::NS, '/admin/profile-templates', array(
 			array(
 				'methods'             => 'GET',
@@ -322,6 +327,11 @@ final class BizCity_TwinWeb_Profile_Grounding {
 			wp_die( 'forbidden', 403 );
 		}
 		$layer = self::layer();
+		// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3a — R-ERROR-UX: say what is missing.
+		if ( null === $layer ) {
+			echo '<div class="wrap"><div class="notice notice-warning"><p>Hồ sơ AI cần add-on BizCity Twin Brain (bizcity-twin-brain-addon).</p></div></div>';
+			return;
+		}
 		$message = '';
 		$error = '';
 		if ( isset( $_POST['bizcity_twin_profile_import'] ) ) {
@@ -465,6 +475,9 @@ final class BizCity_TwinWeb_Profile_Grounding {
 			return '<p>Vui lòng đăng nhập để lưu Hồ sơ AI.</p>';
 		}
 		$layer = self::layer();
+		if ( null === $layer ) {
+			return '<p>Hồ sơ AI cần add-on BizCity Twin Brain (bizcity-twin-brain-addon).</p>';
+		}
 		$templates = $layer->all_templates( false );
 		if ( empty( $templates ) ) {
 			return '<p>Chưa có mẫu Hồ sơ AI nào được cấu hình.</p>';
@@ -747,12 +760,13 @@ final class BizCity_TwinWeb_Profile_Grounding {
 
 	private static function layer() {
 		if ( ! class_exists( 'BizCity_TwinBrain_Subject_Profile_Layer' ) ) {
-			$core_file = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR . 'core/twinbrain/includes/class-twinbrain-subject-profile-layer.php' : '';
+			// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3a (R-LEAN-4, Q-W16-1) — the layer lives in the add-on.
+			$core_file = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'twinbrain/includes/class-twinbrain-subject-profile-layer.php' ) : '';
 			if ( $core_file && is_readable( $core_file ) ) {
 				require_once $core_file;
 			}
 		}
-		return BizCity_TwinBrain_Subject_Profile_Layer::instance();
+		return class_exists( 'BizCity_TwinBrain_Subject_Profile_Layer', false ) ? BizCity_TwinBrain_Subject_Profile_Layer::instance() : null;
 	}
 
 	private static function error_response( $code, $message, $hint, $help_code, $status = 400, array $extra = array() ) {

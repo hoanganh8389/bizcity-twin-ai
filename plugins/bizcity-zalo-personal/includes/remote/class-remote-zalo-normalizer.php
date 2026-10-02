@@ -11,6 +11,8 @@ final class BizCity_Remote_Zalo_Normalizer {
 	public static $emitter = null;
 	public static $outbound = null;
 	public static $link = null;
+	/** @var callable|null XS6/G5 seam: (string $bridge_id) => int character_id */
+	public static $binding = null;
 
 	public static function handle( array $event, array $ctx = array() ): array {
 		$type = (string) ( $event['event_type'] ?? '' );
@@ -20,11 +22,33 @@ final class BizCity_Remote_Zalo_Normalizer {
 			case 'message.sent': return self::sent( $event, $payload, $ctx );
 			case 'account.status': return self::status( $event, $payload );
 			case 'thread.bot_state': return self::bot_state( $event, $payload );
+			// [2026-09-30 Claude Sonnet 5] PHASE-0.82 XS6/G5 (51 §4.4) — the provider's dashboard (or another API
+			// key) changed the agent outside our own PATCH. Guru still wins: mark drift and re-push (bounded, D82-44).
+			case 'agent.config_updated': return self::agent_config_updated( $event, $payload );
 		}
 		return self::result( 'ignored_unknown_type', 0 );
 	}
 
-	public static function reset_seams(): void { self::$emitter = self::$outbound = self::$link = null; }
+	public static function reset_seams(): void { self::$emitter = self::$outbound = self::$link = self::$binding = null; }
+
+	private static function agent_config_updated( array $event, array $payload ): array {
+		$bridge_id = 'rzh:' . (string) ( $event['account_id'] ?? '' );
+		$version = (string) ( $payload['version'] ?? '' );
+		$actor_type = (string) ( $payload['actor']['type'] ?? '' );
+		$is_ours = 'api' === $actor_type && class_exists( 'BizCity_Remote_Zalo_Agent_Sync' ) && BizCity_Remote_Zalo_Agent_Sync::is_own_version( $bridge_id, $version );
+		if ( $is_ours ) { return self::result( 'ignored_own_echo', 0 ); }
+		if ( ! class_exists( 'BizCity_Remote_Zalo_Agent_Sync' ) ) { return self::result( 'ignored_unknown_type', 0 ); }
+		$character_id = self::binding_character_id( $bridge_id );
+		BizCity_Remote_Zalo_Agent_Sync::on_dashboard_drift( $bridge_id, $character_id );
+		return self::result( 'agent_drift_recorded', 0 );
+	}
+
+	private static function binding_character_id( string $bridge_id ): int {
+		if ( is_callable( self::$binding ) ) { return (int) call_user_func( self::$binding, $bridge_id ); }
+		if ( ! class_exists( 'BizCity_Channel_Binding' ) || ! method_exists( 'BizCity_Channel_Binding', 'resolve' ) ) { return 0; }
+		$row = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $bridge_id );
+		return is_array( $row ) ? (int) ( $row['character_id'] ?? 0 ) : 0;
+	}
 
 	private static function received( array $event, array $payload ): array {
 		$is_group = ! empty( $payload['isGroup'] ) || 'group' === (string) ( $payload['threadType'] ?? '' );

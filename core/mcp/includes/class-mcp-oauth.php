@@ -387,7 +387,27 @@ final class BizCity_MCP_OAuth {
 		if ( defined( 'BIZCITY_MCP_REPORT_TOOLS_ENABLED' ) && BIZCITY_MCP_REPORT_TOOLS_ENABLED ) {
 			$scopes[] = 'report.read';
 		}
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 — the one-MCP-standard scopes (order/CRM/inventory/staff/booking/automation)
+		// are KNOWN so a client may request them and a user may consent; nothing grants them by default (grants stay what the
+		// user approved, R-MCP-OAUTH-ID.2). commerce.read rides on the commerce wave flag like the admin key list.
+		if ( class_exists( 'BizCity_MCP_Delegation' ) ) {
+			$standard = BizCity_MCP_Delegation::STANDARD_SCOPES;
+			if ( defined( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED' ) && ! BIZCITY_MCP_COMMERCE_TOOLS_ENABLED ) {
+				$standard = array_values( array_diff( $standard, array( 'commerce.read' ) ) );
+			}
+			$scopes = array_values( array_unique( array_merge( $scopes, $standard ) ) );
+		}
 		return $scopes;
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — public read of the supported scope list so delegated (cell) contexts
+	 * use the same `effective = scopes_of(modes) ∩ supported` rule as OAuth (R-MCP-OAUTH-ID.6 §3).
+	 *
+	 * @return string[]
+	 */
+	public static function supported_scope_list() {
+		return self::supported_scopes();
 	}
 
 	private static function normalize_scopes( $scope ) {
@@ -450,6 +470,18 @@ final class BizCity_MCP_OAuth {
 			'content.read'           => 'Content Brain: đọc file, chunk và template Content Creator.',
 			'content.write'          => 'Content Action: tạo hoặc chỉnh sửa content draft, chưa publish.',
 			'report.read'            => 'Report Brain: đọc template và xây dataset báo cáo.',
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 — consent labels for the one-MCP-standard scopes.
+			'order.read'             => 'Đơn hàng: xem trạng thái đơn.',
+			'commerce.read'          => 'WooCommerce: đọc sản phẩm, đơn hàng và khách hàng.',
+			'crm.read'               => 'CRM: tra cứu khách hàng (theo quyền CRM của bạn).',
+			'crm.write'              => 'CRM: cập nhật ghi chú, nhãn, ngày sinh, giai đoạn của khách.',
+			'order.write'            => 'Đơn hàng: tạo đơn nháp sau khi bạn xác nhận.',
+			'inventory.write'        => 'Kho: giữ hoặc nhả hàng cho đơn nháp.',
+			'staff.write'            => 'Nhân sự: giao khách/việc cho nhân viên sau khi bạn xác nhận.',
+			'staff.notify'           => 'Nhân sự: gửi thông báo cho nhân viên.',
+			'booking.read'           => 'Lịch hẹn: xem giờ trống.',
+			'booking.write'          => 'Lịch hẹn: đặt hoặc huỷ lịch sau khi bạn xác nhận.',
+			'automation.run'         => 'Automation: chạy một quy trình tự động sau khi bạn xác nhận.',
 		);
 		$scope_items = array();
 		foreach ( $scopes as $scope ) {

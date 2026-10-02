@@ -64,6 +64,19 @@ final class BizCity_MCP_Error {
 	// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — admin per-tool allowlist gate (BizCity_MCP_Tool_Policy), distinct from TOOL_NOT_FOUND (registered but turned off vs. never existed).
 	const TOOL_DISABLED  = 'MCP_TOOL_DISABLED';
 
+	// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-7 / L3-1 — one MCP standard: delegated (cell) gate, confirm wrapper, CL-B write tools.
+	const MODE_NOT_ALLOWED                = 'MCP_MODE_NOT_ALLOWED';
+	const DELEGATION_PRINCIPAL_UNBOUND    = 'MCP_DELEGATION_PRINCIPAL_UNBOUND';
+	const CONFIRM_ARGS_CHANGED            = 'MCP_CONFIRM_ARGS_CHANGED';
+	const CONFIRM_INVALID                 = 'MCP_CONFIRM_INVALID';
+	const INVENTORY_RESERVE_UNAVAILABLE   = 'MCP_INVENTORY_RESERVE_UNAVAILABLE';
+	const INVENTORY_NOT_ENOUGH            = 'MCP_INVENTORY_NOT_ENOUGH';
+	const BOOKING_SLOT_TAKEN              = 'MCP_BOOKING_SLOT_TAKEN';
+	// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-8 — staff.notify: the staff member has no Zalo Bot binding (R-LM-8: no fallback channel).
+	const STAFF_UNREACHABLE               = 'MCP_STAFF_UNREACHABLE';
+	// [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — the same write (same idempotency_key) is still running; retry later.
+	const WRITE_IN_PROGRESS               = 'MCP_WRITE_IN_PROGRESS';
+
 	/**
 	 * @return string e.g. "trc_5f2c..."
 	 */
@@ -148,11 +161,31 @@ final class BizCity_MCP_Error {
 			self::RENDERER_UNAVAILABLE, self::RENDER_FAILED, self::RATE_LIMITED,
 			self::ACTION_CONFIRMATION_REQUIRED, self::INTERNAL_ERROR, self::NOT_FOUND, self::TOOL_NOT_FOUND, // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-TWINWEB — whitelist admin/customer not_found envelope.
 			self::TOOL_DISABLED, // [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — whitelist admin tool allowlist envelope.
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-7 / L3-1 — delegated gate, confirm wrapper and CL-B write-tool refusals.
+			self::MODE_NOT_ALLOWED, self::DELEGATION_PRINCIPAL_UNBOUND, self::CONFIRM_ARGS_CHANGED, self::CONFIRM_INVALID,
+			self::INVENTORY_RESERVE_UNAVAILABLE, self::INVENTORY_NOT_ENOUGH, self::BOOKING_SLOT_TAKEN, self::STAFF_UNREACHABLE,
+			self::WRITE_IN_PROGRESS, // [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — write idempotency.
 		), true );
 	}
 
 	/** @return array{hint:string,help_code:string} */
 	private static function guidance( $code ) {
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-7 / L3-1 — R-ERROR-UX hints for the one-MCP-standard codes (Vietnamese, user-facing).
+		$s88 = array(
+			self::MODE_NOT_ALLOWED             => array( 'hint' => 'Người này chưa được cấp mục này cho Agent. Cấp quyền theo vai trò (WordPress hoặc CRM) rồi thử lại.', 'help_code' => 'mode_not_allowed' ),
+			self::DELEGATION_PRINCIPAL_UNBOUND => array( 'hint' => 'Kiểm tra "UID chủ tài khoản" hoặc danh sách nhân sự của số ở Bot Studio, rồi đồng bộ lại cấu hình số.', 'help_code' => 'delegation_principal_unbound' ),
+			self::CONFIRM_ARGS_CHANGED         => array( 'hint' => 'Tham số đã khác bản xem trước. Gọi lại tool không kèm confirm_token để lấy bản xem trước mới.', 'help_code' => 'confirm_args_changed' ),
+			self::CONFIRM_INVALID              => array( 'hint' => 'Mã xác nhận đã dùng, đã hết hạn hoặc không thuộc người này. Gọi lại tool không kèm confirm_token để xem trước lại.', 'help_code' => 'confirm_invalid' ),
+			self::INVENTORY_RESERVE_UNAVAILABLE => array( 'hint' => 'Bật WooCommerce (bản có giữ hàng ReserveStock) rồi thử lại.', 'help_code' => 'inventory_reserve_unavailable' ),
+			self::INVENTORY_NOT_ENOUGH         => array( 'hint' => 'Giảm số lượng hoặc xem tồn kho khả dụng (inventory.check) trước khi giữ hàng.', 'help_code' => 'inventory_not_enough' ),
+			self::BOOKING_SLOT_TAKEN           => array( 'hint' => 'Khung giờ này đã có người đặt. Xem giờ trống (booking.available_slots) rồi chọn giờ khác.', 'help_code' => 'booking_slot_taken' ),
+			self::STAFF_UNREACHABLE            => array( 'hint' => 'Người nhận cần liên kết Zalo Bot của mình (Channel Gateway → Kênh của tôi) rồi thử lại.', 'help_code' => 'staff_unreachable' ),
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — write idempotency: the first call has not finished yet.
+			self::WRITE_IN_PROGRESS            => array( 'hint' => 'Thao tác này đang được xử lý. Đợi khoảng một phút rồi hỏi lại để xem kết quả, đừng gửi lại lệnh mới.', 'help_code' => 'write_in_progress' ),
+		);
+		if ( isset( $s88[ $code ] ) ) {
+			return $s88[ $code ];
+		}
 		if ( in_array( $code, array( self::AUTH_REQUIRED, self::AUTH_INVALID ), true ) ) {
 			return array( 'hint' => 'Kiểm tra MCP API key và gửi lại Authorization Bearer hợp lệ.', 'help_code' => 'auth_required' );
 		}

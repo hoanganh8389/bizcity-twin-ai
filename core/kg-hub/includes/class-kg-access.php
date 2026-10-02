@@ -521,14 +521,17 @@ final class BizCity_KG_Access {
 	}
 
 	private static function log( $object_type, $object_id, $action, $actor_id, array $payload = array() ) {
-		global $wpdb;
-		$wpdb->insert( self::acl_log_table(), array(
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 (R-LEAN-4, R-LOG-HYBRID) — write-only audit trail
+		// (no reader anywhere); moved to the shared JSONL logger instead of bizcity_kg_acl_log.
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			return;
+		}
+		BizCity_JSONL_File_Logger::write_contract( 'core.kg_hub.acl_log', 'info', sanitize_key( $action ), sanitize_key( $object_type ) . ':' . (int) $object_id, array(
 			'object_type' => sanitize_key( $object_type ),
 			'object_id'   => (int) $object_id,
 			'action'      => sanitize_key( $action ),
 			'actor_id'    => (int) $actor_id,
-			'payload'     => wp_json_encode( $payload, JSON_UNESCAPED_UNICODE ),
-			'created_at'  => current_time( 'mysql', true ),
+			'payload'     => $payload,
 		) );
 	}
 }

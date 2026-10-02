@@ -422,11 +422,30 @@ class BizCity_Scheduler_REST_API {
 	 * ================================================================ */
 
 	public function check_logged_in(): bool {
-		return is_user_logged_in();
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-15, tách theo yêu cầu chủ sản phẩm 2026-09-30 —
+		// những route này (/events, /today, /google/*, /stats) phục vụ CẢ module Nhắc việc lẫn lịch
+		// nhúng trong Tự động hoá (calendarApi.js) và Channel Gateway (cgSchedulerApi.js, luôn admin).
+		// Có MỘT trong hai quyền là đủ, để tắt Nhắc việc không làm hỏng lịch của Tự động hoá và ngược lại.
+		if ( ! is_user_logged_in() ) {
+			return false;
+		}
+		if ( ! class_exists( 'BizCity_Twin_Module_Access' ) ) {
+			return true;
+		}
+		$scheduler_governed = BizCity_Twin_Module_Access::governs( 'scheduler' );
+		$workflow_governed  = BizCity_Twin_Module_Access::governs( 'workflow' );
+		if ( ! $scheduler_governed && ! $workflow_governed ) {
+			return true;
+		}
+		return ( $scheduler_governed && BizCity_Twin_Module_Access::can( 'scheduler' ) )
+			|| ( $workflow_governed && BizCity_Twin_Module_Access::can( 'workflow' ) );
 	}
 
 	public function check_admin(): bool {
-		return current_user_can( 'manage_options' );
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
 	}
 
 	/* ================================================================
@@ -446,7 +465,11 @@ class BizCity_Scheduler_REST_API {
 		$tbl = $mgr->get_table();
 
 		$scope = $req->get_param( 'scope' ) === 'site' ? 'site' : 'user';
-		if ( $scope === 'site' && ! current_user_can( 'manage_options' ) ) {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( $scope === 'site' && ! $can_manage ) {
 			$scope = 'user';
 		}
 

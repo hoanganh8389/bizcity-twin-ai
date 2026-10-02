@@ -147,6 +147,7 @@ class BizCity_CRM_Report_Builder {
 			$where = 'c.created_at >= ' . self::dt( $from ) . ' AND c.created_at < ' . self::dt( $to );
 			if ( $filters['inbox_id'] > 0 ) { $where .= $wpdb->prepare( ' AND c.inbox_id=%d', $filters['inbox_id'] ); }
 			if ( $filters['agent_id'] > 0 ) { $where .= $wpdb->prepare( ' AND c.assignee_id=%d', $filters['agent_id'] ); }
+			$where .= self::not_owner( 'c.contact_inbox_id' );
 			$sql = "SELECT cl.label_id AS k, COUNT(DISTINCT c.id) AS v
 					FROM {$conv} c
 					INNER JOIN {$cl} cl ON cl.conversation_id = c.id
@@ -167,6 +168,7 @@ class BizCity_CRM_Report_Builder {
 		list( $sel, $grp ) = self::group_clause_msg( $group_by );
 		$where = $wpdb->prepare( "message_type=%s AND created_at >= %s AND created_at < %s", $direction, gmdate( 'Y-m-d H:i:s', $from ), gmdate( 'Y-m-d H:i:s', $to ) );
 		if ( $filters['inbox_id'] > 0 ) { $where .= $wpdb->prepare( ' AND inbox_id=%d', $filters['inbox_id'] ); }
+		$where .= self::not_owner_conv_id( 'conversation_id' );
 		$sql = "SELECT {$sel} AS k, COUNT(*) AS v FROM {$msg} WHERE {$where}" . ( $grp ? " GROUP BY {$grp}" : '' );
 		return self::run( $sql );
 	}
@@ -179,6 +181,7 @@ class BizCity_CRM_Report_Builder {
 			$where = 'c.created_at >= ' . self::dt( $from ) . ' AND c.created_at < ' . self::dt( $to ) . ' AND c.first_reply_at IS NOT NULL';
 			if ( $filters['inbox_id'] > 0 ) { $where .= $wpdb->prepare( ' AND c.inbox_id=%d', $filters['inbox_id'] ); }
 			if ( $filters['agent_id'] > 0 ) { $where .= $wpdb->prepare( ' AND c.assignee_id=%d', $filters['agent_id'] ); }
+			$where .= self::not_owner( 'c.contact_inbox_id' );
 			$sql = "SELECT cl.label_id AS k, AVG(c.first_reply_at - UNIX_TIMESTAMP(c.created_at)) AS v
 					FROM {$conv} c
 					INNER JOIN {$cl} cl ON cl.conversation_id = c.id
@@ -200,6 +203,7 @@ class BizCity_CRM_Report_Builder {
 			$where = "c.status='resolved' AND c.updated_at >= " . self::dt( $from ) . ' AND c.updated_at < ' . self::dt( $to );
 			if ( $filters['inbox_id'] > 0 ) { $where .= $wpdb->prepare( ' AND c.inbox_id=%d', $filters['inbox_id'] ); }
 			if ( $filters['agent_id'] > 0 ) { $where .= $wpdb->prepare( ' AND c.assignee_id=%d', $filters['agent_id'] ); }
+			$where .= self::not_owner( 'c.contact_inbox_id' );
 			$sql = "SELECT cl.label_id AS k, AVG(UNIX_TIMESTAMP(c.updated_at) - UNIX_TIMESTAMP(c.created_at)) AS v
 					FROM {$conv} c
 					INNER JOIN {$cl} cl ON cl.conversation_id = c.id
@@ -211,6 +215,7 @@ class BizCity_CRM_Report_Builder {
 		$where = "status='resolved' AND updated_at >= " . self::dt( $from ) . ' AND updated_at < ' . self::dt( $to );
 		if ( $filters['inbox_id'] > 0 ) { $where .= $wpdb->prepare( ' AND inbox_id=%d', $filters['inbox_id'] ); }
 		if ( $filters['agent_id'] > 0 ) { $where .= $wpdb->prepare( ' AND assignee_id=%d', $filters['agent_id'] ); }
+		$where .= self::not_owner( 'contact_inbox_id' );
 		$sql = "SELECT {$sel} AS k, AVG(UNIX_TIMESTAMP(updated_at) - UNIX_TIMESTAMP(created_at)) AS v FROM {$conv} WHERE {$where}" . ( $grp ? " GROUP BY {$grp}" : '' );
 		return self::run( $sql );
 	}
@@ -223,6 +228,7 @@ class BizCity_CRM_Report_Builder {
 			$where = "c.status='resolved' AND c.updated_at >= " . self::dt( $from ) . ' AND c.updated_at < ' . self::dt( $to );
 			if ( $filters['inbox_id'] > 0 ) { $where .= $wpdb->prepare( ' AND c.inbox_id=%d', $filters['inbox_id'] ); }
 			if ( $filters['agent_id'] > 0 ) { $where .= $wpdb->prepare( ' AND c.assignee_id=%d', $filters['agent_id'] ); }
+			$where .= self::not_owner( 'c.contact_inbox_id' );
 			$sql = "SELECT cl.label_id AS k, COUNT(DISTINCT c.id) AS v
 					FROM {$conv} c
 					INNER JOIN {$cl} cl ON cl.conversation_id = c.id
@@ -234,6 +240,7 @@ class BizCity_CRM_Report_Builder {
 		$where = "status='resolved' AND updated_at >= " . self::dt( $from ) . ' AND updated_at < ' . self::dt( $to );
 		if ( $filters['inbox_id'] > 0 ) { $where .= $wpdb->prepare( ' AND inbox_id=%d', $filters['inbox_id'] ); }
 		if ( $filters['agent_id'] > 0 ) { $where .= $wpdb->prepare( ' AND assignee_id=%d', $filters['agent_id'] ); }
+		$where .= self::not_owner( 'contact_inbox_id' );
 		$sql = "SELECT {$sel} AS k, COUNT(*) AS v FROM {$conv} WHERE {$where}" . ( $grp ? " GROUP BY {$grp}" : '' );
 		return self::run( $sql );
 	}
@@ -290,6 +297,7 @@ class BizCity_CRM_Report_Builder {
 			'((frt_breached_at BETWEEN %d AND %d) OR (nrt_breached_at BETWEEN %d AND %d) OR (rt_breached_at BETWEEN %d AND %d))',
 			$from, $to - 1, $from, $to - 1, $from, $to - 1
 		);
+		$where .= self::not_owner_conv_id( 'conversation_id' );
 		$sql = "SELECT {$sel} AS k, COUNT(*) AS v FROM {$asla} WHERE {$where}" . ( $grp ? " GROUP BY {$grp}" : '' );
 		return self::run( $sql );
 	}
@@ -330,7 +338,20 @@ class BizCity_CRM_Report_Builder {
 		$w = 'created_at >= ' . self::dt( $from ) . ' AND created_at < ' . self::dt( $to );
 		if ( $filters['inbox_id'] > 0 ) { $w .= $wpdb->prepare( ' AND inbox_id=%d', $filters['inbox_id'] ); }
 		if ( $filters['agent_id'] > 0 ) { $w .= $wpdb->prepare( ' AND assignee_id=%d', $filters['agent_id'] ); }
-		return $w;
+		return $w . self::not_owner( 'contact_inbox_id' );
+	}
+
+	/**
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D2 — the number's owner chatting 1-1 with the bot (`role:owner`) is not customer
+	 * traffic: every report metric leaves those conversations out. Appended after prepare() (the fragment holds a literal LIKE %).
+	 */
+	private static function not_owner( string $contact_inbox_col ): string {
+		return class_exists( 'BizCity_CRM_Contact_Roles' ) ? ' AND ' . BizCity_CRM_Contact_Roles::sql_conversations_without_role( $contact_inbox_col, BizCity_CRM_Contact_Roles::INTERNAL ) : '';
+	}
+
+	/** Same, for rows keyed by `conversation_id` (messages, applied SLAs). */
+	private static function not_owner_conv_id( string $conversation_col ): string {
+		return class_exists( 'BizCity_CRM_Contact_Roles' ) ? ' AND ' . BizCity_CRM_Contact_Roles::sql_conversation_ids_without_role( $conversation_col, BizCity_CRM_Contact_Roles::INTERNAL ) : '';
 	}
 
 	private static function dt( int $ts ): string {

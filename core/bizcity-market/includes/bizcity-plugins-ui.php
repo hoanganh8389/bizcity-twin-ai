@@ -18,20 +18,23 @@ if (!defined('ABSPATH')) exit;
 
 class BizCity_Plugins_UI {
 
-    private const DISABLED_BUNDLED_OPTION = 'bizcity_disabled_bundled_plugins';
+    private static $booted = false;
 
     private static $bundled_plugins = [
         'bizcity-tool-content' => [
-            'file'        => 'bizcity-tool-content.php',
-            'auto_loaded' => false,
+            'file' => 'bizcity-tool-content.php',
         ],
         'bizcity-tool-image' => [
-            'file'        => 'bizcity-tool-image.php',
-            'auto_loaded' => true,
+            'file' => 'bizcity-tool-image.php',
+        ],
+        'bizcity-content-creator' => [
+            'file' => 'bizcity-content-creator.php',
         ],
     ];
 
     public static function boot() {
+        if (self::$booted) return;
+        self::$booted = true;
         if (is_network_admin()) return; // chỉ chỉnh site admin plugins.php
 
         add_action('admin_init', [__CLASS__, 'init']);
@@ -153,15 +156,10 @@ class BizCity_Plugins_UI {
         if (!$config || !current_user_can('activate_plugins')) self::back_to_plugins('forbidden');
         if (!self::bundled_file_ready($slug)) self::back_to_plugins('missing');
 
-        // [2026-08-26 Johnny Chu] R-SAFE-LOADER — re-enable auto-loaded image
-        // extensions without writing a synthetic nested active_plugins entry.
-            self::set_bundled_disabled($slug, false);
-            self::queue_rewrite_flush($slug);
-        if (!$config['auto_loaded']) {
-            self::load_plugin_admin_api();
-            $result = activate_plugin(self::bundled_plugin_file($slug));
-            if (is_wp_error($result)) self::back_to_plugins('activate_failed');
-        }
+        self::load_plugin_admin_api();
+        $result = activate_plugin(self::bundled_plugin_file($slug));
+        if (is_wp_error($result)) self::back_to_plugins('activate_failed');
+        self::queue_rewrite_flush($slug);
         self::back_to_plugins('activated');
     }
 
@@ -172,15 +170,14 @@ class BizCity_Plugins_UI {
         if (!self::bundled_file_ready($slug)) self::back_to_plugins('missing');
 
         // [2026-08-26 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — deactivation
-        // only disables execution; data cleanup belongs to the explicit Xóa action.
-        if ($config['auto_loaded']) self::set_bundled_disabled($slug, true);
-            self::queue_rewrite_flush($slug);
+        // only disables execution; data cleanup belongs to explicit uninstall.
         self::load_plugin_admin_api();
         $plugin_file = self::bundled_plugin_file($slug);
         if (function_exists('is_plugin_active') && is_plugin_active($plugin_file)) {
             deactivate_plugins($plugin_file);
         }
         do_action('bizcity_market_plugin_deactivated', $slug, $plugin_file, (int) get_current_blog_id());
+        self::queue_rewrite_flush($slug);
         self::back_to_plugins('deactivated');
     }
 
@@ -190,20 +187,19 @@ class BizCity_Plugins_UI {
         if (!self::bundled_file_ready($slug)) self::back_to_plugins('missing');
 
         // Disable before teardown so the next request cannot re-load the artifact.
-        self::set_bundled_disabled($slug, true);
-            self::queue_rewrite_flush($slug);
+        self::queue_rewrite_flush($slug);
         self::load_plugin_admin_api();
         $plugin_file = self::bundled_plugin_file($slug);
         if (function_exists('is_plugin_active') && is_plugin_active($plugin_file)) {
             deactivate_plugins($plugin_file);
         }
 
+        self::load_installer();
         $result = class_exists('BizCity_Plugin_Installer')
             ? BizCity_Plugin_Installer::uninstall($slug)
             : new WP_Error('installer_missing', 'Plugin installer chưa sẵn sàng.');
         if (is_wp_error($result)) self::back_to_plugins('uninstall_failed');
 
-        self::set_bundled_disabled($slug, false);
         self::back_to_plugins('uninstalled');
     }
 
@@ -274,21 +270,9 @@ class BizCity_Plugins_UI {
     }
 
     private static function bundled_is_active($slug) {
-        $config = self::bundled_config_by_slug($slug);
-        if (!$config) return false;
-        if ($config['auto_loaded']) {
-            $disabled = get_option(self::DISABLED_BUNDLED_OPTION, []);
-            return !in_array($slug, is_array($disabled) ? $disabled : [], true);
-        }
+        if (!self::bundled_config_by_slug($slug)) return false;
         self::load_plugin_admin_api();
         return function_exists('is_plugin_active') && is_plugin_active(self::bundled_plugin_file($slug));
-    }
-
-    private static function set_bundled_disabled($slug, $disabled) {
-        $items = get_option(self::DISABLED_BUNDLED_OPTION, []);
-        $items = is_array($items) ? array_values(array_unique(array_map('sanitize_key', $items))) : [];
-        $items = $disabled ? array_values(array_unique(array_merge($items, [ $slug ]))) : array_values(array_diff($items, [ $slug ]));
-        update_option(self::DISABLED_BUNDLED_OPTION, $items, false);
     }
 
     private static function load_plugin_admin_api() {
@@ -300,6 +284,18 @@ class BizCity_Plugins_UI {
     private static function queue_rewrite_flush($slug) {
         if (class_exists('BizCity_Rewrite_Flush_Registry')) {
             BizCity_Rewrite_Flush_Registry::queue_flush($slug);
+        }
+    }
+
+    private static function load_installer() {
+        if (class_exists('BizCity_Plugin_Installer', false)
+            || !class_exists('BizCity_Safe_Loader', false)
+            || !defined('BIZCITY_TWIN_AI_DIR')) {
+            return;
+        }
+        $file = BIZCITY_TWIN_AI_DIR . '/core/bizcity-market/includes/class-plugin-installer.php';
+        if (is_file($file) && is_readable($file)) {
+            BizCity_Safe_Loader::require_file($file, 'market.plugin_installer');
         }
     }
 

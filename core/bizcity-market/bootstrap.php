@@ -9,6 +9,23 @@
  */
 
 if (!defined('ABSPATH')) exit;
+// [2026-08-26 Johnny Chu] PHASE-1.29-MARKET-LITE — plugins.php only needs
+// the nested-plugin management adapter; avoid loading market schema/catalog
+// services on this admin screen.
+if ( is_admin()
+    && isset( $_SERVER['SCRIPT_NAME'] )
+    && false !== strpos( (string) $_SERVER['SCRIPT_NAME'], '/plugins.php' )
+    && class_exists( 'BizCity_Safe_Loader', false ) ) {
+    $_bc_plugins_ui = __DIR__ . '/includes/bizcity-plugins-ui.php';
+    if ( is_file( $_bc_plugins_ui ) && is_readable( $_bc_plugins_ui ) ) {
+        BizCity_Safe_Loader::require_file( $_bc_plugins_ui, 'market.plugins_ui' );
+        if ( class_exists( 'BizCity_Plugins_UI', false ) ) {
+            BizCity_Plugins_UI::boot();
+        }
+    }
+    unset( $_bc_plugins_ui );
+    return;
+}
 // Bootstrap file for BizCity Market MU Plugin
 // bootstrap.php
 // Define constants
@@ -36,20 +53,19 @@ require_once BIZCITY_MARKET_DIR . '/lib/class-logger.php';
 require_once BIZCITY_MARKET_DIR . '/lib/class-db.php';
 require_once BIZCITY_MARKET_DIR . '/lib/class-ui.php';
 
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R13d-a — class-credit, class-transactions (loaded, never used) and the empty
+// class-market.php stub are in core/_archived/market-dead/ with three unreferenced admin templates and a duplicate admin.js.
 require_once BIZCITY_MARKET_DIR . '/includes/class-entitlements.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-hooks.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-admin.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-cron.php';
-#require_once BIZCITY_MARKET_DIR . '/includes/class-market.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-network-admin.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-site-apps.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-catalog.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-shortcodes.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-install.php';
-require_once BIZCITY_MARKET_DIR . '/includes/class-transactions.php';
 // Initialize components
 require_once BIZCITY_MARKET_DIR . '/includes/class-woo-sync.php';
-require_once BIZCITY_MARKET_DIR . '/includes/class-credit.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-marketplace.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-template-guard.php';
 require_once BIZCITY_MARKET_DIR . '/includes/class-remote-catalog.php';

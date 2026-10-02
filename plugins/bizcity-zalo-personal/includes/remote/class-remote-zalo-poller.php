@@ -41,7 +41,7 @@ final class BizCity_Remote_Zalo_Poller {
 					if ( 'retryable_failure' === $result ) { $summary['state'] = 'retryable_failure'; break 2; }
 					if ( 'emitted' === $result || 'outbound_recorded' === $result ) { $summary['emitted']++; }
 					elseif ( 'dropped_unlinked' === $result ) { $summary['dropped_unlinked']++; }
-					elseif ( 'ignored_unknown_type' === $result || 'linked_own_echo' === $result || 'status_updated' === $result || 'bot_state_cached' === $result ) { $summary['ignored']++; }
+					elseif ( in_array( $result, array( 'ignored_unknown_type', 'linked_own_echo', 'status_updated', 'bot_state_cached', 'ignored_own_echo', 'agent_drift_recorded' ), true ) ) { $summary['ignored']++; }
 					BizCity_Remote_Zalo_Cursor_Store::mark_handled( $event_id, $event['cursor'] ?? $after );
 				}
 				$next = array_key_exists( 'nextAfter', $data ) ? $data['nextAfter'] : null;
@@ -53,7 +53,55 @@ final class BizCity_Remote_Zalo_Poller {
 		return $summary;
 	}
 
-	public static function reset_seams(): void { self::$client = self::$clock = self::$normalizer = self::$profile = null; self::$enabled = null; }
+	/* ---------------- XS2 (E12) — WP-Cron schedule ---------------- */
+	// [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS2 — without this the CRM Inbox only received remote messages when
+	// someone ran `wp bizcity zalo-remote tick`. WP-Cron is the DEGRADED path (traffic-driven, D82-16); the
+	// recommended one stays a real system cron calling the WP-CLI tick. Both share the cursor lock, so they never overlap.
+	const CRON_HOOK = 'bizcity_rzh_poll_tick';
+	const SCHEDULE  = 'bizcity_rzh_minute';
+
+	/** @var callable|null test seam: () => bool (is the remote connection configured?) */
+	public static $configured = null;
+
+	/** Wire the hook + interval; schedule only when a connection is configured. Called by the remote loader. */
+	public static function boot(): void {
+		if ( function_exists( 'add_filter' ) ) {
+			add_filter( 'cron_schedules', array( __CLASS__, 'add_schedule' ) );
+		}
+		if ( function_exists( 'add_action' ) ) {
+			add_action( self::CRON_HOOK, array( __CLASS__, 'cron_tick' ) );
+		}
+		self::ensure_scheduled();
+	}
+
+	public static function add_schedule( $schedules ): array {
+		$schedules = is_array( $schedules ) ? $schedules : array();
+		$schedules[ self::SCHEDULE ] = array( 'interval' => 60, 'display' => 'BizCity Remote Zalo poll (60s)' );
+		return $schedules;
+	}
+
+	public static function cron_tick(): array { return self::tick( array( 'max_pages' => 2 ) ); }
+
+	/** Idempotent: one event at most, and none while unconfigured. */
+	public static function ensure_scheduled(): bool {
+		if ( ! self::is_configured() ) { self::unschedule(); return false; }
+		if ( ! function_exists( 'wp_next_scheduled' ) || ! function_exists( 'wp_schedule_event' ) ) { return false; }
+		if ( wp_next_scheduled( self::CRON_HOOK ) ) { return true; }
+		return false !== wp_schedule_event( time() + 60, self::SCHEDULE, self::CRON_HOOK );
+	}
+
+	public static function unschedule(): void {
+		if ( function_exists( 'wp_clear_scheduled_hook' ) ) { wp_clear_scheduled_hook( self::CRON_HOOK ); }
+	}
+
+	private static function is_configured(): bool {
+		if ( is_callable( self::$configured ) ) { return (bool) call_user_func( self::$configured ); }
+		if ( ! class_exists( 'BizCity_Remote_Zalo_Credentials' ) ) { return false; }
+		$conn = BizCity_Remote_Zalo_Credentials::public_view();
+		return ! empty( $conn['key_set'] ) && '' !== (string) ( $conn['base_url_host'] ?? '' );
+	}
+
+	public static function reset_seams(): void { self::$client = self::$clock = self::$normalizer = self::$profile = self::$configured = null; self::$enabled = null; }
 	private static function is_enabled(): bool { return null !== self::$enabled ? (bool) self::$enabled : ( defined( 'BIZCITY_ZALO_REMOTE_HUB_ENABLED' ) && BIZCITY_ZALO_REMOTE_HUB_ENABLED ); }
 	private static function now(): int { return is_callable( self::$clock ) ? (int) call_user_func( self::$clock ) : time(); }
 	private static function error_state( string $code ): string { if ( 'remote_auth_failed' === $code ) { return 'auth_failed'; } if ( 'remote_cursor_expired' === $code ) { return 'expired_gap'; } if ( 'remote_scope_missing' === $code ) { return 'paused'; } return 'remote_error'; }

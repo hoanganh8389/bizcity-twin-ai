@@ -591,6 +591,7 @@ class BizCity_TwinChat_Public_Page {
 		}
 
 		// ── TwinSearch headless bundle ──────────────────────────────────────────
+		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3c (R-LEAN-4, Q-W16-3) — modules/twinsearch is archived; the class is never loaded, so this is a no-op kept for a restored add-on.
 		// render_full_page() exits before wp_enqueue_scripts fires, so the
 		// TwinSearch asset loader hook never gets called.  Inject directly so
 		// the headless dialog controller (window.bizcityTwinSearch.openDialog)

@@ -5770,7 +5770,7 @@ class BizCity_CRM_Sprint_Diagnostic {
 			'PHASE-0.41 — Automation UI Dual-Path (Admin Zone 2 ↔ CRM-care Zone 1)',
 			'BizCity_Probe_Automation_CRM_Path',
 			WP_PLUGIN_DIR . '/bizcity-twin-ai/core/diagnostics/includes/probes/class-probe-automation-crm-path.php',
-			'Spec: core/automation/docs/PHASE-0.41-AUTOMATION-CRM-PATH.md · CRM-PATH-1 to CRM-PATH-5 sprints'
+			'Spec: bizcity-twin-brain-addon/automation/docs/PHASE-0.41-AUTOMATION-CRM-PATH.md · CRM-PATH-1 to CRM-PATH-5 sprints'
 		);
 
 		// Quick inline: automation REST zone filter.

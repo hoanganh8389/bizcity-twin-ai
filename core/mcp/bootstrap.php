@@ -74,6 +74,11 @@ require_once BIZCITY_MCP_DIR . 'includes/class-mcp-installer.php';
 require_once BIZCITY_MCP_DIR . 'includes/class-mcp-auth.php';
 // [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — load the admin tool allowlist before the tool registry enforces it.
 require_once BIZCITY_MCP_DIR . 'includes/class-mcp-tool-policy.php';
+// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — delegated (zalo-hub cell) identity + mode gate, before OAuth scopes and the registry use it.
+require_once BIZCITY_MCP_DIR . 'includes/class-mcp-delegation.php';
+// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L2-1/L2-2 — bizcity:// resource URIs + resources/prompts service (uses delegation, read lazily by the HTTP controller).
+require_once BIZCITY_MCP_DIR . 'includes/class-mcp-resource-uri.php';
+require_once BIZCITY_MCP_DIR . 'includes/class-mcp-resource-service.php';
 // [2026-07-28 Johnny Chu] PHASE-0.54-MCP — load the shared Action confirmation boundary before Action services.
 require_once BIZCITY_MCP_DIR . 'includes/class-mcp-action-confirmation.php';
 // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — load OAuth discovery, PKCE consent, and token exchange before transport auth resolves tokens.
@@ -99,6 +104,13 @@ require_once BIZCITY_MCP_DIR . 'includes/brain/class-report-brain-mcp-service.ph
 require_once BIZCITY_MCP_DIR . 'includes/brain/class-pipeline-mcp-service.php';
 // [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave R — load read-only WooCommerce catalog/order/customer bridge.
 require_once BIZCITY_MCP_DIR . 'includes/brain/class-commerce-brain-mcp-service.php';
+// [2026-10-01 Claude Opus 5.5] PHASE-0.88 CL-B — one-MCP-standard action tools (CRM, orders/inventory, booking, automation);
+// each registers on `bizcity_mcp_register_tools` and skips its tools when the business owner is not loaded.
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-mcp-action-support.php';
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-crm-action-mcp-service.php';
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-commerce-action-mcp-service.php';
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-booking-action-mcp-service.php';
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-automation-action-mcp-service.php';
 require_once BIZCITY_MCP_DIR . 'rest/class-mcp-http-controller.php';
 require_once BIZCITY_MCP_DIR . 'rest/class-mcp-admin-rest.php';
 

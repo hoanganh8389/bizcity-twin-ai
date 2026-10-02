@@ -204,6 +204,19 @@ class BizCity_TwinChat_Database {
 	 * @param int    $limit
 	 * @return array
 	 */
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.87 — the user who owns a session's transcript (first non-zero user_id), 0 = none.
+	 */
+	public function session_owner_id( string $session_id ): int {
+		global $wpdb;
+		if ( '' === $session_id ) {
+			return 0;
+		}
+		$tbl = $this->table_messages();
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT user_id FROM {$tbl} WHERE session_id = %s AND platform_type = %s AND user_id > 0 ORDER BY id ASC LIMIT 1", $session_id, self::PLATFORM ) );
+	}
+
 	public function get_session_messages( $session_id, $limit = 100 ) {
 		global $wpdb;
 		$session_id = (string) $session_id;

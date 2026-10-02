@@ -264,19 +264,21 @@ final class BizCity_CRM_Customer_Pipeline {
 		$conv_t = BizCity_CRM_DB_Installer_V2::tbl_conversations();
 		$ct_t = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 		$cap = max( 1, min( self::CONTACT_CAP, $cap ) );
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D2 — the number's owner (`role:owner`) is not a customer: never on this board.
+		$not_owner = class_exists( 'BizCity_CRM_Contact_Roles' ) ? ' AND ' . BizCity_CRM_Contact_Roles::sql_without_role( 'ct', BizCity_CRM_Contact_Roles::INTERNAL ) : '';
 		if ( is_array( $inbox_ids ) ) {
 			$inbox_ids = array_values( array_filter( array_map( 'intval', $inbox_ids ) ) );
 			if ( empty( $inbox_ids ) ) { return array(); }
 			$ph = implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) );
 			$sql = $wpdb->prepare(
 				"SELECT ci.contact_id, MAX(c.last_activity_at) AS last_at FROM `{$ci_t}` ci
-				 INNER JOIN `{$ct_t}` ct ON ct.id = ci.contact_id AND ct.deleted_at IS NULL
+				 INNER JOIN `{$ct_t}` ct ON ct.id = ci.contact_id AND ct.deleted_at IS NULL{$not_owner}
 				 LEFT JOIN `{$conv_t}` c ON c.contact_inbox_id = ci.id
 				 WHERE ci.inbox_id IN ({$ph}) GROUP BY ci.contact_id ORDER BY last_at DESC LIMIT {$cap}",
 				$inbox_ids
 			);
 		} else {
-			$sql = "SELECT ct.id AS contact_id FROM `{$ct_t}` ct WHERE ct.deleted_at IS NULL ORDER BY ct.updated_at DESC LIMIT {$cap}";
+			$sql = "SELECT ct.id AS contact_id FROM `{$ct_t}` ct WHERE ct.deleted_at IS NULL{$not_owner} ORDER BY ct.updated_at DESC LIMIT {$cap}";
 		}
 		return array_values( array_filter( array_map( 'intval', (array) $wpdb->get_col( $sql ) ) ) );
 	}

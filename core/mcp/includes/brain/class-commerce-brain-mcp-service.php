@@ -143,6 +143,43 @@ final class BizCity_Commerce_Brain_MCP_Service {
 		return array( 'source' => 'wc_get_order', 'item' => $this->present_order_detail( $order ) );
 	}
 
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 wave 2 — `order.status` (llm alias biz_orders): one order by id, or the
+	 * latest N (≤ 20) orders. Thin wrapper over get_order / list_orders; the customer's phone is masked to the last 3 digits
+	 * (same rule as the `orders` pack) and e-mail / billing address are not returned to the agent.
+	 */
+	public function order_status( array $args, array $ctx ) {
+		$order_id = absint( $args['order_id'] ?? 0 );
+		if ( $order_id > 0 ) {
+			$res = $this->get_order( array( 'order_id' => $order_id ), $ctx );
+			if ( is_wp_error( $res ) || ! empty( $res['_degraded'] ) ) {
+				return $res;
+			}
+			$item  = (array) ( $res['item'] ?? array() );
+			$phone = (string) ( $item['billing_phone'] ?? '' );
+			unset( $item['billing_phone'], $item['billing_email'], $item['billing_address'] );
+			$item['phone_masked'] = self::mask_phone( $phone );
+			return array( 'source' => (string) ( $res['source'] ?? '' ), 'order' => $item );
+		}
+		$limit = isset( $args['limit'] ) ? max( 1, min( 20, (int) $args['limit'] ) ) : 5;
+		$res   = $this->list_orders( array( 'limit' => $limit, 'page' => 1, 'status' => (string) ( $args['status'] ?? '' ) ), $ctx );
+		if ( is_wp_error( $res ) || ! empty( $res['_degraded'] ) ) {
+			return $res;
+		}
+		$orders = array();
+		foreach ( (array) ( $res['items'] ?? array() ) as $row ) {
+			unset( $row['billing_email'] );
+			$orders[] = $row;
+		}
+		return array( 'source' => (string) ( $res['source'] ?? '' ), 'total' => (int) ( $res['total'] ?? count( $orders ) ), 'orders' => $orders );
+	}
+
+	/** "…" + last 3 digits; '' when the number is too short to mask safely (orders pack rule). */
+	public static function mask_phone( $phone ) {
+		$d = preg_replace( '/\D+/', '', (string) $phone );
+		return strlen( (string) $d ) >= 4 ? '…' . substr( (string) $d, -3 ) : '';
+	}
+
 	public function list_customers( array $args, array $ctx ) {
 		if ( ! class_exists( 'WP_User_Query' ) || ! function_exists( 'wc_get_customer_order_count' ) ) {
 			return array( '_degraded' => true, 'reason' => 'woocommerce_unavailable', 'items' => array(), 'total' => 0 );

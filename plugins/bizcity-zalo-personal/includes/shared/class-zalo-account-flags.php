@@ -264,33 +264,58 @@ final class BizCity_Zalo_Account_Flags {
 		}
 	}
 
-	/* ---------------- provider choice for new numbers (4a-2, T-13) ---------------- */
+	/* ---------------- provider choice for new numbers (4a-2, T-13; PHASE-0.82 D82-40) ---------------- */
 
 	/**
-	 * [2026-09-26 Claude Opus 5.5] PHASE-0.80 owner decision — TWO connections only: zalo-hub is the DEFAULT for new numbers, zca-bridge is the legacy
-	 * alternative. An unset option means zalo_hub; a Hub that refuses zalo-hub for this key still falls back to zca once (create_account), so the
-	 * default never blocks creating a number. Existing numbers keep the provider recorded at creation.
+	 * [2026-09-29 Claude Sonnet 5] PHASE-0.82 D82-40 — owner direction 2026-09-29: `zca` is retired as a
+	 * choice for NEW numbers. Existing `zca` numbers are untouched and keep running exactly as before —
+	 * this list only bounds what a NEW number may be created/stored as a default with. `zalo_hub` is
+	 * always offered. `remote_zalo_hub` is offered only once the branch-3 feature flag is on
+	 * ([`50`](../../../../core/channel-gateway/docs/PHASE-0.82-CRM-REMOTE-ZALO-HUB/50-EXPANSION-REQUIREMENTS-2026-09-29.md)
+	 * D82-41 — the account itself still needs a configured+checked remote connection, enforced by the
+	 * REST layer, not here). `zca` re-enters the list only behind the documented escape hatch constant
+	 * `BIZCITY_ZALO_ALLOW_ZCA_NEW` (site-level, not a UI toggle) for a site that still needs it.
+	 *
+	 * @return list<string>
+	 */
+	public static function new_number_providers(): array {
+		$out = array( self::PROVIDER_ZALO_HUB );
+		if ( class_exists( 'BizCity_Remote_Zalo_Feature' ) && BizCity_Remote_Zalo_Feature::enabled() ) {
+			$out[] = self::PROVIDER_REMOTE_ZALO_HUB;
+		}
+		if ( defined( 'BIZCITY_ZALO_ALLOW_ZCA_NEW' ) && true === BIZCITY_ZALO_ALLOW_ZCA_NEW ) {
+			$out[] = self::PROVIDER_ZCA;
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-09-26 Claude Opus 5.5 / 2026-09-29 Claude Sonnet 5] PHASE-0.80 → PHASE-0.82 D82-40 — the stored
+	 * site default for NEW numbers. A stored value that has fallen outside `new_number_providers()` (e.g.
+	 * a site that had `zca` as its default before the 2026-09-29 retirement, and has no escape hatch set)
+	 * reads back as `zalo_hub` — a READ-time fallback, never written back here, so the stored option is
+	 * left untouched for the owner/UI to see and correct explicitly (D82-00R reconciliation, F7).
 	 */
 	public static function default_provider(): string {
 		$stored = self::normalize_provider( get_option( self::DEFAULT_PROVIDER_OPTION, self::PROVIDER_ZALO_HUB ) );
-		// This option only ever chooses between the two BizCity-operated connections (PHASE-0.80
-		// "two connections only"); branch-3 provisioning is a separate future flow
-		// (04-IMPLEMENTATION-FRAMEWORK-ROADMAP.md §0.1), so anything else falls back to the
-		// documented default rather than ever handing out branch 3 or an unknown value here.
-		return in_array( $stored, array( self::PROVIDER_ZCA, self::PROVIDER_ZALO_HUB ), true ) ? $stored : self::PROVIDER_ZALO_HUB;
+		return in_array( $stored, self::new_number_providers(), true ) ? $stored : self::PROVIDER_ZALO_HUB;
 	}
 
-	/** Explicit request value wins; empty → the site default. Never anything but zca|zalo_hub — this
-	 * path provisions a BizCity-operated number only; branch-3 accounts are created by the future
-	 * branch-3 adapter, not here. */
+	/**
+	 * Explicit request value wins; empty → the site default. [2026-09-29 Claude Sonnet 5] PHASE-0.82
+	 * D82-40 supersedes the PHASE-0.82-X0.3 legacy-zca-fallback behaviour on THIS path only: an explicit
+	 * value outside `new_number_providers()` (including a bare `zca` with no escape hatch) now returns
+	 * `PROVIDER_UNKNOWN` instead of silently becoming `zca`. Callers on the number-creation path
+	 * (`BizCity_Zalo_Personal_Hub_Client::create_account()`) must treat `PROVIDER_UNKNOWN` as a hard
+	 * `provider_retired` error and must NOT create a number with it.
+	 */
 	public static function requested_provider( $raw ): string {
 		$raw = is_string( $raw ) ? sanitize_key( $raw ) : '';
 		if ( '' === $raw ) {
 			return self::default_provider();
 		}
-		// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-X0.3 — preserve the legacy zca fallback for explicit unknown create requests.
 		$normalized = self::normalize_provider( $raw );
-		return in_array( $normalized, array( self::PROVIDER_ZCA, self::PROVIDER_ZALO_HUB ), true ) ? $normalized : self::PROVIDER_ZCA;
+		return in_array( $normalized, self::new_number_providers(), true ) ? $normalized : self::PROVIDER_UNKNOWN;
 	}
 
 	/**

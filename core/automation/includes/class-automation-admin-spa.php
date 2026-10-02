@@ -94,7 +94,12 @@ final class BizCity_Automation_Admin_SPA {
 		global $submenu, $_wp_submenu_nopriv, $_wp_menu_nopriv;
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — Twin GPT embeds this page for customers; normal wp-admin navigation stays admin-only.
 		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
-		$page_cap = $this->is_iframe_context() ? 'read' : ( class_exists( 'BizCity_Network_Admin_Capability' )
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-15 — the iframe surface needs the Automation module, not bare
+		// `read`: the iframe markers are client-controlled, so they must not be what lowers the gate.
+		$iframe_cap = ( class_exists( 'BizCity_Twin_Module_Access' ) && BizCity_Twin_Module_Access::governs( 'workflow' ) )
+			? BizCity_Twin_Module_Access::META_PREFIX . 'workflow'
+			: 'read';
+		$page_cap = $this->is_iframe_context() ? $iframe_cap : ( class_exists( 'BizCity_Network_Admin_Capability' )
 			? BizCity_Network_Admin_Capability::menu_cap()
 			: 'manage_options' );
 		if ( $this->is_iframe_context() ) {

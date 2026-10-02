@@ -76,6 +76,30 @@ class BizCity_KG_Channel_Notebook_Generic_Listener {
 	}
 
 	/**
+	 * [2026-09-27] PHASE-0.80 doc 27 L-05 / R-GURU-PRIVATE / D-H7 — platforms this listener may act on (and answer on).
+	 * Allow-list, not deny-list: every customer-facing channel (ZALO_PERSONAL, ZALO_OA, FB_MESS, FB_FEED, ...) is OFF by
+	 * default because "@notebook → Twin GPT brain" is internal knowledge and a second replier on a number Bot Studio owns
+	 * (blog 1258, 2026-09-26: a customer's file on a Zalo Cá nhân number triggered "📎 Mình đã nhận được tệp…").
+	 * The program owner opts a channel in with `bizcity_kg_notebook_generic_platforms`.
+	 *
+	 * @return string[] Upper-case platform codes.
+	 */
+	public static function allowed_platforms(): array {
+		$list = apply_filters( 'bizcity_kg_notebook_generic_platforms', array( 'WEBCHAT' ) );
+		if ( ! is_array( $list ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $list as $p ) {
+			$p = strtoupper( trim( (string) $p ) );
+			if ( $p !== '' && $p !== 'ZALO_BOT' ) { // ZALO_BOT is never handled here — see class docblock.
+				$out[] = $p;
+			}
+		}
+		return array_values( array_unique( $out ) );
+	}
+
+	/**
 	 * @param array  $envelope   Normalized envelope from BizCity_Universal_Channel_Listener.
 	 * @param string $trigger_key
 	 */
@@ -86,6 +110,9 @@ class BizCity_KG_Channel_Notebook_Generic_Listener {
 		$platform = strtoupper( (string) ( $envelope['platform'] ?? '' ) );
 		if ( $platform === 'ZALO_BOT' ) {
 			return; // dedicated listener already owns this platform — see class docblock.
+		}
+		if ( ! in_array( $platform, self::allowed_platforms(), true ) ) {
+			return; // customer-facing channel: no capture, no reply (allowed_platforms()).
 		}
 		if ( ! class_exists( 'BizCity_KG_Channel_Notebook_Bridge' ) ) {
 			return;

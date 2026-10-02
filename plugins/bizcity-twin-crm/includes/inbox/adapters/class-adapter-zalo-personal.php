@@ -175,6 +175,12 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 						'thread_kind'       => 'group' === $thread_kind ? 'group' : 'personal',
 						'conversation_id'   => (int) ( $conversation['id'] ?? 0 ),
 						'inbox_id'          => (int) ( $inbox['id'] ?? 0 ),
+						// [2026-09-30 Claude Sonnet 5] PHASE-0.82 B9 — additive: the CRM message row id, so a transport
+						// that keeps its OWN retry queue (Remote Zalo Hub, no auto-retry worker exists yet for the
+						// generic dispatcher path) can write the eventual outcome back via the same
+						// BizCity_CRM_Repository::update_message_delivery() the dispatcher itself uses. Legacy
+						// transports ignore unknown target keys — no behaviour change for zca/zalo_hub.
+						'message_id'        => (int) ( $message['id'] ?? 0 ),
 					),
 					array(
 						'text'         => $text,

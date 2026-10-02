@@ -46,6 +46,25 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		return $this->get( '/zalo-personal-bridge/health' );
 	}
 
+	/**
+	 * Where a streamed Hub call goes (PHASE-0.87 CL-6/CL-7 web turn): full URL + this blog's own 1API key + the client-site
+	 * header. Same boundary as every managed call (current-blog key only, no main-site fallback). Never sent to a browser.
+	 *
+	 * @return array{url:string,key:string,headers:array<string,string>}|null
+	 */
+	public function stream_target( string $path ): ?array {
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-6 — the web-turn bridge streams with cURL, so it needs the target, not a JSON helper.
+		if ( ! $this->is_ready_fast() ) {
+			return null;
+		}
+		$llm = BizCity_LLM_Client::instance();
+		return array(
+			'url'     => rtrim( $llm->get_gateway_url(), '/' ) . '/wp-json/bizcity/v1' . $path,
+			'key'     => $llm->get_api_key( false ),
+			'headers' => method_exists( $llm, 'get_client_domain_headers' ) ? (array) $llm->get_client_domain_headers() : array(),
+		);
+	}
+
 	/** Read redacted managed bridge diagnostics through the Hub relay. */
 	public function diagnostics( array $args = array() ): array {
 		// [2026-08-23 Johnny Chu] PHASE-0.39E — keep managed diagnostics behind the exact-key Hub boundary.
@@ -119,24 +138,33 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		// [2026-08-23 Johnny Chu] R-GW-8 — preserve standalone B2 installation identity through Managed provisioning.
 		$data['client_instance_id'] = $this->client_instance_id();
 		$data['tenant_key'] = $this->tenant_key();
-		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-2 (T-13) — provider per NEW number: explicit choice, else the site default; `zca` keeps the historical request body.
-		$explicit = is_string( $data['provider'] ?? null ) && '' !== trim( (string) $data['provider'] );
+		// [2026-09-26 Claude Opus 5.5 / 2026-09-29 Claude Sonnet 5] PHASE-0.80 Lane C 4a-2 (T-13) → PHASE-0.82 D82-40 —
+		// provider per NEW number: explicit choice, else the site default; `zca` keeps the historical request body
+		// (unset field) when the escape hatch allows it. This client only ever talks to the BizCity-managed Hub,
+		// which understands exactly two values (`zca` implicit, `zalo_hub` explicit) — `remote_zalo_hub` is a
+		// third-party transport this Hub has never heard of, and `PROVIDER_UNKNOWN` means the caller asked for a
+		// retired/unrecognized value. Both must be refused locally, before any network call.
 		$provider = class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::requested_provider( $data['provider'] ?? '' ) : 'zca';
+		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) && in_array( $provider, array( BizCity_Zalo_Account_Flags::PROVIDER_REMOTE_ZALO_HUB, BizCity_Zalo_Account_Flags::PROVIDER_UNKNOWN ), true ) ) {
+			return array(
+				'success'   => false,
+				'code'      => 'provider_retired',
+				'message'   => 'Kết nối zca-bridge đã ngừng cho số mới.',
+				'hint'      => 'Chọn Zalo Hub hoặc Remote Zalo Hub.',
+				'help_code' => 'provider_retired',
+			);
+		}
 		if ( 'zca' === $provider ) {
 			unset( $data['provider'] );
 		} else {
 			$data['provider'] = $provider;
 		}
+		// [2026-09-29 Claude Sonnet 5] PHASE-0.82 D82-40 — the silent one-time fallback to `zca` when the Hub
+		// refuses `zalo_hub` is REMOVED: `zca` is retired for new numbers, so falling back to it would create a
+		// number on a connection the operator can no longer choose. The Hub's refusal (e.g. `zalo_hub_not_enabled`)
+		// now reaches the caller as-is; see `class-zalo-bridge-rest.php::create_account_for_owner()` for how it is
+		// surfaced instead of the generic mapping error the empty-account-id branch used to produce.
 		$result = $this->post( '/zalo-personal-bridge/accounts', $data );
-		// A site DEFAULT of zalo_hub must never block creating a number: when the Hub refuses zalo-hub for this key
-		// (not in pilot / no cell / cells full) nothing was created, so fall back to zca once and say so. An explicit choice is honoured as is.
-		if ( ! $explicit && 'zca' !== $provider && empty( $result['success'] ) && in_array( (string) ( $result['code'] ?? '' ), array( 'zalo_hub_not_enabled', 'cell_capacity_full', 'zalo_hub_unavailable' ), true ) ) {
-			$refused = (string) $result['code'];
-			unset( $data['provider'] );
-			$provider = 'zca';
-			$result = $this->post( '/zalo-personal-bridge/accounts', $data );
-			$result['provider_fallback'] = array( 'requested' => 'zalo_hub', 'used' => 'zca', 'reason' => $refused );
-		}
 		if ( ! empty( $result['success'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
 			$created = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : array();
 			if ( isset( $created['id'] ) ) {
@@ -302,6 +330,52 @@ final class BizCity_Zalo_Personal_Hub_Client {
 			return null;
 		}
 		return $r;
+	}
+
+	/**
+	 * [2026-09-30 Claude Sonnet 5] PHASE-0.85 §K0 (C85-4) — read usage/budget/alerts of THIS site's OWN key.
+	 * `$route` must be one of the whitelisted C85-4 routes; anything else is refused locally, before any
+	 * network call, so a typo never becomes a request to an arbitrary Hub path. Never logs the response body
+	 * (only the caller-visible mã HTTP via the shared gateway logger) — these bodies can carry cost figures.
+	 *
+	 * @return array<string,mixed>|null null = route not whitelisted, Hub unreachable, or body missing `contract`.
+	 */
+	public function usage_read( string $route, array $query = array() ): ?array {
+		$allowed = array( 'summary', 'by-day', 'by-tool', 'by-account', 'by-request', 'budget', 'alerts' );
+		if ( ! in_array( $route, $allowed, true ) ) {
+			return null;
+		}
+		return $this->get_report( '/zalo-hub/usage/' . $route, $query );
+	}
+
+	/**
+	 * [2026-09-30 Claude Sonnet 5] PHASE-0.85 §K0 (C85-5/C85-6) — read one tenant-scoped root through the
+	 * existing Hub relay `brain/{root}` (15 s cache, exact key + bound site). `$root` whitelist mirrors what
+	 * S85-H8 adds to the relay; `tools` is already served by this same relay for T-5/Bot Studio, listed here
+	 * so K4/K5 can reuse this one method instead of a second ad-hoc `get()` call.
+	 *
+	 * @return array<string,mixed>|null null = root not whitelisted, Hub/cell unreachable, or body missing `contract`.
+	 */
+	public function brain_read( string $root, array $query = array() ): ?array {
+		$allowed = array( 'usage', 'uptime', 'alerts', 'tools' );
+		if ( ! in_array( $root, $allowed, true ) ) {
+			return null;
+		}
+		return $this->get_report( '/zalo-personal-bridge/brain/' . $root, $query );
+	}
+
+	/**
+	 * Shared GET for the two read-only report methods above: short timeout (reports are UI-blocking, not the
+	 * long timeout budgeted for a send call) and a `contract` field required on the body — an endpoint that
+	 * forgets to stamp its contract fails closed here instead of handing the caller a half-shaped array.
+	 */
+	private function get_report( string $path, array $query = array() ): ?array {
+		if ( ! $this->is_ready_fast() ) {
+			return null;
+		}
+		$full = $query ? $path . '?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 ) : $path;
+		$result = BizCity_LLM_Client::instance()->gateway_get( $full, array(), 'GET', 5, false );
+		return ( is_array( $result ) && ! empty( $result['contract'] ) ) ? $result : null;
 	}
 
 	/** Read the provider group label for an exact key-owned account. */

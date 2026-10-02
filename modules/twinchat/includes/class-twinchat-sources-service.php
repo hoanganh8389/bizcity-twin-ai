@@ -1192,7 +1192,8 @@ class BizCity_TwinChat_Sources_Service {
 	 */
 	private function extract_legacy_doc_best_effort( $path ) {
 		$base        = dirname( __DIR__, 3 );
-		$parser_file = $base . '/core/knowledge/lib/class-file-parser.php';
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 — the parser moved to core/kg-hub/includes/ (same class name).
+		$parser_file = $base . '/core/kg-hub/includes/class-file-parser.php';
 
 		if ( ! class_exists( 'BizCity_Knowledge_FileParser' ) && file_exists( $parser_file ) ) {
 			require_once $parser_file;

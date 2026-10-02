@@ -253,7 +253,6 @@ class BizCity_TwinChat_Stream_Handler {
 			'web_mode'         => 'off',
 			'force_notebooks'  => $notebook_id > 0 ? array( $notebook_id ) : array(),
 			'k'                => 3,
-			'goal_signal'      => 'request',
 			'answer_depth'     => isset( $args['answer_depth'] ) && in_array( $args['answer_depth'], array( 'fast', 'balanced', 'high', 'deep' ), true ) ? (string) $args['answer_depth'] : 'high', // [2026-08-07 Johnny Chu] V4-DEPTH — forward selected MPR tier.
 		);
 		$start = $runtime->start_turn( $prompt, $runtime_opts );
@@ -263,15 +262,11 @@ class BizCity_TwinChat_Stream_Handler {
 		$runtime_opts = array_merge( $runtime_opts, array(
 			'guru_id'            => (int) ( $start['guru_id'] ?? 0 ),
 			'tool_force'         => (string) ( $start['tool_force'] ?? '' ),
-			'goal_loop_state'    => (array) ( $start['goal_loop_state'] ?? array() ),
-			'goal_loop'          => (array) ( $start['goal_loop_state'] ?? array() ),
-			'goal_contract'      => (array) ( $start['goal_contract'] ?? array() ), // [2026-08-05 Johnny Chu] V3.1 — forward frozen contract into Runtime stream.
 			'answer_depth'       => (string) ( $start['answer_depth'] ?? $runtime_opts['answer_depth'] ?? 'high' ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve resolved tier across completion.
 			'pre_mpr_triage'     => (array) ( $start['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve ambiguous/MPR branch.
 			'prompt_intent'      => (array) ( $start['prompt_intent'] ?? $start['pre_mpr_triage'] ?? array() ), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — keep canonical Prompt Intent in stream completion opts.
 			'intent_compat'      => (array) ( $start['intent_compat'] ?? array() ), // [2026-08-19 Johnny Chu] MPR-V5.10-COMPAT — forward compatibility envelope to stream completion surfaces.
 			'ambiguous_no_goal'  => ! empty( $start['ambiguous_no_goal'] ),
-			'goal_loop_brief'    => (string) ( $start['goal_loop_brief'] ?? '' ),
 			'subject_contract'   => (array) ( $start['subject_contract'] ?? array() ),
 			'identity_uuid'      => (string) ( $start['identity_uuid'] ?? $runtime_opts['identity_uuid'] ?? '' ),
 		) );

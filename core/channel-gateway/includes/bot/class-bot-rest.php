@@ -78,6 +78,13 @@ final class BizCity_Bot_REST {
 			// of always pointing at the site's own zca-bridge sidecar.
 			'args' => array( 'character_id' => array( 'type' => 'integer', 'default' => 0 ), 'account_id' => array( 'type' => 'string', 'default' => '' ) ),
 		) );
+		// [2026-09-30] PHASE-0.85 §K5 (C85-1) — live per-number media tool status for zalo_hub (plan/budget
+		// gate), so Bot Studio's media panel can say WHY a tool is off instead of showing a key field that
+		// zalo_hub never reads. `zca` (and any transport that has not opted in) answers `applicable:false`.
+		register_rest_route( self::NAMESPACE_V1, '/bot/tools/zalo-hub-status', array(
+			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_zalo_hub_tool_status' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
+			'args' => array( 'account_id' => array( 'type' => 'string', 'required' => true ) ),
+		) );
 		register_rest_route( self::NAMESPACE_V1, '/bot/provider', array(
 			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_provider' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 		) );
@@ -313,6 +320,53 @@ final class BizCity_Bot_REST {
 		) );
 	}
 
+	/**
+	 * [2026-09-30 Claude Sonnet 5] PHASE-0.85 §K5 (C85-1) — asks the transport (not the account
+	 * directly) whether a live media-capability check even applies (`media_capability_check`,
+	 * class-zalo-transport-capability.php), THEN reads it through the Hub relay `brain/tools`
+	 * (same relay Z6/K1 already use). Never guesses `available` when unreadable — `tools: null`
+	 * means "couldn't ask right now", distinct from `tools: {}` (asked, everything's fine).
+	 */
+	public static function rest_get_zalo_hub_tool_status( WP_REST_Request $req ) {
+		$account_id = sanitize_text_field( (string) $req->get_param( 'account_id' ) );
+		$descriptor = class_exists( 'BizCity_Zalo_Transport_Capability' ) ? BizCity_Zalo_Transport_Capability::for_account( $account_id ) : null;
+		if ( ! class_exists( 'BizCity_Zalo_Transport_Capability' ) || ! BizCity_Zalo_Transport_Capability::supports( $descriptor, 'media_capability_check' ) ) {
+			return self::ok( array( 'applicable' => false, 'tools' => array() ) );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
+			return self::ok( array( 'applicable' => true, 'tools' => null ) );
+		}
+		$resp = BizCity_Zalo_Personal_Hub_Client::instance()->brain_read( 'tools', array( 'account_id' => $account_id ) );
+		if ( ! is_array( $resp ) || ! is_array( $resp['items'] ?? null ) ) {
+			return self::ok( array( 'applicable' => true, 'tools' => null ) );
+		}
+		$tools = array();
+		foreach ( $resp['items'] as $item ) {
+			$key = (string) ( $item['key'] ?? '' );
+			if ( '' === $key ) { continue; }
+			$reason = (string) ( $item['unavailable_reason'] ?? '' );
+			$tools[ $key ] = array(
+				'available'    => ! empty( $item['available'] ),
+				'reason'       => $reason,
+				'reason_label' => self::zalo_hub_reason_label( $reason ),
+			);
+		}
+		return self::ok( array( 'applicable' => true, 'tools' => $tools ) );
+	}
+
+	/** C85-1 `unavailable_reason` codes -> the same Vietnamese vocabulary the CRM "Chi phí AI" report uses. */
+	private static function zalo_hub_reason_label( string $reason ): string {
+		$map = array(
+			'snapshot_missing'        => 'Chưa có quyền dùng AI từ Hub cho số này.',
+			'snapshot_expired'        => 'Quyền dùng AI đã hết hạn.',
+			'plan_excludes_tool'      => 'Gói hiện tại chưa có tính năng này.',
+			'provider_not_configured' => 'Nền tảng chưa cấu hình dịch vụ cho tính năng này.',
+			'budget_exhausted'        => 'Ngân sách AI hôm nay đã hết.',
+			'tool_quota_reached'      => 'Đã dùng hết hạn mức hôm nay — tự mở lại ngày mai.',
+		);
+		return $map[ $reason ] ?? '';
+	}
+
 	public static function rest_get_provider() {
 		if ( ! class_exists( 'BizCity_Bot_Provider' ) ) {
 			return self::not_loaded();
@@ -386,7 +440,38 @@ final class BizCity_Bot_REST {
 		if ( ! $binding ) {
 			return self::err( 'not_found', 'Channel does not exist.', 404, 'Select the Zalo channel again and retry.', 'bot_binding_missing' );
 		}
-		return self::ok( self::policy_defaults_merged( $binding['policy_json'] ?? '' ) );
+		$policy = self::policy_defaults_merged( $binding['policy_json'] ?? '' );
+		$policy['owner_agent_view'] = self::owner_agent_view( $binding, $policy ); // read-only, never saved (not a policy key)
+		return self::ok( self::strip_private( $policy ) );
+	}
+
+	/** Staff UIDs leave the server only through the staff routes, masked (doc 50 §4.1). */
+	private static function strip_private( array $policy ): array {
+		$policy['staff_count'] = count( (array) ( $policy['staff_principals'] ?? array() ) );
+		unset( $policy['staff_principals'] );
+		return $policy;
+	}
+
+	/**
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-13 §7 — "Agent của chủ": who the bound owner is and which agent modes they have,
+	 * with where each comes from (admin / role / user / delegated / denied). Read-only: grants are changed where they live.
+	 */
+	private static function owner_agent_view( array $binding, array $policy ): array {
+		$owner = 0;
+		if ( class_exists( 'BizCity_Zalo_Mapping_Repo' ) && '' !== (string) ( $binding['account_id'] ?? '' ) ) {
+			$acc   = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', (string) $binding['account_id'] );
+			$owner = is_array( $acc ) ? (int) ( $acc['owner_user_id'] ?? 0 ) : 0;
+		}
+		$user   = $owner > 0 ? get_userdata( $owner ) : null;
+		$status = ! $policy['owner_agent_enabled'] ? 'off' : ( '' === trim( (string) $policy['owner_uid'] ) ? 'no_owner_uid' : ( $user ? 'ready' : 'no_owner_user' ) );
+		return array(
+			'status'     => $status,
+			'owner_name' => $user ? (string) $user->display_name : '',
+			'modes'      => $user && class_exists( 'BizCity_Agent_Mode_Access' ) ? BizCity_Agent_Mode_Access::explain( $owner ) : array(),
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-14 — "Đã xác minh" / "Chưa xác minh" + who may send the link.
+			'verified'   => class_exists( 'BizCity_Zalo_Uid_Verify' ) && null !== BizCity_Zalo_Uid_Verify::owner_verified_at( $policy ),
+			'can_verify' => class_exists( 'BizCity_Zalo_Uid_Verify' ) && $user && '' !== trim( (string) $policy['owner_uid'] ),
+		);
 	}
 
 	public static function rest_save_policy( WP_REST_Request $req ) {
@@ -427,6 +512,12 @@ final class BizCity_Bot_REST {
 		// which is also how the feature is turned fully off (EA-7.2).
 		if ( array_key_exists( 'owner_uid', $body ) ) {
 			$policy['owner_uid'] = sanitize_text_field( trim( (string) $body['owner_uid'] ) );
+		}
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-4 / CL-D8 — "Agent của chủ" + what the owner may save; default ON.
+		foreach ( array( 'owner_agent_enabled', 'owner_capture_files', 'owner_capture_remember' ) as $owner_key ) {
+			if ( array_key_exists( $owner_key, $body ) ) {
+				$policy[ $owner_key ] = (bool) $body[ $owner_key ];
+			}
 		}
 		// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 (unblocked by zca-bridge 0.40.0 actions) — both default OFF:
 		// they are actions that touch Zalo, so they are opt-in per number (0.60A "bật có ý thức").
@@ -490,7 +581,8 @@ final class BizCity_Bot_REST {
 		if ( $sync_receipts && class_exists( 'BizCity_Bot_Zalo_Actions' ) ) {
 			$policy['receipts_sync'] = BizCity_Bot_Zalo_Actions::configure_receipts( (string) ( $binding['account_id'] ?? '' ), 'off' !== $policy['read_receipts'] );
 		}
-		return self::ok( $policy );
+		$policy['owner_agent_view'] = self::owner_agent_view( $binding, $policy );
+		return self::ok( self::strip_private( $policy ) );
 	}
 
 	/**
@@ -519,6 +611,16 @@ final class BizCity_Bot_REST {
 			'passive_listen_in_group'  => ! isset( $decoded['passive_listen_in_group'] ) || (bool) $decoded['passive_listen_in_group'],
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-7.2 — empty string = feature fully off (default).
 			'owner_uid' => isset( $decoded['owner_uid'] ) ? (string) $decoded['owner_uid'] : '',
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-4 / CL-D8 — default ON (key absent): only acts once owner_uid is set.
+			'owner_agent_enabled'    => ! isset( $decoded['owner_agent_enabled'] ) || (bool) $decoded['owner_agent_enabled'],
+			'owner_capture_files'    => ! isset( $decoded['owner_capture_files'] ) || (bool) $decoded['owner_capture_files'],
+			'owner_capture_remember' => ! isset( $decoded['owner_capture_remember'] ) || (bool) $decoded['owner_capture_remember'],
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-14 (D-TAA-6) — {uid, at} written only by the verify link; valid only while
+			// owner_uid is still that UID. Not settable from the save body.
+			'owner_uid_verified'     => is_array( $decoded['owner_uid_verified'] ?? null ) ? array( 'uid' => (string) ( $decoded['owner_uid_verified']['uid'] ?? '' ), 'at' => (string) ( $decoded['owner_uid_verified']['at'] ?? '' ) ) : null,
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.87 W2-1 — staff allowed to use the Agent on this number (doc 50 §4.1). Kept on every
+			// save (written only by the staff routes); never returned raw to a browser — see strip_private().
+			'staff_principals'       => class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::normalize( $decoded['staff_principals'] ?? array() ) : ( is_array( $decoded['staff_principals'] ?? null ) ? $decoded['staff_principals'] : array() ),
 			// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 — default OFF (key absent = no behavior change).
 			'typing_indicator' => ! empty( $decoded['typing_indicator'] ),
 			'auto_react'       => ! empty( $decoded['auto_react'] ),

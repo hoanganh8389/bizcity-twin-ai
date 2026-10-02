@@ -39,11 +39,15 @@ class BizCity_Scheduler_Automation_Lab {
 	}
 
 	public function register_menu(): void {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — manage_options wrongly denied a Network Super Admin with no local blog role.
+		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::menu_cap()
+			: 'manage_options';
 		add_submenu_page(
 			'bizcity-webchat-dashboard',
 			__( 'Automation Lab', 'bizcity-twin-ai' ),
 			'🧪 ' . __( 'Automation Lab', 'bizcity-twin-ai' ),
-			'manage_options',
+			$capability,
 			self::MENU_SLUG,
 			[ $this, 'render' ]
 		);

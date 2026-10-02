@@ -1241,12 +1241,30 @@ class BizCity_TwinWeb_REST {
 			}
 		}
 
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-7 — /gpt/ = adapter of the cell's runAgentTurn (surface gpt, R-TWIN-GPT-FIRST)
+		// when `bizcity_twin_web_turn_path_gpt` (auto|node|php, default auto) picks node. Guests, Profile chat, /skill workflows,
+		// #workflow commands, vertical modes and non-image attachments stay on the PHP path (images go as parts since 2026-10-01).
+		if ( ! $is_profile_public && ! $identity['is_guest'] ) {
+			$agent = $this->maybe_agent_turn( $request, $identity, $message );
+			if ( 'done' === $agent ) {
+				exit; // SSE already written by the transition bridge
+			}
+			if ( $agent instanceof WP_REST_Response ) {
+				return $agent;
+			}
+		}
+
 		// [2026-06-17 Johnny Chu] PHASE-TWINWEB — ensure TwinBrain is available
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-4 S4 (R-LEAN-4, R-ERROR-UX) — TwinBrain lives in the
+		// bizcity-twin-brain-addon sibling plugin (B-4 S3a/S3b); without it, say so in the same
+		// {success,code,message,hint,help_code} shape every other "module not loaded" guard in this file uses
+		// (mychannels_error()), instead of a bare WP_Error the FE has no addon-aware rendering for.
 		if ( ! class_exists( 'BizCity_TwinBrain_Runtime' ) ) {
-			return new WP_Error(
+			return $this->mychannels_error(
 				'module_not_loaded',
-				'TwinBrain chưa được tải.',
-				array( 'status' => 503 )
+				'Trợ lý AI (TwinBrain) chưa được tải.',
+				'Cài và kích hoạt add-on BizCity Twin Brain (bizcity-twin-brain-addon) rồi tải lại trang.',
+				'module_not_loaded'
 			);
 		}
 
@@ -1828,6 +1846,107 @@ class BizCity_TwinWeb_REST {
 	}
 
 	/* ── SSE helpers ────────────────────────────────────────────────────── */
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-7 — one /gpt/ turn through BizCity_Twin_Web_Turn (surface gpt). The user is
+	 * the logged-in identity; history comes from this site's TWINWEB transcript of an owned thread (never the browser's copy);
+	 * after the cell's `final_done` the site writes the transcript, counts the daily quota and refreshes the thread title,
+	 * like the PHP path does after a successful turn. Returns 'php' | 'done' | WP_REST_Response.
+	 *
+	 * @return string|WP_REST_Response
+	 */
+	private function maybe_agent_turn( WP_REST_Request $request, array $identity, string $message ) {
+		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) ) {
+			return 'php';
+		}
+		$mode  = sanitize_key( (string) $request->get_param( 'mode' ) );
+		$skill = (string) $request->get_param( 'skill' );
+		if ( '' !== $skill || ! in_array( $mode, array( '', 'chat' ), true )
+			|| ( class_exists( 'BizCity_Automation_Command_Resolver' ) && BizCity_Automation_Command_Resolver::extract( $message ) ) ) {
+			return 'php';
+		}
+		$user_id  = (int) $identity['user_id'];
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 — owned image attachments go to the cell as image parts (public uploads URLs, the
+		// same URLs the PHP path already hands to the model); any non-image, foreign or unfetchable file keeps the turn on php.
+		$owned  = $this->build_owned_attachment_payload( $this->sanitize_attachment_ids( (array) $request->get_param( 'attachment_ids' ) ), $user_id );
+		$images = is_wp_error( $owned ) ? null : BizCity_Twin_Web_Turn::image_urls( $owned );
+		if ( null === $images ) {
+			return 'php';
+		}
+		$decision = BizCity_Twin_Web_Turn::decide( 'gpt', $user_id );
+		if ( 'php' === $decision['path'] ) {
+			return 'php';
+		}
+		$thread_id = (string) $request->get_param( 'thread_id' );
+		if ( '' === $thread_id ) {
+			$thread_id = wp_generate_uuid4();
+		}
+		$history = $this->agent_turn_history( $thread_id );
+		if ( null === $history ) {
+			return BizCity_Twin_Web_Turn::error( 'session_forbidden' );
+		}
+		return BizCity_Twin_Web_Turn::run( 'gpt', array(
+			'user_id'     => $user_id,
+			'session_id'  => $thread_id,
+			'text'        => $message,
+			'images'      => $images,
+			'history'     => $history,
+			'notebook_id' => absint( $request->get_param( 'focus_notebook_id' ) ),
+			'effort'      => sanitize_key( (string) $request->get_param( 'answer_depth' ) ), // Nhanh/Vừa/Cao/Sâu ⇒ cell reasoning level (clamped there)
+			'persist'     => function ( array $done, string $trace_id ) use ( $thread_id, $message, $user_id ): int {
+				$this->agent_turn_record( $thread_id, $message, $user_id, $done, $trace_id );
+				return 0;
+			},
+		) );
+	}
+
+	/**
+	 * Site side of a finished /gpt/ axis turn (same writes as the PHP path's success branch; no event stream row — the cell's
+	 * turn-complete is the twin record). Called from the closure above (bound to $this).
+	 */
+	private function agent_turn_record( string $thread_id, string $message, int $user_id, array $done, string $trace_id ): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			$member_quota_key = 'tw_user_' . $user_id . '_quota_' . gmdate( 'Y-m-d' );
+			set_transient( $member_quota_key, (int) get_transient( $member_quota_key ) + 1, DAY_IN_SECONDS );
+		}
+		$runtime = array( 'user_id' => $user_id, 'mode' => 'chat', 'answer_mode' => '', 'web_mode' => 'agent', 'pipeline' => 'twin_agent', 'trace_id' => $trace_id );
+		$this->record_thread_turn_summary( $thread_id, $message, array( 'mode' => 'chat', 'final_chat_model' => (string) ( $done['model'] ?? '' ) ) );
+		$this->persist_thread_user_message( $thread_id, $message, $runtime );
+		$this->persist_thread_assistant_message( $thread_id, $message, array( 'ok' => true, 'answer_md' => (string) ( $done['answer_md'] ?? '' ) ), $runtime );
+	}
+
+	/**
+	 * Recent turns of an owned thread from the TWINWEB transcript, oldest first; [] for a new/unknown thread; null when the
+	 * thread belongs to someone else.
+	 *
+	 * @return array<int,array{role:string,content:string}>|null
+	 */
+	private function agent_turn_history( string $thread_id ): ?array {
+		global $wpdb;
+		$threads_table  = $wpdb->prefix . 'bizcity_twinweb_threads';
+		$messages_table = $wpdb->prefix . 'bizcity_webchat_messages';
+		if ( ! preg_match( '/^\d+$/', $thread_id ) || ! self::table_exists( $threads_table ) || ! self::table_exists( $messages_table ) ) {
+			return array();
+		}
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$threads_table} WHERE id = %d", (int) $thread_id ) );
+		if ( ! $row ) {
+			return array();
+		}
+		if ( ! $this->owns_thread( $row ) ) {
+			return null;
+		}
+		$session_ids = $this->extract_thread_session_ids( $row );
+		$session_ids = $session_ids ? $session_ids : array( $thread_id );
+		$params      = array_merge( $session_ids, array( 'TWINWEB', BizCity_Twin_Web_Turn::HISTORY_MAX ) );
+		$in          = implode( ', ', array_fill( 0, count( $session_ids ), '%s' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- dynamic IN placeholders are prepared via $wpdb->prepare($sql,$params)
+		$rows = (array) $wpdb->get_results( $wpdb->prepare( "SELECT message_from, message_text FROM {$messages_table} WHERE session_id IN ({$in}) AND platform_type = %s ORDER BY id DESC LIMIT %d", $params ), ARRAY_A );
+		$out  = array();
+		foreach ( array_reverse( $rows ) as $r ) {
+			$out[] = array( 'role' => 'user' === (string) ( $r['message_from'] ?? '' ) ? 'user' : 'assistant', 'content' => (string) ( $r['message_text'] ?? '' ) );
+		}
+		return $out;
+	}
 
 	public static function open_sse() {
 		while ( ob_get_level() ) { ob_end_clean(); }
@@ -5948,8 +6067,8 @@ class BizCity_TwinWeb_REST {
 		if ( class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
 			return true;
 		}
-		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : '';
-		$file = $root ? $root . '/core/automation/bootstrap.php' : '';
+		// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S2 (R-LEAN-4, Q-W16-1) — Automation lives in the add-on; without it My Workflows reports OFF.
+		$file = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'automation/bootstrap.php' ) : '';
 		if ( $file && file_exists( $file ) ) {
 			require_once $file;
 		}

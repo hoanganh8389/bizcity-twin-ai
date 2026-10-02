@@ -65,8 +65,14 @@ final class BizCity_Zalo_Transport_Capability {
 					// action is available is still resolved there. This says only that the transport
 					// has an action surface at all.
 					'group_actions' => true,
+					// [2026-09-30] PHASE-0.85 §K5 — media tools (TTS/STT/music/image/video/search/Apify)
+					// on zca are gated by the KEY the user typed into Bot Studio; there is no separate
+					// live "is this tool available right now" check to ask, the key itself IS the config.
+					'media_capability_check' => false,
 				),
-				'hints'        => array(),
+				'hints'        => array(
+					'media_capability_check' => 'Số này đang chạy zca-bridge — công cụ media dùng đúng khoá bạn đã nhập ở đây, không có trạng thái riêng để kiểm.',
+				),
 				'limits'       => array(),
 			),
 			'zalo_hub' => array(
@@ -82,6 +88,10 @@ final class BizCity_Zalo_Transport_Capability {
 					'guru_projection'             => true,
 					'config_sync_check'           => true,
 					'group_actions' => false,
+					// [2026-09-30] PHASE-0.85 §K5 (C85-1) — zalo-hub numbers use PLATFORM-level media
+					// providers (tenant plan/capability, no per-agent key), so there IS a live status to
+					// ask the cell for (`/wp/brain/tools`) instead of trusting a key that does not exist here.
+					'media_capability_check' => true,
 				),
 				'hints'        => array(
 					// Verbatim from class-bot-zalo-actions.php before PHASE-0.82 moved it here: the

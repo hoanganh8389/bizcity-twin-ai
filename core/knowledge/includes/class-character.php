@@ -100,10 +100,16 @@ class BizCity_Character {
         
         // Get knowledge for context
         $knowledge = BizCity_Knowledge_Source::get_knowledge_for_character($character_id);
-        
+
         // Parse intent and extract variables
-        $parser = BizCity_Intent_Parser::instance();
-        $parsed = $parser->parse($query, $character, $knowledge);
+        // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 (R-ERROR-UX) — BizCity_Intent_Parser moved to the
+        // add-on; without it, skip intent parsing but still answer (the Guru reply path must not fatal).
+        if ( class_exists( 'BizCity_Intent_Parser' ) ) {
+            $parser = BizCity_Intent_Parser::instance();
+            $parsed = $parser->parse($query, $character, $knowledge);
+        } else {
+            $parsed = [ 'intent' => '', 'variables' => [], 'confidence' => 0 ];
+        }
         
         // Generate response using AI
         $response = $character->generate_response($query, $parsed, $context);

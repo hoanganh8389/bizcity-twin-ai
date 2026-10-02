@@ -36,6 +36,18 @@ if ( file_exists( __DIR__ . '/class-user-meta-cache.php' ) ) {
 // Boot flush registry: wires plugins_loaded:5 version check + admin_init:1 flush.
 BizCity_Rewrite_Flush_Registry::boot();
 
+// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C4b (R-IM-5) — execution / pipeline trace owners moved here from
+// core/intent. Same class names and tables; the file-scope side effects (Execution_Logger shutdown flush, Job_Trace
+// cleanup cron hook) now run when core/runtime loads. Without the safe loader the classes stay absent and callers
+// (all class_exists-guarded or run inside the same request as the loader) degrade instead of fataling.
+if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+	BizCity_Safe_Loader::require_file( __DIR__ . '/class-execution-logger.php', 'runtime.execution_logger' );
+	BizCity_Safe_Loader::require_file( __DIR__ . '/class-trace-store.php', 'runtime.trace_store' );
+	BizCity_Safe_Loader::require_file( __DIR__ . '/class-job-trace.php', 'runtime.job_trace' );
+} else {
+	error_log( '[bizcity] runtime_trace_classes_skipped: BizCity_Safe_Loader unavailable' );
+}
+
 // Runtime contracts + classes
 require_once __DIR__ . '/class-twin-db-installer.php';
 require_once __DIR__ . '/interface-twin-session.php';

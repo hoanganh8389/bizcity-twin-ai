@@ -1,5 +1,7 @@
 # BizCity Zalo Personal & OA Gateway
 
+> **Axis (supreme):** [R-TWIN-AGENT-AXIS](../../docs/rules/PHASE-0-RULE-TWIN-AGENT-AXIS.md). For zalo-hub numbers this plugin is the client side of the Twin Agent Axis: it hosts the pack routes (`zalo-bridge/packs`, `projection-pack@1`), owner verification (R-SETUP-4 step ③), the `owner_agent` bundle block, and the CRM record. It never answers a turn. Lane: [PHASE-0.87 · 20-LANE-CL](../../core/channel-gateway/docs/PHASE-0.87-OWNER-AGENT-VERTICAL-TOOLS/20-LANE-CL-CLIENT.md).
+
 > **Primary implementation focus:** Zalo Personal is the first-class channel
 > for the current product cycle. QR/session ownership, cross-site reconciliation,
 > reliable inbound normalization, media/caption fidelity and CRM sending are

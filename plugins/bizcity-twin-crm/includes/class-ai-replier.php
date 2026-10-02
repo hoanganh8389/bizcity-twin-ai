@@ -902,8 +902,13 @@ class BizCity_CRM_AI_Replier {
 		if ( class_exists( 'BizCity_Chat_Gateway', false ) ) {
 			return true;
 		}
-		$gateway_file = dirname( dirname( BIZCITY_CRM_DIR ) ) . '/core/knowledge/includes/class-chat-gateway.php';
-		if ( is_readable( $gateway_file ) ) {
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 — class-chat-gateway.php moved to the add-on
+		// plugin (bizcity-twin-brain-addon/knowledge-legacy/); resolve it through the locator instead of the
+		// old core/knowledge path.
+		$gateway_file = class_exists( 'BizCity_Addon_Locator', false )
+			? BizCity_Addon_Locator::file( 'knowledge-legacy/includes/class-chat-gateway.php' )
+			: '';
+		if ( '' !== $gateway_file && is_readable( $gateway_file ) ) {
 			require_once $gateway_file;
 		}
 		if ( ! class_exists( 'BizCity_Chat_Gateway', false ) ) {

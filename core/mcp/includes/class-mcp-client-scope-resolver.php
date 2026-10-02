@@ -28,6 +28,11 @@ final class BizCity_MCP_Client_Scope_Resolver {
 	 * @return int[] Notebook IDs this client may read.
 	 */
 	public static function allowed_notebook_ids( array $auth_ctx ) {
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — a delegated (cell) principal reads only the notebooks it OWNS, computed
+		// by BizCity_MCP_Delegation::context(); the admin/Guru grounding policy for external clients does not apply. Empty = none.
+		if ( 'delegated' === (string) ( $auth_ctx['auth_method'] ?? '' ) ) {
+			return self::positive_ids( $auth_ctx['allowed_notebook_ids'] ?? array() );
+		}
 		$user_id = isset( $auth_ctx['user_id'] ) ? (int) $auth_ctx['user_id'] : 0;
 		if ( $user_id <= 0 || ! class_exists( 'BizCity_KG_Notebook_Service' ) ) {
 			return array();

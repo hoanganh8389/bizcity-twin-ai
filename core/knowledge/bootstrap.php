@@ -42,9 +42,6 @@ if ( ! defined( 'BIZCITY_KNOWLEDGE_TEMPLATES' ) ) {
 }
 
 // Load shared services (used by both admin-ajax and REST API)
-if ( ! defined( 'BIZCITY_KNOWLEDGE_SERVICES' ) ) {
-    define( 'BIZCITY_KNOWLEDGE_SERVICES', BIZCITY_KNOWLEDGE_DIR . 'services/' );
-}
 // Skip if already loaded by legacy mu-plugin
 if ( class_exists( 'BizCity_Knowledge_Database' ) ) {
     return;
@@ -80,7 +77,7 @@ $_kg_admin_ctx = isset( $_bizcity_admin_ctx )
             ! empty( $_SERVER['REQUEST_URI'] )
             && (
                 false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
-                || false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
+                // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R10 — /bizhook/ (retired Zalo Hotline webhook) removed.
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
@@ -97,11 +94,9 @@ $_kg_admin_ctx = isset( $_bizcity_admin_ctx )
         )
     );
 
-require_once BIZCITY_KNOWLEDGE_SERVICES . 'class-auth-service.php';
-require_once BIZCITY_KNOWLEDGE_SERVICES . 'class-chat-history-service.php';
-require_once BIZCITY_KNOWLEDGE_SERVICES . 'class-session-service.php';
-require_once BIZCITY_KNOWLEDGE_SERVICES . 'class-project-service.php';
-require_once BIZCITY_KNOWLEDGE_SERVICES . 'class-chat-send-service.php';
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14c / R-VERTICAL-AXIS R-VA-6 (CUT) — the five services/ classes (auth, chat history,
+// session, project, chat send; 55 KB loaded on every request) served only the path C REST APIs below, which were off
+// unless BIZCITY_LEGACY_PATH_C. All seven files, plus the hook-less admin chat, are in core/_archived/knowledge-path-c/.
 
 // Load includes
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-database.php';
@@ -115,13 +110,21 @@ if (is_admin()) {
 
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-character.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-knowledge-source.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-profile-context.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-user-memory.php';
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 (R-LEAN-4) — class-user-memory.php moved to its real owner,
+// core/memory/includes/ (same class name, same tables); core/memory/bootstrap.php now requires + instantiates it.
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 (R-LEAN-4, R-GURU-SOURCE) — class-profile-context.php,
+// class-agent-binding.php, class-intent-provider.php, lib/class-intent-parser.php, lib/class-context-api.php and
+// lib/class-chat-api.php moved to the add-on (bizcity-twin-brain-addon/knowledge-legacy/); loaded + instantiated
+// below through BizCity_Addon_Locator, at the same points in this file as before.
+$_bizcity_knowledge_legacy = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'knowledge-legacy/bootstrap.php' ) : '';
+if ( '' !== $_bizcity_knowledge_legacy ) {
+    require_once $_bizcity_knowledge_legacy;
+}
+unset( $_bizcity_knowledge_legacy );
 
 // [2026-06-11 Johnny Chu] R-PERF — Admin-only (~277 KB): admin menu + admin chat
 if ( is_admin() ) {
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-admin-menu.php';
-    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-admin-chat.php';
 }
 
 // [2026-06-11 Johnny Chu] R-PERF — REST/AJAX-only (~247 KB): chat gateway + REST controllers
@@ -132,31 +135,27 @@ if ( $_kg_admin_ctx ) {
     // [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T5a–T5c — Guru editor REST (R1–R9) for /twinkg/.
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-guru-service.php';
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-guru-admin-rest.php';
-    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-gateway.php';
-    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-rest-api.php';
-    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-agent-rest-api.php';
+    // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 — class-chat-gateway.php moved to the add-on; same
+    // R-PERF gate as before, the locator only resolves where the file is.
+    $_bizcity_chat_gateway_file = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'knowledge-legacy/includes/class-chat-gateway.php' ) : '';
+    if ( '' !== $_bizcity_chat_gateway_file ) {
+        require_once $_bizcity_chat_gateway_file;
+    }
+    unset( $_bizcity_chat_gateway_file );
 }
-// Phase 4.5 — Companion Intelligence (§12)
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-emotional-memory.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-emotional-thread-tracker.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-companion-context.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-response-texture-engine.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-agent-binding.php';
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14d / R-VERTICAL-AXIS R-VA-6 (CUT, owner 2026-09-30) — Phase 4.5 "Companion Intelligence" is off: emotional memory,
+// thread tracker, companion context and response texture are in core/_archived/knowledge-companion/. Their writer hooks
+// (bizcity_chat_after_response, bizcity_session_start/end) had no emitter left, so they only replayed frozen signals
+// into TwinBrain prompts. Existing rows stay in the memory store; BizCity_User_Memory hides their types from prompts.
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'functions.php';
-// Knowledge Fabric Intent Provider — loaded conditionally after Intent Engine boots
-if ( class_exists( 'BizCity_Intent_Provider' ) ) {
-    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-intent-provider.php';
-}
 
 // Load lib
-require_once BIZCITY_KNOWLEDGE_LIB . 'class-intent-parser.php';
 require_once BIZCITY_KNOWLEDGE_LIB . 'class-content-importer.php';
 require_once BIZCITY_KNOWLEDGE_LIB . 'class-file-processor.php';
-require_once BIZCITY_KNOWLEDGE_LIB . 'class-embedding.php';
-require_once BIZCITY_KNOWLEDGE_LIB . 'class-file-parser.php';
-require_once BIZCITY_KNOWLEDGE_LIB . 'class-context-api.php';
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 (R-LEAN-4) — class-embedding.php and class-file-parser.php
+// moved to core/kg-hub/includes/ (same class names); core/kg-hub/bootstrap.php now requires them directly instead
+// of relying on core/knowledge having loaded them first.
 require_once BIZCITY_KNOWLEDGE_LIB . 'class-web-crawler.php';
-require_once BIZCITY_KNOWLEDGE_LIB . 'class-chat-api.php'; // Chat with knowledge
 require_once BIZCITY_KNOWLEDGE_LIB . 'class-knowledge-fabric.php'; // Knowledge Fabric v3.0 — unified multi-scope pipeline
 
 // Phase 0.3 — Knowledge Graph Hub (KG-Hub)
@@ -183,27 +182,11 @@ if ( '' === $_bizcity_kg_hub_bootstrap ) {
 }
 unset( $_bizcity_kg_hub_bootstrap, $_bizcity_kg_hub_candidate );
 
-// Initialize Context API (for hooks)
-BizCity_Knowledge_Context_API::instance();
-
-// Initialize User Memory
-BizCity_User_Memory::instance();
-
-// Initialize Phase 4.5 — Companion Intelligence (§12)
-BizCity_Emotional_Memory::instance();
-BizCity_Emotional_Thread_Tracker::instance();
-BizCity_Companion_Context::instance();
-BizCity_Response_Texture_Engine::instance();
-
-// Initialize Agent Binding
-BizCity_Knowledge_Agent_Binding::instance();
-
-// Register Knowledge Fabric Intent Provider with Intent Engine
-if ( class_exists( 'BizCity_Knowledge_Intent_Provider' ) ) {
-    add_action( 'bizcity_intent_register_providers', function( $registry ) {
-        $registry->register( new BizCity_Knowledge_Intent_Provider() );
-    } );
-}
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 — User Memory instance() moved to core/memory/bootstrap.php.
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 — Context API / Agent Binding instance() calls and the
+// Knowledge Fabric Intent Provider registration moved into bizcity-twin-brain-addon/knowledge-legacy/bootstrap.php
+// (called earlier in this file, right after class-character.php/class-knowledge-source.php); their constructors
+// only register WordPress hooks (no synchronous KG-Hub use), so running them before KG-Hub loads is safe.
 
 // WP-Cron: Cleanup expired session knowledge (every 6 hours)
 add_action( 'bizcity_knowledge_fabric_cleanup', function() {
@@ -220,19 +203,12 @@ if ( ! wp_next_scheduled( 'bizcity_knowledge_fabric_cleanup' ) ) {
 if ( class_exists( 'BizCity_Chat_Gateway' ) ) {
     BizCity_Chat_Gateway::instance();
 }
-// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C2 / R-INTENT-MIN R-IM-7 — legacy path C, off unless BIZCITY_LEGACY_PATH_C.
-// REST bizcity-chat/v1 and bizcity-agent/v1 send/stream chat through the gateway's path C endpoints.
-if ( ( defined( 'BIZCITY_LEGACY_PATH_C' ) && BIZCITY_LEGACY_PATH_C ) && class_exists( 'BizCity_Chat_REST_API' ) ) {
-    BizCity_Chat_REST_API::instance();
-}
-if ( ( defined( 'BIZCITY_LEGACY_PATH_C' ) && BIZCITY_LEGACY_PATH_C ) && class_exists( 'BizCity_Agent_REST_API' ) ) {
-    BizCity_Agent_REST_API::instance();
-}
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14c / R-VERTICAL-AXIS R-VA-6 (CUT) — REST bizcity-chat/v1 and bizcity-agent/v1 (path C,
+// flag-only since WP-11 C2) are archived; BIZCITY_LEGACY_PATH_C no longer brings them back.
 
 // Initialize Admin Menu (admin context only)
 if ( is_admin() ) {
     if ( class_exists( 'BizCity_Knowledge_Admin_Menu' ) ) BizCity_Knowledge_Admin_Menu::instance();
-    if ( class_exists( 'BizCity_Admin_Chat' ) )           BizCity_Admin_Chat::instance();
 }
 
 // Initialize REST API
@@ -298,10 +274,7 @@ class BizCity_Knowledge {
         // Integration with bizcity-agent-market
         add_filter('bcam_get_agent_data', [$this, 'get_character_for_market'], 10, 2);
         
-        // AJAX handlers for knowledge operations
-        add_action('wp_ajax_bizcity_knowledge_import_url', [$this, 'ajax_import_url']);
-        add_action('wp_ajax_bizcity_knowledge_process_file', [$this, 'ajax_process_file']);
-        add_action('wp_ajax_bizcity_knowledge_sync_fanpage', [$this, 'ajax_sync_fanpage']);
+        // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14f — the import_url / process_file / sync_fanpage AJAX handlers had no caller (live code or dist bundles); removed.
     }
     
     /**
@@ -409,6 +382,12 @@ class BizCity_Knowledge {
         $knowledge = BizCity_Knowledge_Source::get_knowledge_for_character($character_id);
         
         // Parse intent
+        // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 — BizCity_Intent_Parser moved to the add-on; this
+        // method is unreachable anyway (bizcity_webchat_process_message is never applied), but guard it in case
+        // that changes before it is archived in K-4.
+        if ( ! class_exists( 'BizCity_Intent_Parser' ) ) {
+            return $response;
+        }
         $intent_parser = BizCity_Intent_Parser::instance();
         $parsed = $intent_parser->parse($message, $character, $knowledge);
         
@@ -471,7 +450,12 @@ class BizCity_Knowledge {
         
         $character = BizCity_Character::get($character_id);
         $knowledge = BizCity_Knowledge_Source::get_knowledge_for_character($character_id);
-        
+
+        // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 — BizCity_Intent_Parser moved to the add-on; this
+        // method is unreachable anyway (bizcity_automation_actions is never applied), guarded for the same reason.
+        if ( ! class_exists( 'BizCity_Intent_Parser' ) ) {
+            return [ 'intent' => '', 'variables' => [], 'confidence' => 0 ];
+        }
         $parser = BizCity_Intent_Parser::instance();
         $result = $parser->parse($text, $character, $knowledge);
         
@@ -482,87 +466,6 @@ class BizCity_Knowledge {
         ];
     }
     
-    /**
-     * AJAX: Import content from URL
-     */
-    public function ajax_import_url() {
-        check_ajax_referer('bizcity_knowledge', 'nonce');
-        
-        if (!self::can_manage()) {
-            wp_send_json_error(['message' => 'Permission denied']);
-        }
-        
-        $url = esc_url_raw($_POST['url'] ?? '');
-        $character_id = intval($_POST['character_id'] ?? 0);
-        $scrape_type = sanitize_text_field($_POST['scrape_type'] ?? 'simple_html');
-        
-        if (empty($url) || empty($character_id)) {
-            wp_send_json_error(['message' => 'Missing required parameters']);
-        }
-        
-        $importer = BizCity_Content_Importer::instance();
-        $result = $importer->import_from_url($url, $character_id, $scrape_type);
-        
-        if (is_wp_error($result)) {
-            wp_send_json_error(['message' => $result->get_error_message()]);
-        }
-        
-        wp_send_json_success($result);
-    }
-    
-    /**
-     * AJAX: Process uploaded file (CSV, Excel, PDF, JSON)
-     */
-    public function ajax_process_file() {
-        check_ajax_referer('bizcity_knowledge', 'nonce');
-        
-        if (!self::can_manage()) {
-            wp_send_json_error(['message' => 'Permission denied']);
-        }
-        
-        $attachment_id = intval($_POST['attachment_id'] ?? 0);
-        $character_id = intval($_POST['character_id'] ?? 0);
-        
-        if (empty($attachment_id) || empty($character_id)) {
-            wp_send_json_error(['message' => 'Missing required parameters']);
-        }
-        
-        $processor = BizCity_File_Processor::instance();
-        $result = $processor->process_file($attachment_id, $character_id);
-        
-        if (is_wp_error($result)) {
-            wp_send_json_error(['message' => $result->get_error_message()]);
-        }
-        
-        wp_send_json_success($result);
-    }
-    
-    /**
-     * AJAX: Sync fanpage content
-     */
-    public function ajax_sync_fanpage() {
-        check_ajax_referer('bizcity_knowledge', 'nonce');
-        
-        if (!self::can_manage()) {
-            wp_send_json_error(['message' => 'Permission denied']);
-        }
-        
-        $fanpage_id = sanitize_text_field($_POST['fanpage_id'] ?? '');
-        $character_id = intval($_POST['character_id'] ?? 0);
-        
-        if (empty($fanpage_id) || empty($character_id)) {
-            wp_send_json_error(['message' => 'Missing required parameters']);
-        }
-        
-        $importer = BizCity_Content_Importer::instance();
-        $result = $importer->sync_fanpage($fanpage_id, $character_id);
-        
-        if (is_wp_error($result)) {
-            wp_send_json_error(['message' => $result->get_error_message()]);
-        }
-        
-        wp_send_json_success($result);
-    }
 }
 
 // Initialize

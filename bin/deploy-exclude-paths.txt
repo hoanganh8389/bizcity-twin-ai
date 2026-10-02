@@ -1,0 +1,13 @@
+# R-LEAN-4 (WP-16 B-1) — paths that are COMMITTED to git but never uploaded to a server (VPS, staging, tenant).
+# Different from bin/dev-only-paths.txt (never uploaded AND never committed; must be git-ignored).
+# Same pattern syntax: `dir/`, `file.php`, `*` inside one segment, leading `**/` for any depth.
+# Read by bin/simulate-production-tree.mjs (the server tree drops these too) and bin/lean-scoreboard.mjs.
+# [2026-09-30 Claude Opus 5.5] R-LEAN-4 v1.2 — initial list (owner budget: shipped PHP < 10 MB).
+
+# Validators, generators, scoreboard, CLI helpers run on a developer machine or in CI.
+bin/
+
+# Plugin SDK scaffold, reference example and package sources — published in the repository, not run by a site.
+scaffold/
+examples/
+packages/

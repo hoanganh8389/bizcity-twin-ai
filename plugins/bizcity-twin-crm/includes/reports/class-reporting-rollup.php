@@ -42,6 +42,10 @@ final class BizCity_CRM_Reporting_Rollup {
 		$team_id  = max( 0, (int) ( $payload['team_id'] ?? 0 ) );
 		$user_id  = max( 0, (int) ( $payload['user_id'] ?? $payload['assignee_id'] ?? $payload['responder_user_id'] ?? 0 ) );
 		$conversation_id = max( 0, (int) ( $payload['conversation_id'] ?? 0 ) );
+		// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-D2 — the number's owner chatting 1-1 with the bot is not customer traffic.
+		if ( $conversation_id > 0 && class_exists( 'BizCity_CRM_Contact_Roles' ) && BizCity_CRM_Contact_Roles::conversation_has_role( $conversation_id, BizCity_CRM_Contact_Roles::INTERNAL ) ) {
+			return;
+		}
 		$channel_type = self::channel_type( $inbox_id );
 		$occurred_at = self::occurred_at( $payload );
 		$dedupe_key = hash( 'sha256', $event_uuid . '|' . $metric );

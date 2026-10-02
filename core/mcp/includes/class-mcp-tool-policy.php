@@ -89,6 +89,12 @@ final class BizCity_MCP_Tool_Policy {
 	 */
 	public static function default_enabled_for( $tool_name ) {
 		$name = self::normalize_name( $tool_name );
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D4 — the new
+		// Context Bank/One Brain tools stay OFF until the parity probe and release
+		// canary have passed. Existing brain.* tools retain their historical default.
+		if ( in_array( $name, array( 'brain.context.search', 'brain.context.evidence', 'brain.order.summary' ), true ) ) {
+			return false;
+		}
 		foreach ( self::DEFAULT_ENABLED_PREFIXES as $prefix ) {
 			if ( strpos( $name, $prefix ) === 0 ) {
 				return true;

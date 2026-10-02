@@ -141,6 +141,8 @@ require_once __DIR__ . '/includes/helpers-table-cache.php';
 require_once __DIR__ . '/includes/class-module-loader.php';
 require_once __DIR__ . '/includes/class-connection-gate.php';
 require_once __DIR__ . '/includes/class-admin-support-link.php';
+// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3b — add-on locator loaded early: core/memory (and later loaders) resolve add-on parts through it.
+require_once __DIR__ . '/includes/class-bizcity-addon-locator.php';
 require_once __DIR__ . '/includes/class-admin-menu.php';
 require_once __DIR__ . '/includes/class-twin-ai.php';
 
@@ -384,9 +386,7 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
                 // [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — public /flow/ iframe must load core/automation outside wp-admin.
                 || preg_match( '#^/flow/?(\?|$)#', $_SERVER['REQUEST_URI'] )
 				|| preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
-				|| false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )
-				|| false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' )
-                || false !== strpos( $_SERVER['REQUEST_URI'], '/canva/' )
+                // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3a (R-LEAN-4, Q-W16-3) — /kling-video, /product-studio, /canva/ removed: their owners (video-kling, tool-image) are archived.
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/profile-studio/' )
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )
 				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'biz_fb_oauth' )
@@ -513,7 +513,7 @@ $_bizcity_admin_ctx =
             || false !== strpos( $_SERVER['REQUEST_URI'], 'fbhook=1' )     // Facebook legacy ?fbhook=1
             // [2026-06-09 Johnny Chu] PERF-2 — bizcity agent tool pages so tool plugins still
             // load when their URL is visited directly (rules stored in DB via add_rewrite_rule).
-            // /tool-image/, /tool-doc/, /tool-google/, /tool-pagebuilder/, /tool-content-creator/, etc.
+            // /tool-image/, /tool-doc/, /tool-google/ (redirect), /tool-pagebuilder/ (redirect), /tool-content-creator/, etc.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
 			// [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX — public upload-link
 			// route must pass the admin-context load gate for early_route().
@@ -522,9 +522,7 @@ $_bizcity_admin_ctx =
             || preg_match( '#^/flow/?(\?|$)#', $_SERVER['REQUEST_URI'] )
             // [2026-06-22 Johnny Chu] PHASE-TWINWEB — /doc/ alias for Doc Studio (twinweb shortcut)
             || preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
-            || false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )    // bizcity-video-kling
-            || false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' ) // tool-image product studio
-            || false !== strpos( $_SERVER['REQUEST_URI'], '/canva/' )        // tool-image Canva studio
+            // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3a (R-LEAN-4, Q-W16-3) — /kling-video, /product-studio, /canva/ removed: video-kling and tool-image are archived.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/profile-studio/' ) // tool-image profile studio
             || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )     // tool-image QR studio
             // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — load MCP discovery and browser consent on normal frontend requests.
@@ -740,11 +738,16 @@ $_bizcity_automation_runtime_request =
     || false !== strpos( $_bizcity_automation_uri, '/facehook/' )
     || false !== strpos( $_bizcity_automation_uri, '/zalohook/' )
     || false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'fbhook=1' );
+// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S2 (R-LEAN-4, Q-W16-1) — Automation lives in the add-on plugin bizcity-twin-brain-addon/automation/;
+// same request gate as before, the locator only resolves where the files are (load mode BIZCITY_BRAIN_ADDON_LOAD, default auto).
+require_once __DIR__ . '/includes/class-bizcity-addon-locator.php';
+$_bizcity_automation_bootstrap = BizCity_Addon_Locator::file( 'automation/bootstrap.php' );
 if ( $_bizcity_automation_runtime_request
     && ! $_bizcity_twinchat_admin_page
-    && file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/automation/bootstrap.php';
+    && '' !== $_bizcity_automation_bootstrap ) {
+    require_once $_bizcity_automation_bootstrap;
 }
+unset( $_bizcity_automation_bootstrap );
 unset( $_bizcity_automation_uri, $_bizcity_automation_page, $_bizcity_automation_diagnostics_page, $_bizcity_automation_runtime_request );
 // [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 — core/content-ops, core/tools, core/skills and core/helper-legacy
 // are archived under core/_archived/ and are never loaded. What stayed live moved to its owner first:
@@ -769,12 +772,16 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_scheduler_public_request )
 }
 // Phase 0.35 — SMTP bridge (replaces legacy mu-plugin bizcity-smtp-gmail.php).
 // No-ops unless BIZCITY_SMTP_* constants in wp-config.php OR option `bizcity_smtp_settings` is set.
-if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/smtp/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/smtp/bootstrap.php';
+// [2026-10-01 Claude Sonnet 5] moved core/smtp -> channel-gateway/integrations/smtp-bridge (R-LEAN-4 tidy-up,
+// owner: "core/smtp đang dư, đưa vào channel-gateway/integrations cho gọn") — a connection integration belongs
+// next to the other channel connection tools (google/, facebook.php, zalo.php), not as its own top-level core
+// module. Class name BizCity_SMTP and every caller (CRM, CF7, admin-menu) are unchanged.
+if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/channel-gateway/integrations/smtp-bridge/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/channel-gateway/integrations/smtp-bridge/bootstrap.php';
 }
 // Admin settings page — wp-admin/admin.php?page=bizcity-smtp-settings
-if ( is_admin() && file_exists( __DIR__ . '/core/smtp/admin.php' ) ) {
-    require_once __DIR__ . '/core/smtp/admin.php';
+if ( is_admin() && file_exists( __DIR__ . '/core/channel-gateway/integrations/smtp-bridge/admin.php' ) ) {
+    require_once __DIR__ . '/core/channel-gateway/integrations/smtp-bridge/admin.php';
 }
 // [2026-08-09 Johnny Chu] R-PERF — memory services are backend/admin/REST/cron runtime, not ordinary frontend HTML.
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/memory/bootstrap.php' ) ) {
@@ -792,10 +799,12 @@ $_bizcity_agent_public_request = ! empty( $_SERVER['REQUEST_URI'] )
 // [2026-09-27 Claude Sonnet 5] CORE-REDUCTION WP-12 R13g — core/agents migrated into core/twinbrain
 // (axis coupling: core/runtime's Twin Runner + REST controller, core/kg-hub, modules/twinweb and
 // plugins/bizcity-twin-crm all consume BizCity_Twin_Agent_Registry / BizCity_Artifact_Source_Federation).
+// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3a (R-LEAN-4, Q-W16-1) — the agent contracts stay in the main plugin, next to their runtime consumer: core/runtime/agents/
+// (KG-Hub federation, CRM, TwinWeb also read them); the rest of TwinBrain moved to the add-on.
 if ( ( $_bizcity_admin_ctx || $_bizcity_agent_public_request )
     && ! $_bizcity_twinchat_admin_shell_request
-    && file_exists( __DIR__ . '/core/twinbrain/includes/agents/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/twinbrain/includes/agents/bootstrap.php';
+    && file_exists( __DIR__ . '/core/runtime/agents/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/runtime/agents/bootstrap.php';
 }
 // [2026-08-09 Johnny Chu] R-PERF — core runtime only serves backend/REST/cron execution.
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/runtime/bootstrap.php' ) ) {
@@ -803,12 +812,8 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exi
 }
 // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Intent Shell (shadow mode) retired (D-27); core/intent/shell/* renamed *_deleted.php.
 
-// Phase 0.18.1 — Guru Research Studio (Tavily ReAct port; multi-scope: character | user)
-// REST routes only → admin_ctx (REST gate) is sufficient; not needed on HTML renders.
-// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13a — research now lives in modules/twinsearch/research (same gate as before).
-if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/modules/twinsearch/research/bootstrap.php' ) ) {
-    require_once __DIR__ . '/modules/twinsearch/research/bootstrap.php';
-}
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3c (R-LEAN-4, Q-W16-3) — Guru Research Studio (modules/twinsearch/research) archived with TwinSearch at
+// modules/_archived/twinsearch-20260930/; its Tavily router lives on in core/twinbrain/tools/sheet/ for the sheet enricher.
 
 // Diagnostics (PHASE-0.36) — multisite schema audit + repair + cron hygiene.
 // WP-CLI `wp bizcity diag` — only load in admin/CLI context.
@@ -890,17 +895,9 @@ if ( $_bizcity_admin_ctx
     && file_exists( __DIR__ . '/modules/twinsource/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinsource/bootstrap.php';
 }
-// Phase 0.18.1.7 — TwinSearch (Tavily research input gate, retrieval family).
-// See PHASE-0-RULE-INPUT-PROVIDER.md + PHASE-0.18.1-GURU-RESEARCH-TAVILY.md
-// [2026-08-09 Johnny Chu] R-PERF — TwinSearch is a backend/public Twin GPT dependency, not a generic frontend dependency.
-$_bizcity_twinsearch_public_request = ! empty( $_SERVER['REQUEST_URI'] )
-    && ( preg_match( '#/gpt(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] )
-        || preg_match( '#/twin(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] ) );
-if ( ( $_bizcity_admin_ctx || $_bizcity_twinsearch_public_request )
-    && ! $_bizcity_twinchat_admin_shell_request
-    && file_exists( __DIR__ . '/modules/twinsearch/bootstrap.php' ) ) {
-    require_once __DIR__ . '/modules/twinsearch/bootstrap.php';
-}
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3c (R-LEAN-4, Q-W16-3) — TwinSearch (Deep Research dialog, input gate, research REST) archived at
+// modules/_archived/twinsearch-20260930/. Local KG document search + citations stay in core/kg-hub
+// (BizCity_TwinSearch_Core); TwinChat / TwinWeb add URLs straight through the unified ingest (Hub → Tavily extract).
 
 // Phase 0.36 v3 — TwinBrain (Não tổng / Central Brain Orchestrator).
 // BE-only orchestrator; UI lives inside TwinChat (mode='brain'). Moved from
@@ -908,23 +905,28 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_twinsearch_public_request )
 // See PHASE-0.36-TWINBRAIN-CENTRAL-BRAIN.md
 // [2026-06-09 Johnny Chu] PERF-2 — TwinBrain is REST-only (37 files). TwinChat uses
 // class_exists() guards for BizCity_TwinBrain_* — safe to skip on frontend HTML renders.
+// [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3a (R-LEAN-4, Q-W16-1) — TwinBrain lives in the add-on (bizcity-twin-brain-addon/twinbrain/); same gate, the locator resolves the file.
+$_bizcity_twinbrain_bootstrap = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'twinbrain/bootstrap.php' ) : '';
 if ( $_bizcity_admin_ctx
     && ! $_bizcity_twinchat_admin_shell_request
-    && file_exists( __DIR__ . '/core/twinbrain/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/twinbrain/bootstrap.php';
+    && '' !== $_bizcity_twinbrain_bootstrap ) {
+    require_once $_bizcity_twinbrain_bootstrap;
 }
+unset( $_bizcity_twinbrain_bootstrap );
 
-// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-HOTFIX3 — the Twin Brain admin menu must
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-HOTFIX3 — the Twin CRM admin menu must
 // exist on EVERY wp-admin page. It cannot live behind the `$_bizcity_admin_ctx && !$_bizcity_twinchat_admin_shell_request`
 // gate above: when the operator opened `?page=bizcity-twinchat`, the TwinBrain bootstrap was skipped and the
 // entire Twin Brain menu disappeared from wp-admin. This lightweight owner registers the menu only — it declares
 // no REST route, schema or provider behaviour — so it is safe to load on any admin request.
-if ( is_admin()
-    && file_exists( __DIR__ . '/core/twinbrain/includes/class-twinbrain-admin-menu.php' ) ) {
-    require_once __DIR__ . '/core/twinbrain/includes/class-twinbrain-admin-menu.php';
-    if ( class_exists( 'BizCity_TwinBrain_Admin_Menu', false ) ) {
-        BizCity_TwinBrain_Admin_Menu::register();
-    }
+// [2026-10-01 Claude Sonnet 5] Owner directive — kept in CORE on purpose (not routed through BizCity_Addon_Locator):
+// the menu is pure navigation (every entry redirects into TwinShell or /gpt/), so it must render even when the
+// bizcity-twin-brain-addon plugin folder hasn't been deployed to this server yet. Going through the add-on locator
+// made the whole "Twin CRM" top-level entry silently vanish (no fatal, no notice) on any deploy that lagged the
+// add-on split — see includes/class-twinbrain-admin-menu.php header for the full story.
+require_once __DIR__ . '/includes/class-twinbrain-admin-menu.php';
+if ( is_admin() && class_exists( 'BizCity_TwinBrain_Admin_Menu', false ) ) {
+    BizCity_TwinBrain_Admin_Menu::register();
 }
 
 // ── Legacy send primitives ───────────────────────────────────────────────────
@@ -944,7 +946,8 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
 $_bizcity_bundled_must_load = [
     // 'bizcity-admin-hook-zalo'  => 'BIZCITY_ADMIN_ZALO_DIR',     // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — Zalo Hotline (PA) admin channel retired (R-ONE-AXIS D-29); folder → plugins/_archived/bizcity-zalo-bizcity.
     'bizcity-facebook-bot'        => 'BIZCITY_FACEBOOK_BOT_VERSION', // Facebook Messenger + Page webhook (PHASE 0.31 Sprint 6 — moved from mu-plugins)
-    'bizgpt-tool-google'          => 'BZGOOGLE_VERSION',           // Google Workspace tools
+    // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b-G (R-LEAN-4, owner 2026-09-30) — bizgpt-tool-google is no longer a bundled plugin: the Google connection lives in
+    // core/channel-gateway/integrations/google/ (loaded below the bundled loop); its tools are cut; folder → plugins/_archived/bizgpt-tool-google-20260930/.
     // 'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // ARCHIVED 2026-05-24 → plugins/_archived/. Slug /tool-facebook/ now owned by core/channel-gateway (canonical /channel/).
     'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // Zalo Bot — CG channel sub-plugin
     // [2026-06-10 Johnny Chu] PHASE-0.39 — Zalo Personal & OA Gateway (ZP.x probes, R-ZONE-2 isolation).
@@ -956,14 +959,14 @@ $_bizcity_bundled_must_load = [
     // [2026-06-14 Johnny Chu] HOTFIX — uncommented; foreach guard (is_dir + file_exists) ensures
     // this only loads when the folder is deployed. Gitignored on public repo — safe to list here.
     'bizcity-twin-crm'            => 'BIZCITY_CRM_VERSION',        // PROPRIETARY (PHASE-0.98) — gitignored, commercial-only. Loads when deployed under plugins/bizcity-twin-crm/.
-    // [2026-08-19 Johnny Chu] HOTFIX — không bundle Video Kling; chỉ menu /gpt/video/ khi plugin được cài và active riêng.
-    // 'bizcity-video-kling'         => 'BIZCITY_VIDEO_KLING_VERSION', // B-roll Video — Kling/Sora/Veo3/SeeDance image-to-video via PiAPI
-    'bizcity-pagebuilder'         => 'BZPB_VERSION',               // Page Builder — AI tạo website drag-and-drop, 19 block types, export HTML
+    // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3a (R-LEAN-4, Q-W16-3) — the bundled copy of bizcity-video-kling (never loaded since 2026-08-19) is archived at
+    // plugins/_archived/bizcity-video-kling-20260930/; client tools are cut (media runs in brain-core, R-PF-2).
+    // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b (R-LEAN-4, Q-W16-3) — bizcity-pagebuilder archived at plugins/_archived/bizcity-pagebuilder-20260930/ (client tools are cut).
     // [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — load the Profile module from its physical slug while preserving Personal identifiers.
     // 'bizcity-profile'          => 'BIZCITY_PERSONAL_VERSION',    // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13e — retired (owner: deactivated, not core); folder → plugins/_archived/bizcity-profile.
 ];
 // [2026-06-09 Johnny Chu] PERF-2 — Admin-only bundled plugins (no public shortcodes, no
-// public URL patterns outside /tool-* or /kling-video/ covered by $_bizcity_admin_ctx).
+// public URL patterns outside /tool-* covered by $_bizcity_admin_ctx).
 // [2026-09-07 05:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41B — keep standalone creative tools out of the bundled must-load contract.
 // No proprietary utility is always-loaded here. bizcity-content-creator is
 // standalone and is not bundled here. Doc/Image/Page Builder are loaded on their own public
@@ -974,9 +977,15 @@ $_bizcity_admin_only_slugs = [
     'bizcity-zalo-bot',         // Zalo Bot webhook + admin
     // [2026-06-10 Johnny Chu] PHASE-0.39 — no public shortcodes; REST at /wp-json/bizcity-channel/v1/zalo-bridge/* covered by admin_ctx gate.
     'bizcity-zalo-personal',    // Zalo Personal + OA gateway — admin + /wp-json/ only
-    'bizgpt-tool-google',       // Google Tools — /tool-google/ + admin REST
-    'bizcity-pagebuilder',      // /tool-pagebuilder/ is covered by admin_ctx
 ];
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b (R-LEAN-4, Q-W16-3) — the old Page Builder URL keeps working as a redirect to the CRM dashboard (R-ROUTE).
+add_action( 'template_redirect', static function () {
+    $uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+    if ( preg_match( '#^/tool-pagebuilder(?:/|\?|$)#', $uri ) ) {
+        wp_safe_redirect( home_url( '/crm/' ), 301 );
+        exit;
+    }
+}, 1 );
 // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — the Zalo Admin Hook surface gate (/bizhook/, zalo-* admin pages) is gone with the Hotline channel.
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     $_bizcity_is_crm_bundle = 'bizcity-twin-crm' === $_slug;
@@ -1039,6 +1048,20 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     unset( $_bizcity_is_crm_bundle, $_bizcity_crm_api_ready );
 }
 // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13e — the /profile/, /profile-care/, /profile-public/ force-loader is gone with plugins/bizcity-profile.
+// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b-G (R-LEAN-4, owner 2026-09-30) — Google connection (channel ⇒ CRM: Gmail IMAP channel, CRM Google bridge,
+// Scheduler calendar sync, Google Hub). Same gate the bundled copy had, plus /google-auth/ — the OAuth
+// connect/callback URL on the hub, which the old gate never covered (the callback found no handler).
+$_bizcity_google_auth_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#^/google-auth/#', (string) $_SERVER['REQUEST_URI'] );
+if ( ! defined( 'BZGOOGLE_VERSION' )
+    && ! $_bizcity_twinchat_admin_shell_request
+    && ! $_bizcity_twinchat_admin_page
+    && ( $_bizcity_admin_ctx || $_bizcity_agent_public_request || $_bizcity_google_auth_request )
+    && is_file( __DIR__ . '/core/channel-gateway/integrations/google/bootstrap.php' )
+    && class_exists( 'BizCity_Safe_Loader', false ) ) {
+    BizCity_Safe_Loader::require_file( __DIR__ . '/core/channel-gateway/integrations/google/bootstrap.php', 'channel.integration.google' );
+}
+unset( $_bizcity_google_auth_request );
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
@@ -1052,7 +1075,7 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
     add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );
 }
 
-unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_zalo_personal_public_request, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request, $_bizcity_twinsearch_public_request );
+unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_zalo_personal_public_request, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request );
 
 // Activation hook — install DB tables, set defaults
 register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );

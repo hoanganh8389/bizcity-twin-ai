@@ -12,7 +12,7 @@
  *  - `usage`, `memory_upsert`, `tenant_deleted`, `supersede_notify`, anything unknown
  *                   → `200 {ok:true, ignored:true}` (forward compatible, 01 §5.3).
  *
- * Contract fixtures: core/channel-gateway/_library/zalo-hub/contracts/fixtures/ (canonical set; the old docs copy was archived, D-P1-10).
+ * Contract fixtures: zalo-hub/contracts/fixtures/ (canonical set; the old docs copy was archived, D-P1-10).
  *
  * @package BizCity_Zalo_Personal
  * @since   1.3.0

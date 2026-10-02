@@ -997,6 +997,153 @@ final class BizCity_KG {
 		return self::mirror_chunks_for_source( $kg_src_id, $mirror_args );
 	}
 
+	/* ─── File-first content reads (CORE-REDUCTION WP-10 E1, G-08, D-19) ───── */
+
+	/**
+	 * [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 E1 — body text of one `bizcity_kg_sources` row, for satellites
+	 * (twinsearch citation resolver) that used to SELECT columns straight off the table.
+	 *
+	 * Order: the row's `content_text` when it holds text, else the source's passages read through BizCity_KG_Content_Router
+	 * (shard file when storage_ver=2, inline otherwise) joined in id order. There is no per-source body file for a
+	 * `kg_sources` id: BizCity_KG_Source_Body_File_Store is keyed by the *webchat_sources* id, so reading it with a kg_sources id
+	 * could return another row's text — it is deliberately not used here. File-primary is ON by default and scrubs the passages'
+	 * SQL `content` to '', so a raw column read on passages returns ''.
+	 *
+	 * @param int $kg_source_id `bizcity_kg_sources.id`.
+	 * @return array|WP_Error { id, title, url, body, from: 'column'|'passages'|'none', passage_count }
+	 */
+	public static function get_source_body( $kg_source_id ) {
+		global $wpdb;
+		$kg_source_id = (int) $kg_source_id;
+		if ( $kg_source_id <= 0 || ! class_exists( 'BizCity_KG_Database' ) ) {
+			return new WP_Error( 'kg_source_invalid', 'A valid Knowledge Graph source id is required.', [ 'status' => 400, 'hint' => 'Pass the id of a source that exists in the Knowledge Graph.', 'help_code' => 'kg_source_invalid' ] );
+		}
+		$db  = BizCity_KG_Database::instance();
+		$src = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, title, origin_url, content_text FROM {$db->tbl_sources()} WHERE id = %d LIMIT 1",
+			$kg_source_id
+		), ARRAY_A );
+		if ( ! is_array( $src ) ) {
+			return new WP_Error( 'kg_source_not_found', 'Knowledge Graph source not found.', [ 'status' => 404, 'hint' => 'The source may have been deleted; refresh the list.', 'help_code' => 'kg_source_not_found' ] );
+		}
+
+		$out  = [
+			'id'            => (int) $src['id'],
+			'title'         => (string) ( $src['title'] ?? '' ),
+			'url'           => (string) ( $src['origin_url'] ?? '' ),
+			'body'          => (string) ( $src['content_text'] ?? '' ),
+			'from'          => 'column',
+			'passage_count' => 0,
+		];
+		if ( '' !== trim( $out['body'] ) ) {
+			return $out;
+		}
+
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, notebook_id, source_id, content, storage_ver, file_shard, file_offset, file_length
+			   FROM {$db->tbl_passages()} WHERE source_id = %d ORDER BY id ASC LIMIT 500",
+			$kg_source_id
+		), ARRAY_A );
+		$rows = is_array( $rows ) ? $rows : [];
+		if ( $rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+		$parts = [];
+		foreach ( $rows as $r ) {
+			$text = trim( (string) ( $r['content'] ?? '' ) );
+			if ( '' !== $text ) {
+				$parts[] = $text;
+			}
+		}
+		$out['body']          = implode( "\n\n", $parts );
+		$out['from']          = $parts ? 'passages' : 'none';
+		$out['passage_count'] = count( $parts );
+		return $out;
+	}
+
+	/**
+	 * [2026-09-26 Claude Sonnet 5] CORE-REDUCTION WP-10 E1 — passages of ONE notebook whose body contains any of the tokens, with
+	 * `content` already hydrated from the shard file. Unranked: the caller scores them.
+	 *
+	 * Two candidate sources, because a SQL `LIKE` cannot see a body that file-primary moved out of the row:
+	 *   1. rows whose inline `content` matches a token (storage_ver 1, or a row that kept its text) — SQL `LIKE`;
+	 *   2. rows scrubbed to `content = ''` with storage_ver=2 — the newest `$cap` are hydrated from their shard and filtered in PHP.
+	 * Both are bounded by `$cap` (default 200, max 400), the same ceiling the retriever's keyword path uses.
+	 *
+	 * @param int      $notebook_id
+	 * @param string[] $tokens      Lower-case keywords (at most 8 are used).
+	 * @param int      $cap
+	 * @return array<int,array{id:int,notebook_id:int,source_id:int,content:string}>
+	 */
+	public static function keyword_passages( $notebook_id, array $tokens, $cap = 200 ) {
+		global $wpdb;
+		$notebook_id = (int) $notebook_id;
+		$cap         = max( 1, min( 400, (int) $cap ) );
+		$clean       = [];
+		foreach ( $tokens as $tok ) {
+			$tok = function_exists( 'mb_strtolower' ) ? mb_strtolower( trim( (string) $tok ), 'UTF-8' ) : strtolower( trim( (string) $tok ) );
+			if ( '' !== $tok ) {
+				$clean[ $tok ] = true;
+			}
+			if ( count( $clean ) >= 8 ) {
+				break;
+			}
+		}
+		$clean = array_keys( $clean );
+		if ( $notebook_id <= 0 || ! $clean || ! class_exists( 'BizCity_KG_Database' ) ) {
+			return [];
+		}
+
+		$tbl    = BizCity_KG_Database::instance()->tbl_passages();
+		$cols   = 'id, notebook_id, source_id, content, storage_ver, file_shard, file_offset, file_length';
+		$like   = [];
+		$params = [ $notebook_id ];
+		foreach ( $clean as $tok ) {
+			$like[]   = 'content LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $tok ) . '%';
+		}
+		$params[] = $cap;
+		$inline   = $wpdb->get_results( $wpdb->prepare(
+			"SELECT {$cols} FROM {$tbl} WHERE notebook_id = %d AND (" . implode( ' OR ', $like ) . ') LIMIT %d',
+			...$params
+		), ARRAY_A );
+		$scrubbed = $wpdb->get_results( $wpdb->prepare(
+			"SELECT {$cols} FROM {$tbl} WHERE notebook_id = %d AND storage_ver = 2 AND content = '' ORDER BY id DESC LIMIT %d",
+			$notebook_id,
+			$cap
+		), ARRAY_A );
+
+		$rows = [];
+		foreach ( array_merge( is_array( $inline ) ? $inline : [], is_array( $scrubbed ) ? $scrubbed : [] ) as $r ) {
+			$rows[ (int) $r['id'] ] = $r; // one row can be in both lists only if it is inline AND v2: keep one
+		}
+		$rows = array_values( $rows );
+		if ( $rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+
+		$out = [];
+		foreach ( $rows as $r ) {
+			$body = (string) ( $r['content'] ?? '' );
+			if ( '' === $body ) {
+				continue;
+			}
+			$lc = function_exists( 'mb_strtolower' ) ? mb_strtolower( $body, 'UTF-8' ) : strtolower( $body );
+			foreach ( $clean as $tok ) {
+				if ( false !== strpos( $lc, $tok ) ) {
+					$out[] = [
+						'id'          => (int) $r['id'],
+						'notebook_id' => (int) $r['notebook_id'],
+						'source_id'   => (int) ( $r['source_id'] ?? 0 ),
+						'content'     => $body,
+					];
+					break;
+				}
+			}
+		}
+		return $out;
+	}
+
 	/* ─── Internals ──────────────────────────────────────────────────── */
 
 	/** Lookup existing kg_source_id from xref (any relation). */

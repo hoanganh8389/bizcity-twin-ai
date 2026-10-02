@@ -70,8 +70,8 @@ final class BizCity_Probe_TwinWeb_Citation implements BizCity_Diagnostics_Probe 
 			$plugin_root . '/core/channel-gateway/frontend/src/routes/platform/twinweb/TwinWebControlPlaneTabs.jsx',
 		) );
 		$core_file = $this->first_readable_path( array(
-			$plugin_root . '/core/twinsearch/includes/class-twinsearch-core.php',
-			dirname( __DIR__, 3 ) . '/core/twinsearch/includes/class-twinsearch-core.php',
+			$plugin_root . '/core/kg-hub/includes/class-twinsearch-core.php', // [2026-09-27 Claude Opus 5.5] WP-12 R13b — moved from core/twinsearch.
+			dirname( __DIR__, 3 ) . '/core/kg-hub/includes/class-twinsearch-core.php',
 		) );
 		$chat_page_file = $this->first_readable_path( array(
 			$module_root . '/ui/src/pages/ChatPage.tsx',
@@ -148,7 +148,7 @@ final class BizCity_Probe_TwinWeb_Citation implements BizCity_Diagnostics_Probe 
 			'detail' => $resolver_ok
 				? 'Method resolve_passage_for_source() present in BizCity_TwinSearch_Core.'
 				: ( ! $core_loaded
-					? 'BizCity_TwinSearch_Core not loaded — check core/twinsearch/bootstrap.php.'
+					? 'BizCity_TwinSearch_Core not loaded — check core/kg-hub/includes/class-twinsearch-core.php.'
 					: 'Method resolve_passage_for_source() missing — W4 not yet implemented in core.' ),
 		);
 		$steps[] = $step;

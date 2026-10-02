@@ -1,6 +1,6 @@
 <?php
 /**
- * Integration: Google Workspace — Bundled bizgpt-tool-google bridge.
+ * Integration: Google Workspace — the Google connection in integrations/google/ ([2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b-G; was the bundled plugin bizgpt-tool-google).
  *
  * Bridges the existing bizgpt-tool-google plugin into the integration registry
  * so its OAuth status appears in the unified Gateway → Tích hợp tab.
@@ -17,7 +17,7 @@ class BizCity_Integration_Google extends BizCity_Integration {
 	protected string $category = 'other';
 	protected string $logo     = 'GW';
 	protected string $name     = 'Google Workspace';
-	protected string $desc     = 'Gmail, Calendar, Drive, Contacts (via bizgpt-tool-google)';
+	protected string $desc     = 'Gmail, Calendar, Drive, Contacts (kết nối Google của Channel Gateway)';
 	protected int    $order    = 5;
 
 	public function get_settings(): array {
@@ -27,8 +27,8 @@ class BizCity_Integration_Google extends BizCity_Integration {
 				'type'    => 'html',
 				'label'   => 'Trạng thái',
 				'content' => $this->is_plugin_active()
-					? '✅ Plugin <strong>bizgpt-tool-google</strong> đang hoạt động. <a href="' . esc_url( $manage_url ) . '" target="_blank">Quản lý →</a>'
-					: '⚠️ Plugin <strong>bizgpt-tool-google</strong> chưa hoạt động. Kích hoạt trong bizcity-twin-ai bundled plugins.',
+					? '✅ Kết nối <strong>Google</strong> đang hoạt động. <a href="' . esc_url( $manage_url ) . '" target="_blank">Quản lý →</a>'
+					: '⚠️ Kết nối <strong>Google</strong> chưa được nạp (core/channel-gateway/integrations/google).',
 			],
 		];
 	}

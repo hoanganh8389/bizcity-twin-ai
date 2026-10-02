@@ -47,17 +47,14 @@ class BizCity_Knowledge_Admin_Menu {
         add_action('wp_ajax_bizcity_knowledge_save_character', [$this, 'ajax_save_character']);
         add_action('wp_ajax_bizcity_knowledge_delete_character', [$this, 'ajax_delete_character']);
         add_action('wp_ajax_bizcity_knowledge_quick_update_status', [$this, 'ajax_quick_update_status']);
-        add_action('wp_ajax_bizcity_knowledge_test_openrouter', [$this, 'ajax_test_openrouter']);
         add_action('wp_ajax_bizcity_knowledge_fetch_models', [$this, 'ajax_fetch_models']);
         add_action('wp_ajax_bizcity_knowledge_chat', [$this, 'ajax_chat']);
         add_action('wp_ajax_bizcity_knowledge_upload_document', [$this, 'ajax_upload_document']);
         add_action('wp_ajax_bizcity_knowledge_delete_document', [$this, 'ajax_delete_document']);
         add_action('wp_ajax_bizcity_knowledge_update_database', [$this, 'ajax_update_database']);
-        add_action('wp_ajax_bizcity_knowledge_reprocess_document', [$this, 'ajax_reprocess_document']);
         add_action('wp_ajax_bizcity_knowledge_add_website', [$this, 'ajax_add_website']);
         add_action('wp_ajax_bizcity_knowledge_delete_website', [$this, 'ajax_delete_website']);
         add_action('wp_ajax_bizcity_knowledge_process_website', [$this, 'ajax_process_website']);
-        add_action('wp_ajax_bizcity_knowledge_list_sources', [$this, 'ajax_list_sources']);
         add_action('wp_ajax_bizcity_knowledge_import_legacy_faq', [$this, 'ajax_import_legacy_faq']);
         add_action('wp_ajax_bizcity_knowledge_export_knowledge', [$this, 'ajax_export_knowledge']);
         add_action('wp_ajax_bizcity_knowledge_import_knowledge', [$this, 'ajax_import_knowledge']);
@@ -68,8 +65,7 @@ class BizCity_Knowledge_Admin_Menu {
         add_action('wp_ajax_bizcity_knowledge_delete_memory', [$this, 'ajax_delete_memory']);
         // Knowledge Fabric — scope promote
         add_action('wp_ajax_bizcity_knowledge_promote_source', [$this, 'ajax_promote_source']);
-        // Tavily search proxy — routes through BizCity_Search_Client (gateway + API key)
-        add_action('wp_ajax_bizcity_knowledge_tavily_search', [$this, 'ajax_tavily_search']);
+        // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14f — test_openrouter, reprocess_document, list_sources and tavily_search AJAX had no caller; removed.
 
         // PHASE 0.34.2 — Character ↔ Notebook attach/detach (1:N via kg_notebooks.character_id)
         add_action('admin_post_bizcity_character_notebook_attach', [$this, 'admin_post_character_notebook_attach']);
@@ -896,43 +892,6 @@ class BizCity_Knowledge_Admin_Menu {
         }
     }
 
-    /**
-     * AJAX: Tavily web search — proxies through BizCity_Search_Client (gateway, no local Tavily key needed).
-     * Mirrors BCN_Tavily_Client pattern: uses bizcity_llm_api_key → search/router/v1/query on gateway.
-     */
-    public function ajax_tavily_search() {
-        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-        if ( ! self::can_manage() ) {
-            wp_send_json_error( array( 'message' => 'Permission denied' ) );
-        }
-
-        $query       = sanitize_text_field( isset( $_POST['query'] ) ? $_POST['query'] : '' );
-        $max_results = intval( isset( $_POST['max_results'] ) ? $_POST['max_results'] : 10 );
-
-        if ( empty( $query ) ) {
-            wp_send_json_error( array( 'message' => 'Missing query' ) );
-        }
-
-        if ( ! class_exists( 'BizCity_Search_Client' ) ) {
-            wp_send_json_error( array( 'message' => 'BizCity_Search_Client không khả dụng' ) );
-        }
-
-        $client = BizCity_Search_Client::instance();
-        if ( ! $client->is_ready() ) {
-            wp_send_json_error( array( 'message' => 'BizCity API key chưa được cấu hình. Vào BizCity > Settings để nhập API key.' ) );
-        }
-
-        $results = $client->search( $query, $max_results );
-
-        if ( is_wp_error( $results ) ) {
-            wp_send_json_error( array( 'message' => $results->get_error_message() ) );
-        }
-
-        wp_send_json_success( array(
-            'results' => $results,
-            'answer'  => '',
-        ) );
-    }
 	// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-08 H-02 — render_settings_page() removed — unreachable from every WordPress entry point.
 	// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-08 H-02 — count_knowledge_sources() removed — unreachable from every WordPress entry point.
 	// [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-08 H-02 — count_total_conversations() removed — unreachable from every WordPress entry point.
@@ -1880,33 +1839,6 @@ class BizCity_Knowledge_Admin_Menu {
     }
     
     /**
-     * AJAX: Test OpenRouter connection
-     */
-    public function ajax_test_openrouter() {
-        check_ajax_referer('bizcity_knowledge', 'nonce');
-        
-        if (!self::can_manage()) {
-            wp_send_json_error(['message' => 'Permission denied']);
-        }
-
-        // Gateway-only: route through BizCity_LLM_Client (R-GW-1).
-        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
-            wp_send_json_error(['message' => 'BizCity_LLM_Client not loaded — gateway client missing.']);
-        }
-        $client = BizCity_LLM_Client::instance();
-        if ( ! $client->is_ready() ) {
-            wp_send_json_error(['message' => 'BizCity API key chưa cấu hình (gateway).']);
-        }
-
-        $models = $client->get_available_models();
-        if ( ! empty( $models ) ) {
-            wp_send_json_success(['models' => count( $models )]);
-        } else {
-            wp_send_json_error(['message' => 'Invalid response from gateway']);
-        }
-    }
-    
-    /**
      * AJAX: Fetch models from OpenRouter
      */
     public function ajax_fetch_models() {
@@ -2023,6 +1955,12 @@ class BizCity_Knowledge_Admin_Menu {
             ]);
         }
         
+        // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 (R-ERROR-UX) — BizCity_Knowledge_Context_API moved
+        // to the add-on plugin (bizcity-twin-brain-addon/knowledge-legacy/); this legacy admin chat tester needs it.
+        if ( ! class_exists( 'BizCity_Knowledge_Context_API' ) ) {
+            wp_send_json_error( [ 'message' => 'Tính năng chat thử cần add-on BizCity Twin Brain (bizcity-twin-brain-addon).' ] );
+        }
+
         // Get Context API instance
         $context_api = BizCity_Knowledge_Context_API::instance();
         
@@ -2366,109 +2304,6 @@ class BizCity_Knowledge_Admin_Menu {
         }
     }
     
-    /**
-     * AJAX: Reprocess document (re-extract text and create embeddings)
-     */
-    public function ajax_reprocess_document() {
-        check_ajax_referer('bizcity_knowledge', 'nonce');
-        
-        if (!self::can_manage()) {
-            wp_send_json_error(['message' => 'Permission denied']);
-        }
-        
-        $source_id = intval($_POST['source_id'] ?? 0);
-        
-        if (!$source_id) {
-            wp_send_json_error(['message' => 'Invalid source ID']);
-        }
-        
-        global $wpdb;
-        $source = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}bizcity_knowledge_sources WHERE id = %d",
-            $source_id
-        ));
-        
-        if (!$source) {
-            wp_send_json_error(['message' => 'Source not found']);
-        }
-        
-        // Only process file sources
-        if ($source->source_type !== 'file' || !$source->attachment_id) {
-            wp_send_json_error(['message' => 'Can only reprocess file documents']);
-        }
-        
-        $parser = BizCity_Knowledge_FileParser::instance();
-        $embedding = BizCity_Knowledge_Embedding::instance();
-        
-        // Parse file content (supports both local and R2/CDN storage)
-        $content = $parser->parse_attachment($source->attachment_id);
-        
-        if (is_wp_error($content)) {
-            $wpdb->update(
-                $wpdb->prefix . 'bizcity_knowledge_sources',
-                ['status' => 'error', 'error_message' => $content->get_error_message()],
-                ['id' => $source_id]
-            );
-            wp_send_json_error(['message' => $content->get_error_message()]);
-        }
-        
-        // Process and create embeddings
-        $result = $embedding->process_source($source_id, $content);
-        
-        if (is_wp_error($result)) {
-            wp_send_json_error(['message' => $result->get_error_message()]);
-        }
-        
-        wp_send_json_success([
-            'message' => $result['message'],
-            'chunks_count' => $result['chunks_count']
-        ]);
-    }
-    
-    /**
-     * AJAX: List knowledge sources for a character (for React persistent history).
-     */
-    public function ajax_list_sources() {
-        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
-
-        if ( ! self::can_manage() ) {
-            wp_send_json_error( [ 'message' => 'Permission denied' ] );
-        }
-
-        $character_id = intval( $_POST['character_id'] ?? 0 );
-        $source_type  = sanitize_text_field( $_POST['source_type'] ?? '' );
-
-        if ( ! $character_id ) {
-            wp_send_json_error( [ 'message' => 'Character ID required' ] );
-        }
-
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_knowledge_sources';
-
-        if ( $source_type ) {
-            $rows = $wpdb->get_results( $wpdb->prepare(
-                "SELECT id, source_type, source_name, source_url, status, chunks_count, created_at
-                 FROM {$table}
-                 WHERE character_id = %d AND source_type = %s
-                 ORDER BY created_at DESC
-                 LIMIT 200",
-                $character_id,
-                $source_type
-            ) );
-        } else {
-            $rows = $wpdb->get_results( $wpdb->prepare(
-                "SELECT id, source_type, source_name, source_url, status, chunks_count, created_at
-                 FROM {$table}
-                 WHERE character_id = %d
-                 ORDER BY created_at DESC
-                 LIMIT 200",
-                $character_id
-            ) );
-        }
-
-        wp_send_json_success( $rows ?: [] );
-    }
-
     /**
      * AJAX: Add website to character
      */

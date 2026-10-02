@@ -276,10 +276,13 @@ class BizCity_CRM_Admin_Chat_Confirm {
 		string $reason = '',
 		?int $grant_id = null
 	): void {
-		if ( ! class_exists( 'BizCity_CRM_Admin_Chat_Audit' ) ) {
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 — fixed: the class is BizCity_CRM_AdminChat_Audit
+		// (no underscore between Admin and Chat). This class_exists() check was always false, so this call never
+		// fired; admin-chat audit logging has been silently disabled since PHASE-3.5-WC (2026-06-07).
+		if ( ! class_exists( 'BizCity_CRM_AdminChat_Audit' ) ) {
 			return;
 		}
-		BizCity_CRM_Admin_Chat_Audit::log( array(
+		BizCity_CRM_AdminChat_Audit::log( array(
 			'user_id'     => $user_id,
 			'guru_id'     => $guru_id,
 			'action'      => $tool_slug,

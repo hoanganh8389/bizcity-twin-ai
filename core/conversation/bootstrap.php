@@ -50,7 +50,7 @@ if ( ! function_exists( 'bizcity_conversation_maybe_install' ) ) {
 			|| ( defined( 'DOING_CRON' ) && DOING_CRON )
 			|| ( defined( 'WP_CLI' ) && WP_CLI )
 			|| false !== strpos( $uri, '/wp-json/' )
-			|| false !== strpos( $uri, '/bizhook/' )
+			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R10 — /bizhook/ (retired Zalo Hotline webhook) removed.
 			|| false !== strpos( $uri, '/zalohook/' )
 			|| false !== strpos( $uri, '/facehook/' )
 			|| false !== strpos( $uri, '/bizfbhook' )

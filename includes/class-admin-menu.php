@@ -85,6 +85,33 @@ class BizCity_Admin_Menu {
 		add_action( 'admin_menu', [ __CLASS__, 'register_all_submenus' ], 10 );
 		add_action( 'admin_menu', [ __CLASS__, 'reorder_sidebar' ], 999 );
 		add_action( 'admin_menu', [ __CLASS__, 'cleanup_duplicate_gateway_menus' ], 99999 );
+		// [2026-09-30 Claude Sonnet 5] Owner directive — Twin CRM sits directly above Twin
+		// Setting. Runs after cleanup so it sees the final menu, not a slot a removed legacy item still holds.
+		add_action( 'admin_menu', [ __CLASS__, 'place_twin_crm_above_setting' ], 999999 );
+	}
+
+	/**
+	 * Move the Twin CRM top-level menu (registered in includes/class-twinbrain-admin-menu.php,
+	 * required unconditionally from bizcity-twin-ai.php — not via BizCity_Addon_Locator, so it
+	 * never depends on the bizcity-twin-brain-addon plugin being deployed) to sit directly above
+	 * Twin Setting, wherever the latter ends up after reordering.
+	 */
+	public static function place_twin_crm_above_setting(): void {
+		global $menu;
+		if ( ! is_array( $menu ) ) {
+			return;
+		}
+		$target_offset = null;
+		foreach ( array_values( $menu ) as $index => $item ) {
+			if ( isset( $item[2] ) && $item[2] === self::SLUG_CONTROL_PANEL ) {
+				$target_offset = $index;
+				break;
+			}
+		}
+		if ( null === $target_offset ) {
+			return;
+		}
+		self::move_menu_item( 'bizcity-twin-brain', $target_offset );
 	}
 
 	/* ══════════════════════════════════════════════════════════
@@ -95,9 +122,10 @@ class BizCity_Admin_Menu {
 		$td = 'bizcity-twin-ai';
 
 		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — materialize one protected Control Panel root; legacy parents remain direct-link compatible until the observation window ends.
+		// [2026-09-30 Claude Sonnet 5] Owner directive — display label only; slug stays SLUG_CONTROL_PANEL (stable deep links, R-SETTING-PANEL inv.5).
 		add_menu_page(
-			__( 'Control Panel', $td ),
-			__( 'Control Panel', $td ),
+			__( 'Twin Setting', $td ),
+			__( 'Twin Setting', $td ),
 			self::menu_cap(),
 			self::SLUG_CONTROL_PANEL,
 			[ __CLASS__, 'render_control_panel_page' ],
@@ -433,26 +461,8 @@ class BizCity_Admin_Menu {
 				[ $zb, 'render_guru_page' ] );
 		}
 
-		if ( function_exists( 'bizcity_guides_admin_page' ) ) {
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'Zalo BizCity Guide', $td ), __( 'Zalo BizCity', $td ),
-				self::menu_cap(), 'zalo-video-guider',
-				'bizcity_guides_admin_page' );
-		}
-
-		if ( function_exists( 'twf_zalo_users_admin_page' ) ) {
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'Zalo BizCity Users', $td ), __( 'Zalo User Mapping', $td ),
-				self::menu_cap(), 'zalo-users-admin',
-				'twf_zalo_users_admin_page' );
-		}
-
-		if ( function_exists( 'twf_telegram_command_widget_content' ) ) {
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'Zalo BizCity Connection Guide', $td ), __( 'Zalo Legacy Guide', $td ),
-				self::menu_cap(), 'zalo-guider',
-				'twf_telegram_command_widget_content' );
-		}
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — Zalo BizCity (Hotline) pages zalo-video-guider,
+		// zalo-users-admin, zalo-guider removed: their callbacks lived in the archived bizcity-zalo-bizcity (R-ONE-AXIS D-29).
 
 		if ( class_exists( 'BizCity_Facebook_Bot_Admin_Menu', false ) ) {
 			$fb = BizCity_Facebook_Bot_Admin_Menu::instance();
@@ -884,6 +894,19 @@ class BizCity_Admin_Menu {
 			[ 'title' => 'Twin Permissions',     'icon' => '🔐', 'desc' => 'Quản lý quyền mở rộng của Twin',             'url' => admin_url( 'tools.php?page=bizcity-twin-capability-consent' ) ],
 			[ 'title' => 'Code Generation Jobs',  'icon' => '⚙️', 'desc' => 'Theo dõi các job sinh mã',                    'url' => admin_url( 'edit.php?post_type=code_gen_cron' ) ],
 		];
+		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 B-13 — dev-only pages (D-35) get no card when absent.
+		$absent_pages = array();
+		if ( ! ( function_exists( 'bizcity_diagnostics_available' ) && bizcity_diagnostics_available() ) ) {
+			$absent_pages[] = 'page=bizcity-diagnostics';
+		}
+		if ( ! class_exists( 'BizCity_CRM_Sprint_Diagnostic', false ) ) {
+			$absent_pages[] = 'page=bizcity-crm-sprint-diag';
+		}
+		foreach ( $absent_pages as $absent_page ) {
+			$items = array_values( array_filter( $items, static function ( $item ) use ( $absent_page ) {
+				return false === strpos( (string) $item['url'], $absent_page );
+			} ) );
+		}
 		$known_urls = array_column( $items, 'url' );
 		foreach ( self::$diagnostic_tool_items as $tool_item ) {
 			$tool_url = admin_url( 'tools.php?page=' . rawurlencode( $tool_item['slug'] ) );
@@ -934,7 +957,7 @@ class BizCity_Admin_Menu {
 			[ 'bztimg-editor-templates',   '🎨 Kỹ năng thiết kế',      'Template chỉnh sửa ảnh AI' ],
 			[ 'bztimg-templates',          '📸 Kỹ năng ảnh sản phẩm',  'Template ảnh sản phẩm AI' ],
 			[ 'bztimg-profile-templates',  '🧑‍🎨 Kỹ năng ảnh chân dung','Template ảnh chân dung AI' ],
-			[ 'bizcity-skills',            '🔀 Kỹ năng chia việc',     'Phân công nhiệm vụ theo kỹ năng AI' ],
+			// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R3 — 'bizcity-skills' card removed; core/skills is archived.
 		];
 		?>
 		<div class="wrap">
@@ -977,7 +1000,7 @@ class BizCity_Admin_Menu {
 		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — fail closed on capability and retain a non-React deep-link fallback.
 		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit.
 		if ( ! self::can_manage() ) {
-			wp_die( esc_html__( 'You do not have permission to access the Control Panel.', 'bizcity-twin-ai' ) );
+			wp_die( esc_html__( 'You do not have permission to access Twin Setting.', 'bizcity-twin-ai' ) );
 		}
 
 		$shell_url = class_exists( 'BizCity_Twin_Shell_Page' )
@@ -993,17 +1016,17 @@ class BizCity_Admin_Menu {
 		$embed_url = '' !== $panel_url ? $panel_url : $shell_url;
 		?>
 		<div class="wrap" style="margin:0 -20px 0 -2px;">
-			<h1 class="screen-reader-text"><?php esc_html_e( 'Control Panel', 'bizcity-twin-ai' ); ?></h1>
+			<h1 class="screen-reader-text"><?php esc_html_e( 'Twin Setting', 'bizcity-twin-ai' ); ?></h1>
 			<?php if ( '' !== $embed_url ) : ?>
 				<iframe
-					title="<?php echo esc_attr__( 'Control Panel', 'bizcity-twin-ai' ); ?>"
+					title="<?php echo esc_attr__( 'Twin Setting', 'bizcity-twin-ai' ); ?>"
 					src="<?php echo esc_url( $embed_url ); ?>"
 					style="display:block;width:100%;min-height:calc(100vh - 32px);border:0;background:#0f1115;"
 					loading="eager"
 				></iframe>
 			<?php else : ?>
 				<div class="notice notice-warning">
-					<p><?php esc_html_e( 'The Control Panel shell is not available on this deployment.', 'bizcity-twin-ai' ); ?></p>
+					<p><?php esc_html_e( 'Twin Setting is not available on this deployment.', 'bizcity-twin-ai' ); ?></p>
 					<p><a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SLUG_WORKSPACE ) ); ?>"><?php esc_html_e( 'Open Twin Workspace fallback', 'bizcity-twin-ai' ); ?></a></p>
 				</div>
 			<?php endif; ?>
@@ -1036,7 +1059,7 @@ class BizCity_Admin_Menu {
 	 * not generic Integrations popup). Adds 2 new cards: Scheduler + SMTP.
 	 * SMTP card opens an inline form section that writes to option
 	 * `bizcity_smtp_settings` — replacing legacy `define('BIZCITY_SMTP_*')` in
-	 * `mu-plugins/bizcity-smtp-gmail.php`. The `core/smtp/bootstrap.php` bridge
+	 * `mu-plugins/bizcity-smtp-gmail.php`. The `core/channel-gateway/integrations/smtp-bridge/bootstrap.php` bridge
 	 * still respects `wp-config.php` constants if present (constants > option > none).
 	 */
 	public static function render_gateway_page(): void {
@@ -1096,7 +1119,7 @@ class BizCity_Admin_Menu {
 	 * Handle SMTP settings form POST → write to option `bizcity_smtp_settings`.
 	 *
 	 * Called from render_gateway_page() before output. Uses nonce + manage_options.
-	 * Picked up automatically on next request by `core/smtp/bootstrap.php`
+	 * Picked up automatically on next request by `core/channel-gateway/integrations/smtp-bridge/bootstrap.php`
 	 * (option-level config, lower precedence than wp-config.php constants).
 	 */
 	private static function handle_smtp_settings_post(): void {
@@ -1161,7 +1184,7 @@ class BizCity_Admin_Menu {
 	/**
 	 * Render SMTP settings form section (option-driven, replaces legacy mu-plugin defines).
 	 *
-	 * Precedence (resolved by `core/smtp/bootstrap.php::BizCity_SMTP::resolve_config()`):
+	 * Precedence (resolved by `core/channel-gateway/integrations/smtp-bridge/bootstrap.php::BizCity_SMTP::resolve_config()`):
 	 *   1. `wp-config.php` constants `BIZCITY_SMTP_*`  ← read-only override (shown locked)
 	 *   2. This option `bizcity_smtp_settings`         ← editable here
 	 *   3. None → `wp_mail()` falls back to PHP mail()
@@ -1193,7 +1216,7 @@ class BizCity_Admin_Menu {
 		<div id="bizcity-smtp-settings" style="margin-top:36px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:24px;box-shadow:0 2px 6px rgba(0,0,0,.04);">
 			<h2 style="margin-top:0;">✉️ <?php esc_html_e( 'SMTP / Gmail Relay', $td ); ?></h2>
 			<p style="color:#50575e;max-width:760px;">
-				<?php esc_html_e( 'Cấu hình SMTP để wp_mail() (đăng ký tài khoản, reset password, hoá đơn, thông báo…) gửi qua relay riêng thay vì PHP mail(). Module bridge ở core/smtp/bootstrap.php sẽ tự áp dụng config bên dưới — không cần restart.', $td ); ?>
+				<?php esc_html_e( 'Cấu hình SMTP để wp_mail() (đăng ký tài khoản, reset password, hoá đơn, thông báo…) gửi qua relay riêng thay vì PHP mail(). Module bridge ở core/channel-gateway/integrations/smtp-bridge/bootstrap.php sẽ tự áp dụng config bên dưới — không cần restart.', $td ); ?>
 			</p>
 
 			<?php if ( $notice ) : ?>
@@ -1307,7 +1330,7 @@ class BizCity_Admin_Menu {
 						} elseif ( $loaded ) {
 							echo '⚪ ' . esc_html__( 'SMTP bridge loaded nhưng chưa đủ config (cần host + user + pass + from).', $td );
 						} else {
-							echo '⚠️ ' . esc_html__( 'SMTP module chưa load (kiểm tra core/smtp/bootstrap.php).', $td );
+							echo '⚠️ ' . esc_html__( 'SMTP module chưa load (kiểm tra core/channel-gateway/integrations/smtp-bridge/bootstrap.php).', $td );
 						}
 						?>
 					</span>

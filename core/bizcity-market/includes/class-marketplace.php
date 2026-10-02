@@ -15,13 +15,10 @@ class BizCity_Market_Marketplace {
     public static function boot() {
         // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action('admin_enqueue_scripts', [__CLASS__, 'assets'], 25);
+        add_filter('admin_body_class', [__CLASS__, 'iframe_body_class']);
 
         // Handle sync BEFORE output (wp_redirect needs headers not sent yet)
         add_action('admin_init', [__CLASS__, 'handle_sync_early']);
-
-        // [2026-06-09 Johnny Chu] HOTFIX — changed from init:999 to admin_init (Transposh/WC flush loop).
-        // [2026-06-26 Johnny Chu] R-PERF — removed per-class admin_init guard; callers now use
-        // BizCity_Rewrite_Flush_Registry::queue_flush('marketplace') directly.
 
         // ajax load plugin detail
         add_action('wp_ajax_bizcity_market_plugin_detail', [__CLASS__, 'ajax_plugin_detail']);
@@ -31,6 +28,9 @@ class BizCity_Market_Marketplace {
 
         // ajax deactivate plugin from marketplace
         add_action('wp_ajax_bizcity_market_deactivate_plugin', [__CLASS__, 'ajax_deactivate_plugin']);
+
+        // ajax uninstall plugin from marketplace
+        add_action('wp_ajax_bizcity_market_uninstall_plugin', [__CLASS__, 'ajax_uninstall_plugin']);
     }
 
     /**
@@ -43,7 +43,7 @@ class BizCity_Market_Marketplace {
 
         check_admin_referer( 'bc_market_sync' );
 
-        $sync_ver = '3';
+        $sync_ver = '5'; // [2026-08-26 Johnny Chu] PHASE-1.29-MARKET-CATALOG — invalidate pre-render reconciliation cache.
         delete_site_transient( 'bizcity_agent_plugins_synced_v' . $sync_ver );
         BizCity_Market_Catalog::sync_agent_plugins( true );
 
@@ -81,7 +81,6 @@ class BizCity_Market_Marketplace {
 
     public static function assets($hook) {
         if (strpos($hook, 'bizcity-marketplace') === false) return;
-
         $v = BIZCITY_MARKET_VER . '.' . date('ymdHi');
         wp_enqueue_style('bizcity-market-marketplace', BIZCITY_MARKET_URL . '/assets/marketplace.css', [], $v);
         wp_enqueue_script('bizcity-market-marketplace', BIZCITY_MARKET_URL . '/assets/marketplace.js', ['jquery'], $v, true);
@@ -114,6 +113,16 @@ class BizCity_Market_Marketplace {
                 'registerUrl'       => 'https://bizcity.vn/my-account/api-keys/',
             ] );
         }
+    }
+
+    /** Keep embedded Marketplace content inside the TwinShell frame. */
+    public static function iframe_body_class($classes) {
+        if (isset($_GET['page'], $_GET['bizcity_iframe'])
+            && 'bizcity-marketplace' === sanitize_key((string) $_GET['page'])
+            && '1' === sanitize_key((string) $_GET['bizcity_iframe'])) {
+            $classes .= ' bizcity-market-iframe';
+        }
+        return $classes;
     }
 
     /**
@@ -178,13 +187,17 @@ JS;
         // All plugins are freely activatable — no credit/entitlement check needed
         $db = BizCity_Market_DB::globaldb();
 
-        // Resolve plugin file — try catalog DB first, then scan local filesystem
-        $plugin_file = '';
+        // Bundle filesystem is authoritative for the local application list.
+        $bundle = self::get_bundle_plugin($slug);
+        $plugin_file = $bundle ? $bundle->plugin_file : '';
         if ($db) {
             $tP = BizCity_Market_DB::t_plugins();
-            $plugin_file = $db->get_var($db->prepare(
+            $catalog_file = $db->get_var($db->prepare(
                 "SELECT plugin_file FROM {$tP} WHERE plugin_slug=%s LIMIT 1", $slug
             ));
+            if ( ! $plugin_file ) {
+                $plugin_file = $catalog_file;
+            }
         }
 
         // Fallback: scan local plugins for matching directory slug
@@ -199,6 +212,11 @@ JS;
             }
         }
 
+        if (!$plugin_file || !file_exists(WP_PLUGIN_DIR . '/' . $plugin_file)) {
+            $bundle = self::get_bundle_plugin($slug);
+            $plugin_file = $bundle ? $bundle->plugin_file : '';
+        }
+
         if (!$plugin_file) {
             wp_send_json(['ok'=>false, 'msg'=> sprintf( __( 'Không tìm thấy plugin "%s" trong catalog hoặc trên server.', 'bizcity-twin-ai' ), $slug )]);
         }
@@ -209,8 +227,17 @@ JS;
             wp_send_json(['ok'=>false, 'msg'=> __( 'File plugin không tồn tại trên server. Liên hệ admin.', 'bizcity-twin-ai' )]);
         }
 
-        // Check if already active
-        if (is_plugin_active($plugin_file)) {
+        // [2026-08-27 Johnny Chu] PHASE-1.29-MARKET-LIFECYCLE — load the
+        // WordPress plugin API before checking an inactive bundle plugin.
+        if ( ! function_exists( 'is_plugin_active' ) ) {
+            $plugin_api = ABSPATH . 'wp-admin/includes/plugin.php';
+            if ( is_file( $plugin_api ) && is_readable( $plugin_api ) ) {
+                require_once $plugin_api;
+            }
+        }
+
+        // [2026-08-29 Johnny Chu] HOTFIX-MARKET-BUNDLE-STATE — bundled children are loaded by Twin AI guards, not active_plugins rows.
+        if ( self::is_market_plugin_active( $slug, $plugin_file ) ) {
             wp_send_json(['ok'=>true, 'msg'=> __( 'Plugin đã được kích hoạt.', 'bizcity-twin-ai' ), 'status'=>'active']);
         }
 
@@ -276,14 +303,18 @@ JS;
         $slug = sanitize_key(wp_unslash($_POST['plugin_slug'] ?? ''));
         if (!$slug) wp_send_json(['ok'=>false, 'msg'=>'Thiếu plugin_slug.']);
 
-        // Resolve plugin file — DB first, then local filesystem fallback
+        // Resolve bundle file first, then catalog fallback for remote apps.
         $db = BizCity_Market_DB::globaldb();
-        $plugin_file = '';
+        $bundle = self::get_bundle_plugin($slug);
+        $plugin_file = $bundle ? $bundle->plugin_file : '';
         if ($db) {
             $tP = BizCity_Market_DB::t_plugins();
-            $plugin_file = $db->get_var($db->prepare(
+            $catalog_file = $db->get_var($db->prepare(
                 "SELECT plugin_file FROM {$tP} WHERE plugin_slug=%s LIMIT 1", $slug
             ));
+            if ( ! $plugin_file ) {
+                $plugin_file = $catalog_file;
+            }
         }
 
         // Fallback: scan local plugins for matching directory slug
@@ -298,6 +329,11 @@ JS;
             }
         }
 
+        if (!$plugin_file || !file_exists(WP_PLUGIN_DIR . '/' . $plugin_file)) {
+            $bundle = self::get_bundle_plugin($slug);
+            $plugin_file = $bundle ? $bundle->plugin_file : '';
+        }
+
         if (!$plugin_file) {
             wp_send_json(['ok'=>false, 'msg'=> sprintf( __( 'Không tìm thấy plugin "%s".', 'bizcity-twin-ai' ), $slug )]);
         }
@@ -306,7 +342,11 @@ JS;
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
-        if (!is_plugin_active($plugin_file)) {
+        if ( ! is_plugin_active( $plugin_file ) ) {
+            // [2026-08-29 Johnny Chu] HOTFIX-MARKET-BUNDLE-STATE — managed bundle children cannot be deactivated as independent WordPress plugins.
+            if ( self::is_market_plugin_active( $slug, $plugin_file ) ) {
+                wp_send_json(['ok'=>true, 'msg'=> __( 'Plugin đang được Twin AI quản lý và đã hoạt động.', 'bizcity-twin-ai' ), 'status'=>'active']);
+            }
             wp_send_json(['ok'=>true, 'msg'=> __( 'Plugin đã được ngừng kích hoạt.', 'bizcity-twin-ai' ), 'status'=>'inactive']);
         }
 
@@ -337,6 +377,101 @@ JS;
         ]);
     }
 
+    /**
+     * Uninstall a plugin after an explicit user confirmation.
+     * Deactivation alone never removes plugin data.
+     */
+    public static function ajax_uninstall_plugin() {
+        check_ajax_referer('bizcity_market_nonce', 'nonce');
+
+        if (!current_user_can('delete_plugins')) {
+            wp_send_json(['ok'=>false, 'msg'=>'Bạn không có quyền gỡ cài đặt plugin.']);
+        }
+
+        $slug = sanitize_key(wp_unslash($_POST['plugin_slug'] ?? ''));
+        if (!$slug) wp_send_json(['ok'=>false, 'msg'=>'Thiếu plugin_slug.']);
+
+        $db = BizCity_Market_DB::globaldb();
+        $bundle = self::get_bundle_plugin($slug);
+        $plugin_file = $bundle ? $bundle->plugin_file : '';
+        if ($db) {
+            $tP = BizCity_Market_DB::t_plugins();
+            $catalog_file = $db->get_var($db->prepare(
+                "SELECT plugin_file FROM {$tP} WHERE plugin_slug=%s LIMIT 1", $slug
+            ));
+            if ( ! $plugin_file ) {
+                $plugin_file = $catalog_file;
+            }
+        }
+        if (!$plugin_file || !file_exists(WP_PLUGIN_DIR . '/' . $plugin_file)) {
+            $bundle = self::get_bundle_plugin($slug);
+            $plugin_file = $bundle ? $bundle->plugin_file : '';
+        }
+        if (!$plugin_file) wp_send_json(['ok'=>false, 'msg'=>'Không tìm thấy plugin trong catalog hoặc bundle.']);
+
+        if (!function_exists('is_plugin_active')) {
+            $plugin_api = ABSPATH . 'wp-admin/includes/plugin.php';
+            if (is_file($plugin_api) && is_readable($plugin_api)) require_once $plugin_api;
+        }
+        $full_path = WP_PLUGIN_DIR . '/' . ltrim($plugin_file, '/');
+        if (!is_file($full_path) || !is_readable($full_path)) {
+            wp_send_json(['ok'=>false, 'msg'=>'Không tìm thấy file plugin đã cài đặt.']);
+        }
+
+        if ( self::is_market_plugin_active( $slug, $plugin_file ) ) {
+            // [2026-08-29 Johnny Chu] HOTFIX-MARKET-BUNDLE-STATE — managed children are part of Twin AI and cannot be uninstalled independently.
+            if ( ! is_plugin_active( $plugin_file ) ) {
+                wp_send_json(['ok'=>false, 'msg'=> __( 'Plugin này đang được Twin AI quản lý, không thể gỡ riêng.', 'bizcity-twin-ai' )]);
+            }
+            deactivate_plugins( $plugin_file, true );
+        }
+
+        // [2026-08-26 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — use the
+        // canonical nested-plugin installer so the complete directory and its
+        // guarded uninstall artifact are removed, not only the entrypoint.
+        $nested_dir = defined('BIZCITY_TWIN_AI_DIR')
+            ? BIZCITY_TWIN_AI_DIR . 'plugins/' . $slug . '/'
+            : '';
+        if (is_dir($nested_dir) && class_exists('BizCity_Plugin_Installer')) {
+            $result = BizCity_Plugin_Installer::uninstall($slug);
+            if (is_wp_error($result)) {
+                wp_send_json(['ok'=>false, 'msg'=>'Không thể gỡ cài đặt plugin: ' . $result->get_error_message()]);
+            }
+            do_action('bizcity_market_plugin_uninstalled', $slug, $plugin_file, (int) get_current_blog_id());
+            wp_send_json([
+                'ok'     => true,
+                'msg'    => 'Đã gỡ cài đặt plugin và dữ liệu riêng thành công.',
+                'status' => 'uninstalled',
+            ]);
+        }
+
+        // [2026-08-26 Johnny Chu] PHASE-1.29-OPTIONAL-TEARDOWN — run the
+        // plugin-owned uninstall contract before deleting its files.
+        $uninstall_file = dirname($full_path) . '/uninstall.php';
+        if (is_file($uninstall_file) && is_readable($uninstall_file)) {
+            if (!defined('WP_UNINSTALL_PLUGIN')) define('WP_UNINSTALL_PLUGIN', true);
+            if (class_exists('BizCity_Safe_Loader', false)) {
+                if (!BizCity_Safe_Loader::require_file($uninstall_file, 'market.uninstall.' . $slug)) {
+                    wp_send_json(['ok'=>false, 'msg'=>'Không thể dọn dữ liệu plugin.']);
+                }
+            } else {
+                wp_send_json(['ok'=>false, 'msg'=>'Bộ dọn dẹp plugin chưa sẵn sàng.']);
+            }
+        }
+
+        WP_Filesystem();
+        global $wp_filesystem;
+        $removed = $wp_filesystem && $wp_filesystem->delete(dirname($full_path), true);
+        if (!$removed) wp_send_json(['ok'=>false, 'msg'=>'Không thể xóa thư mục plugin.']);
+
+        do_action('bizcity_market_plugin_uninstalled', $slug, $plugin_file, (int) get_current_blog_id());
+        wp_send_json([
+            'ok'     => true,
+            'msg'    => 'Đã gỡ cài đặt plugin và dữ liệu riêng thành công.',
+            'status' => 'uninstalled',
+        ]);
+    }
+
     // ✅ NEW: load detail html
     public static function ajax_plugin_detail() {
         check_ajax_referer('bizcity_market_nonce', 'nonce');
@@ -349,10 +484,11 @@ JS;
         if (!$slug) wp_send_json(['ok'=>false, 'msg'=>'Missing slug']);
 
         $db = BizCity_Market_DB::globaldb();
-        if (!$db) wp_send_json(['ok'=>false, 'msg'=>'No globaldb']);
-
-        $tP = BizCity_Market_DB::t_plugins();
-        $p = $db->get_row($db->prepare("SELECT * FROM {$tP} WHERE plugin_slug=%s LIMIT 1", $slug));
+        $p = self::get_bundle_plugin($slug);
+        if (!$p && $db) {
+            $tP = BizCity_Market_DB::t_plugins();
+            $p = $db->get_row($db->prepare("SELECT * FROM {$tP} WHERE plugin_slug=%s LIMIT 1", $slug));
+        }
         if (!$p) wp_send_json(['ok'=>false, 'msg'=>'Plugin not found']);
 
         // All plugins are freely activatable — no entitlement purchase needed
@@ -363,9 +499,12 @@ JS;
         if (!function_exists('is_plugin_active')) {
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
-        if (!empty($p->plugin_file)) {
-            $is_activated = is_plugin_active($p->plugin_file);
+        if ( ! empty( $p->plugin_file ) ) {
+            // [2026-08-29 Johnny Chu] HOTFIX-MARKET-BUNDLE-STATE — modal state must match the bundled runtime state used by the local grid.
+            $is_activated = self::is_market_plugin_active( $slug, $p->plugin_file );
         }
+        $is_installed = !empty($p->plugin_file)
+            && is_file(WP_PLUGIN_DIR . '/' . ltrim($p->plugin_file, '/'));
 
         // gallery parse (anh lưu kiểu JSON array url hoặc newline-separated đều được)
         $gallery = [];
@@ -394,7 +533,7 @@ JS;
         }
 
         $title = $p->title ? $p->title : $slug;
-        $thumb = !empty($p->image_url) ? esc_url($p->image_url) : '';
+        $thumb = !empty($p->image_url) ? esc_url($p->image_url) : self::default_plugin_cover();
         $author = $p->author_name ? $p->author_name : 'BizCity';
         $views = (int)($p->views ?? 0);
         $credit = (int)($p->credit_price ?? 0);
@@ -432,6 +571,11 @@ JS;
                     <?php else: ?>
                         <button class="button button-primary bc-activate" data-slug="<?php echo esc_attr($slug); ?>">
                             ⚡ Cài đặt & Kích hoạt
+                        </button>
+                    <?php endif; ?>
+                    <?php if ($is_installed): ?>
+                        <button class="button bc-uninstall" data-slug="<?php echo esc_attr($slug); ?>">
+                            🗑 Gỡ cài đặt
                         </button>
                     <?php endif; ?>
                 </div>
@@ -613,54 +757,214 @@ JS;
     }
 
     /**
+     * List installed bundle plugins directly from the filesystem.
+     * The local Marketplace tab must not depend on catalog rows or activation state.
+     */
+    private static function get_bundle_plugins( string $search = '', string $category = '' ): array {
+        // [2026-08-26 Johnny Chu] PHASE-1.29-MARKET-BUNDLE-LIST — direct
+        // bundle discovery keeps inactive optional plugins visible and avoids
+        // stale/duplicate rows from the global catalog table.
+        $bundle_root = self::get_bundle_root();
+        if ( '' === $bundle_root || ! is_dir( $bundle_root . 'plugins' ) ) {
+            return array();
+        }
+        $plugins = array();
+        $dirs    = glob( $bundle_root . 'plugins/*', GLOB_ONLYDIR );
+        foreach ( (array) $dirs as $dir ) {
+            $slug = sanitize_key( basename( $dir ) );
+            if ( '' === $slug || '_archived' === $slug || false !== strpos( $slug, '_archived' ) ) {
+                continue;
+            }
+
+            // [2026-08-27 Johnny Chu] PHASE-1.29-MARKET-BUNDLE-LIST — every
+            // non-archived bundle directory is listable, even legacy plugins
+            // whose entrypoint has no Role or Plugin Name header.
+            $preferred = trailingslashit( $dir ) . $slug . '.php';
+            $files     = is_file( $preferred ) ? array( $preferred ) : glob( trailingslashit( $dir ) . '*.php' );
+            $file      = '';
+            $headers   = array();
+            $fallback  = '';
+            foreach ( (array) $files as $candidate ) {
+                if ( ! is_file( $candidate ) || ! is_readable( $candidate ) ) {
+                    continue;
+                }
+                $candidate_name = basename( $candidate );
+                if ( in_array( $candidate_name, array( 'index.php', 'bootstrap.php', 'uninstall.php' ), true ) ) {
+                    continue;
+                }
+                $candidate_headers = get_file_data( $candidate, array(
+                    'Name'          => 'Plugin Name',
+                    'Role'          => 'Role',
+                    'Icon Path'     => 'Icon Path',
+                    'Credit'        => 'Credit',
+                    'Price'         => 'Price',
+                    'Cover URI'     => 'Cover URI',
+                    'Category'      => 'Category',
+                    'Plan'          => 'Plan',
+                    'Featured'      => 'Featured',
+                ) );
+                $role = strtolower( trim( (string) ( $candidate_headers['Role'] ?? '' ) ) );
+                if ( '' !== trim( (string) ( $candidate_headers['Name'] ?? '' ) ) ) {
+                    $file    = $candidate;
+                    $headers = $candidate_headers;
+                    break;
+                }
+                if ( '' === $fallback ) {
+                    $fallback = $candidate;
+                }
+            }
+            if ( '' === $file && '' !== $fallback ) {
+                $file    = $fallback;
+                $headers = get_file_data( $file, array(
+                    'Name'          => 'Plugin Name',
+                    'Icon Path'     => 'Icon Path',
+                    'Credit'        => 'Credit',
+                    'Price'         => 'Price',
+                    'Cover URI'     => 'Cover URI',
+                    'Category'      => 'Category',
+                    'Plan'          => 'Plan',
+                    'Featured'      => 'Featured',
+                ) );
+            }
+            if ( '' === $file ) {
+                continue;
+            }
+
+            $data       = get_file_data( $file, array(
+                'Name'        => 'Plugin Name',
+                'Description' => 'Description',
+                'Author'      => 'Author',
+                'AuthorURI'   => 'Author URI',
+            ) );
+            $relative   = str_replace( '\\', '/', str_replace( WP_PLUGIN_DIR . '/', '', $file ) );
+            $icon_path  = ltrim( trim( (string) ( $headers['Icon Path'] ?? '' ) ), '/' );
+            $icon_url   = $icon_path ? plugins_url( $icon_path, $file ) : '';
+            $cover      = esc_url_raw( (string) ( $headers['Cover URI'] ?? '' ) );
+            $title      = sanitize_text_field( (string) ( $data['Name'] ?? '' ) );
+            if ( '' === $title ) {
+                $title = ucwords( str_replace( array( '-', '_' ), ' ', $slug ) );
+            }
+            $plugin_cat = sanitize_text_field( (string) ( $headers['Category'] ?? '' ) );
+
+            if ( '' !== $search ) {
+                $haystack = strtolower( $slug . ' ' . $title . ' ' . $plugin_cat );
+                if ( false === strpos( $haystack, strtolower( $search ) ) ) {
+                    continue;
+                }
+            }
+            if ( '' !== $category && $plugin_cat !== $category ) {
+                continue;
+            }
+
+            $plugins[] = (object) array(
+                'plugin_slug'   => $slug,
+                'plugin_file'   => $relative,
+                'directory'     => 'bizcity-twin-ai/plugins/' . $slug,
+                'title'         => $title,
+                'author_name'   => sanitize_text_field( (string) ( $data['Author'] ?? 'BizCity' ) ),
+                'author_url'    => esc_url_raw( (string) ( $data['AuthorURI'] ?? '' ) ),
+                'image_url'     => $cover ? $cover : ( $icon_url ? $icon_url : self::default_plugin_cover() ),
+                'icon_url'      => $icon_url,
+                'quickview'     => sanitize_text_field( (string) ( $data['Description'] ?? '' ) ),
+                'description'   => wp_kses_post( (string) ( $data['Description'] ?? '' ) ),
+                'credit_price'  => (int) ( $headers['Credit'] ?? 0 ),
+                'vnd_price'     => (int) ( $headers['Price'] ?? 0 ),
+                'is_featured'   => ! empty( $headers['Featured'] ),
+                'required_plan' => sanitize_key( (string) ( $headers['Plan'] ?? 'free' ) ),
+            );
+        }
+
+        usort( $plugins, static function ( $left, $right ) {
+            if ( $left->is_featured !== $right->is_featured ) {
+                return $left->is_featured ? -1 : 1;
+            }
+            return strcasecmp( (string) $left->title, (string) $right->title );
+        } );
+        return $plugins;
+    }
+
+    private static function get_bundle_root(): string {
+        // [2026-08-27 Johnny Chu] PHASE-1.29-MARKET-BUNDLE-LIST — resolve
+        // from this canonical core file when compat slug detection is stale.
+        $canonical = dirname( __DIR__, 3 ) . '/';
+        if ( is_dir( $canonical . 'plugins' ) ) {
+            return $canonical;
+        }
+        if ( defined( 'BIZCITY_TWIN_AI_DIR' ) && is_dir( BIZCITY_TWIN_AI_DIR . 'plugins' ) ) {
+            return trailingslashit( BIZCITY_TWIN_AI_DIR );
+        }
+        return '';
+    }
+
+    private static function get_bundle_plugin( string $slug ) {
+        foreach ( self::get_bundle_plugins() as $plugin ) {
+            if ( $plugin->plugin_slug === sanitize_key( $slug ) ) {
+                return $plugin;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolve the guard constant used by a bundled child plugin.
+     *
+     * Bundled children are intentionally loaded by bizcity-twin-ai rather than
+     * stored as independent entries in active_plugins.
+     */
+    private static function bundle_guard_constant( string $slug ): string {
+        $guards = array(
+            'bizcity-admin-hook-zalo' => 'BIZCITY_ADMIN_ZALO_DIR',
+            'bizcity-facebook-bot'    => 'BIZCITY_FACEBOOK_BOT_VERSION',
+            'bizgpt-tool-google'      => 'BZGOOGLE_VERSION',
+            'bizcity-zalo-bot'        => 'BIZCITY_ZALO_BOT_VERSION',
+            'bizcity-zalo-personal'   => 'BIZCITY_ZALO_PERSONAL_VERSION',
+            'bizcity-doc'             => 'BZDOC_VERSION',
+            'bizcity-twin-crm'        => 'BIZCITY_CRM_VERSION',
+            'bizcoach-pro'            => 'BCPRO_VERSION',
+            'bizcity-pagebuilder'     => 'BZPB_VERSION',
+            'bizcity-profile'         => 'BIZCITY_PERSONAL_VERSION',
+        );
+        $slug = sanitize_key( $slug );
+        return isset( $guards[ $slug ] ) ? $guards[ $slug ] : '';
+    }
+
+    /**
+     * Check native WordPress activation and Twin AI bundle ownership.
+     */
+    private static function is_market_plugin_active( string $slug, string $plugin_file = '' ): bool {
+        if ( $plugin_file && function_exists( 'is_plugin_active' ) && is_plugin_active( $plugin_file ) ) {
+            return true;
+        }
+        $guard = self::bundle_guard_constant( $slug );
+        return '' !== $guard && defined( $guard );
+    }
+
+    private static function default_plugin_cover(): string {
+        // [2026-08-27 Johnny Chu] PHASE-1.29-MARKET-COVER — provide a local
+        // logo when plugin metadata does not include a cover or icon asset.
+        return trailingslashit( BIZCITY_MARKET_URL ) . 'assets/default-plugin-logo.svg';
+    }
+
+    /**
      * Render local marketplace (existing PHP-driven grid).
      */
     private static function render_local( string $base_url ): void {
 
         $q = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
         $cat_filter = sanitize_text_field(wp_unslash($_GET['cat'] ?? ''));
-        $page = max(1, (int)($_GET['paged'] ?? 1));
-        $per = 24;
+        $rows       = self::get_bundle_plugins( $q, $cat_filter );
+        $categories = array_values( array_unique( array_filter( array_map( static function ( $plugin ) {
+            return isset( $plugin->category ) ? (string) $plugin->category : '';
+        }, $rows ) ) ) );
+        sort( $categories, SORT_STRING );
 
-        $data = BizCity_Market_Catalog::list([
-            'q' => $q,
-            'page' => $page,
-            'per' => $per,
-            'category' => $cat_filter,
-        ]);
-
-        $rows = $data['rows'] ?? [];
-        $total = (int)($data['total'] ?? 0);
-
-        $blog_id = (int)get_current_blog_id();
-
-        // build active plugins map
-        if (!function_exists('is_plugin_active')) {
+        if ( ! function_exists( 'is_plugin_active' ) ) {
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
-        }
-        $active_plugins_map = [];
-        foreach ($rows as $p) {
-            if (!empty($p->plugin_file)) {
-                $s = sanitize_key($p->plugin_slug ?? '');
-                $active_plugins_map[$s] = is_plugin_active($p->plugin_file);
-            }
-        }
-
-        // Fetch categories for filter bar
-        $db = BizCity_Market_DB::globaldb();
-        $categories = [];
-        if ($db) {
-            $tP = BizCity_Market_DB::t_plugins();
-            $cats = $db->get_col("SELECT DISTINCT category FROM {$tP} WHERE category != '' AND is_active=1 ORDER BY category ASC");
-            if ($cats) $categories = $cats;
         }
 
         ?>
             <div class="bc-market-head">
                 <h1>Ứng dụng</h1>
-                <?php if ( current_user_can('activate_plugins') ): ?>
-                <a class="button" href="<?php echo esc_url( wp_nonce_url( $base_url . '&action=sync', 'bc_market_sync' ) ); ?>">🔄 Sync Agent Plugins</a>
-                <?php endif; ?>
             </div>
             <form method="get" class="bc-market-search">
                 <input type="hidden" name="page" value="bizcity-marketplace"/>
@@ -693,7 +997,10 @@ JS;
 
                 <?php foreach ($rows as $p):
                     $slug = sanitize_key($p->plugin_slug ?? '');
-                    $is_active = !empty($active_plugins_map[$slug]);
+                    // [2026-08-29 Johnny Chu] HOTFIX-MARKET-BUNDLE-STATE — reflect runtime-loaded bundled plugins as active.
+                    $is_active = self::is_market_plugin_active( $slug, $p->plugin_file );
+                    $is_installed = !empty($p->plugin_file)
+                        && is_file(WP_PLUGIN_DIR . '/' . ltrim($p->plugin_file, '/'));
                     $credit = (int)($p->credit_price ?? 0);
                     ?>
                     <div class="bc-card" data-slug="<?php echo esc_attr($slug); ?>">
@@ -733,27 +1040,16 @@ JS;
                                         ⚡ Kích hoạt
                                     </button>
                                 <?php endif; ?>
+                                <?php if ($is_installed): ?>
+                                    <button class="button bc-uninstall" data-slug="<?php echo esc_attr($slug); ?>">
+                                        🗑 Gỡ cài đặt
+                                    </button>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
             </div>
-
-            <?php
-            // paging
-            $pages = max(1, (int)ceil($total / $per));
-            if ($pages > 1):
-                $base = add_query_arg(['page'=>'bizcity-marketplace','s'=>$q,'cat'=>$cat_filter,'paged'=>'%#%'], admin_url('admin.php'));
-                echo '<div class="tablenav"><div class="tablenav-pages">';
-                echo paginate_links([
-                    'base' => $base,
-                    'format' => '',
-                    'current' => $page,
-                    'total' => $pages,
-                ]);
-                echo '</div></div>';
-            endif;
-            ?>
 
             <!-- Modal -->
             <div class="bc-modal" id="bc-market-modal" aria-hidden="true">

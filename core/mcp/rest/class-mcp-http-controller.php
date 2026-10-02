@@ -9,7 +9,7 @@
  * plugin from colliding with it).
  *
  * Transport: POST accepts a JSON-RPC 2.0 envelope for `initialize`,
- * `tools/list`, and `tools/call`; authenticated GET supports bounded SSE event
+ * `tools/list`, `tools/call`, `resources/*` and `prompts/*` (PHASE-0.88 L2); authenticated GET supports bounded SSE event
  * replay for an MCP session. Stateless POST remains supported for compatibility.
  *
  * Auth: Bearer <mcp-api-key> handled inside handle() via BizCity_MCP_Auth,
@@ -33,6 +33,10 @@ final class BizCity_MCP_HTTP_Controller {
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — serve /mcp directly before REST dispatch when global POST guards are active.
 		add_action( 'parse_request', array( __CLASS__, 'serve_transport_direct' ), 0 );
 		add_filter( 'rest_pre_serve_request', array( __CLASS__, 'serve_sse' ), 10, 4 );
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L2-4 — resource/prompt change notifications ride the same hooks as C-10 + packs/invalidate.
+		if ( class_exists( 'BizCity_MCP_Resource_Service' ) ) {
+			BizCity_MCP_Resource_Service::boot();
+		}
 	}
 
 	public static function serve_transport_direct( $wp ) {
@@ -232,13 +236,48 @@ final class BizCity_MCP_HTTP_Controller {
 			}
 		}
 
-		$body = json_decode( (string) $request->get_body(), true );
-		if ( ! is_array( $body ) || isset( $body[0] ) ) {
-			return new WP_REST_Response( array(
-				'jsonrpc' => '2.0',
-				'error'   => array( 'code' => -32700, 'message' => 'Parse error: request body không phải JSON object hợp lệ.' ),
-				'id'      => null,
-			), 400 );
+		$body = self::decode_body( (string) $request->get_body() );
+		if ( null === $body ) {
+			return self::parse_error_response();
+		}
+		return self::dispatch( $body, $auth_ctx, $session_id );
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — JSON object body or null (no batch, no scalar).
+	 *
+	 * @return array|null
+	 */
+	public static function decode_body( $raw ) {
+		$body = json_decode( (string) $raw, true );
+		return ( is_array( $body ) && ! isset( $body[0] ) ) ? $body : null;
+	}
+
+	/** [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — HTTP 400 JSON-RPC parse error (shared by /mcp and zalo-bridge/mcp). */
+	public static function parse_error_response() {
+		return new WP_REST_Response( array(
+			'jsonrpc' => '2.0',
+			'error'   => array( 'code' => -32700, 'message' => 'Parse error: request body không phải JSON object hợp lệ.' ),
+			'id'      => null,
+		), 400 );
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — JSON-RPC dispatch shared by the public /mcp route (API key / OAuth)
+	 * and the site bridge route zalo-bridge/mcp (delegated cell principal). Auth, rate limit and session ownership are the
+	 * caller's job. A delegated context never gets an MCP session (Q88-6: stateless POST) and its tools/list is filtered by
+	 * mode instead of the admin allowlist.
+	 *
+	 * @param array  $body       decoded JSON-RPC object
+	 * @param array  $auth_ctx   authenticated context
+	 * @param string $session_id MCP-Session-Id already owned by this context ('' = none)
+	 * @return WP_REST_Response
+	 */
+	public static function dispatch( array $body, array $auth_ctx, $session_id = '' ) {
+		$session_id = (string) $session_id;
+		$delegated  = 'delegated' === (string) ( $auth_ctx['auth_method'] ?? '' );
+		if ( $delegated ) {
+			$session_id = '';
 		}
 		if ( ! isset( $body['jsonrpc'] ) || $body['jsonrpc'] !== '2.0' ) {
 			return self::jsonrpc_error_response( isset( $body['id'] ) ? $body['id'] : null, -32600, 'Request phải dùng jsonrpc=2.0.' );
@@ -261,21 +300,32 @@ final class BizCity_MCP_HTTP_Controller {
 
 		if ( $method === 'initialize' ) {
 			// [2026-07-28 Johnny Chu] PHASE-0.53-MCP — create a resumable session only after Bearer auth succeeds.
-			$session_id = $session_id !== '' ? $session_id : BizCity_MCP_Session_Store::create( $auth_ctx );
+			if ( ! $delegated ) {
+				$session_id = $session_id !== '' ? $session_id : BizCity_MCP_Session_Store::create( $auth_ctx );
+			}
 			$result = array(
-				'protocolVersion' => '2025-06-18',
+				// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-8 — echo a supported client protocolVersion, else our newest.
+				'protocolVersion' => self::negotiate_protocol( $params ),
 				'serverInfo'      => array( 'name' => 'bizcity-twin-brain-mcp', 'version' => '1.0.0' ),
-				'capabilities'    => array( 'tools' => array( 'listChanged' => false ) ),
+				// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-4 — tool names change across 0.88 waves; clients must re-list on notice.
+				'capabilities'    => self::capabilities(),
 			);
 		} elseif ( $method === 'tools/list' ) {
-			$result = array( 'tools' => BizCity_MCP_Tool_Registry::list_descriptors() );
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — the context decides: admin allowlist (external) or mode gate (delegated).
+			$result = array( 'tools' => BizCity_MCP_Tool_Registry::list_descriptors( true, $auth_ctx ) );
 		} elseif ( $method === 'tools/call' ) {
 			$tool_name = isset( $params['name'] ) ? (string) $params['name'] : '';
 			$tool_args = isset( $params['arguments'] ) && is_array( $params['arguments'] ) ? $params['arguments'] : array();
 			if ( $tool_name === '' ) {
 				return self::jsonrpc_error_response( $id, -32602, 'Thiếu params.name.' );
 			}
-			$envelope = BizCity_MCP_Tool_Registry::call( $tool_name, $tool_args, $auth_ctx );
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — params._meta.idempotency_key rides in the call ctx (write replay).
+			$call_ctx = $auth_ctx;
+			$idem_key = self::idempotency_key( $params );
+			if ( '' !== $idem_key ) {
+				$call_ctx['idempotency_key'] = $idem_key;
+			}
+			$envelope = BizCity_MCP_Tool_Registry::call( $tool_name, $tool_args, $call_ctx );
 			$result   = array(
 				'content'           => array(
 					array( 'type' => 'text', 'text' => wp_json_encode( $envelope ) ),
@@ -283,6 +333,15 @@ final class BizCity_MCP_HTTP_Controller {
 				'isError'           => empty( $envelope['success'] ),
 				'structuredContent' => $envelope,
 			);
+		} elseif ( 0 === strpos( $method, 'resources/' ) || 0 === strpos( $method, 'prompts/' ) ) {
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L2-2/L2-4/L2-8 — resources + prompts, same principal filter for cell and OAuth.
+			$result = self::resource_method( $method, $params, $auth_ctx, $session_id );
+			if ( null === $result ) {
+				return self::jsonrpc_error_response( $id, -32601, sprintf( 'Method không hỗ trợ: %s', $method ) );
+			}
+			if ( BizCity_MCP_Resource_Service::is_error( $result ) ) {
+				return self::jsonrpc_error_response( $id, (int) $result['__jsonrpc_error']['code'], (string) $result['__jsonrpc_error']['message'] );
+			}
 		} else {
 			return self::jsonrpc_error_response( $id, -32601, sprintf( 'Method không hỗ trợ: %s', $method ) );
 		}
@@ -304,6 +363,65 @@ final class BizCity_MCP_HTTP_Controller {
 			$response->header( 'MCP-Session-Id', $session_id );
 		}
 		return $response;
+	}
+
+	/** [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-8 — MCP spec versions this server implements, newest first; never claim newer. */
+	const PROTOCOL_VERSIONS = array( '2025-06-18', '2025-03-26' );
+
+	/** [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-8 — echo params.protocolVersion when supported, otherwise our newest. */
+	public static function negotiate_protocol( array $params ): string {
+		$asked = isset( $params['protocolVersion'] ) && is_string( $params['protocolVersion'] ) ? $params['protocolVersion'] : '';
+		return in_array( $asked, self::PROTOCOL_VERSIONS, true ) ? $asked : self::PROTOCOL_VERSIONS[0];
+	}
+
+	/** [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — params._meta.idempotency_key kept to [A-Za-z0-9._:-], at most 200 chars. */
+	public static function idempotency_key( array $params ): string {
+		$meta = isset( $params['_meta'] ) && is_array( $params['_meta'] ) ? $params['_meta'] : array();
+		$raw  = isset( $meta['idempotency_key'] ) && is_string( $meta['idempotency_key'] ) ? $meta['idempotency_key'] : '';
+		return substr( (string) preg_replace( '/[^A-Za-z0-9._:\-]/', '', $raw ), 0, 200 );
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L2-2 — server capabilities: tools change across waves (L1-4); resources support
+	 * subscribe + list_changed and prompts list_changed when the resource service is loaded.
+	 */
+	public static function capabilities(): array {
+		if ( ! class_exists( 'BizCity_MCP_Resource_Service' ) ) {
+			return array( 'tools' => array( 'listChanged' => true ) );
+		}
+		return array(
+			'resources' => array( 'subscribe' => true, 'listChanged' => true ),
+			'prompts'   => array( 'listChanged' => true ),
+			'tools'     => array( 'listChanged' => true ),
+		);
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.88 L2-2 — resources/* and prompts/* dispatch; null = unknown method.
+	 *
+	 * @return array|object|null
+	 */
+	private static function resource_method( $method, array $params, array $auth_ctx, $session_id ) {
+		if ( ! class_exists( 'BizCity_MCP_Resource_Service' ) ) {
+			return null;
+		}
+		switch ( $method ) {
+			case 'resources/list':
+				return BizCity_MCP_Resource_Service::list_resources( $params, $auth_ctx, (string) $session_id );
+			case 'resources/read':
+				return BizCity_MCP_Resource_Service::read( $params, $auth_ctx );
+			case 'resources/templates/list':
+				return BizCity_MCP_Resource_Service::templates_list();
+			case 'resources/subscribe':
+				return BizCity_MCP_Resource_Service::subscribe( $params, $auth_ctx, (string) $session_id );
+			case 'resources/unsubscribe':
+				return BizCity_MCP_Resource_Service::unsubscribe( $params, $auth_ctx, (string) $session_id );
+			case 'prompts/list':
+				return BizCity_MCP_Resource_Service::prompts_list( $params, $auth_ctx, (string) $session_id );
+			case 'prompts/get':
+				return BizCity_MCP_Resource_Service::prompts_get( $params, $auth_ctx );
+		}
+		return null;
 	}
 
 	public static function handle_delete( WP_REST_Request $request ) {

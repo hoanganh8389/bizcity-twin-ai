@@ -1,0 +1,38 @@
+# R-DIAG-LOCAL (D-35) — paths that exist only in the local development workspace.
+# Never upload them to a server (VPS, staging, tenant) and never commit them to GitHub.
+# Paths are relative to the plugin root (wp-content/plugins/bizcity-twin-ai/).
+# Rule: docs/rules/PHASE-0-RULE-DIAGNOSTICS-DEV-LOCAL.md · public summary: .github/copilot-instructions.md "R-DIAG-LOCAL".
+# [2026-09-28 Claude Opus 5.5] R-DIAG-LOCAL v1.0 — initial list.
+
+# Diagnostics engine, probes, diagnostic admin pages, bizcity-diagnostics/v1 REST, validate-schema-changelog.php.
+core/diagnostics/
+
+# PHPUnit suites, fixtures, baselines.
+tests/
+
+# [2026-09-30 Claude Opus 5.5] R-LEAN-4 WP-16 B-1 — harness / unit folders below the root (core/*/tests, plugins/*/tests,
+# modules/*/tests). R-DIAG-LOCAL already meant them; the manifest only named the top-level tests/ (0.44 MB was counted as shipped).
+**/tests/
+
+# Reduction snapshots and tarballs (tens of MB), taken before each wave.
+_notes/
+
+# [2026-09-30 Claude Opus 5.5] zalo-hub/ — the Node data-plane repo (cell: zalo-cell :3901, ai-gateway :3902, brain-core),
+# moved by the owner from core/channel-gateway/_library/zalo-hub for research. It is its OWN deploy unit (Docker on the
+# VPS, /home/vibeyeuc/zalo-hub) and never part of the WordPress plugin upload. PHP must not require anything in it;
+# only tests read its contract fixtures (zalo-hub/contracts/). Its own .gitignore keeps data/ (Zalo cookies, SQLite),
+# .env*, node_modules/ and config/accounts.json out of git.
+zalo-hub/
+
+# Build dependencies (bundles in assets/dist and ui/dist are what ships).
+**/node_modules/
+
+# [2026-09-28 Claude Opus 5.5] WP-13 DL-5 — module diagnostic pages and probes. Every loader checks is_file() first,
+# so a server simply has no such page. The sprint pages also write test rows into production tables.
+# Way back for the one setting they held: `wp option update bizcity_kg_public_api_token '<secret>'` (KG public API).
+core/channel-gateway/includes/class-sprint-diagnostic.php
+core/channel-gateway/includes/class-phase-037-diagnostic.php
+plugins/bizcity-twin-crm/includes/class-sprint-diagnostic.php
+plugins/bizcity-twin-crm/includes/class-sprint-diagnostic-phase-cd.php
+modules/twinchat/includes/diagnostics/
+modules/twinweb/includes/class-probe-twinweb-*.php

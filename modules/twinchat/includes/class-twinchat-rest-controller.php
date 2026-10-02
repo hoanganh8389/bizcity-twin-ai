@@ -40,6 +40,17 @@ class BizCity_TwinChat_REST_Controller {
 			],
 		] );
 
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-6 — the axis name of the same turn (twin-agent-turn@1). Today it streams like
+		// /stream (transition bridge); when the public stream host + tickets are live (NV-1…NV-4) it answers {stream_url, ticket}.
+		register_rest_route( $ns, '/chat/(?P<notebook_id>\d+)/turn', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'handle_stream' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'notebook_id' => [ 'type' => 'integer', 'required' => true ],
+			],
+		] );
+
 		register_rest_route( $ns, '/sessions/(?P<notebook_id>\d+)', [
 			'methods'             => 'GET',
 			'callback'            => [ $this, 'list_sessions' ],
@@ -569,10 +580,89 @@ class BizCity_TwinChat_REST_Controller {
 			return new WP_Error( 'empty_message', 'message is required', [ 'status' => 400 ] );
 		}
 
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-6 — TwinChat = adapter of the cell's runAgentTurn when the flag
+		// `bizcity_twin_web_turn_path_twinchat` (auto|node|php, default auto) picks node; otherwise the PHP pipeline below.
+		$agent = $this->maybe_agent_turn( $args );
+		if ( 'done' === $agent ) {
+			exit; // SSE already written by the transition bridge
+		}
+		if ( $agent instanceof WP_REST_Response ) {
+			return $agent;
+		}
+
 		// Hand off to the SSE handler — it will write directly + exit.
 		BizCity_TwinChat_Stream_Handler::instance()->handle( $args );
 		// Stop WP from appending JSON envelope.
 		exit;
+	}
+
+	/**
+	 * [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-6 — one TwinChat turn through BizCity_Twin_Web_Turn (envelope, flag, Hub
+	 * relay). The user is the logged-in user; history is read from this site's own transcript of the session (never the
+	 * browser's copy); the transcript is written from the cell's `final_done`. Returns 'php' | 'done' | WP_REST_Response.
+	 *
+	 * @return string|WP_REST_Response
+	 */
+	private function maybe_agent_turn( array $args ) {
+		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) ) {
+			return 'php';
+		}
+		$user_id     = get_current_user_id();
+		$notebook_id = (int) $args['notebook_id'];
+		$decision    = BizCity_Twin_Web_Turn::decide( 'twinchat', $user_id );
+		if ( 'php' === $decision['path'] ) {
+			return 'php'; // keep the PHP pipeline byte-identical (no history read, no extra query)
+		}
+		$session_id = '' !== $args['session_id'] ? (string) $args['session_id'] : wp_generate_uuid4();
+		$history    = $this->agent_turn_history( $session_id, $user_id );
+		if ( null === $history ) {
+			return BizCity_Twin_Web_Turn::error( 'session_forbidden' );
+		}
+		$message = (string) $args['user_message'];
+		return BizCity_Twin_Web_Turn::run( 'twinchat', array(
+			'user_id'     => $user_id,
+			'session_id'  => $session_id,
+			'text'        => $message,
+			'history'     => $history,
+			'notebook_id' => $notebook_id,
+			'thread_key'  => 'twinchat:' . $user_id . ':' . $notebook_id,
+			'effort'      => (string) ( $args['answer_depth'] ?? '' ), // Nhanh/Vừa/Cao/Sâu ⇒ cell reasoning level (clamped there)
+			'persist'     => static function ( array $done, string $trace_id ) use ( $notebook_id, $user_id, $session_id, $message ): int {
+				$db = BizCity_TwinChat_Database::instance();
+				$db->insert_message( [ 'notebook_id' => $notebook_id, 'user_id' => $user_id, 'session_id' => $session_id, 'role' => 'user', 'content' => $message ] );
+				$db->upsert_session( [ 'notebook_id' => $notebook_id, 'user_id' => $user_id, 'session_id' => $session_id, 'title' => mb_substr( $message, 0, 80 ), 'preview' => mb_substr( $message, 0, 255 ) ] );
+				return (int) $db->insert_message( [
+					'notebook_id'       => $notebook_id,
+					'user_id'           => $user_id,
+					'session_id'        => $session_id,
+					'role'              => 'assistant',
+					'content'           => (string) ( $done['answer_md'] ?? '' ),
+					'prompt_tokens'     => (int) ( $done['tokens']['prompt'] ?? 0 ),
+					'completion_tokens' => (int) ( $done['tokens']['completion'] ?? 0 ),
+					'finish_reason'     => (string) ( $done['finish_reason'] ?? '' ),
+				] );
+			},
+		) );
+	}
+
+	/**
+	 * Recent turns of this session from the site's transcript, oldest first; null when the session belongs to someone else.
+	 *
+	 * @return array<int,array{role:string,content:string}>|null
+	 */
+	private function agent_turn_history( string $session_id, int $user_id ): ?array {
+		if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			$state = BizCity_WebChat_Session_State::instance()->get_by_session( $session_id, BizCity_TwinChat_Database::PLATFORM );
+			if ( $state && (int) $state->user_id !== $user_id ) {
+				return null;
+			}
+		}
+		$rows = BizCity_TwinChat_Database::instance()->get_session_messages( $session_id, 500 );
+		$out  = array();
+		foreach ( (array) $rows as $r ) {
+			$out[] = array( 'role' => (string) ( $r['role'] ?? '' ), 'content' => (string) ( $r['content'] ?? '' ) );
+		}
+		return $out;
 	}
 
 	public function list_sessions( WP_REST_Request $request ) {
@@ -586,8 +676,31 @@ class BizCity_TwinChat_REST_Controller {
 		] );
 	}
 
+	/** Owner of the session (session state first, else the transcript's own user_id rows) or a site admin. */
+	private function can_read_session( string $session_id, int $user_id ): bool {
+		if ( $user_id <= 0 || '' === $session_id ) {
+			return false;
+		}
+		if ( current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+		if ( class_exists( 'BizCity_WebChat_Session_State' ) ) {
+			$state = BizCity_WebChat_Session_State::instance()->get_by_session( $session_id, BizCity_TwinChat_Database::PLATFORM );
+			if ( $state ) {
+				return (int) $state->user_id === $user_id;
+			}
+		}
+		$owner = BizCity_TwinChat_Database::instance()->session_owner_id( $session_id );
+		return 0 === $owner || $owner === $user_id; // 0 = no rows yet: nothing to leak
+	}
+
 	public function get_messages( WP_REST_Request $request ) {
 		$session_id = (string) $request->get_param( 'session_id' );
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-11 finding — the route only required a login: any logged-in user who knew a
+		// session id could read that transcript. Only the session's owner (or a site admin) may read it now.
+		if ( ! $this->can_read_session( $session_id, get_current_user_id() ) ) {
+			return new WP_Error( 'session_forbidden', 'Phiên trò chuyện này không thuộc tài khoản của bạn.', [ 'status' => 403 ] );
+		}
 		$rows = BizCity_TwinChat_Database::instance()->get_session_messages( $session_id, 200 );
 		return rest_ensure_response( [
 			'ok'   => true,

@@ -69,21 +69,16 @@ final class BizCity_TwinBrain_Admin_Menu {
 	}
 
 	/**
-	 * Default landing for Twin Brain: the TwinChat workspace inside TwinShell.
+	 * Default landing for the Twin CRM menu: bare /twin/, so TwinShell opens its own
+	 * default entry (Twin GPT — PHASE-0.84 D-84-2), instead of forcing TwinChat.
 	 *
-	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-HOTFIX3 — opening Twin Brain must land
-	 * in TwinChat; only the Settings-type submenus go to the Control Panel. `add_query_arg()` does not encode
-	 * values, so `_iurl` is encoded here, otherwise its own `?` would split the query string.
+	 * [2026-09-30 Claude Sonnet 5] Owner directive — renamed from twinchat_url(); no longer forces TwinChat.
 	 */
-	private static function twinchat_url(): string {
-		$args = array(
-			'plugin' => 'twinchat',
-			'_iurl'  => rawurlencode( '/twinchat/?bizcity_iframe=1' ),
-		);
+	private static function twin_url(): string {
 		if ( class_exists( 'BizCity_Twin_Shell_Page' ) && method_exists( 'BizCity_Twin_Shell_Page', 'shell_url' ) ) {
-			return (string) BizCity_Twin_Shell_Page::shell_url( $args );
+			return (string) BizCity_Twin_Shell_Page::shell_url();
 		}
-		return add_query_arg( $args, home_url( '/twin/' ) );
+		return home_url( '/twin/' );
 	}
 
 	/**
@@ -110,13 +105,13 @@ final class BizCity_TwinBrain_Admin_Menu {
 		$parent    = self::PARENT_SLUG;
 
 		add_menu_page(
-			__( 'Twin Brain (Não tổng)', 'bizcity-twin-ai' ),
-			__( 'Twin Brain', 'bizcity-twin-ai' ),
+			__( 'Twin CRM', 'bizcity-twin-ai' ),
+			__( 'Twin CRM', 'bizcity-twin-ai' ),
 			'read',
 			$parent,
 			static function () {
-				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6-HOTFIX3 — the parent page is a router; its default is TwinChat, not the Control Panel.
-				wp_safe_redirect( self::twinchat_url() );
+				// [2026-09-30 Claude Sonnet 5] Owner directive — the parent page is a router into TwinShell at bare /twin/.
+				wp_safe_redirect( self::twin_url() );
 				exit;
 			},
 			'dashicons-format-chat',
@@ -127,9 +122,11 @@ final class BizCity_TwinBrain_Admin_Menu {
 		$capability = class_exists( 'BizCity_Network_Admin_Capability' )
 			? BizCity_Network_Admin_Capability::menu_cap()
 			: 'manage_options';
-		// [2026-09-16 10:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — expose the six canonical Control Panel destinations as stable Twin Brain submenu deep-links.
+		// [2026-09-16 10:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — expose the five canonical
+		// Control Panel destinations as stable Twin CRM submenu deep-links. WordPress auto-adds a first submenu
+		// row for the parent slug itself (labelled "Twin CRM", opening twin_url()); no explicit 'workspace' entry
+		// is needed for that any more (it used to force TwinChat and duplicated that auto row).
 		$destinations = array(
-			'workspace'        => array( 'Twin Brain', 'Twin Brain' ),
 			'settings'         => array( 'Settings', 'Cài đặt' ),
 			'control-panel'    => array( 'Modules & Extensions', 'Mô-đun & Tiện ích' ),
 			'channel-settings' => array( 'Channel Settings', 'Cài đặt kênh' ),
@@ -144,12 +141,6 @@ final class BizCity_TwinBrain_Admin_Menu {
 				$capability,
 				'bizcity-twinbrain-' . $destination,
 				static function () use ( $destination ) {
-					// WordPress links the top-level "Twin Brain" item to this first submenu, so the Brain entry
-					// must open TwinChat too; Settings and the other destinations open the Control Panel in TwinShell.
-					if ( 'workspace' === $destination ) {
-						wp_safe_redirect( self::twinchat_url() );
-						exit;
-					}
 					wp_safe_redirect( self::panel_in_shell_url( $destination ) );
 					exit;
 				}

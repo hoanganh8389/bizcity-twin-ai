@@ -206,6 +206,12 @@ final class BizCity_CRM_Staff_REST {
 			'callback'            => array( __CLASS__, 'phone_providers' ),
 			'permission_callback' => array( __CLASS__, 'can_use_crm' ),
 		) );
+		// [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS3 — provisioned, not-yet-linked Remote nicks for AddPhoneSheet's Remote tab.
+		register_rest_route( $ns, '/crm-phones/remote-nicks', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'remote_nicks' ),
+			'permission_callback' => array( __CLASS__, 'can_use_crm' ),
+		) );
 		// PHASE-0.48F T3-03 — transfer one phone without suspending its owner (R-ZP-OWNER).
 		register_rest_route( $ns, '/crm-phones/(?P<inbox_id>\d+)/transfer-owner', array(
 			'methods'             => WP_REST_Server::CREATABLE,
@@ -555,6 +561,9 @@ final class BizCity_CRM_Staff_REST {
 			'suspended'    => 'suspended' === get_user_meta( $user_id, self::META_STATUS, true ),
 			'phones'       => $phones,
 			'phones_dead'  => $dead_count,
+			// [2026-10-01 Claude Opus 5.5] PHASE-0.87 W2-6 (doc 50 §6.4) — read-only "Agent Zalo": numbers where this person is on
+			// the "Người dùng Agent" list (masked label + status). Edited only in Bot Studio.
+			'agent_numbers' => class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::numbers_for_user( $user_id ) : array(),
 		);
 	}
 
@@ -1027,6 +1036,11 @@ final class BizCity_CRM_Staff_REST {
 		if ( 'suspended' === get_user_meta( $owner_user_id, self::META_STATUS, true ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Nhân viên đang ngưng hoạt động.', 'hint' => 'Kích hoạt lại nhân viên rồi thử lại.', 'help_code' => 'invalid_param_generic' ), 400 );
 		}
+		// [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS3 (doc 52 LX-3) — the Remote tab of AddPhoneSheet links a nick the
+		// third party provisioned (no nick can be created, D82-47) through the SAME link service Bot Studio uses.
+		if ( 'remote_zalo_hub' === sanitize_key( (string) ( $body['provider'] ?? '' ) ) ) {
+			return self::create_remote_phone( (string) ( $body['account_ref'] ?? '' ), $owner_user_id, $actor_id, rest_sanitize_boolean( $body['dry_run'] ?? false ) );
+		}
 		if ( rest_sanitize_boolean( $body['dry_run'] ?? false ) ) {
 			if ( ! class_exists( 'BizCity_Zalo_Bridge_REST' ) || ! method_exists( 'BizCity_Zalo_Bridge_REST', 'preflight_create_account_for_owner' ) ) {
 				return new WP_REST_Response( array( 'ok' => false, 'dry_run' => true, 'code' => 'module_not_loaded', 'message' => 'Module Zalo Personal chưa sẵn sàng.', 'hint' => 'Bật Zalo Personal rồi thử lại.', 'help_code' => 'module_not_loaded' ), 503 );
@@ -1044,6 +1058,68 @@ final class BizCity_CRM_Staff_REST {
 		}
 		// `true` = personal_only (this route never provisions a Zalo OA account, R-ZONE/R-TWEB-14).
 		return BizCity_Zalo_Bridge_REST::create_account_for_owner( $req, $owner_user_id, true, $owner_user_id !== $actor_id, $actor_id );
+	}
+
+	/**
+	 * [2026-09-29 Claude Opus 5.5] PHASE-0.82 XS3 — Remote branch of POST /crm-phones. Owner authority was already
+	 * re-derived by the caller (assignable + `phone.add_for_other`); on top of that the Remote connection is an
+	 * administrator-only surface in 0.82 (D82-46), and the nick must be one the key really has (checked in the service).
+	 */
+	private static function remote_phone_gate(): ?WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Remote_Zalo_Link_Service' ) || ! class_exists( 'BizCity_Remote_Zalo_Feature' ) || ! BizCity_Remote_Zalo_Feature::enabled() ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'remote_not_available', 'message' => 'Remote Zalo Hub chưa bật trên website này.', 'hint' => 'Dùng BizCity Zalo Hub, hoặc nhờ quản trị bật Remote Zalo Hub.', 'help_code' => 'remote_not_available' ), 400 );
+		}
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Chỉ quản trị website thêm số Remote Zalo Hub.', 'hint' => 'Nhờ quản trị website thêm số này.', 'help_code' => 'permission_denied' ), 403 );
+		}
+		return null;
+	}
+
+	private static function create_remote_phone( string $account_ref, int $owner_user_id, int $actor_id, bool $dry_run ): WP_REST_Response {
+		$gate = self::remote_phone_gate();
+		if ( $gate ) { return $gate; }
+		$account_ref = sanitize_text_field( $account_ref );
+		if ( '' === $account_ref ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Chưa chọn nick Remote.', 'hint' => 'Chọn một nick đã được cấp cho khoá.', 'help_code' => 'invalid_param_generic' ), 400 );
+		}
+		if ( $dry_run ) {
+			return new WP_REST_Response( array( 'ok' => true, 'dry_run' => true, 'owner_user_id' => $owner_user_id, 'message' => 'Có thể gắn nick cho người phụ trách này.', 'hint' => 'Tiếp tục gắn nick.', 'help_code' => 'crm_phone_ready' ), 200 );
+		}
+		$result = BizCity_Remote_Zalo_Link_Service::link( $account_ref, $owner_user_id, $actor_id );
+		if ( empty( $result['ok'] ) ) {
+			$code = (string) ( $result['code'] ?? 'remote_link_failed' );
+			$status = 'remote_not_found' === $code ? 404 : ( 'invalid_param' === $code ? 400 : ( 'permission_denied' === $code ? 403 : 500 ) );
+			return new WP_REST_Response( array( 'ok' => false, 'code' => $code, 'message' => 'Không gắn được nick Remote Zalo.', 'hint' => 'remote_not_found' === $code ? 'Tải lại danh sách nick rồi thử lại.' : 'Thử lại sau hoặc gắn ở Bot Studio → Cài đặt kết nối.', 'help_code' => $code ), $status );
+		}
+		return new WP_REST_Response( array(
+			'ok'            => true,
+			'id'            => (string) $result['bridge_id'],
+			'bridge_id'     => (string) $result['bridge_id'],
+			'account_ref'   => (string) $result['account_ref'],
+			'crm_inbox_id'  => (int) $result['crm_inbox_id'],
+			'owner_user_id' => (int) $result['owner_user_id'],
+			'provider'      => 'remote_zalo_hub',
+			'session'       => (string) $result['session'],
+			'label'         => (string) ( $result['label'] ?? '' ),
+		), 200 );
+	}
+
+	/** GET /crm-phones/remote-nicks — XS3: nicks the key has that are not linked to this site yet. */
+	public static function remote_nicks( WP_REST_Request $req ) {
+		$gate = self::remote_phone_gate();
+		if ( $gate ) { return $gate; }
+		$client = BizCity_Remote_Zalo_Link_Service::client();
+		$result = $client ? $client->list_accounts() : array( 'ok' => false );
+		if ( empty( $result['ok'] ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => (string) ( $result['error']['code'] ?? 'remote_unavailable' ), 'message' => 'Không tải được danh sách nick Remote.', 'hint' => 'Kiểm tra cấu hình Remote Zalo Hub ở Bot Studio → Cài đặt kết nối.', 'help_code' => 'remote_unavailable' ), 502 );
+		}
+		$nicks = array();
+		foreach ( (array) ( $result['data']['items'] ?? array() ) as $item ) {
+			$ref = is_array( $item ) ? (string) ( $item['id'] ?? '' ) : '';
+			if ( '' === $ref || is_array( BizCity_Remote_Zalo_Link_Service::lookup( BizCity_Remote_Zalo_Link_Service::PREFIX . $ref ) ) ) { continue; }
+			$nicks[] = array( 'account_ref' => $ref, 'label' => (string) ( $item['label'] ?? '' ), 'session' => 'running' === (string) ( $item['status'] ?? '' ) ? 'connected' : 'stopped' );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'nicks' => $nicks ), 200 );
 	}
 
 	/**
@@ -1327,7 +1403,14 @@ final class BizCity_CRM_Staff_REST {
 			}
 		}
 
-		$steps = array( $connection_step, $bot_step, $guru_step, $replied_step, $sync_step, self::cell_config_version_step( $provider, $bridge_account_id ), self::last_turn_source_step( $provider, $bridge_account_id ) );
+		$steps = array(
+			$connection_step, $bot_step, $guru_step, $replied_step, $sync_step,
+			self::cell_config_version_step( $provider, $bridge_account_id ),
+			self::last_turn_source_step( $provider, $bridge_account_id ),
+			// [2026-09-30] PHASE-0.85 §K4 — ngân sách/tool theo gói (C85-4/C85-1) chỉ áp dụng cho zalo_hub, cùng gate với hai bước trên.
+			self::budget_state_step( $provider ),
+			self::tools_capability_step( $provider, $bridge_account_id ),
+		);
 		$overall = 'ok';
 		// [2026-09-27 Claude Sonnet 5] PHASE-0.80 doc 28 T-5 — `replied_step` can now be 'warn' too (the last
 		// reply was one of zalo-hub's own fixed apologies, not the Guru) — a real, worth-surfacing symptom,
@@ -1434,6 +1517,78 @@ final class BizCity_CRM_Staff_REST {
 			return array_merge( $step, array( 'status' => 'ok', 'summary' => 'Lượt #' . $step['turn_id'] . ' dùng ' . ( '' !== $ref ? $ref : 'Guru' ) . ' (' . $source . ')' . ( $hits > 0 ? ', ' . $hits . ' đoạn notebook.' : '.' ) ) );
 		}
 		return array_merge( $step, array( 'status' => 'warn', 'summary' => 'Lượt #' . $step['turn_id'] . ' KHÔNG dùng Guru của bạn (nguồn: ' . ( '' !== $source ? $source : 'không rõ' ) . ').', 'guide' => 'Bấm "Đồng bộ lại" ở Bot Studio, nhắn thử lại rồi bấm "Kiểm tra lại".' ) );
+	}
+
+	/**
+	 * [2026-09-30 Claude Sonnet 5] PHASE-0.85 §K4 — T-5 step `budget_state`: is the tenant's AI budget
+	 * (C85-4 `usage/budget`, same route K1's Service uses) still able to answer at all. `exhausted` means
+	 * the cell is ALREADY silent for this number (same gate `decideCapability()` enforces on zalo-hub) -
+	 * a hard fail, not a warning, because the number is not actually answering right now.
+	 */
+	public static function budget_state_step( string $provider ): array {
+		$step = array( 'key' => 'budget_state', 'title' => 'Ngân sách AI còn đủ dùng', 'status' => 'info', 'summary' => '', 'guide' => '', 'action' => 'none', 'action_label' => '' );
+		if ( 'zalo_hub' !== $provider ) {
+			return array_merge( $step, array( 'summary' => 'Không áp dụng — số zca không dùng ngân sách chung theo gói.' ) );
+		}
+		$budget = class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ? BizCity_Zalo_Personal_Hub_Client::instance()->usage_read( 'budget' ) : null;
+		if ( ! is_array( $budget ) || ! is_array( $budget['budget'] ?? null ) ) {
+			return array_merge( $step, array( 'status' => 'unknown', 'summary' => 'Chưa đọc được ngân sách ngay lúc này.', 'guide' => 'Bấm "Kiểm tra lại" sau vài giây.' ) );
+		}
+		$state       = (string) ( $budget['budget']['state'] ?? '' );
+		$resets_at   = (string) ( $budget['budget']['resets_at'] ?? '' );
+		$resets_time = '' !== $resets_at ? (int) strtotime( $resets_at ) : 0;
+		$resets_label = $resets_time > 0 ? ( function_exists( 'wp_date' ) ? wp_date( 'H:i', $resets_time ) : gmdate( 'H:i', $resets_time ) ) : 'chưa rõ giờ';
+		if ( 'exhausted' === $state ) {
+			return array_merge( $step, array(
+				'status' => 'error', 'summary' => 'Ngân sách AI hôm nay đã hết — bot đã tạm dừng, khách đang chờ nhân viên trả lời tay.',
+				'guide' => 'Nâng gói hoặc chờ đặt lại lúc ' . $resets_label . '.', 'action' => 'open_ai_usage', 'action_label' => 'Xem chi phí AI',
+			) );
+		}
+		if ( 'low' === $state ) {
+			return array_merge( $step, array(
+				'status' => 'warn', 'summary' => 'Ngân sách AI hôm nay sắp hết.',
+				'guide' => 'Theo dõi ở "Chi phí AI" — nâng gói trước khi hết để bot không dừng giữa ngày.', 'action' => 'open_ai_usage', 'action_label' => 'Xem chi phí AI',
+			) );
+		}
+		return array_merge( $step, array( 'status' => 'ok', 'summary' => 'Ngân sách AI còn đủ dùng.' ) );
+	}
+
+	/**
+	 * [2026-09-30 Claude Sonnet 5] PHASE-0.85 §K4 — T-5 step `tools_capability`: how many tools the model's
+	 * schema is missing because the PLAN excludes them (`plan_excludes_tool`, upsell signal) vs because the
+	 * PLATFORM hasn't configured a provider for them yet (`provider_not_configured`, an operator TODO, not
+	 * the tenant's plan) — two different fixes, so counted and worded separately. Informational (`info`),
+	 * never `warn`/`error`: a tool being off by plan design is not a health problem.
+	 */
+	public static function tools_capability_step( string $provider, string $bridge_account_id ): array {
+		$step = array( 'key' => 'tools_capability', 'title' => 'Công cụ AI theo gói', 'status' => 'info', 'summary' => '', 'guide' => '', 'action' => 'none', 'action_label' => '' );
+		if ( 'zalo_hub' !== $provider ) {
+			return array_merge( $step, array( 'summary' => 'Không áp dụng — số zca không có danh sách công cụ theo gói.' ) );
+		}
+		$tools = class_exists( 'BizCity_Zalo_Personal_Hub_Client' )
+			? BizCity_Zalo_Personal_Hub_Client::instance()->brain_read( 'tools', array( 'account_id' => $bridge_account_id ) )
+			: null;
+		if ( ! is_array( $tools ) || ! is_array( $tools['items'] ?? null ) ) {
+			return array_merge( $step, array( 'status' => 'unknown', 'summary' => 'Chưa đọc được danh sách công cụ ngay lúc này.', 'guide' => 'Bấm "Kiểm tra lại" sau vài giây.' ) );
+		}
+		$plan_excluded = 0;
+		$not_configured = 0;
+		foreach ( $tools['items'] as $t ) {
+			$reason = (string) ( $t['unavailable_reason'] ?? '' );
+			if ( 'plan_excludes_tool' === $reason ) { $plan_excluded++; }
+			elseif ( 'provider_not_configured' === $reason ) { $not_configured++; }
+		}
+		if ( 0 === $plan_excluded && 0 === $not_configured ) {
+			return array_merge( $step, array( 'summary' => 'Mọi công cụ trong gói đều dùng được.' ) );
+		}
+		$parts = array();
+		if ( $plan_excluded > 0 ) { $parts[] = $plan_excluded . ' công cụ gói hiện tại chưa có'; }
+		if ( $not_configured > 0 ) { $parts[] = $not_configured . ' công cụ nền tảng chưa cấu hình'; }
+		return array_merge( $step, array(
+			'summary' => implode( ', ', $parts ) . '.',
+			'guide'   => 'Nâng gói (hoặc báo quản trị viên bật thêm dịch vụ nền tảng) để mở các công cụ này.',
+			'action'  => 'open_ai_usage', 'action_label' => 'Xem chi phí AI',
+		) );
 	}
 
 	/**

@@ -101,6 +101,24 @@ final class BizCity_Legacy_Table_Policy {
 		'bizcity_personal_finance_categories', 'bizcity_personal_finance_entries', 'bizcity_personal_journal',
 		'bizcity_personal_notebooks', 'bizcity_personal_notebook_pages', 'bizcity_personal_notebook_chunks',
 		'bizcity_personal_profile_cards', 'bizcity_personal_profile_qrcodes', 'bizcity_personal_profile_analytics_events',
+		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-2 (R-LEAN-4) — no reader and no writer left: the Guru provider-binding table (its REST and bridge were
+		// archived in R13c-a) and the pre-rename names of the archived personal owner (bizcity-profile used personal_*).
+		'bizcity_guru_providers',
+		'bizcity_home_finance_categories', 'bizcity_home_finance_entries', 'bizcity_home_journal',
+		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-2b (R-LEAN-4) — owners archived (plugins/_archived/bizcity-tool-image, plugins/_archived/bizcity-content-creator)
+		// with no live reader/writer (bztimg_templates in live code is a user_meta key, not this table; twinweb only probes
+		// creator_files for existence), and the LLM usage SQL log whose canonical store is JSONL (R-LLM-USAGE-FILESTORE).
+		'bztimg_jobs', 'bztimg_template_categories', 'bztimg_templates', 'bztimg_projects', 'bztimg_compositions',
+		'bztimg_editor_shapes', 'bztimg_editor_frames', 'bztimg_editor_fonts', 'bztimg_editor_text_presets', 'bztimg_editor_templates',
+		'bizcity_creator_files', 'bizcity_creator_templates', 'bizcity_creator_categories',
+		'bizcity_llm_usage_logs',
+		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3c (R-LEAN-4, Q-W16-3) — owner archived (modules/_archived/twinsearch-20260930/research).
+		'bizcity_research_sessions', 'bizcity_research_turns', 'bizcity_research_ingests',
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-0/K-3 (R-LEAN-4) — class-database.php stops creating these two in K-3 (no live reader/writer besides itself: character_intents has none, character_conversations only read by views/guru-kpi.php which goes with the legacy Guru editor, Q-W17-1).
+		'bizcity_character_intents', 'bizcity_character_conversations',
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 (R-LEAN-4, R-LOG-HYBRID) — write-only audit trails
+		// moved to the shared JSONL logger (contracts core.kg_hub.acl_log, core.twin_crm.admin_chat_audit).
+		'bizcity_kg_acl_log', 'bizcity_crm_admin_chat_audit',
 		// [2026-09-28 Claude Sonnet 5] CORE-REDUCTION WP-13 — these two were quarantine_only ONLY in
 		// core/diagnostics/includes/class-diagnostics-table-registry.php (lines 348-350); is_legacy() fell back to
 		// that class, so deleting core/diagnostics (D-35) would have silently un-quarantined them. Same reason as
@@ -122,6 +140,24 @@ final class BizCity_Legacy_Table_Policy {
 		'bizcity_personal_finance_categories', 'bizcity_personal_finance_entries', 'bizcity_personal_journal',
 		'bizcity_personal_notebooks', 'bizcity_personal_notebook_pages', 'bizcity_personal_notebook_chunks',
 		'bizcity_personal_profile_cards', 'bizcity_personal_profile_qrcodes', 'bizcity_personal_profile_analytics_events',
+		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-2 (R-LEAN-4) — no reader and no writer left: the Guru provider-binding table (its REST and bridge were
+		// archived in R13c-a) and the pre-rename names of the archived personal owner (bizcity-profile used personal_*).
+		'bizcity_guru_providers',
+		'bizcity_home_finance_categories', 'bizcity_home_finance_entries', 'bizcity_home_journal',
+		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-2b (R-LEAN-4) — owners archived (plugins/_archived/bizcity-tool-image, plugins/_archived/bizcity-content-creator)
+		// with no live reader/writer (bztimg_templates in live code is a user_meta key, not this table; twinweb only probes
+		// creator_files for existence), and the LLM usage SQL log whose canonical store is JSONL (R-LLM-USAGE-FILESTORE).
+		'bztimg_jobs', 'bztimg_template_categories', 'bztimg_templates', 'bztimg_projects', 'bztimg_compositions',
+		'bztimg_editor_shapes', 'bztimg_editor_frames', 'bztimg_editor_fonts', 'bztimg_editor_text_presets', 'bztimg_editor_templates',
+		'bizcity_creator_files', 'bizcity_creator_templates', 'bizcity_creator_categories',
+		'bizcity_llm_usage_logs',
+		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3c (R-LEAN-4, Q-W16-3) — owner archived (modules/_archived/twinsearch-20260930/research).
+		'bizcity_research_sessions', 'bizcity_research_turns', 'bizcity_research_ingests',
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-0/K-3 (R-LEAN-4) — class-database.php stops creating these two in K-3 (no live reader/writer besides itself: character_intents has none, character_conversations only read by views/guru-kpi.php which goes with the legacy Guru editor, Q-W17-1).
+		'bizcity_character_intents', 'bizcity_character_conversations',
+		// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-16 B-5 (R-LEAN-4, R-LOG-HYBRID) — write-only audit trails
+		// moved to the shared JSONL logger (contracts core.kg_hub.acl_log, core.twin_crm.admin_chat_audit).
+		'bizcity_kg_acl_log', 'bizcity_crm_admin_chat_audit',
 		// [2026-09-28 Claude Sonnet 5] CORE-REDUCTION WP-13 — mirrors the registry's quarantine_only for both
 		// (install blocked, writes refused, reads allowed) so the state does not depend on core/diagnostics.
 		'bizcity_webchat_sessions', 'bizcity_webchat_conversations',
