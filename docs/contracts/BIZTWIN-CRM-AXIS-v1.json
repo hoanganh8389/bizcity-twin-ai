@@ -1,0 +1,196 @@
+{
+  "contract_id": "bizcity.biztwin-crm-axis",
+  "version": "1.0.0",
+  "rule": "R-BIZTWIN-AXIS",
+  "rule_doc": "docs/rules/PHASE-0-RULE-BIZTWIN-CRM-AXIS.md",
+  "owner": "product owner (Johnny Chu); Twin AI Core maintains",
+  "date": "2026-09-27",
+  "axis": [
+    {
+      "stage": 1,
+      "name": "Channel Gateway",
+      "path": "core/channel-gateway",
+      "role": "one intake, one sender, one identity (R-CH, R-ONE-AXIS)"
+    },
+    {
+      "stage": 2,
+      "name": "BizTwin CRM",
+      "path": "plugins/bizcity-twin-crm",
+      "role": "inbox, contacts, pipeline, tasks, orders (R-LEADER-MEMBER, R-WORK-PIPE)"
+    },
+    {
+      "stage": 3,
+      "name": "Context Bank",
+      "path": "core/context-bank",
+      "role": "pointer ledger of business context (R-CONTEXT-BANK)"
+    },
+    {
+      "stage": 4,
+      "name": "KG Hub",
+      "path": "core/kg-hub",
+      "role": "notebooks, sources, retrieval (R-KG-HUB)"
+    },
+    {
+      "stage": 5,
+      "name": "TwinBrain",
+      "path": "core/twinbrain",
+      "role": "reasoning and tool execution (R-TBR)"
+    },
+    {
+      "stage": 6,
+      "name": "Twin Core",
+      "path": "core/twin-core",
+      "role": "twin state, focus, capability guard"
+    },
+    {
+      "stage": 7,
+      "name": "MCP",
+      "path": "core/mcp",
+      "role": "external agent access to the twin"
+    }
+  ],
+  "tiers": {
+    "axis": {
+      "meaning": "The BizTwin CRM value chain. Everything else exists to serve it.",
+      "core": [
+        "channel-gateway",
+        "context-bank",
+        "kg-hub",
+        "twin-core",
+        "mcp"
+      ]
+    },
+    "support": {
+      "meaning": "Named by the owner as important features around the axis.",
+      "core": [
+        "bizcity-llm"
+      ]
+    },
+    "addon": {
+      "meaning": "[2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 (Q-W16-1) — moved out of the main plugin into the sibling plugin bizcity-twin-brain-addon (loaded through includes/class-bizcity-addon-locator.php, mode auto by default). Not a core/ folder any more; the main-plugin callers are guarded.",
+      "core": [],
+      "moved": {
+        "twinbrain": "bizcity-twin-brain-addon/twinbrain/ (B-4 S3a; agent contracts stay in core/runtime/agents)",
+        "automation": "bizcity-twin-brain-addon/automation/ (B-4 S2)"
+      }
+    },
+    "substrate": {
+      "meaning": "Framework plumbing the axis needs. Keep small; no product features.",
+      "core": [
+        "helper",
+        "runtime",
+        "diagnostics",
+        "conversation",
+        "memory",
+        "cron",
+        "scheduler",
+        "smtp",
+        "knowledge",
+        "intent",
+        "membership",
+        "cli"
+      ]
+    },
+    "review": {
+      "meaning": "Mixed: parts are used by the axis, parts are not. Move the used parts onto the axis owner, then deprecate the rest.",
+      "core": [
+        "persona"
+      ]
+    },
+    "deprecated": {
+      "meaning": "Not on the axis. No new code may depend on it. Migrate what is still used, then archive class by class (rename *_deleted.php, then move to core/_archived/_deleted/).",
+      "core": [
+        "bizcity-market"
+      ]
+    },
+    "archived": {
+      "meaning": "Never loaded (R-AX-6).",
+      "core": [
+        "_archived"
+      ]
+    },
+    "not_code": {
+      "meaning": "Documentation only.",
+      "core": [
+        "docs"
+      ]
+    }
+  },
+  "plans": {
+    "core/persona": {
+      "verdict": "review",
+      "keep_on_axis": [
+        "BizCity_Guru_Runtime",
+        "BizCity_Guru_Reply_DTO",
+        "BizCity_Channel_Send_DTO",
+        "BizCity_Guru_Citation_Formatter",
+        "BizCity_Guru_Skill_Bridge",
+        "BizCity_Guru_Token_Parser",
+        "BizCity_Persona_Registry",
+        "BizCity_Twin_Guru_Context"
+      ],
+      "target": "Guru runtime moves to the Guru owner on the axis (core/knowledge Guru service or core/channel-gateway bot), class names kept",
+      "retire": [
+        "BizCity_Persona_Provider_Tool_Adapter",
+        "BizCity_Guru_Bridge_REST",
+        "BizCity_Guru_Provider_Bridge",
+        "BizCity_Guru_Bridge_Installer",
+        "BizCity_Persona_Tool_Provider"
+      ],
+      "note": "BizCity_Persona_Tool_Provider is still extended by modules/twinsearch; retire it with that module's persona provider."
+    },
+    "core/research": {
+      "verdict": "migrated 2026-09-27 (WP-12 R13a) — no longer in core",
+      "moved_to": "modules/twinsearch/research (9 live classes; class names and REST namespace bizcity/research/v1 unchanged; same load gate)",
+      "archived": [
+        "class-research-admin.php (never hooked)",
+        "assets/studio.* (bundle removed 2026-05-22)",
+        "tavily-chat-main/ (6.8 MB Python reference port, no PHP)"
+      ],
+      "archived_to": "core/_archived/research",
+      "note": "BizCity_Research_Tool_Router stays reachable for the TwinBrain sheet enricher (class_exists guarded)."
+    },
+    "core/twinsearch": {
+      "verdict": "migrated 2026-09-27 (WP-12 R13b) — no longer in core",
+      "moved_to": "core/kg-hub/includes/class-twinsearch-core.php (BizCity_TwinSearch_Core, axis stage 4; class name, methods and load gate unchanged)",
+      "archived": [
+        "bootstrap.php"
+      ],
+      "archived_to": "core/_archived/twinsearch",
+      "note": "Used by TwinBrain notebook source layer, TwinChat search engine and TwinWeb search/citation; it was never junk, only misplaced."
+    },
+    "core/bizcity-market": {
+      "verdict": "deprecated",
+      "keep": [
+        "BizCity_Market_Entitlements (CRM service templates)",
+        "BizCity_Market_Catalog (includes/class-twin-ai.php)"
+      ],
+      "review_with_owner": [
+        "BizCity_Market_Marketplace, BizCity_Market_Site_Apps admin pages",
+        "BizCity_Market_Install (installer registry)"
+      ],
+      "unused_outside": 19
+    },
+    "core/agents": {
+      "verdict": "migrated 2026-09-27 (WP-12 R13g) — no longer in core",
+      "moved_to": "core/runtime/agents (2026-10-01 WP-16 B-4 S3a; was core/twinbrain/includes/agents) (BizCity_Twin_Agent_Registry, BizCity_TwinShell_Agent, BizCity_TwinShell_Tool, BizCity_TwinShell_Handoff, BizCity_Artifact_Source_Federation; class names, file names and load gate unchanged)",
+      "note": "Coupling was real, not incidental: core/runtime's Twin Runner + REST controller, core/kg-hub's notebook bridge, modules/twinweb's agent-tool adapters and plugins/bizcity-twin-crm's sprint diagnostic all consume these classes. Owner: if it matters to the axis, it belongs in TwinBrain."
+    },
+    "plugins/bizcity-profile": {
+      "verdict": "archived 2026-09-27 (WP-12 R13e): owner confirmed it is deactivated and not core; no TwinBrain or Guru runtime dependency (BizCity_Profile_Context lives in core/knowledge and stays)",
+      "archived_to": "plugins/_archived/bizcity-profile",
+      "callers_left_guarded": [
+        "modules/twinweb (class_exists)",
+        "bizcity-pagebuilder export (profile_rest_on(); URLs empty, vCard hidden)",
+        "modules/twinshell default plugins (requires BIZCITY_PERSONAL_VERSION)"
+      ],
+      "tables": "R12b: nine bizcity_personal_* tables deprecated, no DROP"
+    }
+  },
+  "rules": {
+    "every_core_folder_classified": true,
+    "loader_never_requires_archived": true,
+    "no_new_dependency_on_deprecated": "report coupling; the count may only go down",
+    "archive_when_coupling_zero": true
+  }
+}

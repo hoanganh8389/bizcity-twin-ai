@@ -1,0 +1,204 @@
+{
+  "$comment": "R-LEAN-4 §3b — machine form of the client scope and hard budgets. Read by bin/lean-scoreboard.mjs. Plan: core/knowledge/docs/CORE-REDUCTION-WP-16-CLIENT-BUDGET.md. Owner decisions 2026-09-30: Q-W16-1..4.",
+  "contract": "client-lean-budget",
+  "version": "1.1.0",
+  "updated": "2026-09-30",
+  "rule": "R-LEAN-4",
+  "scope": "every channel => CRM => notebook (KG-Hub) + Context Bank + vertical models for MCP; reply turns, LLM streaming and client tools live in zalo-hub",
+  "budgets": {
+    "shipped_php_mb": 10,
+    "shipped_php_target_mb": 9.2,
+    "live_client_tables": 30,
+    "live_client_tables_target": 29
+  },
+  "php_blocks_kb": {
+    "foundation": {
+      "cap": 1200,
+      "paths": [
+        "core/helper",
+        "core/runtime",
+        "core/cron",
+        "core/conversation",
+        "core/smtp",
+        "core/cli",
+        "core/bizcity-llm",
+        "includes",
+        "bizcity-twin-ai.php"
+      ]
+    },
+    "channels": {
+      "cap": 2850,
+      "paths": [
+        "core/channel-gateway",
+        "plugins/bizcity-zalo-personal",
+        "plugins/bizcity-zalo-bot",
+        "plugins/bizcity-facebook-bot"
+      ]
+    },
+    "crm": {
+      "cap": 2300,
+      "paths": [
+        "plugins/bizcity-twin-crm"
+      ]
+    },
+    "notebook": {
+      "cap": 1700,
+      "paths": [
+        "core/kg-hub",
+        "core/knowledge",
+        "core/context-bank"
+      ]
+    },
+    "verticals_mcp": {
+      "cap": 450,
+      "paths": [
+        "core/mcp"
+      ]
+    },
+    "twin_record": {
+      "cap": 100,
+      "paths": [
+        "core/twin-core/event-stream"
+      ]
+    },
+    "surfaces": {
+      "cap": 600,
+      "paths": [
+        "modules/twinchat",
+        "modules/twinweb",
+        "modules/twinkg",
+        "modules/twinshell"
+      ]
+    }
+  },
+  "keep_tables": [
+    "bizcity_channel_bindings",
+    "bizcity_channel_user_links",
+    "bizcity_identity_contacts",
+    "bizcity_identity_bindings",
+    "bizcity_zalo_accounts",
+    "bizcity_zalo_message_map",
+    "bizcity_crm_contacts",
+    "bizcity_crm_accounts",
+    "bizcity_crm_inboxes",
+    "bizcity_crm_conversations",
+    "bizcity_crm_messages",
+    "bizcity_crm_labels",
+    "bizcity_crm_conversation_labels",
+    "bizcity_crm_teams",
+    "bizcity_crm_team_members",
+    "bizcity_crm_inbox_members",
+    "bizcity_crm_tasks",
+    "bizcity_kg_notebooks",
+    "bizcity_kg_sources",
+    "bizcity_kg_passages",
+    "bizcity_kg_workspaces",
+    "bizcity_kg_grants",
+    "bizcity_notebook_character_attachments",
+    "bizcity_characters",
+    "bizcity_context_bank",
+    "bizcity_twin_event_stream",
+    "bizcity_mcp_api_keys",
+    "bizcity_log_index",
+    "bizcity_cron_registry"
+  ],
+  "hub_owned_changelogs": [
+    "core.bizcity-llm-router",
+    "hub.zalo-personal-bridge"
+  ],
+  "addon_plugins": {
+    "bizcity-twin-brain-addon": {
+      "decision": "Q-W16-1 (owner 2026-09-30): TwinBrain/MPR + Automation leave the main plugin as an add-on plugin",
+      "moves": [
+        "core/twinbrain (minus the Woo / astro / customer vertical resolvers, which stay for MCP)",
+        "core/automation",
+        "core/memory",
+        "core/intent",
+        "core/twin-core (minus event-stream/)",
+        "core/persona (Guru runtime, skill bridge, token parser)",
+        "core/scheduler (UI /scheduler/; CRM events go to CRM)"
+      ],
+      "path": "wp-content/plugins/bizcity-twin-brain-addon (sibling plugin, its own deploy folder)",
+      "load_mode": "BIZCITY_BRAIN_ADDON_LOAD = auto (default: load when the folder is present) | active | off — resolved by includes/class-bizcity-addon-locator.php; the main plugin keeps the request gates",
+      "done": [
+        "core/automation -> automation/ (B-4 S2, 2026-10-01); changelog core.automation.json stays in core/helper/schema/changelog and is counted as extension-owned",
+        "core/twinbrain -> twinbrain/ (B-4 S3a, 2026-10-01) except includes/agents -> core/runtime/agents (main axis: runtime, KG-Hub federation, CRM); changelogs core.twinbrain + twinbrain.sheets extension-owned; TwinChat / TwinWeb brain path and the CRM PHP fallback replier need the add-on",
+        "core/memory split (B-4 S3b, 2026-10-01): Memory Spec, memory logs, unified writer bridge, session memory, memory admin -> memory/; identity scope + rolling + episodic stay in core/memory (CG, Knowledge, twin-core use them); changelog core.memory.unified extension-owned. Reviewed and kept in the main plugin: core/twin-core (axis keeps 410/661 KB), core/intent (195/243 KB), core/persona (Guru reply DTOs on the channel reply path), core/scheduler (CG bot schedule + CRM reminders, adapters, inbox bridge)",
+        "core/knowledge K-1 owners (B-4/WP-17, 2026-10-01): class-user-memory.php -> core/memory/includes; class-embedding.php + class-file-parser.php -> core/kg-hub/includes; bizgpt_chatbot_* legacy functions -> plugins/bizcity-facebook-bot/lib/legacy-functions.php (facebook-bot-only, never shipped with the add-on)",
+        "core/knowledge K-2 (WP-17, 2026-10-01): PHP fallback reply + TwinChat profile/context plumbing -> knowledge-legacy/ (class-chat-gateway, class-profile-context, class-context-api, class-chat-api, class-intent-parser, class-agent-binding, class-intent-provider); class-chat-gateway.php keeps its own R-PERF admin/REST/AJAX gate, resolved by the caller"
+      ]
+    },
+    "bizcity-twin-crm-addon": {
+      "decision": "Q-W16-2 (owner 2026-09-30): the CRM keeps 11 core tables; campaigns, invoices, contracts, SLA, reporting move to an add-on",
+      "moves": [
+        "campaigns",
+        "invoices + invoice lines + payments",
+        "contracts",
+        "SLA policies + working hours",
+        "reporting events + rollups"
+      ]
+    }
+  },
+  "cut_tools": {
+    "decision": "Q-W16-3 (owner 2026-09-30): client-side tools are cut; media/tool generation runs in brain-core (R-PF-2)",
+    "paths": [
+      "plugins/bizcity-video-kling",
+      "plugins/bizgpt-tool-google",
+      "plugins/bizcity-pagebuilder",
+      "modules/twinsearch",
+      "tool image (bztimg_*)"
+    ],
+    "done": [
+      "plugins/bizcity-video-kling (B-3a)",
+      "plugins/bizcity-pagebuilder (B-3b)",
+      "tool image bztimg_* tables (B-2b)",
+      "plugins/bizgpt-tool-google — tools cut; the Google connection moved to core/channel-gateway/integrations/google (B-3b-G, Q-W16-5)",
+      "modules/twinsearch + research (B-3c) — KG search core stays in core/kg-hub; Tavily router moved to core/twinbrain/tools/sheet"
+    ],
+    "moved": {
+      "plugins/bizgpt-tool-google": "core/channel-gateway/integrations/google (connection only; token-compatible: same constants, table, options, REST namespace, cron hook)"
+    }
+  },
+  "retire_tables": {
+    "decision": "Q-W16-4 (owner 2026-09-30): retire the duplicates of the CRM message spine",
+    "duplicates_of_crm": [
+      "bizcity_channel_messages",
+      "bizcity_cg_broadcasts",
+      "bizcity_cg_broadcast_recipients"
+    ],
+    "no_reader_no_writer": [
+      "bizcity_guru_providers"
+    ],
+    "archived_owner": [
+      "bztimg_* (10, tool-image)",
+      "bizcity_creator_* (3, content creator)",
+      "bizcity_llm_usage_logs (JSONL canonical)"
+    ]
+  },
+  "deploy_exclude": {
+    "$comment": "Committed to git, never uploaded to a server (bin/deploy-exclude-paths.txt). Dev-only paths (never committed) stay in bin/dev-only-paths.txt.",
+    "list": "bin/deploy-exclude-paths.txt"
+  },
+  "extension_owned_changelogs": [
+    "bizcoach.astro",
+    "core.automation",
+    "core.twinbrain",
+    "twinbrain.sheets",
+    "core.memory.unified"
+  ],
+  "extension_owned_note": "Tables created by an optional extension plugin (R-BA-10), e.g. bizcoach-pro bccm_*: vertical models only read them; they are not client tables.",
+  "ratchet": {
+    "shipped_php_mb": 16.45,
+    "live_client_tables": 94,
+    "updated": "2026-10-02",
+    "growth_log": [
+      {
+        "date": "2026-10-02",
+        "from_mb": 16.70,
+        "to_mb": 16.45,
+        "phase": "core/bizcity-market retired",
+        "reason": "Owner decision: the plugin browse/install marketplace + hub commission + entitlements module (core/bizcity-market, 404 KB) doesn't fit R-TWIN-AGENT-AXIS or R-BIZTWIN-AXIS. Archived whole to core/_archived/bizcity-market-20261002/; removed its admin-menu entries, dashboard card, and the TwinChat/TwinShell 'Explore'/'Marketplace' nav links it was wired into. Its 5 tables (market_plugins, market_plugin_votes, entitlements, market_hub_rollups, market_plugins_meta) were never in the schema changelog so the declared-table count doesn't move; quarantined (not dropped -- had 41/21/3/0/0 real rows). CRM's only apparent dependency (BizCity_CRM_Service_Templates::entitled()) verified dead in practice before removal (no template sets premium=>true)."
+      }
+    ]
+  }
+}

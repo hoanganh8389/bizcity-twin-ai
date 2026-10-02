@@ -1,9 +1,9 @@
 # BizCity Leader/Member Workspace Contract v1
 
-> **Contracts:** `leader-task-handoff@1.0.0` · `customer-360-team-view@1.0.0` ·
+> **Contracts:** `leader-task-handoff@1.0.0` · `customer-360-team-view@1.1.0` ·
 > `member-customer-360@1.0.0` · `staff-customer-portfolio@1.0.0`
-> **Status:** Schema + fixture + catalog entry **có** (C-01, 2026-09-18, catalog `1.10.0`, contract test PASS 30 contracts).
-> **Runtime adoption chưa có:** REST hiện trả DTO phẳng (`ok/contract/version/...`), chưa bọc envelope §0.1 — xem §7.
+> **Status:** Schema + fixture + catalog entry **có** (C-01, 2026-09-18, catalog `1.10.0`; 2026-09-18 `customer-360-team-view` 1.1.0, catalog `1.11.0`, contract test PASS 30 contracts).
+> **Runtime adoption chưa có:** REST hiện trả DTO phẳng (`ok/contract/version/...`), chưa bọc envelope §0.1 — xem §7. **Ngoại lệ:** `GET /crm-contacts/{id}/team-360?format=contract` trả envelope `customer-360-team-view@1.1.0` qua serializer riêng `BizCity_CRM_Customer_360_Team_View` (2026-09-18, master roadmap M3-01).
 > Schema: `core/twin-core/contracts/schema/public/v1/{leader-task-handoff,customer-360-team-view,member-customer-360,staff-customer-portfolio}.schema.json`.
 > **Rule:** [R-LEADER-MEMBER](../rules/PHASE-0-RULE-LEADER-MEMBER-WORKSPACE.md)
 > **Phase:** [PHASE-0.50](../../plugins/bizcity-twin-crm/docs/PHASE-0.50-CRM-CUSTOMER-360-LEADER-MEMBER-WORKSPACE-UI-FIRST.md)
@@ -235,7 +235,7 @@ data {
 |---|---|
 | Disk | schema JSON 4 contract + fixture hợp lệ/không hợp lệ (fixture không hợp lệ phải có: SĐT thô, `subject ≠ actor` trên C, `staff_touches` trên C, rate với `den < 10`) |
 | Loader | serializer B2 và C là hai class khác nhau; route C không gọi REST admin |
-| Runtime | LM-T1..LM-T11 (R-LEADER-MEMBER §3) |
+| Runtime | LM-T1..LM-T14 (R-LEADER-MEMBER §3) |
 
 Probe (planned): `core.crm.leader_member_workspace`, `twingpt.crm.task_inbox_scope`,
 `core.channel.personal_multi_account_owner`.
@@ -255,14 +255,20 @@ Schema bám DTO mà source đã trả (PHASE-0.50 §11–§12) thay vì bản nh
 | `leader-task-handoff` | `due_at` = ngày `YYYY-MM-DD`; `template_code` optional (không lưu); `subjects` ≤ 1 (1 task / khách); subject C có thêm `channel`, `ref`; `timeline[].action` = hậu tố audit `handoff_*` (`sent/seen/accepted/in_progress/done/returned/cancel/reassign/reopen`) | C-03 không thêm cột; `/gpt/crm/` mở inbox theo `channel`+`ref` |
 | `customer-360-team-view` | theo DTO `team-360`: `owner`, `conversations[]`, `touched_by[]`, `automated_replies` (số), `orders{available,items}`, `identity_conflicts{open}`, `can`; chưa có `ownership.history`, `stage`, `journey`, `campaigns` | chưa có nguồn (§12 W2 "thiếu") — thêm là **minor** |
 | `member-customer-360` | `journey` = `{stage, paid_order_count, last_touch_at, previously_cared, milestones[≤5]}` (§11.6) thay `events[]`; `contact` cho phép `phone`/`email` | xem mục cần quyết định bên dưới |
-| `staff-customer-portfolio` | theo DTO portfolio: `phones[]`, `buckets[]` (value `null` khi thiếu nguồn), `sources{}`, `funnel{touched,ordered,rate,rate_basis,repeat}`; `rate_basis.den ≥ 10` | D3; runtime chưa trả `rate_basis` |
+| `staff-customer-portfolio` | theo DTO portfolio: `phones[]`, `buckets[]` (value `null` khi thiếu nguồn), `sources{}`, `funnel{touched,ordered,rate,rate_basis,repeat}`; `rate_basis.den ≥ 10` | D3; runtime trả `rate_basis` khi `touched ≥ 10` (2026-09-18, M3-03) |
 
 Kiểm tra ngữ nghĩa trong `core/twin-core/contracts/tests/run-contract-tests.mjs` (validator cấu trúc không biểu diễn được):
 trên `C_PUBLIC_TWINGPT` `subject.user_id === principal.actor_user_id`; task C không có `assignee/timeline/result/batch_key/updated_at`
 và `assigned_by.user_id`; `can[]` C chỉ gồm hành động member, B2 chỉ gồm hành động leader.
 
 **Cần quyết định / chênh lệch runtime so với bất biến §0.2-3 (không có SĐT thô):**
-1. `team-360` hiện trả `contact` qua `shape_crm_contact()` (có SĐT/email thô) trên B2 — schema chỉ cho `phone_masked`.
-2. C Customer 360 trả `profile.phone`/`email` thô để member sửa thông tin khách **của chính hội thoại mình** (0.48C §3.15) —
-   schema đang cho phép. Product chọn: giữ (ngoại lệ ghi rõ) hay chuyển sang masked + form sửa riêng.
+1. ~~`team-360` hiện trả `contact` qua `shape_crm_contact()` (có SĐT/email thô) trên B2 — schema chỉ cho `phone_masked`.~~
+   **Đã chốt 2026-09-18 (CRM master roadmap §10 mục 4):** B2 leader có khách trong scope được thấy SĐT/email đầy đủ —
+   `customer-360-team-view@1.1.0` thêm `contact.phone`/`contact.email` optional (minor), kèm `phone_masked`. Serializer
+   `BizCity_CRM_Customer_360_Team_View` chỉ xuất field trong schema (không `acquisition_meta`, `additional_attributes`,
+   `zalo_uid`, `wp_user_id`…); nhân viên ngoài roster của actor gộp thành "Nhân viên khác" (`user_id: null`).
+   Unit test `CrmCustomer360TeamViewContractTest` kiểm output với chính file schema.
+2. **Đã chốt 2026-09-18:** C giữ `phone`/`email` thô **chỉ cho khách của chính hội thoại member** (cần để sửa thông tin,
+   0.48C §3.15) — ngoại lệ có chủ đích với §0.2-3; vẫn cấm trong URL, log, cache key IndexedDB (đã quét prod: 0.48C SD §11.18).
+   Việc còn lại: serializer C tách class (C-02 phía C).
 3. Subject C của task có `ref` = `channel_ref_id` của inbox — **[Cần xác minh]** có phải provider UID thô với Zalo Cá nhân không.

@@ -57,38 +57,21 @@
       "required_surfaces": ["identity_scoping", "same_origin_proxy", "ownership_guard", "runtime_probe"]
     },
     {
-      "id": "bizcity.webchat",
-      "path": "modules/webchat",
+      "id": "bizcity.twinkg",
+      "path": "modules/twinkg",
       "kind": "framework_integrated",
       "status": "partial",
       "tier": "module",
       "role": "module",
-      "applicable_stages": ["package", "loader", "identity", "channel", "context_bank", "brain", "error", "diagnostics", "release"],
+      "applicable_stages": ["package", "loader", "identity", "knowledge", "error", "release"],
       "distribution": "public_framework",
       "probe_ids": [],
       "db_reversible": false,
       "plug_and_play": false,
       "activation_isolated": false,
       "manifest": null,
-      "bootstrap": "modules/webchat/bootstrap.php",
-      "required_surfaces": ["channel_normalized", "identity_scoping", "sse_events", "error_envelope"]
-    },
-    {
-      "id": "bizcity.twinsearch",
-      "path": "modules/twinsearch",
-      "kind": "framework_integrated",
-      "status": "review",
-      "tier": "module",
-      "role": "module",
-      "applicable_stages": ["package", "loader", "identity", "knowledge", "brain", "error", "diagnostics", "release"],
-      "distribution": "public_framework",
-      "probe_ids": [],
-      "db_reversible": false,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": null,
-      "bootstrap": "modules/twinsearch/bootstrap.php",
-      "required_surfaces": ["gateway_client", "search_contract", "reliable_http", "runtime_probe"]
+      "bootstrap": "modules/twinkg/bootstrap.php",
+      "required_surfaces": ["admin_navigation", "permission_scopes", "error_envelope", "runtime_probe"]
     },
     {
       "id": "bizcity.twinshell",
@@ -137,7 +120,7 @@
       "activation_isolated": false,
       "manifest": "plugins/bizcity-twin-crm/manifest.json",
       "bootstrap": "plugins/bizcity-twin-crm/bootstrap.php",
-      "required_surfaces": ["channel_normalized", "outbound_logging", "identity_scoping", "error_envelope", "runtime_probe"]
+      "required_surfaces": ["channel_normalized", "outbound_logging", "identity_scoping", "error_envelope", "pipeline_definition_schema", "pipeline_kind_registry", "context_app_registry", "pipeline_kind_board_contract", "pipeline_aggregate_service", "pipeline_browser_selfcheck", "runtime_probe"]
     },
     {
       "id": "bizcity.zalo-bot",
@@ -188,55 +171,6 @@
       "activation_isolated": false,
       "manifest": "plugins/bizcity-zalo-personal/manifest.json",
       "bootstrap": "plugins/bizcity-zalo-personal/bootstrap.php",
-      "required_surfaces": ["channel_normalized", "identity_scoping", "archive_contract", "file_log", "error_envelope"]
-    },
-    {
-      "id": "bizcity.pagebuilder",
-      "path": "plugins/bizcity-pagebuilder",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "tier": "required",
-      "role": "framework_integrated",
-      "applicable_stages": ["package", "loader", "identity", "brain", "action", "error", "storage", "diagnostics", "release"],
-      "distribution": "public_framework",
-      "probe_ids": [],
-      "db_reversible": false,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": "plugins/bizcity-pagebuilder/manifest.json",
-      "bootstrap": "plugins/bizcity-pagebuilder/bizcity-pagebuilder.php",
-      "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "mutation_guard", "error_envelope", "runtime_probe"]
-    },
-    {
-      "id": "bizcity.profile",
-      "path": "plugins/bizcity-profile",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "tier": "required",
-      "role": "framework_integrated",
-      "applicable_stages": ["package", "loader", "identity", "error", "diagnostics", "release"],
-      "distribution": "public_framework",
-      "probe_ids": [],
-      "db_reversible": false,
-      "plug_and_play": false,
-      "activation_isolated": false,
-      "manifest": "plugins/bizcity-profile/manifest.json",
-      "bootstrap": "plugins/bizcity-profile/bizcity-personal.php",
-      "required_surfaces": ["identity_scoping", "profile_routes", "runtime_probe"]
-    },
-    {
-      "id": "bizcity.zalo-bizcity",
-      "path": "plugins/bizcity-zalo-bizcity",
-      "kind": "legacy_adapter",
-      "role": "legacy_adapter",
-      "applicable_stages": ["package", "loader", "identity", "channel", "error", "storage", "diagnostics", "release"],
-      "distribution": "legacy_private",
-      "probe_ids": [],
-      "sunset": { "owner": "Twin AI Core", "status": "planned" },
-      "status": "partial",
-      "manifest": "plugins/bizcity-zalo-bizcity/manifest.json",
-      "bootstrap": "plugins/bizcity-zalo-bizcity/bootstrap.php",
-      "required_surfaces": ["adapter_boundary", "channel_normalized", "ddl_governance", "error_envelope"]
-    }
-  ]
+      "required_surfaces": ["channel_normalized", "identity_scoping", "archive_contract", "file_log", "error_envelope", "transport_port", "transport_capability"]
+    }  ]
 }

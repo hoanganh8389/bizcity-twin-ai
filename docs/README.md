@@ -1,6 +1,8 @@
 # BizCity Twin AI — Tài liệu hướng dẫn
 
 > **Biến WordPress thành Bộ Não AI của Doanh Nghiệp Bạn.**
+>
+> **Trục kiến trúc chính (2026-09-30):** [Trục Twin Agent — R-TWIN-AGENT-AXIS](rules/PHASE-0-RULE-TWIN-AGENT-AXIS.md): Zalo Cá nhân, TwinChat và Twin GPT được **một** agent trả lời; plugin trên site chỉ cần kết nối 4 bước và cung cấp dữ liệu (gói chiếu), không tự chạy AI cho lượt trả lời.
 
 BizCity Twin AI là framework AI cho WordPress, mang đến một hệ sinh thái đầy đủ từ trợ lý AI
 thông minh (TwinBrain), giao diện chat (TwinChat), kho kiến thức (KG Hub), tự động hóa

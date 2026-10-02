@@ -301,13 +301,14 @@ final class BizCity_Diagnostics {
 				$missing[] = [ 'table' => $suffix, 'physical' => $physical, 'scope' => $scope ];
 			}
 		}
+		$reported_prefix = $wpdb->prefix;
 		if ( $switched ) {
 			restore_current_blog();
 		}
 		return [
 			'ok'            => empty( $missing ) && empty( $unresolved ),
 			'blog_id'       => $blog_id,
-			'prefix'        => $wpdb->prefix,
+			'prefix'        => $reported_prefix,
 			'present'       => $present,
 			'missing'       => $missing,
 			'retired'       => $retired,
@@ -783,16 +784,16 @@ final class BizCity_Diagnostics {
 				'wave'  => 0,
 				'title' => 'BE skeleton (Runtime + REST + 5 helpers)',
 				'checks' => [
-					[ 'file',  'core/twinbrain/bootstrap.php' ],
+					[ 'file',  '../bizcity-twin-brain-addon/twinbrain/bootstrap.php' ],
 					[ 'class', 'BizCity_TwinBrain_Runtime' ],
 					[ 'class', 'BizCity_TwinBrain_Notebook_Selector' ],
 					[ 'class', 'BizCity_TwinBrain_Tool_Intent_Matcher' ],
 					[ 'class', 'BizCity_TwinBrain_Perspective_Runner' ],
 					[ 'class', 'BizCity_TwinBrain_Synthesizer' ],
 					[ 'class', 'BizCity_TwinBrain_REST' ],
-					[ 'file',  'core/twinbrain/includes/event-schemas/brain_perspective_selected.json' ],
-					[ 'file',  'core/twinbrain/includes/event-schemas/brain_perspective_answer.json' ],
-					[ 'file',  'core/twinbrain/includes/event-schemas/brain_tool_intent.json' ],
+					[ 'file',  '../bizcity-twin-brain-addon/twinbrain/includes/event-schemas/brain_perspective_selected.json' ],
+					[ 'file',  '../bizcity-twin-brain-addon/twinbrain/includes/event-schemas/brain_perspective_answer.json' ],
+					[ 'file',  '../bizcity-twin-brain-addon/twinbrain/includes/event-schemas/brain_tool_intent.json' ],
 				],
 			],
 			'TBR.0b' => [
@@ -938,7 +939,7 @@ final class BizCity_Diagnostics {
 				'title' => 'PerspectiveRunner real (curl_multi_exec)',
 				'checks' => [
 					[ 'method', 'BizCity_TwinBrain_Perspective_Runner', 'run' ],
-					[ 'grep',   'core/twinbrain/includes/class-twinbrain-perspective-runner.php', 'curl_multi_exec' ],
+					[ 'grep',   '../bizcity-twin-brain-addon/twinbrain/includes/class-twinbrain-perspective-runner.php', 'curl_multi_exec' ],
 				],
 			],
 			'TBR.5' => [
@@ -946,8 +947,8 @@ final class BizCity_Diagnostics {
 				'title' => 'Synthesizer real (locked prompt + JSON mode + brain_synthesize event)',
 				'checks' => [
 					[ 'method', 'BizCity_TwinBrain_Synthesizer', 'synthesize' ],
-					[ 'grep',   'core/twinbrain/includes/class-twinbrain-synthesizer.php', 'response_format' ],
-					[ 'grep',   'core/twinbrain/includes/class-twinbrain-runtime.php',      'brain_synthesize' ],
+					[ 'grep',   '../bizcity-twin-brain-addon/twinbrain/includes/class-twinbrain-synthesizer.php', 'response_format' ],
+					[ 'grep',   '../bizcity-twin-brain-addon/twinbrain/includes/class-twinbrain-runtime.php',      'brain_synthesize' ],
 				],
 			],
 			'TBR.6' => [

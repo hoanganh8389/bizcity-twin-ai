@@ -124,6 +124,9 @@ Directive owner for the storage/context adoption boundary: Johnny Chu - Chu Hoà
 | `zalo-personal-bridge` | `zalo-personal-bridge.schema.json` | Zalo Personal bridge mapping and admission |
 | `channel-diagnostics-record` | `channel-diagnostics-record.schema.json` | Account-scoped channel operational evidence and Context Bank pipeline status |
 | `extension-storage-context` | `extension-storage-context.schema.json` | Extension storage decision, encrypted filestore receipt, Context Bank pointer/rollup and MPR retrieval adoption |
+| `pipeline-kind-board` | `pipeline-kind-board.schema.json` | Definition-driven CRM pipeline board aggregate shared by Kanban and pipeline dashboards; columns come from `pipeline-definition`, counts from scoped SQL aggregation |
+| `pipeline-definition` | `pipeline-definition.schema.json` | Configuration document of one CRM pipeline kind (stages, sub-steps, gates, SLA quadruples, exceptions). 1.1.0 (PHASE-0.63C GC-23) is additive: terminal `outcome`, presentation `ui`, sub-step `return_to`. Owner `plugins/bizcity-twin-crm`; producer `BizCity_CRM_Pipeline_Registry::save()` (CPT `bzcrm_pipeline`, versioned, run pins `pipeline_def_version`); consumers Pipeline_Run_Service, Pipeline_Aggregate_Service, FE Context Apps/Builder; kinds are registered through the `bizcity_crm_register_pipeline_kinds` filter; validator `BizCity_CRM_Pipeline_Registry::validate()` + fixtures + `tests/unit/CrmPipelineLibraryTest.php` |
+| `pipeline-kind-dashboard` | `pipeline-kind-dashboard.schema.json` | Per-kind CRM pipeline dashboard: the `pipeline-kind-board` aggregate (cards empty) plus outcomes/money, lost reasons, lead time vs `process_sla`, open exceptions, load by role and (only for appointment-driven definitions) today's schedule. Owner `plugins/bizcity-twin-crm` (`BizCity_CRM_Pipeline_Dashboard_Service`, route `GET pipeline-dashboard/{kind}`); consumers the CRM dashboard widgets; validator fixtures + `tests/unit/CrmPipelineDashboardServiceTest.php` |
 
 ### 2.2.1 Setting Panel design contract
 
@@ -228,6 +231,36 @@ Runtime evidence and the Context Bank/Brain owner probes.
 
 ---
 
+### 2.6 Guru context contract (R-GURU-SOURCE, 2026-09-26)
+
+| Field | Value |
+|---|---|
+| `contract_id` | `bizcity-guru-context` |
+| `owner` | `core/channel-gateway` (resolver `BizCity_Guru_Context_Resolver` + site routes `zalo-bridge/guru-profile`, `zalo-bridge/guru-context`); Hub routes owned by `bizcity-llm-router` |
+| `artifact` | [GURU-CONTEXT-CONTRACT-v1.md](GURU-CONTEXT-CONTRACT-v1.md); fixtures `zalo-hub/contracts/fixtures/guru_profile.json`, `guru_context.json` (GS-7, pending) |
+| `version` | `1.0` draft; additive ⇒ `1.x`, merging instruction/prompt ⇒ `2.0` |
+| `scope` | `domain_runtime` — internal service contract, **not public** (R-GP-2) |
+| `producer` | site resolver (PHP) → Hub relay |
+| `consumer` | PHP Bot Studio turn runner (in-process), zalo-hub cell (`guru-context-client`, GS-6) |
+| `validator` | shared fixtures read by twin-ai PHPUnit, router PHPUnit and cell tests; parity evidence GS-8 |
+| `failure_policy` | fail open: profile from cache / engine default instruction; context timeout 2.5 s ⇒ answer without knowledge; R-ERROR-UX English |
+
+### 2.7 Twin Agent Axis contract family (R-TWIN-AGENT-AXIS, 2026-09-30)
+
+One agent (brain-core) answers Zalo Cá nhân, TwinChat and Twin GPT; two roles; data by packs. Design only — no producer/consumer code yet (PHASE-0.87 lanes BC/CL).
+
+| `contract_id` | Artifact | Owner | Scope | Producer → consumer | Validator (planned) | Failure policy |
+|---|---|---|---|---|---|---|
+| `bizcity.twin-agent-axis` 1.0.0 | [TWIN-AGENT-AXIS-v1.json](TWIN-AGENT-AXIS-v1.json) | Twin AI Core | `framework_internal` | docs + code markers `@axis twin-agent-axis@1 …` → `bin/validate-twin-agent-axis.mjs` | CL-10 | report-mode, strict in CI after wave 5 |
+| `twin-agent-turn` 1.0.0 | [TWIN-AGENT-TURN-CONTRACT-v1.md](TWIN-AGENT-TURN-CONTRACT-v1.md) §1–2 | brain-core (`zalo-hub/src`) | `framework_internal` | surface adapters → brain-core → surface | fixtures `zalo-hub/contracts/fixtures/taa/turn.*.json` (Node + PHPUnit) | web: fall back to PHP path (PHASE-0.84 §9); errors R-ERROR-UX |
+| `twin-agent-turn-complete` 1.0.0 | same §3 | `core/twin-core/event-stream` (receiver) | `domain_runtime` | cell outbox → Hub → site | `turn-complete.json` + dedupe test | 4xx dead-letter, 5xx retry 48 h |
+| `deep-analysis-job` 1.0.0 | same §4 | `core/twinbrain` (runner) | `domain_runtime` | cell → Hub → site job → Hub → cell | `deep-analysis-job.json` | async; failure ⇒ one apology message |
+| `projection-pack` 1.0.0 | [PROJECTION-PACK-CONTRACT-v1.md](PROJECTION-PACK-CONTRACT-v1.md) | client exporters (`bizcity-twin-ai`); store in brain-core | `domain_runtime` | site exporters → Hub relay → cell store | `packs.*.json` + exporter PII tests | keep last good copy; reply fails open with `as_of` |
+| `owner-agent-block` 1.2.0 | [OWNER-AGENT-BLOCK-CONTRACT-v1.md](OWNER-AGENT-BLOCK-CONTRACT-v1.md) | brain-core (`src/agent`) | `framework_internal` | bundle `owner_agent.principal` (site) → role resolver (sender UID = "UID chủ tài khoản", 1-1) (cell) | role/tool-schema tests; `bundle.owner_agent.json` | fail closed to `customer` |
+| `agent-mode-access` 1.0.0 | [AGENT-MODE-ACCESS-CONTRACT-v1.md](AGENT-MODE-ACCESS-CONTRACT-v1.md) | client (`core/channel-gateway` registry + Bot Studio; business modes delegated to `plugins/bizcity-twin-crm` `Staff_Policy`) | `framework_internal` (filter `bizcity_agent_modes_register` public) | `map_meta_cap` `bizcity_agent_mode_<mode>` → projected `modes` (bundle / web prepare) → cell schema + pack store | CL-13 unit (editor ⇒ `notebook`), BC-4 schema test | delegated without owner answer ⇒ denied; unknown mode ignored |
+
+Design guide for the family: [TWIN-AGENT-SURFACE-ADAPTER-GUIDE-v1](../framework/TWIN-AGENT-SURFACE-ADAPTER-GUIDE-v1.md) — one `runAgentTurn`, every surface an adapter (A1 intake, A2 principal, A3 delivery, A4 record). Owner capture: `owner-capture` 1.0.0 (same doc §5) — cell outbox → Hub → site `zalo-bridge/owner-capture` → daily notebook → KG; 4xx dead-letter, 5xx retry 48 h. Versions after v1.2 of the rule: `twin-agent-turn` 1.2.0, `deep-analysis-job` 1.1.0, `projection-pack` 1.1.0, axis JSON 1.2.0.
+
 ## 3. Active `core/` Contract Inventory
 
 This table covers every active top-level `core/` package. “Candidate” means the
@@ -287,12 +320,14 @@ future `contracts check` must surface as `related_contracts` and `migration_gap`
 
 ## 4. Active `modules/` Contract Inventory
 
-Active modules are `twinchat`, `twinsearch`, `twinshell`, `twinweb`, and
-`webchat`. `modules/_archived/` is excluded.
+Active modules are `twinchat`, `twinkg`, `twinsearch`, `twinshell`, `twinweb`, and
+`webchat`. `modules/_archived/` is excluded. `webchat` is scheduled for removal
+(R-GURU-PRIVATE R-GP-10, CORE-REDUCTION WP-10 wave C1).
 
 | Module | Contract surfaces | Artifact/evidence | Class | CLI check |
 |---|---|---|---|---|
 | `modules/twinchat` | REST/SSE chat, workspace history, source ingestion, learning, studio, admin shell | `bootstrap.php`, REST controllers, `core.twinchat.*` probes | `domain_runtime` | Route namespace, SSE event shape, identity/error contract, probe coverage |
+| `modules/twinkg` | Internal KG-Hub / Guru admin UI at `/twinkg/` and wp-admin iframe `bizcity-twinkg`; TwinShell entry; consumes internal `bizcity-knowledge/v2` routes (Gurus are private, R-GURU-PRIVATE) | `bootstrap.php`, `class-twinkg-bootstrap-data.php`, `core/knowledge/docs/CORE-REDUCTION-CONTRACT-RESOLUTION-CR01-CR02.md` | `framework_integrated` + `domain_runtime` | Registry row `bizcity.twinkg`; admin-navigation, permission-scopes, R-ERROR-UX payload (pending WP-10 B1); no probe yet |
 | `modules/twinsearch` | Shared search and input gate | `bootstrap.php`, search REST and provider filters | `domain_runtime` | Gateway wrapper, result fields, no direct provider transport |
 | `modules/twinshell` | Shell REST/primitives, learning SDK, account hub | `includes/*rest.php`, `class-twin-shell-learning-sdk.php`, account hub doc | `domain_runtime` | Scope, session, tool trace, REST/error contract |
 | `modules/twinweb` | Twin GPT public REST, guest/member identity, thread/project, citation, FB connect | `bootstrap.php`, `class-twinweb-rest.php`, identity/thread probes | `package_adoption` + `domain_runtime` | Same-origin proxy, identity/owner guard, SSE/citation/thread continuity |
@@ -322,7 +357,12 @@ absence from that registry is itself a CLI finding (`registry_untracked`).
 | `plugins/bizcity-video-kling` | Managed video submit/poll, retry/replay/error boundary | Registry `bizcity.video-kling = partial` | `package_adoption` | Video wrapper, no provider key/URL, idempotency, owner scope, runtime probe |
 | `plugins/bizcity-zalo-bizcity` | Legacy Zalo hotline adapter and integration | Registry `bizcity.zalo-bizcity = partial`, `legacy_adapter` | `legacy_adapter` | Adapter boundary, normalized payload, DDL/error governance, sunset metadata |
 | `plugins/bizcity-zalo-bot` | Admin/command channel, identity link, automation bridge | Registry `bizcity.zalo-bot = partial` | `domain_runtime` | Zone 2 isolation, identity tuple, command owner, channel/file-log/error contract |
-| `plugins/bizcity-zalo-personal` | Zalo Personal bridge, account mapping, archive, file log | Registry row must be confirmed | `domain_runtime` | Bridge schema, domain/capacity/mapping failure, archive and secret boundary |
+| `plugins/bizcity-zalo-personal` | Zalo Personal bridge, account mapping, archive, file log, transport port and capability descriptor | Registry `bizcity.zalo-personal = partial` | `domain_runtime` | Bridge schema, transport port/capability, domain/capacity/mapping failure, archive and secret boundary |
+
+Lane A internal contract: `zalo-transport-capability@1.1.0` is owned by
+`core/channel-gateway`, with implementations registered through the Zalo
+transport registry. Runtime evidence remains pending the PHASE-0.82 integration
+acceptance run.
 | `plugins/bizcoach-pro` | Coach/profile/astro, membership, gateway/cache and legacy surfaces | Registry `bizcity.bizcoach-pro = partial` | `package_adoption` | Credential boundary, cache contract, user ownership, error/runtime evidence |
 | `plugins/bizgpt-tool-google` | Google OAuth/tool integration and gateway capability | Registry row must be confirmed | `package_adoption` | OAuth scope/identity, gateway-only transport, secret boundary, manifest |
 

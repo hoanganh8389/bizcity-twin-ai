@@ -1,5 +1,7 @@
 # 00 — VIBE CANON: All Channel, One Brain
 
+> **2026-09-30:** "One brain" cho lượt trả lời đã được cụ thể hoá thành [R-TWIN-AGENT-AXIS](../rules/PHASE-0-RULE-TWIN-AGENT-AXIS.md) (một agent brain-core cho Zalo Cá nhân, TwinChat, Twin GPT; hai vai; dữ liệu theo gói). Nơi tài liệu này mâu thuẫn, luật trục thắng.
+
 > **Status:** 🟡 MỘT PHẦN — tái xác nhận hướng đi đã có trong
 > [PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md](../rules/PHASE-0-RULE-ENTERPRISE-BRAIN-DIRECTION.md)
 > và [PHASE-0-RULE-BRAIN-UNIFICATION.md](../rules/PHASE-0-RULE-BRAIN-UNIFICATION.md),

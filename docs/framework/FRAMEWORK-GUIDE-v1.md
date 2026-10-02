@@ -181,11 +181,81 @@ governance artifacts and are not distributed in the public package.
 
 BizCity Twin is a **Self-hosted Twin Runtime using the BizCity Managed AI Gateway**:
 
-- WordPress client owns orchestration, tenant data, identity context, channel state, memory, KG, CRM, scheduler, and local evidence.
-- BizCity Gateway owns provider secrets, model policy, billing, quota, entitlement, key identity, and managed provider execution.
+- WordPress client owns orchestration, tenant **raw** data and content, identity context, channel state, memory, KG, CRM, scheduler, and local evidence.
+- BizCity Gateway is **three roles**, fixed by [R-PROVIDER-FLOW](../rules/PHASE-0-RULE-PROVIDER-FLOW.md) §1.1 (2026-09-27, D-OB-8…8e):
+  - **Ops console:** the mu-plugin `bizcity-openrouter`.
+  - **Commercial Hub:** `bizcity-llm-router`.
+  - **Data plane:** the zalo-hub cell running **brain-core**. It holds every provider secret and makes every provider call.
 - Extensions consume versioned contracts and must not create a parallel brain, gateway, identity system, or billing ledger.
 
+### 2.1 Core skeleton (supreme, R-PROVIDER-FLOW §1.1)
+
+![Two planes](../rules/assets/R-PROVIDER-FLOW-v2-two-planes-brain-core.png)
+
+| Role | Component | Owns | Never |
+|---|---|---|---|
+| **Ops console** | mu-plugin `bizcity-openrouter` (Network Admin + Monitor) | Cell-hub configuration and test tools; **model per purpose** (pushed to the data plane as platform config); the overall **Monitor**; the zca Managed Bridge card (legacy, secondary) | 1API keys, plans, sales; provider keys; request path |
+| **Commercial Hub** | `bizcity-llm-router` | **1API keys** + domain, **plans**, **purchase/renewal** (WooCommerce), **my-account**, entitlement/limits/credit, usage ledger and billing; pushes the tenant snapshot | Provider keys or calls; model per purpose; ops UI; request path |
+| **Data plane** | Cell (Node, loopback): **brain-core** + zalo-cell `:3901` + ai-gateway `:3902`. Code: `zalo-hub/` at the plugin root (own deploy unit, Docker; never shipped in the plugin) | Every provider account and every external API call (LLM, search, image, audio, video, astrology/FreeAstroAPI, future APIs — 100 %), reasoning over client raw data, streaming, Zalo; obeys platform config + tenant snapshot; reports usage | Prices, plans, limits; settings UI |
+| **Client site** | `bizcity-twin-ai` + satellites | Raw resources and content, CRM, Guru content; calls the Hub's public URL with its domain + one API key | Reaching a provider or a data-plane port |
+
+A new capability first picks its row. Anything that puts provider calls in PHP, plan logic in the data plane, or model/cell config in the Commercial Hub is rejected in review.
+
 The old identifier `R-GW-8` remains valid. “Standalone client” describes deployment topology only; it does not mean provider-independent AI capability.
+
+### 2.2 Reply-turn axis (supreme, R-TWIN-AGENT-AXIS)
+
+Reply turns on **Zalo Cá nhân (zalo-hub), TwinChat and Twin GPT** follow one axis: *one agent · one twin stream · two roles · data by packs* ([rule](../rules/PHASE-0-RULE-TWIN-AGENT-AXIS.md), machine form [`TWIN-AGENT-AXIS-v1.json`](../contracts/TWIN-AGENT-AXIS-v1.json)).
+
+| Question | Answer on the axis |
+|---|---|
+| Who answers the turn? | brain-core `runAgentTurn` (data plane), **one loop for all three surfaces**. Each surface is only an adapter with four duties — intake, principal, delivery, record — per the [Surface Adapter Guide](TWIN-AGENT-SURFACE-ADAPTER-GUIDE-v1.md). The only surface branch inside the loop is the channel-format block. |
+| Owner or customer? | Resolved on the server (`owner-agent-block@1`); default customer. On Zalo the owner is the 1-1 sender whose UID equals the number's "UID chủ tài khoản" (⇒ `owner_user_id`); files and "ghi nhớ" from the owner go into the daily notebook (`owner-capture@1`), nobody else can save; on the web the owner is `get_current_user_id()` — same `user_id`. A customer turn = the owner turn without the Owner Agent block; owner tools never in groups. |
+| What may the owner block use? | Only the **agent modes** granted by [`agent-mode-access@1`](../contracts/AGENT-MODE-ACCESS-CONTRACT-v1.md) (`bizcity_agent_mode_<mode>`; editor ⇒ `notebook`; business modes ⇒ CRM admin/supervisor). Notebooks are always the principal's own (first `user_id`). |
+| How does business data reach the turn? | Projection packs pulled by the cell (`projection-pack@1`); never a PHP call inside the turn. |
+| What does the client plugin ship for it? | Connection (4 steps), read-only exporters, invalidation hooks, config UI, records. No LLM or embedding. |
+| Where does MPR run? | On the web, only as the asynchronous custom add-on `deep-analysis-job@1`. |
+| What does a new feature on these surfaces declare? | Surface, block, packs, tools, role gate — in the axis JSON — and `@axis twin-agent-axis@1 …` code markers. |
+
+### 2.2a Tenant tool capability gate + usage metering (PHASE-0.85, shared framework primitive)
+
+Any data-plane tool that can cost real provider money, or that a tenant's plan should be able to turn on/off, goes through **one gate and one meter** — built in PHASE-0.85 ([01-CONTRACTS](../../core/channel-gateway/docs/PHASE-0.85-TENANT-TOOL-METERING/01-CONTRACTS.md)), already reused outside that phase (PHASE-0.87 lane BC's `owner_agent.<mode>` capability reuses the same `capability.ts`/`tenant-tool-policy.ts`, see §2.2 above):
+
+| Concern | File (`zalo-hub/src/...`) | What it does |
+|---|---|---|
+| Capability decision (does this tenant's plan allow this tool right now?) | `brain-core/entitlement/capability.ts` (`decideCapability`) | Pure: snapshot + tool key → `ok` or a `CapReason` (`snapshot_missing`, `plan_excludes_tool`, `budget_exhausted`, `provider_not_configured`). Tool keys with no capability entry (e.g. `web_fetch`, pack-only owner tools) always pass — the gate only exists for tools that cost provider money. **Fails closed**: missing/expired snapshot or budget exhausted ⇒ blocked. |
+| Per-plan agent-mode gate (does this tenant's plan allow this *mode*, e.g. PHASE-0.87's `owner_agent.<mode>`?) | `brain-core/entitlement/capability.ts` (`decideOwnerMode`), `agent/tools/tenant-tool-policy.ts` (`ownerModeAllowedForTenant`) | A **separate, deliberately fail-open** gate from `decideCapability` above: it only blocks on an explicit `capabilities["owner_agent.<mode>"].allowed === false` — a missing key, missing snapshot, or Hub not yet aware of the mode all mean *allowed*, because the mode gates the tenant's **own** data (owner tools), not a paid provider call, and a Hub that doesn't know the key yet must not lock an owner out of their own business data. Don't "fix" this to fail closed to match `decideCapability` — the asymmetry is intentional. |
+| Combined gate (capability + provider registry) | `agent/tools/tenant-tool-policy.ts` (`toolDecisionForTenant`) | What `listAvailableTools` actually calls before a tool enters a tenant's schema. Chủ cell (`tenantId<=0`) always `ok` here — gated upstream by agent/account `disabledTools` instead. |
+| Quota (per-day / per-customer-per-day) | `brain-core/entitlement/quota.ts` (`checkQuota`) | Read-only; never writes. Reads `tenant_usage_counters`/`tool_usage`, written by the metering call below. |
+| Usage metering (one row + one Hub event per provider call) | `brain-core/usage/tool-usage.ts` (`meterTool`, `recordToolUsage`) | Wrap the actual provider call: records `tool_usage` (operational row, kept 90 days) and emits a `tool_usage` event (C85-2) to the Commercial Hub, which is the only source of billed `cost_usd`. Records on **both** success and failure (`units:0` on error) so error rate is visible. A tool that reads only pre-synced local data (e.g. PHASE-0.87's pack-based owner tools, which never call a provider — R-PF-2) does **not** need this; only a real provider call does. |
+| LLM-shaped side calls (not a discrete "tool", but still a provider call with tokens/cost) | `brain-core/usage/record.ts` (`recordSideCallUsage`, `purpose` ∈ `summary\|vision\|test_turn\|scheduled\|embeddings`) | Use this instead of `meterTool` when the call is itself an LLM/vision call (cost/tokens from `providerMetadata`, not a fixed `unit`/`units`) — e.g. the vision sidecar (`purpose:"vision"`) or embeddings (`purpose:"embeddings"`, already used by PHASE-0.87's BC-5 vector search). |
+
+**Rule of thumb for a new tool/lane:** if it calls an external provider (LLM, image, voice, video, search, astrology, scrape...), wire it through `meterTool`/`recordSideCallUsage` the same way Z4's 9 tools + the vision sidecar do — don't invent a parallel usage path. If it only reads pack/local data, it needs neither metering nor a capability key (unless the business wants a plan-level on/off switch for it, in which case add a capability key but skip the metering call).
+
+### 2.2 How the core is built: lean, four steps (supreme, R-LEAN-4)
+
+The client plugin is built to get **smaller, lighter and faster with every change** ([R-LEAN-4](../rules/PHASE-0-RULE-LEAN-FOUR-STEP.md)):
+
+1. **Every job ≤ 4 steps**, every step checkable; big work = several small wins that ship alone.
+2. **Every UI flow ≤ 4 steps**; a page shows ≤ 4 primary steps; detail lives in sheets (R-SETTINGS-4L); R-SETUP-4 is the model.
+3. **Lean scoreboard on every change** — core PHP, PHP loaded per REST request, tables, routes/AJAX, PHP HTML, client reply loops, UI flows > 4 steps.
+4. **Fewer tables, lighter loading**: prove a new table is needed; load code only on the surface that uses it.
+
+Where each core folder stands on the Twin Agent Axis (CORE-REDUCTION WP-15, 2026-09-30):
+
+| Tier | Core folders | Meaning |
+|---|---|---|
+| **Axis** | helper, runtime, cron, bizcity-llm (Hub client + key), channel-gateway (except `includes/bot/`), kg-hub, knowledge (Guru + quick FAQ), conversation, twin-core `event-stream/`, smtp | what the thin client keeps (R-TAA-6); loaded on axis routes |
+| **Add-on** (leaves as plugin `bizcity-twin-brain-addon`, Q-W16-1) | twinbrain (minus the vertical resolvers kept for MCP), automation, intent (tool registry), memory, scheduler UI, rest of twin-core, persona runtime | custom branch; not part of the main plugin |
+| **Legacy** | Bot Studio PHP turn runner (`channel-gateway/includes/bot/`), persona Guru runtime, CRM AI replier, knowledge chat gateway, TwinChat stream handler, `/gpt/` chat stream | second reply loops (R-TAA-1); cut in cut-over order |
+| **Owner decision** | membership, bizcity-market, KG-Hub repair pages (D-12) | business choice |
+| **Cut** (Q-W16-3) | client tools: video-kling, bizgpt-tool-google, pagebuilder, twinsearch, tool image | tools run in brain-core |
+
+CRM keeps 11 core tables; campaigns, invoices, contracts, SLA and reporting move to `bizcity-twin-crm-addon` (Q-W16-2). Budget contract: `docs/contracts/CLIENT-LEAN-BUDGET-v1.json`.
+
+Today every `/wp-json/` request loads ≈ 13 MB of `core/` PHP; the axis REST profile and add-on gating (WP-15 W15-2/W15-3) are the largest "light" lever.
+
+**Client scope and budgets (R-LEAN-4 §3b, 2026-09-30):** the client is *every channel ⇒ CRM ⇒ notebook (KG-Hub) + Context Bank + vertical models for MCP*. Shipped PHP must go below **10 MB** (21.97 MB today) and declared tables below **30** (150 today); `node bin/lean-scoreboard.mjs` measures both. Budget per block and the 29-table target: CORE-REDUCTION WP-16.
 
 ## 3. Ownership Map
 
@@ -193,10 +263,11 @@ The old identifier `R-GW-8` remains valid. “Standalone client” describes dep
 |---|---|---|
 | Focus, intent gating, local orchestration | `bizcity-twin-ai` client | Twin Kernel interfaces and local hooks |
 | Tenant data and state | Current WordPress blog/shard | `$wpdb->prefix`, canonical facades, R-MSDB |
-| LLM/Search/Video/Astro/PiAPI provider execution | `bizcity-llm-router` Hub | Client wrapper with Bearer `biz-xxx` |
-| Provider credentials | Hub only | Never store/read provider keys on client |
+| LLM/Search/Video/Astro/PiAPI (and every future) provider execution | **Data plane** (cell brain-core), reached through the Hub's public URL | Client wrapper with Bearer `biz-xxx` — unchanged for extension authors |
+| Provider credentials | **Data plane only** (cell, encrypted) | Never store/read provider keys on the client, the Commercial Hub, or the mu-plugin |
+| Model per purpose, cell configuration, overall monitoring | **Ops console** (mu-plugin `bizcity-openrouter`) | Never in the Commercial Hub or the client |
 | User/member/channel identity | Canonical client/Gateway identity services | Preserve `(platform, account_id, user_id, chat_id)` |
-| Billing/quota/plan | Authenticated API key on Hub | Never infer from `user_id` alone |
+| Billing/quota/plan, 1API keys, purchase, my-account | **Commercial Hub**, from the authenticated API key | Never infer from `user_id` alone; never in the data plane |
 | Runtime evidence | Diagnostics on the WordPress site | Disk, Loader, Runtime layers |
 | Stable extension contract | JSON Schema + PHP/TypeScript interfaces | No direct dependency on private class internals |
 
@@ -206,7 +277,8 @@ The old identifier `R-GW-8` remains valid. “Standalone client” describes dep
 
 ```text
 Extension -> BizCity_LLM_Client -> same-origin proxy when FE is involved
-          -> BizCity Managed Gateway -> provider
+          -> Hub public URL (bizcity.vn/wp-json/bizcity/v1/ai/openai/* …)
+          -> Apache ProxyPass -> ai-gateway :3902 -> brain-core -> provider   (no PHP on this path, R-PF-8)
 ```
 
 Use `BizCity_LLM_Client::chat()`, `chat_stream()`, `generate_image()`, or the relevant approved wrapper. Do not call OpenAI, Anthropic, OpenRouter, or provider endpoints directly.
@@ -361,11 +433,17 @@ Domain services may return `WP_Error` internally. The boundary caller must map i
 - Validate outbound URLs with the shared security policy when the client fetches user-controlled URLs.
 - Validate uploads by MIME, size, pixel budget, and scan policy where applicable.
 
-### Hub
+### Commercial Hub (`bizcity-llm-router`)
 
-- Authenticate the exact Bearer key and preserve `key_id`.
+- Authenticate the exact Bearer key and preserve `key_id` (and publish the key snapshot the ai-gateway enforces).
 - Resolve plan/quota/entitlement from that key, not `user_id` alone.
-- Keep provider credentials server-side.
+- Hold **no** provider credentials (R-PF-1).
+
+### Data plane (cell brain-core)
+
+- The only holder of provider credentials, encrypted with `CREDENTIALS_ENCRYPTION_KEY`, never returned by any API/log/export.
+- Binds to `127.0.0.1` only; reached through the Hub domain's reverse proxy or loopback.
+- Obeys the tenant snapshot; never decides price, plan or limit.
 - Revalidate URL, MIME, size, redirects, and private/reserved IP ranges before provider fetch.
 - Never trust client-provided plan, cost, provider, user, or key identity.
 
@@ -529,3 +607,25 @@ As of 2026-08-10:
 - [ ] Runtime probes pass for changed boundaries.
 - [ ] Residual risk and known gaps are documented.
 - [ ] No production-ready claim is made from static evidence alone.
+- [ ] The four-step setup passes end to end on a clean site (§14.1).
+
+### 14.1 Packaging: the four-step setup on the vertical axis (supreme, R-SETUP-4)
+
+A package that ships a channel is packaged **along the vertical axis**: channel ⇒ CRM Inbox ⇒ Agent Guru (one brain) ⇒ knowledge. Its setup is the entry of that axis and follows [R-SETUP-4](../rules/PHASE-0-RULE-FOUR-STEP-SETUP-AXIS.md):
+
+| Step | Label (same on every host) | Passes when (server check) |
+|---|---|---|
+| ① | Kết nối tài khoản BizCity | The site's own 1API key is saved and the connection report has no `fail` in L0–L5 |
+| ② | Kết nối máy chủ Zalo | Zalo Hub is allowed for the key (default), or the chosen alternative connection is healthy |
+| ③ | Đăng nhập số Zalo | The QR login reports `connected`, and the number has a WordPress owner |
+| ④ | Chọn Agent Guru | The number is bound to an Agent Guru (default preselected) with auto-reply on or deliberately off |
+
+Release checklist for a channel package:
+
+- [ ] The same four steps (labels, order, five states) render on every host that exposes the channel: Channel Gateway dashboard, `/crm/`, `/gpt/crm/`, wp-admin "Bắt đầu".
+- [ ] On a clean site, a site admin completes ①–④ without copying an ID and without leaving the stepper.
+- [ ] A message sent to the new number lands in the CRM Inbox and is answered by the Agent Guru chosen in ④.
+- [ ] Non-admin personas see read-only or "Không có quyền" states, never a working save button.
+- [ ] Per-item settings open in the app's `ActionSheet` (R-SETTINGS-4L-7).
+- [ ] The host's browser self-check (`core/channel-gateway/docs/tools/*selfcheck.js`) reports no FAIL on the step rows.
+- [ ] Knowledge capture through the channel (R-S4-9) is either evidenced end to end or explicitly listed as a known gap.

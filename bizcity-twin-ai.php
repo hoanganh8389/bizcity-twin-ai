@@ -650,22 +650,17 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exi
         BizCity_Loader_Ownership_Registry::transition( 'twin_core', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
     }
 }
-// [2026-08-26 Johnny Chu] PHASE-1.29-MARKET-LITE — load only the Market
-// surface requested by WordPress: plugins.php management or Marketplace.
-// Other requests keep the full marketplace schema/catalog/cron disabled.
-$_bizcity_market_admin_surface = is_admin()
-    && (
-        ( isset( $_SERVER['SCRIPT_NAME'] ) && false !== strpos( (string) $_SERVER['SCRIPT_NAME'], '/plugins.php' ) )
-        || ( isset( $_GET['page'] ) && 'bizcity-marketplace' === sanitize_key( (string) $_GET['page'] ) )
-    );
-if ( $_bizcity_market_admin_surface && class_exists( 'BizCity_Safe_Loader', false ) ) {
-    $_bizcity_market_bootstrap = __DIR__ . '/core/bizcity-market/bootstrap.php';
-    if ( is_file( $_bizcity_market_bootstrap ) && is_readable( $_bizcity_market_bootstrap ) ) {
-        BizCity_Safe_Loader::require_file( $_bizcity_market_bootstrap, 'market.bootstrap' );
-    }
-    unset( $_bizcity_market_bootstrap );
-}
-unset( $_bizcity_market_admin_surface );
+// [2026-10-02 Claude Sonnet 5] CORE-REDUCTION (owner: "Chợ AI Agent... hoàn toàn bỏ, ko cần thiết") — the
+// BizCity Market module (plugin/app browse-and-install marketplace, hub commission, entitlements) is
+// retired: it doesn't fit R-TWIN-AGENT-AXIS (one owner = one Twin Agent, not "browse a catalog of apps")
+// or R-BIZTWIN-AXIS (sell the CRM/Twin AI platform directly, not through a reseller marketplace).
+// Verified zero real external dependency: CRM's BizCity_CRM_Service_Templates::entitled() only consults
+// BizCity_Market_Entitlements for templates with `premium => true`, and no template in the codebase sets
+// that flag (bizcity_crm_service_templates filter has no subscriber either) -- so the class_exists() guard
+// there was already permanently false in practice. core/bizcity-market/ archived whole to
+// core/_archived/bizcity-market-20261002/; its 5 tables (market_plugins, market_plugin_votes, entitlements,
+// market_hub_rollups, market_plugins_meta) quarantined, not dropped (had real rows -- see
+// _notes/core-reduction-snapshot-20261002-bizcity-market.tar.gz for the pre-removal snapshot).
 // [2026-06-12 Johnny Chu] HOTFIX — FB Chat Widget injector must fire on EVERY frontend request
 // (wp_footer hook) even when the full channel-gateway is gated. Load the single lightweight
 // class unconditionally here so the widget injects before </body> on all public pages.

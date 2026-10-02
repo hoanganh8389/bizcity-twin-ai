@@ -113,6 +113,8 @@ vendor/
 /core/diagnostics/
 /tests/
 /_notes/
+# [2026-09-30 Claude Opus 5.5] R-LEAN-4 WP-16 B-1 — nested harness/unit folders are dev-local too (bin/dev-only-paths.txt).
+**/tests/
 # [2026-09-30 Claude Opus 5.5] zalo-hub = the Node data-plane repo (cell + ai-gateway + brain-core), its own deploy unit
 # (Docker on the VPS). Moved here from core/channel-gateway/_library/ (never committed there either). It needs its own
 # git repository (zalo-hub/.git, initialised 2026-09-30, branch main, no remote yet); it must never ride along

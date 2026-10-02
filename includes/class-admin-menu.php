@@ -670,32 +670,9 @@ class BizCity_Admin_Menu {
 		 *  G. WP Dashboard submenus
 		 * ───────────────────────────────────────────── */
 
-		// Marketplace
-		if ( class_exists( 'BizCity_Market_Marketplace', false ) ) {
-			$cap = is_multisite() ? 'manage_network' : 'read';
-			add_submenu_page(
-				'index.php',
-				'BizCity Apps - Chợ ứng dụng',
-				'Chợ ứng dụng',
-				$cap,
-				'bizcity-marketplace',
-				[ 'BizCity_Market_Marketplace', 'render' ],
-				2
-			);
-		}
-
-		// Site Apps
-		if ( class_exists( 'BizCity_Market_Site_Apps', false ) ) {
-			add_submenu_page(
-				'index.php',
-				'Ứng dụng mặc định',
-				'Ứng dụng mặc định',
-				self::menu_cap(),
-				'bizcity-site-apps',
-				[ 'BizCity_Market_Site_Apps', 'render_site_apps_page' ],
-				61
-			);
-		}
+		// [2026-10-02 Claude Sonnet 5] CORE-REDUCTION — Marketplace + Site Apps submenus removed with
+		// core/bizcity-market (retired; see bizcity-twin-ai.php). Classes no longer load, so these
+		// class_exists() guards would always be false anyway; removed for clarity.
 
 		/* ─────────────────────────────────────────────
 		 *  H. External / non-bundled hooks
@@ -1718,15 +1695,9 @@ class BizCity_Admin_Menu {
 					[ 'bizcity-webchat-timeline',    __( 'Timeline', $td ),            __( 'Dòng thời gian hoạt động', $td ) ],
 					[ 'bizcity-webchat-memory',      __( 'Memory', $td ),              __( 'Session memory & context specs', $td ) ],
 					[ 'bizcity-intent-monitor',      __( 'Intent Monitor', $td ),      __( 'Theo dõi intent, conversations, tools', $td ) ],
-					// System
-					[ 'bizcity-marketplace',         __( 'Marketplace', $td ),         __( 'Chợ ứng dụng & plugin', $td ) ],
 				];
 				foreach ( $cards as [ $slug, $title, $desc ] ) :
 					$url = admin_url( 'admin.php?page=' . $slug );
-					// Marketplace is under Dashboard
-					if ( $slug === 'bizcity-marketplace' ) {
-						$url = admin_url( 'index.php?page=' . $slug );
-					}
 					?>
 					<a href="<?php echo esc_url( $url ); ?>" style="text-decoration:none;color:inherit;">
 						<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:20px;box-shadow:0 2px 6px rgba(0,0,0,.04);transition:box-shadow .2s;"

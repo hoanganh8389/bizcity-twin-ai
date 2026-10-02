@@ -1,0 +1,411 @@
+{
+  "contract_id": "bizcity.twin-agent-axis",
+  "version": "1.2.0",
+  "axis_id": "twin-agent-axis@1",
+  "rule": "R-TWIN-AGENT-AXIS",
+  "rule_doc": "docs/rules/PHASE-0-RULE-TWIN-AGENT-AXIS.md",
+  "design_guide": "docs/framework/TWIN-AGENT-SURFACE-ADAPTER-GUIDE-v1.md",
+  "design_doc": "core/channel-gateway/docs/PHASE-0.87-OWNER-AGENT-VERTICAL-TOOLS/01-MASTER-PLAN.md",
+  "owner": "product owner (Johnny Chu); Twin AI Core maintains",
+  "date": "2026-09-30",
+  "status": "coded + unit on site, Hub and cell (PHASE-0.87 waves 1-5, staff wave 2, decisions of 2026-10-01); not deployed, no runtime evidence yet (Luat 40). Validator bin/validate-twin-agent-axis.mjs = CL-10",
+  "tagline": "One agent · one twin stream · two roles · data by packs",
+  "engine": {
+    "runtime": "brain-core",
+    "path": "zalo-hub/src",
+    "loop": "zalo-hub/src/agent/agent-loop.ts#runAgentTurn",
+    "shared_by_surfaces": [
+      "zalo_personal",
+      "twinchat",
+      "gpt"
+    ],
+    "surface_specific_allowed": [
+      "channel-format block of the system prompt (selected by surface)"
+    ],
+    "not_allowed_on_axis_path": [
+      "core/twinbrain Runtime reply",
+      "Bot Studio PHP turn runner",
+      "path C",
+      "get_ai_response()",
+      "client LLM call",
+      "client embedding for axis retrieval",
+      "surface-specific prompt, tool list or retriever"
+    ]
+  },
+  "adapter_duties": {
+    "A1_intake": "channel event → twin-agent-turn@1 (no intent, no tool choice, no prompt, no model)",
+    "A2_principal": "prove the principal from server facts; send role + modes; never widen",
+    "A3_delivery": "render typed twin frames in the channel format; never rewrite content",
+    "A4_record": "twin record via turn-complete; channel record (CRM row) only for customer conversations"
+  },
+  "surfaces": [
+    {
+      "id": "zalo_personal",
+      "label": "Zalo Cá nhân (zalo-hub number)",
+      "adapter_side": "cell",
+      "input": "zalo-hub listener + message batcher",
+      "delivery": "reply parts to Zalo",
+      "record": "customer conversations → CRM row; the owner's 1-1 conversation → CRM row with the contact tagged role:owner (excluded from customer pipeline/metrics) + twin record",
+      "owner_role_from": "sender Zalo UID === the number's \"UID chủ tài khoản\" (Bot Studio policy.owner_uid → bundle → cell ownerUserId), 1-1 only; same gate as list_threads/read_thread; link verification later (D-TAA-6)",
+      "owner_tools_in_groups": false,
+      "cut_over": "phase 1",
+      "capture": "owner files in 1-1 auto-saved; \"ghi nhớ\" via notebook_remember → owner-capture@1 → site daily notebook → KG built"
+    },
+    {
+      "id": "twinchat",
+      "label": "TwinChat /twinchat/",
+      "adapter_side": "client + ai-gateway",
+      "input": "site POST …/turn → prepare → ai-gateway (PHASE-0.84 widened)",
+      "delivery": "SSE typed twin frames",
+      "record": "twin record",
+      "owner_role_from": "get_current_user_id() on the current blog",
+      "cut_over": "phase 4"
+    },
+    {
+      "id": "gpt",
+      "label": "Twin GPT /gpt/",
+      "adapter_side": "client + ai-gateway",
+      "input": "same as twinchat, surface=gpt",
+      "delivery": "SSE typed twin frames",
+      "record": "twin record",
+      "owner_role_from": "get_current_user_id() (C-surface rules, R-TWIN-GPT-FIRST)",
+      "cut_over": "phase 4"
+    }
+  ],
+  "principal_binding": {
+    "zalo": "the number's \"UID chủ tài khoản\" (policy.owner_uid) is the owner; it belongs to the number's owner_user_id (R-SETUP-4 step 3)",
+    "web": "get_current_user_id() on the current blog",
+    "join": "same user_id = first user_id (R-LEADER-MEMBER); staff are owners of their own numbers (their own UID on their own number) and sessions",
+    "later": "link verification of the UID (one-time link opened while logged in as owner_user_id) — D-TAA-6",
+    "decision": "D-TAA-2 (closed, revised 2026-09-30: UID field, not Cloud của tôi)"
+  },
+  "roles": [
+    {
+      "id": "owner",
+      "meaning": "the sender is a bound WordPress principal of this surface",
+      "blocks": [
+        "base",
+        "owner_agent"
+      ],
+      "content": "filtered by the principal's agent modes",
+      "default": false
+    },
+    {
+      "id": "customer",
+      "meaning": "anyone else (every group sender, every UID other than the owner UID, anonymous web)",
+      "blocks": [
+        "base"
+      ],
+      "default": true
+    }
+  ],
+  "blocks": {
+    "base": {
+      "contents": [
+        "guru instruction",
+        "quick FAQ",
+        "thread history",
+        "guru knowledge when scope.knowledge=base+notebooks"
+      ],
+      "packs": [
+        "knowledge"
+      ],
+      "tools": [
+        "notebook_search:guru_scope"
+      ]
+    },
+    "owner_agent": {
+      "contents": [
+        "owner persona overlay",
+        "packs and tools of each allowed mode"
+      ],
+      "gated_by": "agent-mode-access@1"
+    }
+  },
+  "modes": [
+    {
+      "id": "notebook",
+      "packs": [
+        "owner_knowledge",
+        "notebook_meta"
+      ],
+      "tools": [
+        "notebook_search:owner_scope",
+        "notebook_remember"
+      ],
+      "data_scope": "principal's own notebooks only (first user_id): the number's daily-notebook workspace; search offered first, run on yes or on an explicit reference to the notes",
+      "access": "grantable",
+      "default_roles": [
+        "administrator",
+        "editor",
+        "author",
+        "contributor",
+        "subscriber with Twin GPT access"
+      ],
+      "capture": "owner files auto-saved; remember requests saved via notebook_remember"
+    },
+    {
+      "id": "astro_self",
+      "packs": [
+        "astro_self"
+      ],
+      "tools": [
+        "astro_self"
+      ],
+      "data_scope": "principal's own is_self profile",
+      "access": "grantable",
+      "default_roles": [
+        "administrator",
+        "editor",
+        "author",
+        "contributor",
+        "subscriber with Twin GPT access"
+      ],
+      "vertical_bridge": "astro"
+    },
+    {
+      "id": "sales",
+      "packs": [
+        "sales"
+      ],
+      "tools": [
+        "biz_sales"
+      ],
+      "data_scope": "site",
+      "access": "delegated:crm Staff_Policy admin|supervisor",
+      "vertical_bridge": "woo_bizops"
+    },
+    {
+      "id": "orders",
+      "packs": [
+        "orders"
+      ],
+      "tools": [
+        "biz_orders"
+      ],
+      "data_scope": "site (masked)",
+      "access": "delegated:crm Staff_Policy admin|supervisor",
+      "vertical_bridge": "woo_bizops"
+    },
+    {
+      "id": "customers",
+      "packs": [
+        "customers"
+      ],
+      "tools": [
+        "biz_customer_find"
+      ],
+      "data_scope": "site (masked)",
+      "access": "delegated:crm Staff_Policy admin|supervisor",
+      "vertical_bridge": "crm_customer (new)"
+    },
+    {
+      "id": "stock",
+      "packs": [
+        "stock"
+      ],
+      "tools": [
+        "biz_stock"
+      ],
+      "data_scope": "site",
+      "access": "delegated:crm Staff_Policy admin|supervisor",
+      "vertical_bridge": "woo_bizops"
+    },
+    {
+      "id": "deep_analysis",
+      "packs": [],
+      "tools": [
+        "request_deep_analysis"
+      ],
+      "data_scope": "job runs as the principal on the web; result delivered identically on all three surfaces",
+      "access": "grantable",
+      "default_roles": [
+        "administrator"
+      ],
+      "vertical_bridge": "TwinBrain MPR (custom add-on)"
+    },
+    {
+      "id": "booking",
+      "packs": [],
+      "tools": [],
+      "data_scope": "principal's own scheduler calendar; MCP tools booking.available_slots / booking.create / booking.cancel (core/mcp, PHASE-0.88 Q88-3)",
+      "access": "grantable",
+      "default_roles": [
+        "administrator"
+      ],
+      "vertical_bridge": "core/scheduler"
+    },
+    {
+      "id": "automation",
+      "packs": [],
+      "tools": [],
+      "data_scope": "site workflows; MCP tool automation.run (core/mcp, PHASE-0.88 Q88-3), runs as the principal, administrators only",
+      "access": "grantable",
+      "default_roles": [
+        "administrator"
+      ],
+      "vertical_bridge": "bizcity-twin-brain-addon/automation"
+    }
+  ],
+  "packs": [
+    {
+      "kind": "knowledge",
+      "exporter": "core/kg-hub (existing C-4 route)",
+      "audience": "base",
+      "scope": "Guru-bound notebooks",
+      "pii": "none expected"
+    },
+    {
+      "kind": "owner_knowledge",
+      "exporter": "core/kg-hub",
+      "audience": "owner_agent",
+      "mode": "notebook",
+      "scope": "per user_id (first user_id); daily notebooks captured by PHASE-0.86 included",
+      "pii": "owner-only"
+    },
+    {
+      "kind": "notebook_meta",
+      "exporter": "core/kg-hub",
+      "audience": "owner_agent",
+      "mode": "notebook",
+      "scope": "per user_id",
+      "pii": "none"
+    },
+    {
+      "kind": "sales",
+      "exporter": "woocommerce via core/twinbrain woo_bizops resolver / core/mcp business handlers (read-only)",
+      "audience": "owner_agent",
+      "mode": "sales",
+      "pii": "none"
+    },
+    {
+      "kind": "orders",
+      "exporter": "woocommerce via core/mcp commerce handlers",
+      "audience": "owner_agent",
+      "mode": "orders",
+      "pii": "masked"
+    },
+    {
+      "kind": "customers",
+      "exporter": "plugins/bizcity-twin-crm customer-360-team-view + core/mcp commerce.list_customers",
+      "audience": "owner_agent",
+      "mode": "customers",
+      "pii": "masked"
+    },
+    {
+      "kind": "stock",
+      "exporter": "woocommerce via core/mcp business.get_inventory_metrics",
+      "audience": "owner_agent",
+      "mode": "stock",
+      "pii": "none"
+    },
+    {
+      "kind": "astro_self",
+      "exporter": "bizcoach bccm_* (is_self profile of the principal)",
+      "audience": "owner_agent",
+      "mode": "astro_self",
+      "pii": "owner-only"
+    }
+  ],
+  "freshness": {
+    "target_seconds": 60,
+    "reconcile_minutes": 10,
+    "decision": "D-TAA-3 (closed)"
+  },
+  "deep_analysis_delivery": {
+    "surfaces": [
+      "zalo_personal:owner 1-1",
+      "twinchat",
+      "gpt"
+    ],
+    "content": "identical (one result, one job_id)",
+    "decision": "D-TAA-4 (closed)"
+  },
+  "decisions": {
+    "D-TAA-1": "closed — staff use the Owner Agent block by agent modes (agent-mode-access@1); notebooks always first user_id",
+    "D-TAA-2": "closed (revised) — owner = sender UID equal to \"UID chủ tài khoản\", 1-1; bound to owner_user_id; Cloud của tôi dropped",
+    "D-TAA-3": "closed — 60 s",
+    "D-TAA-4": "closed — identical deep-analysis result on the three surfaces",
+    "D-TAA-5": "closed — no owner tools in groups",
+    "D-TAA-6": "later phase — link verification of the owner UID",
+    "D-TAA-7": "open — CRM lead/agent get customers limited to assigned contacts",
+    "D-TAA-8": "closed — owner notebooks get the full KG build (triplets on); the cell still reads passages only"
+  },
+  "contracts": [
+    {
+      "id": "twin-agent-turn@1.2.0",
+      "doc": "docs/contracts/TWIN-AGENT-TURN-CONTRACT-v1.md"
+    },
+    {
+      "id": "twin-agent-turn-complete@1.0.0",
+      "doc": "docs/contracts/TWIN-AGENT-TURN-CONTRACT-v1.md"
+    },
+    {
+      "id": "deep-analysis-job@1.1.0",
+      "doc": "docs/contracts/TWIN-AGENT-TURN-CONTRACT-v1.md"
+    },
+    {
+      "id": "projection-pack@1.1.0",
+      "doc": "docs/contracts/PROJECTION-PACK-CONTRACT-v1.md"
+    },
+    {
+      "id": "owner-agent-block@1.2.0",
+      "doc": "docs/contracts/OWNER-AGENT-BLOCK-CONTRACT-v1.md"
+    },
+    {
+      "id": "agent-mode-access@1.0.0",
+      "doc": "docs/contracts/AGENT-MODE-ACCESS-CONTRACT-v1.md"
+    },
+    {
+      "id": "owner-capture@1.0.0",
+      "doc": "docs/contracts/TWIN-AGENT-TURN-CONTRACT-v1.md"
+    }
+  ],
+  "lanes": {
+    "BC": {
+      "name": "brain-core (zalo-hub)",
+      "doc": "core/channel-gateway/docs/PHASE-0.87-OWNER-AGENT-VERTICAL-TOOLS/10-LANE-BC-BRAIN-CORE.md"
+    },
+    "CL": {
+      "name": "client (bizcity-twin-ai), incl. merged PHASE-0.86 daily notebook",
+      "doc": "core/channel-gateway/docs/PHASE-0.87-OWNER-AGENT-VERTICAL-TOOLS/20-LANE-CL-CLIENT.md"
+    },
+    "HB": {
+      "name": "Hub relay (bizcity-llm-router)",
+      "doc": "core/channel-gateway/docs/PHASE-0.87-OWNER-AGENT-VERTICAL-TOOLS/30-HANDOFF-SEAMS.md"
+    }
+  },
+  "code_marker": {
+    "doc": "Every file that implements a piece of the axis carries one line in its file docblock: `@axis twin-agent-axis@1 <surface|adapter|block|mode|pack|tool|seam> <id>` (PHP) or `// @axis twin-agent-axis@1 …` (TS). The validator maps markers to this JSON.",
+    "examples": [
+      "@axis twin-agent-axis@1 pack sales",
+      "// @axis twin-agent-axis@1 tool biz_sales",
+      "// @axis twin-agent-axis@1 adapter zalo_personal A2",
+      "@axis twin-agent-axis@1 mode notebook",
+      "@axis twin-agent-axis@1 seam S3-write-back"
+    ]
+  },
+  "validator": {
+    "script": "bin/validate-twin-agent-axis.mjs",
+    "status": "wave 1 implemented 2026-09-30 (CL-10): mode registry parity, marker inventory, no LLM in marked PHP, single capture write path, taa fixture checksums, doc links, owner tools declare their mode. 2026-10-01: 0 pending, CI runs it with --strict (.github/workflows/ci.yml, once the validator and taa fixtures are committed)",
+    "checks": [
+      "every mode, tool and pack kind in this JSON has exactly one implementing marker",
+      "no owner_agent tool is reachable from the base tool list (static check on tool-catalog)",
+      "runAgentTurn and the tools it calls contain no surface branch other than the channel-format block",
+      "no tool calls zca (ctx.api) directly after the ChannelPort lands (BC-7)",
+      "no client file on an axis surface path calls BizCity_LLM_Client::chat* or chat_stream after its surface is cut over",
+      "every exporter marker file contains no LLM or embedding call",
+      "every mode in this JSON is registered by bizcity_agent_modes_register with an access block",
+      "every axis doc links docs/rules/PHASE-0-RULE-TWIN-AGENT-AXIS.md"
+    ]
+  },
+  "owner_capture": {
+    "contract": "owner-capture@1.0.0",
+    "path": "cell outbox → Hub → site zalo-bridge/owner-capture → capture job → daily notebook → ingest → KG (passages + triplets)",
+    "kinds": [
+      "file",
+      "remember"
+    ],
+    "non_owner": "bot answers that only the account owner can ask it to save into the notebook"
+  }
+}

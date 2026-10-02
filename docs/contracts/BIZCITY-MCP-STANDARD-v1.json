@@ -1,0 +1,90 @@
+{
+  "contract": "bizcity-mcp-standard@1.0.0",
+  "phase": "PHASE-0.88",
+  "doc": "core/channel-gateway/docs/PHASE-0.88-MCP-ONE-STANDARD/01-MASTER-PLAN.md",
+  "notes": "Machine form of the one MCP standard (L1 tools, L2 resources, L3 mapping). The site core/mcp registry must register every tool below with the same name, mode, scopes and confirm; bin/validate-mcp-standard.mjs checks code markers `@mcp bizcity-mcp-standard@1 tool <name>` against this file. `llm_alias` = the key the cell exposes to the model (Q88-5: existing cell keys are kept). `fallback_pack` = projection pack the cell reads when the MCP call times out or fails (owner/staff turns) and the only source on customer turns. `wave` = PHASE-0.88 wave that ships it.",
+  "modes": {
+    "notebook": { "scopes": ["brain.read"] },
+    "sales": { "scopes": ["business.read", "report.read"] },
+    "orders": { "scopes": ["order.read", "commerce.read", "order.write", "inventory.write"] },
+    "customers": { "scopes": ["crm.read", "commerce.read", "crm.write", "staff.write"] },
+    "stock": { "scopes": ["business.read", "commerce.read"] },
+    "astro_self": { "scopes": [] },
+    "deep_analysis": { "scopes": [] },
+    "booking": { "scopes": ["booking.read", "booking.write"], "new_in": "0.88", "default_grant": "administrator" },
+    "automation": { "scopes": ["automation.run"], "new_in": "0.88", "default_grant": "administrator" }
+  },
+  "role_groups": {
+    "rule": "R-MCP-OAUTH-ID §0b.5 (2026-10-01): every WP role has two MCP groups; applies to every client (OAuth, API key, delegated cell). Store: BizCity_MCP_Tool_Policy option bizcity_mcp_role_groups (absent = auto). Tool descriptors carry _meta.bizcity.group. Refusal code MCP_ROLE_GROUP_DENIED. The cell never falls back to a pack after a policy refusal, and the site pack route disables kinds of a denied group (reason role_group_denied).",
+    "groups": {
+      "knowledge": "tools named knowledge.* or brain.* (except brain.order.summary) or mode notebook; resources notebook/*, guru/*; prompts; packs owner_knowledge, notebook_meta",
+      "action": "every other offered tool (business read + write); resources customer/*, product/*, pack/{other kinds}"
+    },
+    "auto_defaults": {
+      "administrator": ["knowledge", "action"],
+      "editor": ["knowledge"],
+      "subscriber": []
+    },
+    "custom_role_inference": "manage_options => administrator profile; edit_others_posts => editor profile; else subscriber profile; multiple roles => union",
+    "knowledge_scope": "user id first: non-administrator profiles read only their own notebooks"
+  },
+  "any_business_mode_scopes": ["staff.notify"],
+  "business_modes": ["sales", "orders", "customers", "stock", "booking", "automation"],
+  "tools": [
+    { "name": "sales.summary", "kind": "read", "mode": "sales", "scopes": ["business.read"], "confirm": "never", "llm_alias": "biz_sales", "fallback_pack": "sales", "aliases": ["business.get_sales_metrics"], "wave": 1 },
+    { "name": "knowledge.search", "kind": "read", "mode": "notebook", "scopes": ["brain.read"], "confirm": "never", "llm_alias": "notebook_search", "fallback_pack": "owner_knowledge", "aliases": ["brain.search"], "wave": 2 },
+    { "name": "knowledge.get_passage", "kind": "read", "mode": "notebook", "scopes": ["brain.read"], "confirm": "never", "llm_alias": "knowledge_get_passage", "fallback_pack": null, "aliases": ["brain.get_passage"], "wave": 2 },
+    { "name": "knowledge.list_notebooks", "kind": "read", "mode": "notebook", "scopes": ["brain.read"], "confirm": "never", "llm_alias": "knowledge_list_notebooks", "fallback_pack": "notebook_meta", "aliases": ["brain.list_notebooks"], "wave": 2 },
+    { "name": "order.status", "kind": "read", "mode": "orders", "scopes": ["order.read"], "confirm": "never", "llm_alias": "biz_orders", "fallback_pack": "orders", "aliases": [], "wave": 2 },
+    { "name": "crm.customer.lookup", "kind": "read", "mode": "customers", "scopes": ["crm.read"], "confirm": "never", "llm_alias": "biz_customer_find", "fallback_pack": "customers", "aliases": [], "wave": 2 },
+    { "name": "inventory.check", "kind": "read", "mode": "stock", "scopes": ["business.read"], "confirm": "never", "llm_alias": "biz_stock", "fallback_pack": "stock", "aliases": ["business.get_inventory_metrics"], "wave": 2 },
+    { "name": "crm.customer.update", "kind": "write", "mode": "customers", "scopes": ["crm.write"], "confirm": "never", "llm_alias": "crm_customer_update", "fallback_pack": null, "aliases": [], "wave": 3 },
+    { "name": "staff.notify", "kind": "write", "mode": "*business", "scopes": ["staff.notify"], "confirm": "never", "llm_alias": "staff_notify", "fallback_pack": null, "aliases": [], "wave": 3 },
+    { "name": "staff.assign", "kind": "write", "mode": "customers", "scopes": ["staff.write"], "confirm": "always", "llm_alias": "staff_assign", "fallback_pack": null, "aliases": [], "wave": 3 },
+    { "name": "order.create", "kind": "write", "mode": "orders", "scopes": ["order.write"], "confirm": "always", "llm_alias": "order_create", "fallback_pack": null, "aliases": [], "wave": 3 },
+    { "name": "inventory.reserve", "kind": "write", "mode": "orders", "scopes": ["inventory.write"], "confirm": "always", "llm_alias": "inventory_reserve", "fallback_pack": null, "aliases": [], "wave": 3 },
+    { "name": "inventory.release", "kind": "write", "mode": "orders", "scopes": ["inventory.write"], "confirm": "never", "llm_alias": "inventory_release", "fallback_pack": null, "aliases": [], "wave": 3 },
+    { "name": "booking.available_slots", "kind": "read", "mode": "booking", "scopes": ["booking.read"], "confirm": "never", "llm_alias": "booking_available_slots", "fallback_pack": null, "aliases": [], "wave": 4 },
+    { "name": "booking.create", "kind": "write", "mode": "booking", "scopes": ["booking.write"], "confirm": "always", "llm_alias": "booking_create", "fallback_pack": null, "aliases": [], "wave": 4 },
+    { "name": "booking.cancel", "kind": "write", "mode": "booking", "scopes": ["booking.write"], "confirm": "always", "llm_alias": "booking_cancel", "fallback_pack": null, "aliases": [], "wave": 4 },
+    { "name": "automation.run", "kind": "write", "mode": "automation", "scopes": ["automation.run"], "confirm": "always", "llm_alias": "automation_run", "fallback_pack": null, "aliases": [], "wave": 4 }
+  ],
+  "existing_tool_modes": {
+    "notes": "Modes for tools registered before 0.88 so a delegated (cell) principal can reach them by mode. Tools not listed here (document.*, page.*, content.*, brain.context.*) are not offered to delegated principals in 0.88.",
+    "brain.order.summary": "orders",
+    "business.get_customer_metrics": "sales",
+    "report.list_templates": "sales",
+    "report.build_dataset": "sales",
+    "pipeline.get_metrics": "sales",
+    "commerce.list_products": "stock",
+    "commerce.get_product": "stock",
+    "commerce.list_orders": "orders",
+    "commerce.get_order": "orders",
+    "commerce.list_customers": "customers",
+    "commerce.get_customer": "customers",
+    "brain.get_citation_pack": "notebook"
+  },
+  "resources": {
+    "wave": 5,
+    "scheme": "bizcity",
+    "templates": [
+      { "uriTemplate": "bizcity://guru/{ref}", "mimeType": "application/json", "mode": null },
+      { "uriTemplate": "bizcity://guru/{ref}/notebook/{id}", "mimeType": "text/markdown", "mode": null },
+      { "uriTemplate": "bizcity://notebook/{id}", "mimeType": "application/json", "mode": "notebook" },
+      { "uriTemplate": "bizcity://notebook/{id}/passage/{pid}", "mimeType": "text/markdown", "mode": "notebook" },
+      { "uriTemplate": "bizcity://customer/{contact_id}/context", "mimeType": "application/json", "mode": "customers" },
+      { "uriTemplate": "bizcity://product/catalog", "mimeType": "application/json", "mode": "stock" },
+      { "uriTemplate": "bizcity://product/{id}", "mimeType": "application/json", "mode": "stock" },
+      { "uriTemplate": "bizcity://pack/{kind}", "mimeType": "application/json", "mode": "*pack" }
+    ]
+  },
+  "bridge": {
+    "contract": "bizcity-mcp-bridge@1.0.0",
+    "cell_to_hub": "POST /wp-json/bizcity/v1/zalo-hub/mcp?key_id=&account_id=",
+    "hub_to_site": "POST /wp-json/bizcity-channel/v1/zalo-bridge/mcp?account_id=",
+    "timeouts_ms": { "read": 5000, "write": 8000 },
+    "principal_header": "X-BizCity-Principal",
+    "turn_header": "X-BizCity-Turn-Id",
+    "timeout_header": "X-BizCity-Timeout-Ms"
+  }
+}

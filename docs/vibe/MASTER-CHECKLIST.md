@@ -212,11 +212,32 @@ trạng thái chỉ cập nhật ở bảng này.
 | AGENT-9 | Có Diagnostics probe cho runtime behavior | TODO | — |
 | AGENT-10 | PHP changes có R-STAMP đúng format | TODO | — |
 
+### PHASE-0.55 Mabel Wheel Channel Bridge — documentation gate
+
+| ID | Điều kiện | Trạng thái | Bằng chứng |
+|---|---|---|---|
+| WHEEL-0 | Review/approve [PHASE-0.55-MABEL-WHEEL-CHANNEL-BRIDGE.md](../../core/channel-gateway/docs/PHASE-0.55-MABEL-WHEEL-CHANNEL-BRIDGE.md) trước khi code | DONE | User approval 2026-09-10; implementation gate opened |
+| WHEEL-1 | Chốt source event ID/correlation ổn định, concurrency-safe cho `wof_optin` và `wof_play` | IN PROGRESS | W1 emits owner-issued UUID in both Mabel hooks; legacy persistence/replay evidence pending |
+| WHEEL-2 | Chốt consent, field allowlist, PII redaction và live-hook/backfill boundary | TODO | Open decisions in PHASE-0.55 §9/§14 |
+| WHEEL-3 | Chốt `wof_optin` là contact-capture chính và `wof_play` là enrichment không tạo intake trùng | TODO | Proposed contract in PHASE-0.55 §4–§5; approval pending |
+| WHEEL-4 | Thiết kế adapter bridge qua Channel Gateway + canonical CRM owner, không direct SQL/CRM store riêng | IN PROGRESS | Adapter/listener/repository write gate implemented; focused diagnostics PASS 2/2 on blog 1532; PHP 7.4/E2E pending |
+| WHEEL-5 | Sau approval: implement source adapter, idempotent CRM intake, shared file log và Listener Bus trace, tương thích PHP 7.4 | IN PROGRESS | Source implementation + synthetic harness complete; PHP 8.1.34 lint PASS; PHP 7.4 WordPress runtime and production evidence pending |
+| WHEEL-6 | Sau implementation: Disk/Loader/Runtime DDV `core.channel.mabel_wheel_bridge` và E2E duplicate/no-identity/CRM-off/multi-wheel | IN PROGRESS | Diagnostics PASS 1/1 on blog 1532; disposable CRM fixture PASS for duplicate opt-in, missing identity, play-no-duplicate-intake and multi-wheel isolation; CRM-off pending; PHP 7.4 executable not found locally; production pending |
+| WHEEL-7 | Backfill `wof_optins` chỉ chạy khi có proposal riêng, preview bounded, checkpoint, approval và rollback | TODO | Explicitly out of scope in PHASE-0.55 §6.2/§12 |
+
 ---
 
 ## Changelog
 
 Ghi mỗi lần trạng thái 1 ID thay đổi. Mới nhất ở trên cùng.
+
+2026-09-10 — WHEEL-1/WHEEL-4/WHEEL-5 implementation slice: added owner-issued
+Mabel hook UUIDs, PHP 7.4-compatible CRM adapter/listener, `mabel_wheel`
+channel contracts and shared log bucket, plus canonical Repository gates for
+cross-channel contact upsert and resolved intake. PHP 8.1.34 lint PASS (9 PHP
+files), JSON parse PASS (4 contracts), and synthetic adapter normalization
+harness PASS. WHEEL-5 remains IN PROGRESS pending PHP 7.4 WordPress
+Loader/Runtime, duplicate/no-identity/CRM-off E2E and production evidence.
 
 ```text
 2026-08-29 — W5-1..W5-3 DONE: reference plugin có typed KG Source Adapter,
@@ -243,6 +264,29 @@ Ghi mỗi lần trạng thái 1 ID thay đổi. Mới nhất ở trên cùng.
 2026-08-29 — FS-1..FS-7, SSE-1..SSE-5, TAX-1..TAX-15 và AGENT-1..AGENT-10
   TODO: di chuyển 37 checkbox rải rác từ 02/04/06/ai.md về MASTER-CHECKLIST
   để mọi trạng thái được theo dõi tại một nơi duy nhất.
+2026-09-10 — WHEEL-0 DONE; WHEEL-1/WHEEL-4/WHEEL-5 IN PROGRESS:
+PHASE-0.55 Mabel Wheel Channel Bridge đã có source UUID, CRM adapter, hook
+listener, shared log bucket và canonical Repository write gates. PHP 8.1 lint
+PASS; PHP 7.4 WordPress Loader/Runtime, duplicate E2E, production evidence và
+backfill approval vẫn pending. PHP 8.x lint không đủ để đóng WHEEL-5.
+2026-09-10 — WHEEL-6 IN PROGRESS: canonical diagnostics rerun
+`core.channel.mabel_wheel_bridge,core.channel.manifest_compat` PASS 2/2 trên
+blog 1532 với `--skip-provision --skip-network`; read-only probe không thay
+thế CRM fixture/E2E hoặc Production evidence.
+2026-09-10 — WHEEL-6 runtime fixture: `core.channel.mabel_wheel_bridge` PASS
+1/1 trên blog 1532. Disposable transaction chứng minh contact=3, first intake
+message=1, duplicate delivery dedupe, conversation count=1 và `wof_play`
+reuse contact không tạo conversation thứ hai. PHP 8.1.34 evidence; PHP 7.4,
+CRM-off/no-identity/multi-wheel và Production evidence vẫn pending.
+2026-09-10 — WHEEL-6 rerun: `core.channel.mabel_wheel_bridge` PASS 1/1 trên
+blog 1532, PHP 8.1.34. Missing email/phone fail-closed PASS; duplicate opt-in,
+play enrichment and no-second-intake remain PASS. CRM-off, multi-wheel,
+PHP 7.4 and Production evidence remain pending.
+2026-09-10 — WHEEL-6 multi-wheel rerun: `core.channel.mabel_wheel_bridge`
+PASS 1/1 trên blog 1532, PHP 8.1.34. Same contact reused across wheel IDs,
+while inbox/contact-inbox remained isolated (`16/17`). PHP 7.4 discovery found
+no executable candidate locally, so PHP 7.4 validation is DEFERRED; CRM-off and
+Production evidence remain pending.
 2026-08-29 — W1-6 IN PROGRESS: thêm `BizCity_Typed_Tool_Adapter` vào
   `BizCity_Twin_Tool_Registry` để public `BizCity_Tool_Interface` đi qua
   registry runtime hiện hữu; thêm `TypedToolAdapterTest.php`. Chưa đánh dấu

@@ -17,7 +17,8 @@ The ecosystem that consumes the framework is not yet uniformly compliant. Active
 2. remaining direct provider calls and raw gateway-key reads outside the managed client boundary;
 3. many user-facing `wp_send_json_error()` responses without the four-field error envelope;
 4. plugin-owned DDL/self-healing installers that are not proven in this repository audit to be registered through the central schema/changelog pipeline;
-5. legacy cron and mutation paths without complete runtime evidence.
+5. legacy cron and mutation paths without complete runtime evidence;
+6. **(2026-09-23 addendum)** a Network Super Admin capability gap (`current_user_can('manage_options')` without the `BizCity_Network_Admin_Capability` fallback) reproduced across roughly 60 REST permission_callback and admin-menu sites in `core/` alone — see the dated addendum before "Required Definition of Done".
 
 This audit is an assessment artifact. It does not mark a plugin compliant merely because a rule is documented or a central helper exists.
 
@@ -208,7 +209,94 @@ For each active plugin that creates tables or exposes REST/AJAX:
 - Link each plugin's contract record to its manifest, bootstrap, REST routes, DDL/changelog, probes, and release status.
 - Re-run this audit after each migration wave and before release tags.
 
-## Required Definition of Done
+## Addendum (2026-09-23, Claude Sonnet 5): Network Super Admin capability gap — core-wide audit
+
+### Finding
+
+On this repository's mapped WordPress multisite network, a **Network Super Admin can legitimately have no local `administrator` role row** on the blog serving a given mapped domain. `current_user_can('manage_options')` checks capabilities in the *current blog's* context, so it can return `false` for a real Network Super Admin — denying them REST access (403) or hiding an entire admin menu item, even though they should have full access everywhere.
+
+This was first hit and fixed ad hoc at least three times (`class-channel-rest-api.php` HOTFIX-CHANNEL-SUPER-ADMIN 2026-09-21; `class-admin-menu-spa.php` HOTFIX 2026-09-19; and again in `core/knowledge/includes/class-character-quick-edit-rest.php::can_edit()` on 2026-09-23, which is what triggered this audit — a Super Admin got a blank "Chưa được cấp quyền" 403 page opening a Guru edit sheet). Each incident produced its own local patch. **The user asked for a core-wide sweep instead of another one-off fix.**
+
+### The fix contract (already exists — this audit is about *adoption*, not building new infrastructure)
+
+`core/runtime/class-network-admin-capability.php` — `BizCity_Network_Admin_Capability`:
+- `can_manage( int $user_id = 0 ): bool` — for any REST `permission_callback` (or AJAX capability check) that should behave like "site administrator."
+- `menu_cap(): string` — for the capability argument of `add_menu_page()`/`add_submenu_page()`/`add_management_page()` (WordPress checks this stored string *before any callback runs*, so a bare `'manage_options'` here hides the whole menu item — and the page behind it — for an affected Super Admin, with no error at all).
+
+Established idiom (every already-fixed site in this codebase uses this shape; new fixes from this audit copy it exactly):
+```php
+// REST permission_callback
+return class_exists( 'BizCity_Network_Admin_Capability' )
+	? BizCity_Network_Admin_Capability::can_manage()
+	: current_user_can( 'manage_options' );
+
+// add_menu_page() / add_submenu_page() / add_management_page() capability argument
+$capability = class_exists( 'BizCity_Network_Admin_Capability' )
+	? BizCity_Network_Admin_Capability::menu_cap()
+	: 'manage_options';
+```
+
+### Audit method
+
+Three parallel Explore passes (one per module grouping: `core/channel-gateway/` + `core/mcp/`; `core/knowledge/` + `core/knowledge/kg-hub/`; all remaining `core/` modules) manually read every `register_rest_route()` permission_callback and every `add_menu_page()`/`add_submenu_page()`/`add_management_page()` capability argument in `core/` — not a grep count. A companion mechanical script (`audit_super_admin_gap.php`, brace/paren-balanced text scanner) cross-checked the same tree independently and agreed closely with the manual passes. `plugins/`, `modules/`, `_library/`, `node_modules/`, `vendor/`, `tests/` were out of scope for this pass.
+
+Raw scope: 299 occurrences of `current_user_can('manage_options')` across 149 files in `core/`; 79 files register REST routes; 52 admin-menu registrations across 37 files.
+
+### Findings — confirmed vulnerable (bare `manage_options`, no Network Super Admin fallback)
+
+**By module (REST permission_callback fix points / menu-capability fix points):**
+
+| Module | REST | Menu | Notes |
+|---|---:|---:|---|
+| `core/channel-gateway/` | 18 | 4 groups (incl. one dynamic-default registry, `class-channel-menu-registry.php`) | Largest surface — the SPA a Super Admin actually lives in day to day |
+| `core/knowledge/` (+ `kg-hub/`) | 5 | 3 (+2 render-only pages reachable only by direct URL) | Includes `class-character-quick-edit-rest.php::can_edit()`, already fixed as the reference case |
+| `core/twinbrain/`, `core/automation/`, `core/membership/`, `core/persona/`, `core/scheduler/`, `core/memory/`, `core/cron/`, `core/diagnostics/`, `core/content-ops/`, `core/twin-core/`, `core/intent/`, `core/research/`, `core/helper-legacy/`, `core/bizcity-llm/`, `core/bizcity-market/`, `core/skills/` | 12 | 17 | Spread across many small admin/REST surfaces; `class-bizchat-menu.php` is a shared default consumed by multiple callers, `class-membership-admin-page.php` uses a `const CAP` (needs a method, not a ternary, to fix) |
+
+**Full file:line detail** (captured during this audit, each item independently verified by reading the actual method/call-site body, not just grepped):
+
+- `core/channel-gateway/`: `flows/class-flow-rest.php` (`can_read()`), `bootstrap.php` (2 inline closures), `class-channel-conversation-archive.php`, `class-cg-debug-logger.php` (5 inline closures), `class-notify-settings-rest.php`, `adapters/class-zalo-oa-hub-rest.php`, `adapters/class-zalo-oa-rest.php`, `adapters/class-zalo-oa-oauth-rest.php`, `adapters/class-facebook-page-rest.php`, `adapters/class-facebook-page-oauth-bridge.php` (2 inline closures), `cf7/class-cf7-rest.php`, `cf7/class-cf7-zns-templates-rest.php`, `class-email-smtp-rest.php`, `class-tracking-codes-rest.php`, `class-guru-turn-controller.php`, `broadcast/class-broadcast-rest.php`, `listener/class-listener-rest.php` (2 methods), `class-fb-chat-widget.php`; menu: `class-webhook-inspector.php` (2 registrations + 1 render gate), `flows/class-flow-admin-page.php` (2 registrations + 1 render gate), `cf7/class-cf7-biglead.php` (register/render/save gates), `class-channel-menu-registry.php` (shared default + 2 render gates).
+- `core/knowledge/`: `lib/class-context-api.php` (2 inline closures), `includes/class-api.php` (`check_api_permission()`), `includes/class-skill-rest-api.php` (`check_admin()`), `kg-hub/includes/class-kg-public-api.php` (`check_permission()`), `kg-hub/includes/class-kg-identity-backfill.php` (2 routes); menu: `kg-hub/includes/class-kg-settings-page.php`, `kg-hub/includes/class-kg-admin-menu.php` (`register()` only — `register_subpage()` is fine, takes `$capability` as a param), `kg-hub/includes/filestore/class-kg-filestore-diagnostic.php` (`add_management_page` + 3 in-handler gates); render-only: `kg-hub/includes/class-kg-bin-diagnostic.php`, `kg-hub/skeleton/class-kg-skeleton-diagnostic.php`.
+- Remaining modules: `twinbrain/includes/class-twinbrain-rest.php`, `twinbrain/includes/class-twinbrain-guru-web-flag.php` (2 inline closures), `content-ops/includes/class-rest-api.php` (`perm_manage()`), `cron/includes/class-cron-rest.php` (2 methods), `diagnostics/includes/class-diagnostics-rest.php` (shared closure/method, ~15 routes), `automation/includes/class-automation-rest.php` (3 of 4 permission methods — `workflow_read_allowed()` already ORs a broad `read` cap, tracked separately), `automation/includes/class-automation-calendar-rest.php`, `automation/includes/class-automation-config-packs-rest.php`, `membership/includes/class-membership-rest.php`, `persona/includes/class-guru-bridge-rest.php`, `scheduler/includes/class-scheduler-rest-api.php`, `memory/includes/class-memory-rest-api.php`; menu: `twinbrain/includes/class-twinbrain-admin-menu.php`, `content-ops/includes/class-admin-menu-spa.php`, `content-ops/smtp/admin.php`, `automation/includes/class-automation-admin-spa.php` (iframe branch is fine, non-iframe branch fixed), `cron/includes/class-cron-admin-page.php`, `diagnostics/includes/class-diagnostics-admin-page.php`, `twin-core/event-stream/class-twin-event-inspector-page.php`, `twin-core/includes/class-bizchat-menu.php` (shared default), `membership/includes/admin/class-membership-admin-page.php` (`const CAP`), `scheduler/includes/class-scheduler-automation-lab.php`, `memory/includes/class-admin-page.php`, `memory/includes/class-memory-unified-admin.php`, `skills/includes/class-admin-page.php`, `research/includes/class-research-admin.php`, `helper-legacy/legacy_class-adminmenu.php` (4 registrations), `intent/shell/class-intent-shell-admin.php` (2 registrations, behind a currently-commented-out `admin_menu` hook — fixed anyway so it's correct if re-enabled).
+
+### Remediation status
+
+Three fix batches were dispatched along the same module boundaries as the audit, each applying the established idiom above (minimal diff — an OR-branch or `&&`-branch that isn't `manage_options` is preserved untouched; `php -l` run after every edit). Per this audit's own honesty convention (§ "Document Consistency Findings"), a batch is only marked done here once independently reported back with per-file confirmation — "dispatched" is not "fixed."
+
+- **`core/knowledge/` (+ `kg-hub/`) batch: DONE, verified.** 12 fix points across 10 files (5 REST permission_callback, 3 menu-capability registrations, 3 in-handler gates on the same diagnostic page, 2 render-only gates) — every location matched the audit's line numbers exactly, every file passed `php -l`, nothing skipped. Files: `lib/class-context-api.php`, `includes/class-api.php`, `includes/class-skill-rest-api.php`, `kg-hub/includes/class-kg-public-api.php`, `kg-hub/includes/class-kg-identity-backfill.php`, `kg-hub/includes/class-kg-settings-page.php`, `kg-hub/includes/class-kg-admin-menu.php`, `kg-hub/includes/filestore/class-kg-filestore-diagnostic.php`, `kg-hub/includes/class-kg-bin-diagnostic.php`, `kg-hub/skeleton/class-kg-skeleton-diagnostic.php`.
+- **`core/channel-gateway/` (+ `core/mcp/`) batch: DONE, verified.** 21 files touched (`core/mcp/` needed nothing — its 3 listed files were already-fixed reference sites). 18 REST permission_callback fix points (including two non-trivial adaptations: `class-email-smtp-rest.php::require_manage_options()` returns a `WP_Error`, not a bare bool, so the fix threads through a local variable instead of the bare ternary; `class-channel-menu-registry.php`'s capability flows through a single shared default at `add_subpage()` that three call sites consume, so one fix at the source covers all three) + 4 menu/render-gate groups. Every location matched the audit's line numbers; `php -l` clean on all 21 files.
+- **Remaining-modules batch (twinbrain/automation/membership/persona/scheduler/memory/cron/diagnostics/content-ops/twin-core/intent/research/helper-legacy): DONE, verified.** 12 REST + 17 menu fix points across ~20 files, `php -l` clean throughout. Two notable judgment calls beyond the mechanical pattern: `class-diagnostics-rest.php` had one `$admin_only` closure shared across ~12 route registrations — fixed once at its definition instead of 12 separate edits; `class-membership-admin-page.php`'s `const CAP` is read at 5 call sites (menu registration *and* two action handlers *and* a guard method), so a menu-only fix would have left a Super Admin able to see the page but still get `wp_die()`'d on every action — converted to a `self::cap()` static method and updated all 5 sites, keeping the constant for back-compat. One item from the original audit turned out to be a false positive on independent re-verification: `research/includes/class-research-admin.php`'s menu already used `'read'`, not `'manage_options'` — correctly left untouched (`git diff` confirmed zero change). One item flagged for follow-up, not yet fixed: `intent/shell/class-intent-shell-admin.php` has a second `else`-branch pair of `add_management_page()` calls (~line 52/59) with the same hardcoded capability, outside the exact call list this batch was given.
+
+**All three batches complete. Totals: ~35 REST permission_callback fixes + ~24 menu/admin-page capability fixes across roughly 52 files in `core/`, all independently `php -l`-verified.** See "Explicitly NOT fixed" above for what remains (the ~40-site in-handler AJAX pocket in Knowledge admin, the `intent-shell-admin.php` else-branch just found, softer already-partially-mitigated gates, indirect/dynamic capability wiring, and the unaudited `plugins/`/`modules/` surface).
+
+### Follow-up closed (2026-09-23, same day)
+
+1. **`core/knowledge/includes/class-admin-menu.php` (38 sites) + `core/knowledge/bootstrap.php` (3 sites) — DONE, verified.** Rather than 41 individual edits, added one `private static function can_manage(): bool` helper to each class (`BizCity_Knowledge_Admin_Menu` and `BizCity_Knowledge` respectively, same guarded-ternary idiom), then mechanically replaced every `ajax_*` handler's bare `current_user_can('manage_options')` guard with `self::can_manage()` (2 exact string variants in class-admin-menu.php, confirmed via `grep -c` before and after: 38 replaced, the only 2 remaining occurrences are the helper's own fallback branch and a docblock line). `php -l` clean on both files; full suite still 297/297.
+2. **`core/intent/shell/class-intent-shell-admin.php`'s missed `else`-branch — DONE, verified.** The prior batch fixed the `if ($parent)` branch's two `add_submenu_page()` calls but missed the Tools-menu fallback `else` branch's two `add_management_page()` calls (same hardcoded `'manage_options'`). Hoisted the `$capability` computation above the `if/else` so both branches share the same guarded value. `php -l` clean.
+
+Full core-wide `php -l` re-run after these two fixes: **0 failures across all 1283 PHP files in `core/`.**
+
+### The actual root cause of the reported bug was found *after* all of the above — a scope gap in this audit itself
+
+After all `core/` fixes above, the user re-tested `admin.php?page=bizcity-knowledge-character-edit&id=19` and **still got the 403**. The real registration for that page (and, it turned out, for the vast majority of admin pages in the whole plugin) was never touched, because it lives in **`includes/class-admin-menu.php` at the plugin root** — `BizCity_Admin_Menu`, the single *centralized* menu registrar every `add_menu_page()`/`add_submenu_page()` in the product routes through (per its own docblock in `core/knowledge/includes/class-admin-menu.php`: "Menu registration moved to BizCity_Admin_Menu (centralized)"). This file is neither under `core/` nor under `plugins/` — it sits directly in the plugin root's `includes/`, a location this audit's scope statement never named and so silently excluded.
+
+Fixed the same day: added `BizCity_Admin_Menu::menu_cap()` / `::can_manage()` (same guarded idiom), mechanically replaced 56 bare `'manage_options'` menu-registration arguments (script-driven, skipping 3 commented-out lines and 3 already-special-cased lines — one already using the full guarded pattern, one delegating to `BizCity_CRM_Authority::menu_cap()`, one with an iframe/`'read'` branch that only needed its `else` fixed), plus 2 in-handler `current_user_can('manage_options')` render/POST gates (`render_control_panel_page()`, `handle_smtp_settings_post()`). `php -l` clean; full suite 297/297; this file alone registers pages for `bizcity-knowledge-character-edit`, webchat, LLM settings, Zalo Bot (dashboard/assign/logs/tests), Facebook Bot, and most of the rest of the product's admin surface — so this single miss likely explains most or all of the "still broken" reports across this whole investigation.
+
+**Lesson for the next pass:** "scope = `core/`" was too narrow a statement even for a `core/`-focused audit, because `core/` modules delegate their OWN menu registration to a plugin-root file outside the stated scope. Any future capability sweep should explicitly include `includes/` at the plugin root, not just `core/`, `plugins/`, and `modules/`.
+
+### Explicitly NOT fixed in this pass — tracked as follow-up debt, same bug family, different shape
+2. **Softer/already-partially-mitigated gates** — `automation/includes/class-automation-rest.php::workflow_read_allowed()` (also ORs `read`, which basically anyone logged in has), `content-ops/includes/class-rest-api.php::perm_read()` (ORs `edit_posts`) — real instances of the same bug, lower severity because a broader fallback capability already covers most cases.
+3. **Indirect/dynamic capability wiring that needs a design read, not a mechanical swap** — `channel-gateway/includes/class-cg-admin-router.php` (`bizcity_channel_admin` capability is auto-granted via a `user_has_cap` filter that itself checks blog-context `manage_options` — same root cause wearing a custom-capability costume), `channel-gateway/bootstrap.php`'s `BizCity_Twin_Plugin_SDK::register_ui()` capability fields, `channel-gateway/includes/class-admin-menu.php`'s `BizChat_Menu::add_submenu()` indirection — all need a read of code outside this audit's scanned file list to resolve correctly.
+4. **Business-logic capability checks, not access gates** — `context-bank/includes/class-context-bank-scope-resolver.php` (entitlement tier), `class-context-bank-crm-scope-adapter.php` (ownership-mismatch branch), `channel-gateway/includes/class-channel-role.php` (role auto-classification heuristic), `channel-gateway/includes/class-identity-hub.php::merge()` (no wired caller found in scanned scope). A Super Admin hitting these gets degraded behavior, not a hard deny — lower priority.
+5. **Likely-dead code** — `channel-gateway/includes/class-sprint-diagnostic.php` and `class-phase-037-diagnostic.php` have the vulnerable render-gate pattern but no menu registration was found wiring them up in the scanned scope; `intent/includes/infrastructure/class-intent-data-browser.php`'s menu registration is itself commented out.
+6. **A file-level scan gap this audit did NOT cover**: `plugins/`, `modules/`, `examples/`. The original 403 that triggered this audit was in `core/`, but the same bug shape almost certainly exists in plugin-level REST controllers and admin pages too (e.g. `plugins/bizcity-twin-crm/`). Out of scope for this pass; flagging so it isn't mistaken for "checked, clean."
+
+### Rule Compliance Matrix addition
+
+| Rule | Evidence | Finding | Status |
+|---|---|---|---|
+| `R-MSDB-CAP` *(new — Network Super Admin capability parity)* | `core/runtime/class-network-admin-capability.php` | Fix contract exists and is well-designed; adoption is the gap. Core-wide audit (this addendum) found ~35 REST + ~24 menu confirmed-vulnerable sites in `core/` alone, plus ~40 in-handler AJAX sites in one module and an unaudited `plugins/`/`modules/` surface. | PARTIAL — remediation batch dispatched 2026-09-23, verification pending |
+
+
 
 A plugin is **framework-compliant** only when all applicable rows are `PASS`:
 
